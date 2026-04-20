@@ -87,6 +87,61 @@ build:
 # Run the full pre-commit gauntlet.
 check: lint typecheck test
 
+# ---------- MongoDB setup ----------
+
+mongo_host     := env_var_or_default("MONGO_HOST", "localhost")
+mongo_port     := env_var_or_default("MONGO_PORT", "27017")
+mongo_username := env_var_or_default("MONGO_USERNAME", "")
+mongo_password := env_var_or_default("MONGO_PASSWORD", "")
+
+# Restore the ~32 NMDC data collections from a local dump directory.
+# Usage: just restore-dump DUMP_DIR=/tmp/YYYYMMDD_HHMMSS
+# For authenticated Mongo: just restore-dump DUMP_DIR=... MONGO_USERNAME=admin MONGO_PASSWORD=root MONGO_PORT=27018
+restore-dump DUMP_DIR:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    AUTH_ARGS=""
+    if [ -n "{{mongo_username}}" ]; then
+        AUTH_ARGS="--username {{mongo_username}} --password {{mongo_password}} --authenticationDatabase admin"
+    fi
+    mongorestore \
+        --host {{mongo_host}} --port {{mongo_port}} \
+        $AUTH_ARGS \
+        --gzip --drop --verbose --stopOnError \
+        --nsInclude "nmdc.biosample_set" \
+        --nsInclude "nmdc.calibration_set" \
+        --nsInclude "nmdc.collecting_biosamples_from_site_set" \
+        --nsInclude "nmdc.configuration_set" \
+        --nsInclude "nmdc.data_generation_set" \
+        --nsInclude "nmdc.data_object_set" \
+        --nsInclude "nmdc.field_research_site_set" \
+        --nsInclude "nmdc.functional_annotation_agg" \
+        --nsInclude "nmdc.functional_annotation_set" \
+        --nsInclude "nmdc.genome_feature_set" \
+        --nsInclude "nmdc.instrument_set" \
+        --nsInclude "nmdc.manifest_set" \
+        --nsInclude "nmdc.material_processing_set" \
+        --nsInclude "nmdc.material_sample_set" \
+        --nsInclude "nmdc.processed_sample_set" \
+        --nsInclude "nmdc.protocol_execution_set" \
+        --nsInclude "nmdc.storage_process_set" \
+        --nsInclude "nmdc.study_set" \
+        --nsInclude "nmdc.workflow_execution_set" \
+        --nsInclude "nmdc.ontology_class_set" \
+        --nsInclude "nmdc.ontology_relation_set" \
+        --nsInclude "nmdc.omics_processing_set" \
+        --nsInclude "nmdc.planned_process_set" \
+        --nsInclude "nmdc.chemical_entity_set" \
+        --nsInclude "nmdc.alldocs" \
+        --nsInclude "nmdc.fs.files" \
+        --nsInclude "nmdc.fs.chunks" \
+        --nsInclude "nmdc.objects" \
+        --nsInclude "nmdc.object_types" \
+        --nsInclude "nmdc.schema_classes" \
+        --nsInclude "nmdc.nmdc_schema_version" \
+        --nsInclude "nmdc.workflows" \
+        --dir "{{DUMP_DIR}}"
+
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
 # See scripts/README.md for details. These recipes shell out to the scripts in
 # scripts/python/ and depend on a local MongoDB containing the NMDC collections.
