@@ -8,8 +8,15 @@ the result.
 
 ## Prerequisites
 
-- [MongoDB Community Server](https://www.mongodb.com/try/download/community) running locally (default port 27017, no auth required)
-- [MongoDB Database Tools](https://www.mongodb.com/try/download/database-tools) (`mongorestore`, `mongosh`) on your PATH
+System dependencies (install via your OS package manager):
+
+- **MongoDB Community Server** running locally (default port 27017, no auth required) — [install](https://www.mongodb.com/try/download/community)
+- **MongoDB Database Tools** — provides `mongorestore` and `mongosh` — [install](https://www.mongodb.com/try/download/database-tools)
+- **`rsync`** and **`ssh`** — used by the fetch recipes (usually preinstalled on Linux/macOS)
+- **`just`** and **`uv`** — project tooling
+
+Accounts and credentials:
+
 - NERSC account with `sshproxy` configured (for downloading dumps)
 
 ---
@@ -38,11 +45,17 @@ just list-dumps 50     # last 50
 
 **Fetch a dump:**
 
+The preferred dump is read from `$NMDC_DUMP` in `local/.env` (default `latest`).
+Override on the command line to pick a different one without editing `.env`:
+
 ```bash
-just fetch-dump                            # latest, into ./local/dumps/
+just fetch-dump                            # uses $NMDC_DUMP (latest by default)
 just fetch-dump 20260420_060655            # specific timestamp
 just fetch-dump latest /path/to/dumps      # custom destination
 ```
+
+Pin `NMDC_DUMP=20260420_060655` in `local/.env` when you want reproducible runs
+against a specific snapshot.
 
 A full dump is ~3 GB; the `nmdc/` subdirectory is ~2.6 GB of that.
 
