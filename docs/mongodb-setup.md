@@ -43,16 +43,20 @@ rsync \
 ## Restoring Locally
 
 Use the `just restore-dump` recipe, which restores only the ~32 data collections
-and skips minting, runtime, and operational collections:
+and skips minting, runtime, and operational collections.
+
+All recipes read `MONGO_URI` from `local/.env` (default: `mongodb://localhost:27017/nmdc`).
+Override on the command line for any connection — including auth, non-standard ports, or remote hosts:
 
 ```bash
+# Local, no auth (default)
 just restore-dump DUMP_DIR=/tmp/YYYYMMDD_HHMMSS
-```
 
-To restore against an authenticated MongoDB (e.g. an nmdc-runtime dev instance on port 27018):
+# Authenticated (e.g. nmdc-runtime dev instance)
+MONGO_URI=mongodb://admin:root@localhost:27018/nmdc just restore-dump DUMP_DIR=/tmp/YYYYMMDD_HHMMSS
 
-```bash
-just restore-dump DUMP_DIR=/tmp/YYYYMMDD_HHMMSS MONGO_HOST=localhost MONGO_PORT=27018 MONGO_USERNAME=admin MONGO_PASSWORD=root
+# Remote host
+MONGO_URI=mongodb://user:pass@myhost:27017/nmdc just restore-dump DUMP_DIR=/tmp/YYYYMMDD_HHMMSS
 ```
 
 ### Why not all collections?

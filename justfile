@@ -87,26 +87,16 @@ build:
 # Run the full pre-commit gauntlet.
 check: lint typecheck test
 
-# ---------- MongoDB setup ----------
+# ---------- MongoDB ----------
 
-mongo_host     := env_var_or_default("MONGO_HOST", "localhost")
-mongo_port     := env_var_or_default("MONGO_PORT", "27017")
-mongo_username := env_var_or_default("MONGO_USERNAME", "")
-mongo_password := env_var_or_default("MONGO_PASSWORD", "")
+mongo_uri := env_var_or_default("MONGO_URI", "mongodb://localhost:27017/nmdc")
 
 # Restore the ~32 NMDC data collections from a local dump directory.
-# Usage: just restore-dump DUMP_DIR=/tmp/YYYYMMDD_HHMMSS
-# For authenticated Mongo: just restore-dump DUMP_DIR=... MONGO_USERNAME=admin MONGO_PASSWORD=root MONGO_PORT=27018
+# Uses MONGO_URI from local/.env (default: mongodb://localhost:27017/nmdc).
+# Override on the command line: MONGO_URI=mongodb://user:pass@host:port/nmdc just restore-dump DUMP_DIR=...
 restore-dump DUMP_DIR:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    AUTH_ARGS=""
-    if [ -n "{{mongo_username}}" ]; then
-        AUTH_ARGS="--username {{mongo_username}} --password {{mongo_password}} --authenticationDatabase admin"
-    fi
     mongorestore \
-        --host {{mongo_host}} --port {{mongo_port}} \
-        $AUTH_ARGS \
+        --uri "{{mongo_uri}}" \
         --gzip --drop --verbose --stopOnError \
         --nsInclude "nmdc.biosample_set" \
         --nsInclude "nmdc.calibration_set" \
@@ -145,8 +135,6 @@ restore-dump DUMP_DIR:
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
 # See scripts/README.md for details. These recipes shell out to the scripts in
 # scripts/python/ and depend on a local MongoDB containing the NMDC collections.
-
-mongo_uri                   := env_var_or_default("MONGO_URI", "mongodb://localhost:27017/nmdc")
 nmdc_export_dir             := env_var_or_default("NMDC_EXPORT_DIR", "./local/nmdc_export")
 nmdc_parquet_dir            := env_var_or_default("NMDC_PARQUET_DIR", nmdc_export_dir + "/parquet")
 nmdc_csv_dir                := env_var_or_default("NMDC_CSV_DIR", nmdc_export_dir + "/csv")
