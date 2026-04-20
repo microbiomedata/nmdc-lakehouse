@@ -16,27 +16,35 @@ the result.
 
 ## Getting a Production Dump
 
-Production dumps are generated nightly and synced to NERSC at:
+Production dumps are generated nightly and synced from GCS to NERSC at
+`/global/cfs/cdirs/m3408/nmdc-mongodumps/from_google_cloud/nmdc-runtime-prod-mongo-backup/<YYYYMMDD_HHMMSS>/`.
+The underlying GCS bucket is private (service-account-gated), so NERSC SSH is
+the only path for users.
 
-```
-/global/cfs/cdirs/m3408/nmdc-mongodumps/from_google_cloud/nmdc-runtime-prod-mongo-backup/YYYYMMDD_HHMMSS/
-```
+**First, refresh your NERSC SSH cert** (24-hour lifetime):
 
 ```bash
-# Refresh your NERSC SSH key (valid 24 hours)
-sshproxy
-
-# List available dumps
-ssh -i ~/.ssh/nersc mamillerpa@dtn01.nersc.gov \
-  ls /global/cfs/cdirs/m3408/nmdc-mongodumps/from_google_cloud/nmdc-runtime-prod-mongo-backup/
-
-# Download the dump you want
-rsync \
-  --archive --human-readable --no-perms --progress --verbose \
-  --rsh "ssh -q -i ~/.ssh/nersc" \
-  mamillerpa@dtn01.nersc.gov:/global/cfs/cdirs/m3408/nmdc-mongodumps/from_google_cloud/nmdc-runtime-prod-mongo-backup/YYYYMMDD_HHMMSS/ \
-  /tmp/YYYYMMDD_HHMMSS/
+sshproxy -u <your-nersc-username>
 ```
+
+Set `NERSC_USER` in `local/.env` if your NERSC username differs from `$USER`.
+
+**List available dumps** (newest last):
+
+```bash
+just list-dumps        # default: last 20
+just list-dumps 50     # last 50
+```
+
+**Fetch a dump:**
+
+```bash
+just fetch-dump                            # latest, into ./local/dumps/
+just fetch-dump 20260420_060655            # specific timestamp
+just fetch-dump latest /path/to/dumps      # custom destination
+```
+
+A full dump is ~3 GB; the `nmdc/` subdirectory is ~2.6 GB of that.
 
 ---
 

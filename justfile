@@ -91,6 +91,41 @@ check: lint typecheck test
 
 mongo_uri := env_var_or_default("MONGO_URI", "mongodb://localhost:27017/nmdc")
 
+# NERSC connection details for fetching production MongoDB dumps.
+# Refresh the SSH cert (24h lifetime) with: sshproxy -u <nersc-username>
+nersc_user      := env_var_or_default("NERSC_USER", env_var_or_default("USER", ""))
+nersc_key       := env_var_or_default("NERSC_SSH_KEY", "~/.ssh/nersc")
+nersc_host      := env_var_or_default("NERSC_HOST", "dtn01.nersc.gov")
+nersc_dump_root := "/global/cfs/cdirs/m3408/nmdc-mongodumps/from_google_cloud/nmdc-runtime-prod-mongo-backup"
+
+_ssh_opts := "-o IdentitiesOnly=yes -o ConnectTimeout=10 -i " + nersc_key
+
+# List the last N dump timestamps on NERSC (newest last).
+list-dumps N="20":
+    ssh {{_ssh_opts}} {{nersc_user}}@{{nersc_host}} \
+        "ls -1 {{nersc_dump_root}} | sort | tail -{{N}}"
+
+# Fetch a dump from NERSC to DEST/<timestamp>/. DUMP="latest" picks the newest.
+# Usage: just fetch-dump                            (latest, into ./local/dumps/)
+#        just fetch-dump 20260418_060011
+#        just fetch-dump latest /path/to/dumps
+fetch-dump DUMP="latest" DEST="./local/dumps":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{DUMP}}" = "latest" ]; then
+        DUMP=$(ssh {{_ssh_opts}} {{nersc_user}}@{{nersc_host}} \
+            "ls -1 {{nersc_dump_root}} | sort | tail -1")
+        echo "Latest dump on NERSC: $DUMP"
+    else
+        DUMP="{{DUMP}}"
+    fi
+    mkdir -p "{{DEST}}"
+    rsync --archive --human-readable --progress --partial \
+        --rsh "ssh {{_ssh_opts}}" \
+        {{nersc_user}}@{{nersc_host}}:{{nersc_dump_root}}/$DUMP/ \
+        "{{DEST}}/$DUMP/"
+    echo "Fetched to {{DEST}}/$DUMP/"
+
 # Restore the ~32 NMDC data collections from a local dump directory.
 # Uses MONGO_URI from local/.env (default: mongodb://localhost:27017/nmdc).
 # Override on the command line: MONGO_URI=mongodb://user:pass@host:port/nmdc just restore-dump DUMP_DIR=...
