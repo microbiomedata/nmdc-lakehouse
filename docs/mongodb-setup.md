@@ -22,13 +22,28 @@ the result.
 
 ### Accounts and credentials
 
-- NERSC account with `sshproxy` configured — required for downloading dumps
+You need a NERSC account with access to the `m3408` (NMDC) project to download dumps.
+
+1. **Request a NERSC account** at [iris.nersc.gov/add-user](https://iris.nersc.gov/add-user).
+   Pick "I need a new NERSC account", enter `m3408` as the project name, and wait
+   for PI approval. Account vetting can take up to a week.
+2. **Set up MFA** in [iris.nersc.gov](https://iris.nersc.gov) after your account is created.
+3. **Download `sshproxy`** from [portal.nersc.gov/cfs/mfa/](https://portal.nersc.gov/cfs/mfa/).
+   Linux (x86-64 and ARM), macOS, and Windows builds are available.
+4. **Refresh your SSH cert** with `sshproxy -u <your-nersc-username>` (24h lifetime).
+
+If you already have a NERSC account but not `m3408` membership, ask the NMDC PI
+or a PI proxy to add you via Iris.
 
 ### OS compatibility
 
-- **Linux**: fully supported. All dependencies available via standard package managers (`apt`, `dnf`, `pacman`, etc.).
-- **macOS**: fully supported. All dependencies available via [Homebrew](https://brew.sh/).
-- **Windows**: not directly tested. Recommended path is [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) with an Ubuntu distribution, which gives you the same experience as native Linux. Native Windows (PowerShell / cmd) is not supported — `rsync`, `just`, and the MongoDB server all have friction there.
+- **Linux** (Ubuntu 24.04, tested): works. All dependencies available via the
+  system package manager.
+- **macOS**: expected to work via [Homebrew](https://brew.sh/) (not tested by
+  this project's maintainers).
+- **Windows**: expected to work inside [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install)
+  with Ubuntu (not tested). Native Windows (PowerShell / cmd) is not expected
+  to work — `rsync`, `just`, and the MongoDB server all have friction there.
 
 ---
 
