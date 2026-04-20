@@ -24,6 +24,11 @@ env/
 .env.*
 !.env.example
 
+# Project-local workspace (dumps, exports, secrets). Keep only the committed
+# example file.
+/local/*
+!/local/.env.example
+
 # uv
 uv.lock.bak
 
