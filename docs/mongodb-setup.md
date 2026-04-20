@@ -8,16 +8,27 @@ the result.
 
 ## Prerequisites
 
-System dependencies (install via your OS package manager):
+### System dependencies
 
-- **MongoDB Community Server** running locally (default port 27017, no auth required) — [install](https://www.mongodb.com/try/download/community)
-- **MongoDB Database Tools** — provides `mongorestore` and `mongosh` — [install](https://www.mongodb.com/try/download/database-tools)
-- **`rsync`** and **`ssh`** — used by the fetch recipes (usually preinstalled on Linux/macOS)
-- **`just`** and **`uv`** — project tooling
+| Dependency | Purpose | Install |
+|---|---|---|
+| [MongoDB Community Server](https://www.mongodb.com/try/download/community) | local database (default port 27017, no auth) | OS installer or package manager |
+| [MongoDB Database Tools](https://www.mongodb.com/try/download/database-tools) | `mongorestore` (restore dumps) | OS installer or package manager |
+| [`mongosh`](https://www.mongodb.com/try/download/shell) | post-restore verification | OS installer or package manager |
+| `rsync` | resumable dump transfer from NERSC | package manager (usually preinstalled on Linux / macOS) |
+| `ssh` (OpenSSH client) | NERSC auth and transport | package manager (usually preinstalled on Linux / macOS) |
+| [`just`](https://github.com/casey/just#installation) | recipe runner | `cargo install just`, Homebrew, apt, or prebuilt binary |
+| [`uv`](https://docs.astral.sh/uv/getting-started/installation/) | Python/env manager | official installer |
 
-Accounts and credentials:
+### Accounts and credentials
 
-- NERSC account with `sshproxy` configured (for downloading dumps)
+- NERSC account with `sshproxy` configured — required for downloading dumps
+
+### OS compatibility
+
+- **Linux**: fully supported. All dependencies available via standard package managers (`apt`, `dnf`, `pacman`, etc.).
+- **macOS**: fully supported. All dependencies available via [Homebrew](https://brew.sh/).
+- **Windows**: not directly tested. Recommended path is [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) with an Ubuntu distribution, which gives you the same experience as native Linux. Native Windows (PowerShell / cmd) is not supported — `rsync`, `just`, and the MongoDB server all have friction there.
 
 ---
 
