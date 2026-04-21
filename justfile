@@ -104,10 +104,10 @@ nmdc_dump := env_var_or_default("NMDC_DUMP", "latest")
 
 _ssh_opts := "-o IdentitiesOnly=yes -o ConnectTimeout=10 -i " + nersc_key
 
-# List the last N dump timestamps on NERSC (newest last).
+# List the last N dump timestamps on NERSC with total size (newest last).
 list-dumps N="20":
     ssh {{_ssh_opts}} {{nersc_user}}@{{nersc_host}} \
-        "ls -1 {{nersc_dump_root}} | sort | tail -{{N}}"
+        "cd {{nersc_dump_root}} && ls -1 | sort | tail -{{N}} | while read d; do du -sh \"\$d\"; done"
 
 # Fetch a dump from NERSC to DEST/<timestamp>/.
 # Defaults to $NMDC_DUMP (or "latest"); override with the first positional arg.
