@@ -89,13 +89,22 @@ check: lint typecheck test
 
 # ---------- MongoDB ----------
 
-# MONGO_URI is the single source of truth for the connection (host,
-# credentials, and target database name as the path component). MONGO_DBNAME
-# is only used to build the default URI; once MONGO_URI is set, recipes parse
-# the target db back out of its path so the two can never drift. The env var
-# name matches nmdc-runtime's convention.
-mongo_dbname := env_var_or_default("MONGO_DBNAME", "nmdc_lakehouse_prep")
-mongo_uri    := env_var_or_default("MONGO_URI", "mongodb://localhost:27017/" + mongo_dbname)
+# Primary inputs are decomposed, matching nmdc-runtime's env-var naming
+# (MONGO_HOST, MONGO_PORT, MONGO_DBNAME, MONGO_USERNAME, MONGO_PASSWORD).
+# Recipes assemble a mongodb:// URI from these; MONGO_URI can override the
+# assembled URI entirely for cases like Atlas, SSH tunnels, or a different db.
+# At restore time the target db is parsed back out of whatever URI is used,
+# so MONGO_URI and MONGO_DBNAME can't silently diverge.
+mongo_host     := env_var_or_default("MONGO_HOST", "localhost")
+mongo_port     := env_var_or_default("MONGO_PORT", "27017")
+mongo_dbname   := env_var_or_default("MONGO_DBNAME", "nmdc_lakehouse_prep")
+mongo_username := env_var_or_default("MONGO_USERNAME", "")
+mongo_password := env_var_or_default("MONGO_PASSWORD", "")
+
+_mongo_auth := if mongo_password != "" { mongo_username + ":" + mongo_password + "@" } else { "" }
+_mongo_uri_assembled := "mongodb://" + _mongo_auth + mongo_host + ":" + mongo_port + "/" + mongo_dbname
+
+mongo_uri := env_var_or_default("MONGO_URI", _mongo_uri_assembled)
 
 # NERSC connection details for fetching MongoDB dumps.
 # sshproxy writes a short-lived SSH key (~/.ssh/nersc) and certificate
@@ -154,10 +163,13 @@ fetch-dump DUMP=nmdc_dump DEST="./local/dumps":
 clean-dumps:
     rm -rf ./local/dumps/*
 
-# Drop the entire database named in MONGO_URI's path. Useful before
-# restoring into a known-clean state. Destructive — drops everything.
+# Drop the entire target database. Destructive — drops everything.
 drop-db:
     mongosh "{{mongo_uri}}" --quiet --eval 'print("Dropping " + db.getName()); db.dropDatabase()'
+
+# Print a per-collection doc-count summary for the target database.
+verify-restore:
+    mongosh "{{mongo_uri}}" --quiet --eval 'const colls = db.getCollectionNames().sort(); print(db.getName() + " has " + colls.length + " collections:"); colls.forEach(c => print("  " + c + ": " + db.getCollection(c).estimatedDocumentCount()))'
 
 # List the nmdc-schema-specified collections (Database slots).
 list-schema-collections:

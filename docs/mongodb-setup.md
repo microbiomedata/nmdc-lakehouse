@@ -83,7 +83,7 @@ Two mirrors are available, matching NMDC's bucket naming:
 | `prod` (default) | `nmdc-runtime-prod-mongo-backup/` |
 | `test` | `nmdc-runtime-test-mongo-backup/` |
 
-Set `NMDC_MONGO_SOURCE=test` in `local/.env` (or on the command line) to use the
+Set `NMDC_MONGO_SOURCE=test` in `.env` (or on the command line) to use the
 test mirror.
 
 **First, refresh your NERSC SSH cert** (24-hour lifetime):
@@ -92,7 +92,7 @@ test mirror.
 sshproxy -u <your-nersc-username>
 ```
 
-Set `NERSC_USER` in `local/.env` if your NERSC username differs from `$USER`.
+Set `NERSC_USER` in `.env` if your NERSC username differs from `$USER`.
 
 **List available dumps** (newest last):
 
@@ -104,7 +104,7 @@ NMDC_MONGO_SOURCE=test just list-dumps   # from the test mirror
 
 **Fetch a dump:**
 
-The preferred dump is read from `$NMDC_DUMP` in `local/.env` (default `latest`).
+The preferred dump is read from `$NMDC_DUMP` in `.env` (default `latest`).
 Override on the command line to pick a different one without editing `.env`:
 
 ```bash
@@ -113,7 +113,7 @@ just fetch-dump 20260420_060655            # specific timestamp
 just fetch-dump latest /path/to/dumps      # custom destination
 ```
 
-Pin `NMDC_DUMP=20260420_060655` in `local/.env` when you want reproducible runs
+Pin `NMDC_DUMP=20260420_060655` in `.env` when you want reproducible runs
 against a specific snapshot.
 
 `just fetch-dump` transfers only the files for the 17 schema-specified
@@ -130,21 +130,24 @@ loads whatever's on disk — no `--nsInclude` filtering, no chance of loading
 collections you didn't ask for.
 
 Collections are renamed on restore from the dump's internal `nmdc.*` namespace
-to the db named in `MONGO_URI`'s path (default `nmdc_lakehouse_prep`). Any
-existing `nmdc` database (e.g. from nmdc-runtime dev work) stays untouched.
+to the target database (default `nmdc_lakehouse_prep`). Any existing `nmdc`
+database (e.g. from nmdc-runtime dev work) stays untouched.
 
-`MONGO_URI` is the single source of truth for the connection. `MONGO_DBNAME`
-is only used to build the default URI; at restore time the target db is parsed
-back out of `MONGO_URI`, so the two can't drift. Override either:
+The connection is driven by decomposed env vars (`MONGO_HOST`, `MONGO_PORT`,
+`MONGO_DBNAME`, `MONGO_USERNAME`, `MONGO_PASSWORD`) which recipes assemble
+into a `mongodb://` URI. Set `MONGO_URI` directly to override the whole URI
+(useful for Atlas, SSH tunnels, or any non-local host). The target db name is
+always parsed back out of whatever URI the recipe builds, so the decomposed
+and URI-level inputs can't drift apart.
 
 ```bash
-# Default: restore into nmdc_lakehouse_prep
+# Default: restore into nmdc_lakehouse_prep at mongodb://localhost:27017/
 just restore-dump ./local/dumps/YYYYMMDD_HHMMSS
 
-# Use a different db name
+# Restore into a different local db
 MONGO_DBNAME=nmdc_scratch just restore-dump ./local/dumps/YYYYMMDD_HHMMSS
 
-# Authenticated or remote host — the db in the URI path is the target
+# Remote or authenticated host — the db in the URI path is the target
 MONGO_URI=mongodb://admin:root@localhost:27018/nmdc_scratch \
     just restore-dump ./local/dumps/YYYYMMDD_HHMMSS
 ```
@@ -168,16 +171,13 @@ A full dump contains ~132 collections. The skipped categories:
 
 ## Verifying the Restore
 
-`$MONGO_URI` already points at the target db, so `mongosh` can connect
-directly:
-
 ```bash
-mongosh "$MONGO_URI" --eval '
-  const colls = db.getCollectionNames().sort();
-  print(db.getName() + " has " + colls.length + " collections:");
-  colls.forEach(c => print("  " + c + ": " + db.getCollection(c).estimatedDocumentCount()));
-'
+just verify-restore
 ```
+
+Prints a per-collection document-count summary for the target database. Reads
+the same env vars as the other recipes, so it works whether you configured
+MongoDB via the decomposed fields or via `MONGO_URI`.
 
 ---
 
@@ -214,10 +214,10 @@ uv sync
 
 `pymongo` and `linkml-runtime` are declared in `pyproject.toml` and installed by `uv sync`.
 
-Configure the connection in `local/.env` (copy from `local/.env.example`):
+Configure the connection in `.env` (copy from `.env.example`):
 
 ```bash
-cp local/.env.example local/.env
+cp .env.example .env
 ```
 
 The default connection is `mongodb://localhost:27017/nmdc_lakehouse_prep`
