@@ -44,7 +44,11 @@ def class_def_to_arrow_schema(class_def: ClassDefinition) -> pa.Schema:
         A ``pa.Schema`` with one field per attribute, in alphabetical order.
     """
     fields = []
-    for name in sorted(class_def.attributes):
+    # id first, then alphabetical — makes row browsers easier to use.
+    names = sorted(class_def.attributes)
+    if "id" in names:
+        names = ["id"] + [n for n in names if n != "id"]
+    for name in names:
         slot = class_def.attributes[name]
         range_name = slot.range or "string"
         arrow_type = _RANGE_TO_ARROW.get(range_name, pa.string())
@@ -86,7 +90,7 @@ class ParquetSink:
         self.batch_size = batch_size
         self._arrow_schema: pa.Schema | None = class_def_to_arrow_schema(class_def) if class_def is not None else None
 
-    def write(self, rows: Iterable[dict], *, table: str) -> int:
+    def write(self, rows: Iterable[dict], *, table: str, drop_empty_cols: bool = False) -> int:
         """Write ``rows`` to ``{root}/{table}.parquet``.
 
         Streams rows through in batches; the file is finalised and closed when
@@ -96,6 +100,10 @@ class ParquetSink:
             rows: Iterable of flat dicts (as produced by
                 :func:`nmdc_lakehouse.transforms.flatteners.flatten_record`).
             table: Logical table name; becomes the parquet filename stem.
+            drop_empty_cols: When True, rewrite the file after writing to
+                remove columns that are entirely null. Useful for wide sparse
+                schemas (e.g. BiosampleFlat with 1,398 columns) where most
+                columns are empty for a given dataset.
 
         Returns:
             Total number of rows written.
@@ -115,6 +123,12 @@ class ParquetSink:
         finally:
             if writer is not None:
                 writer.close()
+
+        if drop_empty_cols and out_path.exists():
+            tbl = pq.read_table(out_path)
+            non_empty = [name for name in tbl.schema.names if tbl.column(name).null_count < len(tbl)]
+            if len(non_empty) < len(tbl.schema.names):
+                pq.write_table(tbl.select(non_empty), out_path)
 
         return total
 
@@ -140,11 +154,13 @@ class ParquetSink:
 
 
 def _coerce(value: object, arrow_type: pa.DataType) -> object:
-    """Coerce a value to be compatible with ``arrow_type``.
+    """Coerce a Python value to be compatible with ``arrow_type``.
 
-    Real NMDC data sometimes has numeric values in slots declared as string
-    (e.g. ``depth_has_raw_value = 0.5``). Stringify non-string values for
-    string columns; leave everything else to Arrow's native coercion.
+    Arrow is strict about types; real NMDC data sometimes has numeric values
+    in slots declared as string (e.g. ``depth_has_raw_value = 0.5``). When
+    the value is incompatible with a string column, stringify it. For numeric
+    columns, leave None as-is and let Arrow handle coercion from compatible
+    Python scalars.
     """
     if value is None:
         return None
