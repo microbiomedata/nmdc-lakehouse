@@ -159,6 +159,11 @@ export-nmdc-parquet: export-nmdc-duckdb
     uv run python scripts/python/export_duckdb_to_parquet.py "{{nmdc_duckdb_file}}" --output-dir "{{nmdc_parquet_dir}}"
 
 # Full pipeline: flatten in Mongo -> DuckDB -> Parquet -> biosample CSV.
+# Generate the flattened LinkML schema (one class per Database slot).
+# Output: ./local/nmdc_schema_flattened.yaml
+generate-flat-schema:
+    @uv run python scripts/python/generate_flattened_schema.py
+
 flatten-and-export-nmdc: flatten-nmdc export-nmdc-parquet export-flattened-biosample-csv
     @echo ""
     @echo "=== NMDC flatten and export complete ==="
