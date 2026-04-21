@@ -115,8 +115,10 @@ list-dumps N="20":
     ssh {{_ssh_opts}} {{nersc_user}}@{{nersc_host}} \
         "cd {{nersc_dump_root}} && ls -1 | sort | tail -{{N}} | while read d; do du -sh \"\$d\"; done"
 
-# Fetch a dump from NERSC to DEST/<timestamp>/.
-# Defaults to $NMDC_DUMP (or "latest"); override with the first positional arg.
+# Fetch only the schema-specified collections from a NERSC dump to
+# DEST/<timestamp>/. Defaults to $NMDC_DUMP (or "latest"); override with the
+# first positional arg. Uses rsync --files-from so only the ~34 files for the
+# 17 schema collections are transferred (~1.2 GB of a ~3 GB dump).
 # Usage: just fetch-dump                            (uses $NMDC_DUMP / latest)
 #        just fetch-dump 20260418_060011
 #        just fetch-dump latest /path/to/dumps
@@ -130,11 +132,13 @@ fetch-dump DUMP=nmdc_dump DEST="./local/dumps":
     else
         DUMP="{{DUMP}}"
     fi
-    mkdir -p "{{DEST}}"
-    rsync --archive --human-readable --progress --partial \
-        --rsh "ssh {{_ssh_opts}}" \
-        {{nersc_user}}@{{nersc_host}}:{{nersc_dump_root}}/$DUMP/ \
-        "{{DEST}}/$DUMP/"
+    mkdir -p "{{DEST}}/$DUMP"
+    uv run python scripts/python/fetch_manifest.py | \
+        rsync --archive --human-readable --progress --partial \
+            --rsh "ssh {{_ssh_opts}}" \
+            --files-from=- \
+            {{nersc_user}}@{{nersc_host}}:{{nersc_dump_root}}/$DUMP/ \
+            "{{DEST}}/$DUMP/"
     echo "Fetched to {{DEST}}/$DUMP/"
 
 # Trash every fetched dump under ./local/dumps/ (gio trash is recoverable).
@@ -162,28 +166,23 @@ drop-db:
 list-schema-collections:
     @uv run python scripts/python/schema_collections.py
 
-# Restore the NMDC data collections from a local dump directory.
-# The collection list is derived from the installed nmdc-schema package
-# (Database class slots) — GridFS, alldocs, minter, runtime, etc. are skipped.
-# The dump's internal namespace is "nmdc.*"; collections are renamed to
-# $MONGO_DB.* during restore (default MONGO_DB=nmdc_lakehouse_prep).
-# Usage: just restore-dump ./local/dumps/YYYYMMDD_HHMMSS/nmdc
-# Override with: MONGO_DB=foo just restore-dump ./local/dumps/.../nmdc
+# Restore a local dump directory (the parent, containing an nmdc/ subdir).
+# When paired with `just fetch-dump`, only schema-specified collections are
+# present on disk so mongorestore naturally loads just those. Files from the
+# dump's internal "nmdc" namespace are renamed to $MONGO_DB during restore
+# (default MONGO_DB=nmdc_lakehouse_prep).
+# Usage: just restore-dump ./local/dumps/YYYYMMDD_HHMMSS
+# Override with: MONGO_DB=foo just restore-dump ./local/dumps/YYYYMMDD_HHMMSS
 restore-dump DUMP_DIR:
     #!/usr/bin/env bash
     set -euo pipefail
-    ns_args=()
-    while IFS= read -r coll; do
-        ns_args+=(--nsInclude "nmdc.$coll")
-    done < <(uv run python scripts/python/schema_collections.py)
     # Strip the db path from MONGO_URI — mongorestore treats it as an implicit
-    # --db which overrides --nsInclude filtering. The target db is set by --nsTo.
+    # --db that confuses namespace handling. The target db is set by --nsTo.
     server_uri="$(python3 -c 'import sys, urllib.parse as u; p=u.urlparse(sys.argv[1]); print(u.urlunparse(p._replace(path=""))) ' "{{mongo_uri}}")"
     mongorestore \
         --uri "$server_uri" \
         --gzip --drop --verbose --stopOnError \
         --nsFrom "nmdc.*" --nsTo "{{mongo_db}}.*" \
-        "${ns_args[@]}" \
         --dir "{{DUMP_DIR}}"
 
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
