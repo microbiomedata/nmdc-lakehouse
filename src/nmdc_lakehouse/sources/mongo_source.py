@@ -35,21 +35,25 @@ class MongoSource:
     def iter_records(
         self,
         collection: str,
-        where: Optional[dict[str, Any]] = None,
         page_size: int = 1000,
+        **filters: Any,
     ) -> Iterator[dict]:
         """Yield records from ``collection``.
 
         Delegates to ``Collection.find_iter``, which paginates via
         limit/offset so full collections do not load into memory.
+        Matches the ``Source`` protocol's ``iter_records(collection, **filters)``
+        signature; ``filters`` are passed to ``find_iter`` as a ``where`` dict.
 
         Args:
             collection: Name of the MongoDB collection (e.g. ``biosample_set``).
-            where: Optional filter dict passed through to ``find_iter``.
             page_size: Records per page fetched from the backend.
+            **filters: Keyword filters passed as ``where`` to ``find_iter``
+                (e.g. ``id="nmdc:bsm-11-..."``).
 
         Yields:
-            One dict per record, with MongoDB ``_id`` fields stripped.
+            One dict per record. Linkml-store's ``find_iter`` strips MongoDB's
+            ``_id`` automatically.
         """
         coll = self.db.get_collection(collection, create_if_not_exists=False)
-        yield from coll.find_iter(where=where or {}, page_size=page_size)
+        yield from coll.find_iter(where=dict(filters), page_size=page_size)

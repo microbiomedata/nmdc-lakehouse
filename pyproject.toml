@@ -79,13 +79,6 @@ packages = ["src/nmdc_lakehouse"]
 # Dev dependencies managed via the `dev` extra above so `uv sync --extra dev`
 # is sufficient. Keep this block for future uv-specific settings.
 
-# PyPI linkml 1.10.0 has a version-coordination bug (its __init__ references
-# Format.JSON but linkml-runtime 1.10.0's Format enum doesn't include it).
-# Pin both to the monorepo main branch until a fixed release lands on PyPI.
-[tool.uv.sources]
-linkml = { git = "https://github.com/linkml/linkml.git", subdirectory = "packages/linkml", rev = "main" }
-linkml-runtime = { git = "https://github.com/linkml/linkml.git", subdirectory = "packages/linkml_runtime", rev = "main" }
-
 # ---------------------------------------------------------------------------
 # Tooling
 # ---------------------------------------------------------------------------
