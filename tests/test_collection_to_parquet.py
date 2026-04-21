@@ -53,3 +53,19 @@ def test_all_collections_job_instance():
     """registry.get('all-collections') returns an AllCollectionsToParquetJob."""
     job = get("all-collections")
     assert isinstance(job, AllCollectionsToParquetJob)
+
+
+def test_all_collections_skip_via_env(monkeypatch):
+    """LAKEHOUSE_SKIP_COLLECTIONS populates the skip set."""
+    monkeypatch.setenv("LAKEHOUSE_SKIP_COLLECTIONS", "functional_annotation_agg, study_set")
+    job = get("all-collections")
+    assert isinstance(job, AllCollectionsToParquetJob)
+    assert job.skip == {"functional_annotation_agg", "study_set"}
+
+
+def test_all_collections_skip_default_empty(monkeypatch):
+    """Unset LAKEHOUSE_SKIP_COLLECTIONS yields an empty skip set."""
+    monkeypatch.delenv("LAKEHOUSE_SKIP_COLLECTIONS", raising=False)
+    job = get("all-collections")
+    assert isinstance(job, AllCollectionsToParquetJob)
+    assert job.skip == set()

@@ -96,16 +96,25 @@ class AllCollectionsToParquetJob(Job):
 
     name = "all-collections"
 
-    def __init__(self, mongo_uri: str, out_root: Path) -> None:
-        """Construct the job."""
+    def __init__(self, mongo_uri: str, out_root: Path, skip: set[str] | None = None) -> None:
+        """Construct the job.
+
+        Args:
+            mongo_uri: MongoDB connection URI including database name.
+            out_root: Directory to write Parquet files into.
+            skip: Collection names to exclude from the run.
+        """
         self.mongo_uri = mongo_uri
         self.out_root = out_root
+        self.skip = skip or set()
 
     def run(self, *, dry_run: bool = False) -> JobResult:
         """Run each collection job in sequence and aggregate results."""
         total_read = total_written = 0
         tables: list[str] = []
         for name, root_class in _db_collection_map().items():
+            if name in self.skip:
+                continue
             job = CollectionToParquetJob(name, root_class, self.mongo_uri, self.out_root)
             result = job.run(dry_run=dry_run)
             total_read += result.rows_read
@@ -137,4 +146,6 @@ for _collection, _root_class in _db_collection_map().items():
 def _all_factory():
     mongo_uri = os.environ.get("MONGO_URI", "mongodb://localhost:27017/nmdc_lakehouse_prep")
     out_root = Path(os.environ.get("LAKEHOUSE_ROOT", "./local/parquet"))
-    return AllCollectionsToParquetJob(mongo_uri, out_root)
+    skip_raw = os.environ.get("LAKEHOUSE_SKIP_COLLECTIONS", "")
+    skip = {s.strip() for s in skip_raw.split(",") if s.strip()}
+    return AllCollectionsToParquetJob(mongo_uri, out_root, skip=skip)

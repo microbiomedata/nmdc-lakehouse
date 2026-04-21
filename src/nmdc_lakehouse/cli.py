@@ -40,12 +40,20 @@ def list_jobs() -> None:
     envvar="LAKEHOUSE_DROP_EMPTY_COLS",
     help="Remove all-null columns from the output Parquet file.",
 )
-def run_job(job_name: str, dry_run: bool, drop_empty_cols: bool) -> None:
+@click.option(
+    "--skip",
+    "skip",
+    multiple=True,
+    help="Collection to skip (repeatable). Only honored by 'all-collections'.",
+)
+def run_job(job_name: str, dry_run: bool, drop_empty_cols: bool, skip: tuple[str, ...]) -> None:
     """Run a named ETL job from the registry."""
     import os
 
     if drop_empty_cols:
         os.environ["LAKEHOUSE_DROP_EMPTY_COLS"] = "true"
+    if skip:
+        os.environ["LAKEHOUSE_SKIP_COLLECTIONS"] = ",".join(skip)
     job = get(job_name)
     result = job.run(dry_run=dry_run)
     click.echo(f"rows_read={result.rows_read}")
