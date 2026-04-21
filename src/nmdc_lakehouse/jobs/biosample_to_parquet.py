@@ -102,7 +102,7 @@ class BiosampleToParquetJob(Job):
             )
 
         drop_empty = os.environ.get("LAKEHOUSE_DROP_EMPTY_COLS", "").lower() in ("1", "true", "yes")
-        rows_written: int = sink.write(flat_rows, table=_COLLECTION, drop_empty_cols=drop_empty) or 0
+        rows_written: int = sink.write(flat_rows, table=_COLLECTION, drop_empty_cols=drop_empty) or 0  # type: ignore
         return JobResult(
             job_name=self.name,
             rows_read=rows_written,
