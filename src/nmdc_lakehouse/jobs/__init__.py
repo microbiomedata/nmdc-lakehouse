@@ -10,3 +10,4 @@ Importing this package registers all built-in jobs.
 """
 
 from nmdc_lakehouse.jobs import biosample_to_parquet as _  # noqa: F401
+from nmdc_lakehouse.jobs import collection_to_parquet as __  # noqa: F401
