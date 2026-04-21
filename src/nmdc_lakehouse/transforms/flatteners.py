@@ -203,7 +203,7 @@ def _stringify(value: Any) -> str:
 class SchemaDrivenFlattener:
     """Flatten NMDC objects using a LinkML SchemaView.
 
-    Matches Sierra's ``Transform`` protocol: ``apply(records)`` yields flat
+    Matches the ``Transform`` protocol: ``apply(records)`` yields flat
     dicts. Constructed once per root class; per-record slot induction cost
     is paid inside ``flatten_record`` on each call (not amortised).
     """
