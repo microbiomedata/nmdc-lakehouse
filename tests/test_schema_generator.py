@@ -1,8 +1,7 @@
 """Tests for the schema_generator.
 
-Uses the same hand-crafted LinkML schema shape as test_flatteners — keeps
-the generator and the runtime flattener honest about producing the same
-column names.
+Uses a hand-crafted LinkML schema that exercises the shapes needed to
+validate generated flattened column names and related slot behavior.
 """
 
 from __future__ import annotations

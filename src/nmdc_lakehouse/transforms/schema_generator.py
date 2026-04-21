@@ -1,10 +1,10 @@
 """Generate a LinkML schema describing the flat shape produced by the flattener.
 
 Given a source LinkML schema (e.g. nmdc-schema) and a root class, emit a new
-:class:`ClassDefinition` whose attributes mirror what
-:func:`nmdc_lakehouse.transforms.flatteners.flatten_record` produces. The
-decision tree matches the flattener's one-to-one, so the generated schema
-and the runtime output can't drift.
+:class:`ClassDefinition` whose attributes mirror the flat output produced by
+:meth:`nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener.apply`. The
+decision tree matches the runtime flattener one-to-one, so the generated
+schema and the runtime output can't drift.
 
 For polymorphic base classes (where records may declare a concrete subclass
 via ``type``), the generated flat class contains the **union of all subclass
@@ -26,10 +26,11 @@ from linkml_runtime.linkml_model import (
 
 
 def _is_inlined(slot: SlotDefinition, schema_view: SchemaView) -> bool:
-    """LinkML's identifier-based default for whether a class-range slot is inlined.
+    """Apply LinkML's identifier-based default for class-range slot inlining.
 
-    Mirrors the helper in flatteners.py so the generator and the runtime
-    flattener agree on which slots get expanded vs. treated as references.
+    Keeps schema generation aligned with the runtime flattener's
+    expanded-vs-reference decision. Both modules implement the same rule
+    independently rather than sharing a helper.
     """
     if slot.inlined is not None:
         return slot.inlined
