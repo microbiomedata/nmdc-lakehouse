@@ -204,8 +204,8 @@ class SchemaDrivenFlattener:
     """Flatten NMDC objects using a LinkML SchemaView.
 
     Matches Sierra's ``Transform`` protocol: ``apply(records)`` yields flat
-    dicts. Constructed once per root class so the SchemaView lookup cost
-    (slot induction) is paid up front and amortised across records.
+    dicts. Constructed once per root class; per-record slot induction cost
+    is paid inside ``flatten_record`` on each call (not amortised).
     """
 
     def __init__(self, schema_view: SchemaView, root_class: str) -> None:
