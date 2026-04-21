@@ -61,7 +61,7 @@ def flatten_record(record: dict, schema_view: SchemaView, root_class: str) -> di
         range_class = _range_class(slot, schema_view)
 
         # Class ranges that aren't inlined are references — treat as scalars.
-        if range_class is not None and not slot.inlined:
+        if range_class is not None and not _is_inlined(slot, schema_view):
             if slot.multivalued:
                 if not isinstance(value, list):
                     value = [value]
@@ -99,6 +99,25 @@ def _range_class(slot: SlotDefinition, schema_view: SchemaView) -> ClassDefiniti
         return None
     cls = schema_view.get_class(slot.range)
     return cls
+
+
+def _is_inlined(slot: SlotDefinition, schema_view: SchemaView) -> bool:
+    """Decide whether a class-range slot should be treated as inlined.
+
+    LinkML's default when ``slot.inlined`` is unset: ranges with an
+    ``identifier`` slot are referenced by ID (not inlined); ranges without
+    one are embedded (inlined). Most NMDC ``*Value`` classes (PersonValue,
+    QuantityValue, ControlledIdentifiedTermValue, GeolocationValue, ...)
+    have no identifier and are therefore inlined by this default, even
+    though the materialized schema leaves ``slot.inlined`` as ``None``.
+    """
+    if slot.inlined is not None:
+        return slot.inlined
+    if not slot.range:
+        return False
+    if schema_view.get_class(slot.range) is None:
+        return False
+    return schema_view.get_identifier_slot(slot.range) is None
 
 
 def _dispatch_class(record: dict, declared_class: str, schema_view: SchemaView) -> str:

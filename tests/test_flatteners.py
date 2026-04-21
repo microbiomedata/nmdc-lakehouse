@@ -28,6 +28,7 @@ classes:
   Term:
     attributes:
       id:
+        identifier: true
         required: true
       name:
 
