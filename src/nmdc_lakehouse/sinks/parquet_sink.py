@@ -129,12 +129,28 @@ class ParquetSink:
             columns: dict[str, list] = {name: [] for name in self._arrow_schema.names}
             for row in rows:
                 for name in self._arrow_schema.names:
-                    columns[name].append(row.get(name))
+                    val = row.get(name)
+                    field_type = self._arrow_schema.field(name).type
+                    columns[name].append(_coerce(val, field_type))
             arrays = [
                 pa.array(columns[name], type=self._arrow_schema.field(name).type) for name in self._arrow_schema.names
             ]
             return pa.table(dict(zip(self._arrow_schema.names, arrays, strict=True)), schema=self._arrow_schema)
         return pa.Table.from_pylist(rows)
+
+
+def _coerce(value: object, arrow_type: pa.DataType) -> object:
+    """Coerce a value to be compatible with ``arrow_type``.
+
+    Real NMDC data sometimes has numeric values in slots declared as string
+    (e.g. ``depth_has_raw_value = 0.5``). Stringify non-string values for
+    string columns; leave everything else to Arrow's native coercion.
+    """
+    if value is None:
+        return None
+    if arrow_type == pa.string() and not isinstance(value, str):
+        return str(value)
+    return value
 
 
 def _batched(iterable: Iterable[dict], size: int) -> Iterator[list[dict]]:
