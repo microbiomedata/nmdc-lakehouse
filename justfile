@@ -145,33 +145,9 @@ fetch-dump DUMP=nmdc_dump DEST="./local/dumps":
             "{{DEST}}/$DUMP/"
     echo "Fetched to {{DEST}}/$DUMP/"
 
-# Trash every fetched dump under ./local/dumps/ (recoverable from the Trash).
-# Uses `gio trash` (Linux) or `trash` (macOS via `brew install trash`). Errors
-# with an install hint if neither is available rather than falling back to rm.
+# Delete every fetched dump under ./local/dumps/.
 clean-dumps:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if command -v gio >/dev/null 2>&1; then
-        trash_cmd="gio trash"
-    elif command -v trash >/dev/null 2>&1; then
-        trash_cmd="trash"
-    else
-        echo "Neither 'gio' nor 'trash' is installed." >&2
-        echo "  Linux:  sudo apt install libglib2.0-bin   (provides gio)" >&2
-        echo "  macOS:  brew install trash" >&2
-        echo "Refusing to fall back to rm (not recoverable)." >&2
-        exit 1
-    fi
-    shopt -s nullglob
-    dumps=(./local/dumps/*)
-    if [ ${#dumps[@]} -eq 0 ]; then
-        echo "No dumps to clean."
-        exit 0
-    fi
-    for d in "${dumps[@]}"; do
-        echo "Trashing $d ($trash_cmd)"
-        $trash_cmd "$d"
-    done
+    rm -rf ./local/dumps/*
 
 # Drop the entire database named in MONGO_URI's path. Useful before
 # restoring into a known-clean state. Destructive — drops everything.
