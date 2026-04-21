@@ -92,18 +92,21 @@ A full dump is ~3 GB; the `nmdc/` subdirectory is ~2.6 GB of that.
 Use the `just restore-dump` recipe, which restores only the ~32 data collections
 and skips minting, runtime, and operational collections.
 
-All recipes read `MONGO_URI` from `local/.env` (default: `mongodb://localhost:27017/nmdc`).
-Override on the command line for any connection — including auth, non-standard ports, or remote hosts:
+Collections are renamed on restore from the dump's internal `nmdc.*` namespace
+to `$MONGO_DB.*` (default `nmdc_lakehouse_prep`). Any existing `nmdc` database
+(e.g. from nmdc-runtime dev work) stays untouched. Override either
+`MONGO_DB` or `MONGO_URI` on the command line:
 
 ```bash
-# Local, no auth (default)
-just restore-dump DUMP_DIR=/tmp/YYYYMMDD_HHMMSS
+# Local, no auth (default: restore into nmdc_lakehouse_prep)
+just restore-dump DUMP_DIR=./local/dumps/YYYYMMDD_HHMMSS/nmdc
 
-# Authenticated (e.g. nmdc-runtime dev instance)
-MONGO_URI=mongodb://admin:root@localhost:27018/nmdc just restore-dump DUMP_DIR=/tmp/YYYYMMDD_HHMMSS
+# Use a different db name
+MONGO_DB=nmdc_scratch just restore-dump DUMP_DIR=./local/dumps/YYYYMMDD_HHMMSS/nmdc
 
-# Remote host
-MONGO_URI=mongodb://user:pass@myhost:27017/nmdc just restore-dump DUMP_DIR=/tmp/YYYYMMDD_HHMMSS
+# Authenticated or remote host
+MONGO_URI=mongodb://admin:root@localhost:27018/nmdc_lakehouse_prep \
+    just restore-dump DUMP_DIR=./local/dumps/YYYYMMDD_HHMMSS/nmdc
 ```
 
 ### Why not all collections?
@@ -123,7 +126,7 @@ A full dump contains ~132 collections. The skipped categories:
 ## Verifying the Restore
 
 ```bash
-mongosh nmdc --eval '
+mongosh nmdc_lakehouse_prep --eval '
   const colls = db.getCollectionNames().sort();
   print("Collections: " + colls.length);
   colls.forEach(c => print("  " + c + ": " + db.getCollection(c).estimatedDocumentCount()));
@@ -146,4 +149,4 @@ Configure the connection in `local/.env` (copy from `local/.env.example`):
 cp local/.env.example local/.env
 ```
 
-The default `MONGO_URI=mongodb://localhost:27017/nmdc` works for a standard local install.
+The default connection is `mongodb://localhost:27017/nmdc_lakehouse_prep` (derived from `MONGO_DB`). Works out of the box for a standard local install.

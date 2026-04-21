@@ -89,7 +89,11 @@ check: lint typecheck test
 
 # ---------- MongoDB ----------
 
-mongo_uri := env_var_or_default("MONGO_URI", "mongodb://localhost:27017/nmdc")
+# Target database for restore, drop, and subsequent queries. The dump's
+# internal namespace is "nmdc" but we restore into a dedicated db so an
+# existing "nmdc" database (from nmdc-runtime or earlier work) stays untouched.
+mongo_db  := env_var_or_default("MONGO_DB", "nmdc_lakehouse_prep")
+mongo_uri := env_var_or_default("MONGO_URI", "mongodb://localhost:27017/" + mongo_db)
 
 # NERSC connection details for fetching production MongoDB dumps.
 # Refresh the SSH cert (24h lifetime) with: sshproxy -u <nersc-username>
@@ -148,19 +152,21 @@ clean-dumps:
         gio trash "$d"
     done
 
-# Drop the entire target database (everything at MONGO_URI), not just the
+# Drop the entire target database (the db in MONGO_URI), not just the
 # nsInclude list. Useful before restoring into a known-clean state.
 # Destructive: drops flattened_* collections and anything else there.
-drop-nmdc-db:
+drop-db:
     mongosh "{{mongo_uri}}" --quiet --eval 'print("Dropping " + db.getName()); db.dropDatabase()'
 
 # Restore the ~32 NMDC data collections from a local dump directory.
-# Uses MONGO_URI from local/.env (default: mongodb://localhost:27017/nmdc).
-# Override on the command line: MONGO_URI=mongodb://user:pass@host:port/nmdc just restore-dump DUMP_DIR=...
+# The dump's internal namespace is "nmdc.*"; collections are renamed to
+# $MONGO_DB.* during restore (default MONGO_DB=nmdc_lakehouse_prep).
+# Override with: MONGO_DB=foo or MONGO_URI=mongodb://user:pass@host/foo
 restore-dump DUMP_DIR:
     mongorestore \
         --uri "{{mongo_uri}}" \
         --gzip --drop --verbose --stopOnError \
+        --nsFrom "nmdc.*" --nsTo "{{mongo_db}}.*" \
         --nsInclude "nmdc.biosample_set" \
         --nsInclude "nmdc.calibration_set" \
         --nsInclude "nmdc.collecting_biosamples_from_site_set" \
