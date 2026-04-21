@@ -13,7 +13,11 @@ keywords = ["nmdc", "linkml", "linkml-store", "etl", "lakehouse", "parquet", "ic
 dependencies = [
     # Core LinkML data access
     "linkml-store>=0.2.10",
-    "linkml-runtime>=1.7",
+    # PyPI linkml 1.10.0 is broken (its __init__ references Format.JSON but
+    # linkml-runtime 1.10.0's Format enum no longer exposes it). 1.11.0rc1
+    # fixes this; the pre-release marker in the spec allows it to resolve.
+    "linkml>=1.11.0rc1",
+    "linkml-runtime>=1.11.0rc1",
     "nmdc-schema",
 
     # Database drivers (linkml-store routes through these)
