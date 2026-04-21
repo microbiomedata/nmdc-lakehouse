@@ -34,8 +34,18 @@ def list_jobs() -> None:
 @cli.command("run-job")
 @click.argument("job_name")
 @click.option("--dry-run", is_flag=True, help="Plan the job but do not write output.")
-def run_job(job_name: str, dry_run: bool) -> None:
+@click.option(
+    "--drop-empty-cols",
+    is_flag=True,
+    envvar="LAKEHOUSE_DROP_EMPTY_COLS",
+    help="Remove all-null columns from the output Parquet file.",
+)
+def run_job(job_name: str, dry_run: bool, drop_empty_cols: bool) -> None:
     """Run a named ETL job from the registry."""
+    import os
+
+    if drop_empty_cols:
+        os.environ["LAKEHOUSE_DROP_EMPTY_COLS"] = "true"
     job = get(job_name)
     result = job.run(dry_run=dry_run)
     click.echo(f"rows_read={result.rows_read}")

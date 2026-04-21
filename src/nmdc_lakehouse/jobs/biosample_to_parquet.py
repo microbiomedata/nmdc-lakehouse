@@ -84,10 +84,10 @@ class BiosampleToParquetJob(Job):
         # Stubs on main have different signatures; real implementations are in
         # PRs #4 (MongoSource), #7 (ParquetSink), #13 (SchemaDrivenFlattener).
         # mypy: type-ignore below silences stub mismatches until dependencies are merged.
-        source = MongoSource(self.mongo_uri)  # type: ignore
+        source = MongoSource(self.mongo_uri)
         flattener = SchemaDrivenFlattener(schema_view, _ROOT_CLASS)
         flat_class = flatten_class_def(schema_view, _ROOT_CLASS)
-        sink = ParquetSink(self.out_root, class_def=flat_class)  # type: ignore
+        sink = ParquetSink(self.out_root, class_def=flat_class)
 
         records = source.iter_records(_COLLECTION)
         flat_rows = flattener.apply(records)
@@ -101,7 +101,8 @@ class BiosampleToParquetJob(Job):
                 tables_written=(),
             )
 
-        rows_written: int = sink.write(flat_rows, table=_COLLECTION) or 0  # type: ignore
+        drop_empty = os.environ.get("LAKEHOUSE_DROP_EMPTY_COLS", "").lower() in ("1", "true", "yes")
+        rows_written: int = sink.write(flat_rows, table=_COLLECTION, drop_empty_cols=drop_empty) or 0
         return JobResult(
             job_name=self.name,
             rows_read=rows_written,
