@@ -11,6 +11,9 @@ import logging
 
 import click
 
+import nmdc_lakehouse.jobs  # noqa: F401 — registers all built-in jobs
+from nmdc_lakehouse.jobs.registry import get, list_names
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -24,8 +27,8 @@ def cli() -> None:
 @cli.command("list-jobs")
 def list_jobs() -> None:
     """List all ETL jobs registered with the runner."""
-    # Implementation will enumerate nmdc_lakehouse.jobs.registry once jobs exist.
-    raise NotImplementedError
+    for name in list_names():
+        click.echo(name)
 
 
 @cli.command("run-job")
@@ -33,7 +36,12 @@ def list_jobs() -> None:
 @click.option("--dry-run", is_flag=True, help="Plan the job but do not write output.")
 def run_job(job_name: str, dry_run: bool) -> None:
     """Run a named ETL job from the registry."""
-    raise NotImplementedError
+    job = get(job_name)
+    result = job.run(dry_run=dry_run)
+    click.echo(f"rows_read={result.rows_read}")
+    click.echo(f"rows_written={result.rows_written}")
+    if result.tables_written:
+        click.echo(f"tables={', '.join(result.tables_written)}")
 
 
 if __name__ == "__main__":
