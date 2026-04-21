@@ -158,48 +158,29 @@ clean-dumps:
 drop-db:
     mongosh "{{mongo_uri}}" --quiet --eval 'print("Dropping " + db.getName()); db.dropDatabase()'
 
-# Restore the ~32 NMDC data collections from a local dump directory.
+# List the nmdc-schema-specified collections (Database slots).
+list-schema-collections:
+    @uv run python scripts/python/schema_collections.py
+
+# Restore the NMDC data collections from a local dump directory.
+# The collection list is derived from the installed nmdc-schema package
+# (Database class slots) — GridFS, alldocs, minter, runtime, etc. are skipped.
 # The dump's internal namespace is "nmdc.*"; collections are renamed to
 # $MONGO_DB.* during restore (default MONGO_DB=nmdc_lakehouse_prep).
 # Usage: just restore-dump ./local/dumps/YYYYMMDD_HHMMSS/nmdc
 # Override with: MONGO_DB=foo just restore-dump ./local/dumps/.../nmdc
 restore-dump DUMP_DIR:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ns_args=()
+    while IFS= read -r coll; do
+        ns_args+=(--nsInclude "nmdc.$coll")
+    done < <(uv run python scripts/python/schema_collections.py)
     mongorestore \
         --uri "{{mongo_uri}}" \
         --gzip --drop --verbose --stopOnError \
         --nsFrom "nmdc.*" --nsTo "{{mongo_db}}.*" \
-        --nsInclude "nmdc.biosample_set" \
-        --nsInclude "nmdc.calibration_set" \
-        --nsInclude "nmdc.collecting_biosamples_from_site_set" \
-        --nsInclude "nmdc.configuration_set" \
-        --nsInclude "nmdc.data_generation_set" \
-        --nsInclude "nmdc.data_object_set" \
-        --nsInclude "nmdc.field_research_site_set" \
-        --nsInclude "nmdc.functional_annotation_agg" \
-        --nsInclude "nmdc.functional_annotation_set" \
-        --nsInclude "nmdc.genome_feature_set" \
-        --nsInclude "nmdc.instrument_set" \
-        --nsInclude "nmdc.manifest_set" \
-        --nsInclude "nmdc.material_processing_set" \
-        --nsInclude "nmdc.material_sample_set" \
-        --nsInclude "nmdc.processed_sample_set" \
-        --nsInclude "nmdc.protocol_execution_set" \
-        --nsInclude "nmdc.storage_process_set" \
-        --nsInclude "nmdc.study_set" \
-        --nsInclude "nmdc.workflow_execution_set" \
-        --nsInclude "nmdc.ontology_class_set" \
-        --nsInclude "nmdc.ontology_relation_set" \
-        --nsInclude "nmdc.omics_processing_set" \
-        --nsInclude "nmdc.planned_process_set" \
-        --nsInclude "nmdc.chemical_entity_set" \
-        --nsInclude "nmdc.alldocs" \
-        --nsInclude "nmdc.fs.files" \
-        --nsInclude "nmdc.fs.chunks" \
-        --nsInclude "nmdc.objects" \
-        --nsInclude "nmdc.object_types" \
-        --nsInclude "nmdc.schema_classes" \
-        --nsInclude "nmdc.nmdc_schema_version" \
-        --nsInclude "nmdc.workflows" \
+        "${ns_args[@]}" \
         --dir "{{DUMP_DIR}}"
 
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
