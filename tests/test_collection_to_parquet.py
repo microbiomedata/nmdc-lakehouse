@@ -15,11 +15,23 @@ def test_all_17_collections_registered():
     names = list_names()
     # The 17 schema-specified collections
     expected = {
-        "biosample_set", "calibration_set", "collecting_biosamples_from_site_set",
-        "configuration_set", "data_generation_set", "data_object_set",
-        "field_research_site_set", "functional_annotation_agg", "functional_annotation_set",
-        "genome_feature_set", "instrument_set", "manifest_set", "material_processing_set",
-        "processed_sample_set", "storage_process_set", "study_set", "workflow_execution_set",
+        "biosample_set",
+        "calibration_set",
+        "collecting_biosamples_from_site_set",
+        "configuration_set",
+        "data_generation_set",
+        "data_object_set",
+        "field_research_site_set",
+        "functional_annotation_agg",
+        "functional_annotation_set",
+        "genome_feature_set",
+        "instrument_set",
+        "manifest_set",
+        "material_processing_set",
+        "processed_sample_set",
+        "storage_process_set",
+        "study_set",
+        "workflow_execution_set",
     }
     assert expected.issubset(set(names))
 
