@@ -176,8 +176,11 @@ restore-dump DUMP_DIR:
     while IFS= read -r coll; do
         ns_args+=(--nsInclude "nmdc.$coll")
     done < <(uv run python scripts/python/schema_collections.py)
+    # Strip the db path from MONGO_URI — mongorestore treats it as an implicit
+    # --db which overrides --nsInclude filtering. The target db is set by --nsTo.
+    server_uri="$(python3 -c 'import sys, urllib.parse as u; p=u.urlparse(sys.argv[1]); print(u.urlunparse(p._replace(path=""))) ' "{{mongo_uri}}")"
     mongorestore \
-        --uri "{{mongo_uri}}" \
+        --uri "$server_uri" \
         --gzip --drop --verbose --stopOnError \
         --nsFrom "nmdc.*" --nsTo "{{mongo_db}}.*" \
         "${ns_args[@]}" \
