@@ -68,7 +68,7 @@ Database connection settings are read from the environment. At minimum:
 # Mongo (via linkml-store)
 export MONGO_HOST=localhost
 export MONGO_PORT=27017
-export MONGO_DB=nmdc
+export MONGO_DBNAME=nmdc
 export MONGO_USERNAME=admin
 export MONGO_PASSWORD=...
 

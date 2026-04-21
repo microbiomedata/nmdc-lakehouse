@@ -1,8 +1,16 @@
 # MongoDB Setup
 
-The ETL pipeline reads directly from a local MongoDB instance populated with a
-production dump. This document covers getting a dump, restoring it, and verifying
-the result.
+**What this document covers:** how to populate a local MongoDB with NMDC data
+so the `nmdc-lakehouse` ETL can read from it. The ETL (in progress) flattens
+NMDC's nested metadata into tabular rows and writes them out as Parquet /
+Iceberg for the BERDL lakehouses.
+
+The ETL reads from any MongoDB whose contents come from a `mongodump` of
+NMDC's schema-conformant data. The recipes in this repo default to fetching
+**nightly `mongodump` archives of the NMDC production MongoDB** from NERSC
+(where they are mirrored from a private GCS bucket), but the restore step
+works with any compatible dump — test-server dumps or hand-made test dumps
+included.
 
 ---
 
@@ -10,15 +18,17 @@ the result.
 
 ### System dependencies
 
-| Dependency | Purpose | Install |
-|---|---|---|
-| [MongoDB Community Server](https://www.mongodb.com/try/download/community) | local database (default port 27017, no auth) | OS installer or package manager |
-| [MongoDB Database Tools](https://www.mongodb.com/try/download/database-tools) | `mongorestore` (restore dumps) | OS installer or package manager |
-| [`mongosh`](https://www.mongodb.com/try/download/shell) | post-restore verification | OS installer or package manager |
-| `rsync` | resumable dump transfer from NERSC | package manager (usually preinstalled on Linux / macOS) |
-| `ssh` (OpenSSH client) | NERSC auth and transport | package manager (usually preinstalled on Linux / macOS) |
-| [`just`](https://github.com/casey/just#installation) | recipe runner | `cargo install just`, Homebrew, apt, or prebuilt binary |
-| [`uv`](https://docs.astral.sh/uv/getting-started/installation/) | Python/env manager | official installer |
+| Dependency | Purpose |
+|---|---|
+| [MongoDB server](https://www.mongodb.com/docs/manual/installation/) | local database that the ETL reads and writes |
+| [MongoDB Database Tools](https://www.mongodb.com/docs/database-tools/) | `mongorestore` — restore dumps |
+| [`mongosh`](https://www.mongodb.com/docs/mongodb-shell/) | post-restore verification |
+| [`rsync`](https://rsync.samba.org/) | resumable dump transfer from NERSC |
+| [`ssh`](https://www.openssh.com/) | NERSC auth and transport |
+| [`just`](https://just.systems/) | recipe runner |
+| [`uv`](https://docs.astral.sh/uv/) | Python / environment manager |
+
+Each dependency name links to its upstream install instructions.
 
 ### Accounts and credentials
 
@@ -47,12 +57,23 @@ or a PI proxy to add you via Iris.
 
 ---
 
-## Getting a Production Dump
+## Getting a Dump from NERSC
 
-Production dumps are generated nightly and synced from GCS to NERSC at
-`/global/cfs/cdirs/m3408/nmdc-mongodumps/from_google_cloud/nmdc-runtime-prod-mongo-backup/<YYYYMMDD_HHMMSS>/`.
-The underlying GCS bucket is private (service-account-gated), so NERSC SSH is
-the only path for users.
+`mongodump` archives of the NMDC MongoDB are generated nightly and synced
+from GCS to NERSC under
+`/global/cfs/cdirs/m3408/nmdc-mongodumps/from_google_cloud/`. The underlying
+GCS buckets are private (service-account-gated), so NERSC SSH is the only
+path for users.
+
+Two mirrors are available, matching NMDC's bucket naming:
+
+| `NMDC_MONGO_SOURCE` | Mirror path |
+|---|---|
+| `prod` (default) | `nmdc-runtime-prod-mongo-backup/` |
+| `test` | `nmdc-runtime-test-mongo-backup/` |
+
+Set `NMDC_MONGO_SOURCE=test` in `local/.env` (or on the command line) to use the
+test mirror.
 
 **First, refresh your NERSC SSH cert** (24-hour lifetime):
 
@@ -67,6 +88,7 @@ Set `NERSC_USER` in `local/.env` if your NERSC username differs from `$USER`.
 ```bash
 just list-dumps        # default: last 20
 just list-dumps 50     # last 50
+NMDC_MONGO_SOURCE=test just list-dumps   # from the test mirror
 ```
 
 **Fetch a dump:**
@@ -100,8 +122,8 @@ Collections are renamed on restore from the dump's internal `nmdc.*` namespace
 to the db named in `MONGO_URI`'s path (default `nmdc_lakehouse_prep`). Any
 existing `nmdc` database (e.g. from nmdc-runtime dev work) stays untouched.
 
-`MONGO_URI` is the single source of truth for the connection. `MONGO_DB` is
-only used to build the default URI; at restore time the target db is parsed
+`MONGO_URI` is the single source of truth for the connection. `MONGO_DBNAME`
+is only used to build the default URI; at restore time the target db is parsed
 back out of `MONGO_URI`, so the two can't drift. Override either:
 
 ```bash
@@ -109,7 +131,7 @@ back out of `MONGO_URI`, so the two can't drift. Override either:
 just restore-dump ./local/dumps/YYYYMMDD_HHMMSS
 
 # Use a different db name
-MONGO_DB=nmdc_scratch just restore-dump ./local/dumps/YYYYMMDD_HHMMSS
+MONGO_DBNAME=nmdc_scratch just restore-dump ./local/dumps/YYYYMMDD_HHMMSS
 
 # Authenticated or remote host — the db in the URI path is the target
 MONGO_URI=mongodb://admin:root@localhost:27018/nmdc_scratch \
@@ -148,6 +170,31 @@ mongosh "$MONGO_URI" --eval '
 
 ---
 
+## Relation to nmdc-runtime
+
+[`nmdc-runtime`](https://github.com/microbiomedata/nmdc-runtime) runs its own
+local MongoDB via Docker Compose (typically on port 27018 with `admin`/`root`
+auth, database named `nmdc`). That stack is independent from this project:
+
+- This repo defaults to a **different database name** (`nmdc_lakehouse_prep`)
+  on the **default port** (27017, no auth) so it won't collide with an
+  nmdc-runtime dev stack running on the same machine.
+- If you'd rather point this project at an existing nmdc-runtime dev stack,
+  override `MONGO_URI`:
+  ```bash
+  MONGO_URI=mongodb://admin:root@localhost:27018/nmdc_lakehouse_prep
+  ```
+  (The database name in the URI path is what `restore-dump` will write into;
+  it does not have to be `nmdc`.)
+
+Env-var naming follows `nmdc-runtime`'s convention (`MONGO_DBNAME`,
+`MONGO_USERNAME`, `MONGO_PASSWORD`, `MONGO_HOST`). The only difference is that
+this project prefers the monolithic `MONGO_URI` for pymongo / mongorestore
+compatibility; `MONGO_DBNAME` is exposed as a convenience for building the
+default URI.
+
+---
+
 ## Python / uv Setup
 
 ```bash
@@ -162,4 +209,5 @@ Configure the connection in `local/.env` (copy from `local/.env.example`):
 cp local/.env.example local/.env
 ```
 
-The default connection is `mongodb://localhost:27017/nmdc_lakehouse_prep` (derived from `MONGO_DB`). Works out of the box for a standard local install.
+The default connection is `mongodb://localhost:27017/nmdc_lakehouse_prep`
+(derived from `MONGO_DBNAME`). Works out of the box for a standard local install.

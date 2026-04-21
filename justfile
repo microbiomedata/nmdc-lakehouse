@@ -89,22 +89,24 @@ check: lint typecheck test
 
 # ---------- MongoDB ----------
 
-# MONGO_URI is the single source of truth for the connection string (host,
-# credentials, and target database name as the path component). MONGO_DB
-# exists only to make the default URI easy to construct; if you override
-# MONGO_URI, recipes parse the target db back out of the URI so the two can
-# never drift. The dump's internal namespace is "nmdc" but we restore into a
-# dedicated db so an existing "nmdc" database (from nmdc-runtime or earlier
-# work) stays untouched.
-mongo_db  := env_var_or_default("MONGO_DB", "nmdc_lakehouse_prep")
-mongo_uri := env_var_or_default("MONGO_URI", "mongodb://localhost:27017/" + mongo_db)
+# MONGO_URI is the single source of truth for the connection (host,
+# credentials, and target database name as the path component). MONGO_DBNAME
+# is only used to build the default URI; once MONGO_URI is set, recipes parse
+# the target db back out of its path so the two can never drift. The env var
+# name matches nmdc-runtime's convention.
+mongo_dbname := env_var_or_default("MONGO_DBNAME", "nmdc_lakehouse_prep")
+mongo_uri    := env_var_or_default("MONGO_URI", "mongodb://localhost:27017/" + mongo_dbname)
 
-# NERSC connection details for fetching production MongoDB dumps.
+# NERSC connection details for fetching MongoDB dumps.
 # Refresh the SSH cert (24h lifetime) with: sshproxy -u <nersc-username>
-nersc_user      := env_var_or_default("NERSC_USER", env_var_or_default("USER", ""))
-nersc_key       := env_var_or_default("NERSC_SSH_KEY", "~/.ssh/nersc")
-nersc_host      := env_var_or_default("NERSC_HOST", "dtn01.nersc.gov")
-nersc_dump_root := "/global/cfs/cdirs/m3408/nmdc-mongodumps/from_google_cloud/nmdc-runtime-prod-mongo-backup"
+nersc_user := env_var_or_default("NERSC_USER", env_var_or_default("USER", ""))
+nersc_key  := env_var_or_default("NERSC_SSH_KEY", "~/.ssh/nersc")
+nersc_host := env_var_or_default("NERSC_HOST", "dtn01.nersc.gov")
+
+# Which NERSC dump mirror to use: "prod" (default) or "test". Matches NMDC's
+# bucket naming (nmdc-runtime-{prod,test}-mongo-backup).
+nmdc_mongo_source := env_var_or_default("NMDC_MONGO_SOURCE", "prod")
+nersc_dump_root   := "/global/cfs/cdirs/m3408/nmdc-mongodumps/from_google_cloud/nmdc-runtime-" + nmdc_mongo_source + "-mongo-backup"
 
 # Preferred dump — "latest" resolves to the newest timestamp on NERSC.
 # Override in local/.env (NMDC_DUMP=20260420_060655) or on the command line.
@@ -164,9 +166,9 @@ list-schema-collections:
 # dump's internal "nmdc" namespace are renamed to the target db derived from
 # MONGO_URI's path (default: nmdc_lakehouse_prep).
 # Usage: just restore-dump ./local/dumps/YYYYMMDD_HHMMSS
-# Override the target db with either MONGO_DB=foo or a full MONGO_URI whose
-# path points at the intended db — both stay consistent because the target
-# db is parsed out of the URI at runtime.
+# Override the target db with either MONGO_DBNAME=foo or a full MONGO_URI
+# whose path points at the intended db — both stay consistent because the
+# target db is parsed out of MONGO_URI at runtime.
 restore-dump DUMP_DIR:
     #!/usr/bin/env bash
     set -euo pipefail
