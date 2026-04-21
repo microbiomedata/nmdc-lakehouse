@@ -49,7 +49,9 @@ You need a NERSC account with access to the `m3408` (NMDC) project to download d
    [portal.nersc.gov/cfs/mfa/](https://portal.nersc.gov/cfs/mfa/). Linux
    (x86-64 and ARM), macOS, and Windows builds are available.
 4. **Refresh your SSH cert** with `sshproxy -u <your-nersc-username>` (24h
-   lifetime) — verified.
+   lifetime) — verified. When prompted for `Password+OTP`, enter your NERSC
+   password immediately followed by your current MFA one-time code, with no
+   space or separator between them (e.g. `mypass123456`).
 
 If you already have a NERSC account but not `m3408` membership, ask the NMDC PI
 or a PI proxy to add you via Iris.
