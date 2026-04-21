@@ -60,7 +60,7 @@ def class_def_to_arrow_schema(class_def: ClassDefinition) -> pa.Schema:
 class ParquetSink:
     """Write flat row dicts to Parquet files under a root directory.
 
-    Matches Sierra's ``Sink`` protocol: ``write(rows, table=...)`` consumes
+    Matches the ``Sink`` protocol: ``write(rows, table=...)`` consumes
     an iterator of flat dicts and writes ``{root}/{table}.parquet``.
 
     Rows are buffered in batches of ``batch_size`` before each write so memory
