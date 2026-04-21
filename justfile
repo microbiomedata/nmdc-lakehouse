@@ -161,7 +161,8 @@ drop-db:
 # Restore the ~32 NMDC data collections from a local dump directory.
 # The dump's internal namespace is "nmdc.*"; collections are renamed to
 # $MONGO_DB.* during restore (default MONGO_DB=nmdc_lakehouse_prep).
-# Override with: MONGO_DB=foo or MONGO_URI=mongodb://user:pass@host/foo
+# Usage: just restore-dump ./local/dumps/YYYYMMDD_HHMMSS/nmdc
+# Override with: MONGO_DB=foo just restore-dump ./local/dumps/.../nmdc
 restore-dump DUMP_DIR:
     mongorestore \
         --uri "{{mongo_uri}}" \

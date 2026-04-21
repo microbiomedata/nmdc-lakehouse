@@ -99,14 +99,14 @@ to `$MONGO_DB.*` (default `nmdc_lakehouse_prep`). Any existing `nmdc` database
 
 ```bash
 # Local, no auth (default: restore into nmdc_lakehouse_prep)
-just restore-dump DUMP_DIR=./local/dumps/YYYYMMDD_HHMMSS/nmdc
+just restore-dump ./local/dumps/YYYYMMDD_HHMMSS/nmdc
 
 # Use a different db name
-MONGO_DB=nmdc_scratch just restore-dump DUMP_DIR=./local/dumps/YYYYMMDD_HHMMSS/nmdc
+MONGO_DB=nmdc_scratch just restore-dump ./local/dumps/YYYYMMDD_HHMMSS/nmdc
 
 # Authenticated or remote host
 MONGO_URI=mongodb://admin:root@localhost:27018/nmdc_lakehouse_prep \
-    just restore-dump DUMP_DIR=./local/dumps/YYYYMMDD_HHMMSS/nmdc
+    just restore-dump ./local/dumps/YYYYMMDD_HHMMSS/nmdc
 ```
 
 ### Why not all collections?
