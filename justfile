@@ -133,6 +133,27 @@ fetch-dump DUMP=nmdc_dump DEST="./local/dumps":
         "{{DEST}}/$DUMP/"
     echo "Fetched to {{DEST}}/$DUMP/"
 
+# Trash every fetched dump under ./local/dumps/ (gio trash is recoverable).
+clean-dumps:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    shopt -s nullglob
+    dumps=(./local/dumps/*)
+    if [ ${#dumps[@]} -eq 0 ]; then
+        echo "No dumps to clean."
+        exit 0
+    fi
+    for d in "${dumps[@]}"; do
+        echo "Trashing $d"
+        gio trash "$d"
+    done
+
+# Drop the entire target database (everything at MONGO_URI), not just the
+# nsInclude list. Useful before restoring into a known-clean state.
+# Destructive: drops flattened_* collections and anything else there.
+drop-nmdc-db:
+    mongosh "{{mongo_uri}}" --quiet --eval 'print("Dropping " + db.getName()); db.dropDatabase()'
+
 # Restore the ~32 NMDC data collections from a local dump directory.
 # Uses MONGO_URI from local/.env (default: mongodb://localhost:27017/nmdc).
 # Override on the command line: MONGO_URI=mongodb://user:pass@host:port/nmdc just restore-dump DUMP_DIR=...
