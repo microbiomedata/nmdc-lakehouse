@@ -141,15 +141,17 @@ always parsed back out of whatever URI the recipe builds, so the decomposed
 and URI-level inputs can't drift apart.
 
 ```bash
-# Default: restore into nmdc_lakehouse_prep at mongodb://localhost:27017/
+# Default: restore the newest dump under ./local/dumps/ into nmdc_lakehouse_prep
+just restore-dump
+
+# Restore a specific dump directory
 just restore-dump ./local/dumps/YYYYMMDD_HHMMSS
 
 # Restore into a different local db
-MONGO_DBNAME=nmdc_scratch just restore-dump ./local/dumps/YYYYMMDD_HHMMSS
+MONGO_DBNAME=nmdc_scratch just restore-dump
 
 # Remote or authenticated host — the db in the URI path is the target
-MONGO_URI=mongodb://admin:root@localhost:27018/nmdc_scratch \
-    just restore-dump ./local/dumps/YYYYMMDD_HHMMSS
+MONGO_URI=mongodb://admin:root@localhost:27018/nmdc_scratch just restore-dump
 ```
 
 Pass the **parent** dump directory — `mongorestore` reads the `nmdc/` subdir

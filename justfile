@@ -180,13 +180,24 @@ list-schema-collections:
 # present on disk so mongorestore naturally loads just those. Files from the
 # dump's internal "nmdc" namespace are renamed to the target db derived from
 # MONGO_URI's path (default: nmdc_lakehouse_prep).
-# Usage: just restore-dump ./local/dumps/YYYYMMDD_HHMMSS
+# Usage: just restore-dump                         (newest dir under ./local/dumps/)
+#        just restore-dump ./local/dumps/YYYYMMDD_HHMMSS
 # Override the target db with either MONGO_DBNAME=foo or a full MONGO_URI
 # whose path points at the intended db — both stay consistent because the
 # target db is parsed out of MONGO_URI at runtime.
-restore-dump DUMP_DIR:
+restore-dump DUMP_DIR="":
     #!/usr/bin/env bash
     set -euo pipefail
+    DIR="{{DUMP_DIR}}"
+    if [ -z "$DIR" ]; then
+        latest=$(ls -1 ./local/dumps/ 2>/dev/null | sort | tail -1 || true)
+        if [ -z "$latest" ]; then
+            echo "No dumps in ./local/dumps/. Run 'just fetch-dump' first." >&2
+            exit 1
+        fi
+        DIR="./local/dumps/$latest"
+        echo "Restoring from newest local dump: $DIR"
+    fi
     # mongorestore treats the URI path as an implicit --db that confuses
     # namespace rewriting. Split into (a) server_uri (no path) for --uri and
     # (b) target_db (the path segment) for --nsTo, so MONGO_URI is the single
@@ -201,7 +212,7 @@ restore-dump DUMP_DIR:
         --uri "$server_uri" \
         --gzip --drop --verbose --stopOnError \
         --nsFrom "nmdc.*" --nsTo "$target_db.*" \
-        --dir "{{DUMP_DIR}}"
+        --dir "$DIR"
 
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
 # See scripts/README.md for details. These recipes shell out to the scripts in
