@@ -2,14 +2,16 @@
 # https://pre-commit.com/
 # Run `pre-commit install` once after `just install` to activate locally.
 repos:
-  # scripts/*.py (top level) is EMA legacy and deliberately excluded from all
-  # hooks. scripts/python/ is in scope for everything.
+  # check-added-large-files and check-merge-conflict run repo-wide (no Python
+  # content; safe on EMA legacy scripts). The remaining hygiene hooks exclude
+  # scripts/*.py (EMA legacy). check-yaml uses --unsafe defensively for when
+  # mkdocs.yml lands (mkdocs is a declared dependency).
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
       - id: check-toml
       - id: check-yaml
-        args: [--unsafe]  # allow Python tags in mkdocs.yml
+        args: [--unsafe]  # mkdocs uses Python tags; included as a dep
       - id: check-added-large-files
       - id: check-merge-conflict
       - id: end-of-file-fixer
