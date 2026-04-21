@@ -104,8 +104,15 @@ nmdc_dump := env_var_or_default("NMDC_DUMP", "latest")
 
 _ssh_opts := "-o IdentitiesOnly=yes -o ConnectTimeout=10 -i " + nersc_key
 
-# List the last N dump timestamps on NERSC with total size (newest last).
+# List the last N dump timestamps on NERSC (newest last). Fast — names only.
 list-dumps N="20":
+    ssh {{_ssh_opts}} {{nersc_user}}@{{nersc_host}} \
+        "ls -1 {{nersc_dump_root}} | sort | tail -{{N}}"
+
+# Like list-dumps but also reports total size per dump. Slower (several seconds
+# per dump — du has to scan every file). Use this when you want to distinguish
+# complete dumps (~3 GB) from partial/failed ones (a few hundred MB).
+list-dumps-with-sizes N="20":
     ssh {{_ssh_opts}} {{nersc_user}}@{{nersc_host}} \
         "cd {{nersc_dump_root}} && ls -1 | sort | tail -{{N}} | while read d; do du -sh \"\$d\"; done"
 
