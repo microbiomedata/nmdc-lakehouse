@@ -89,9 +89,13 @@ check: lint typecheck test
 
 # ---------- MongoDB ----------
 
-# Target database for restore, drop, and subsequent queries. The dump's
-# internal namespace is "nmdc" but we restore into a dedicated db so an
-# existing "nmdc" database (from nmdc-runtime or earlier work) stays untouched.
+# MONGO_URI is the single source of truth for the connection string (host,
+# credentials, and target database name as the path component). MONGO_DB
+# exists only to make the default URI easy to construct; if you override
+# MONGO_URI, recipes parse the target db back out of the URI so the two can
+# never drift. The dump's internal namespace is "nmdc" but we restore into a
+# dedicated db so an existing "nmdc" database (from nmdc-runtime or earlier
+# work) stays untouched.
 mongo_db  := env_var_or_default("MONGO_DB", "nmdc_lakehouse_prep")
 mongo_uri := env_var_or_default("MONGO_URI", "mongodb://localhost:27017/" + mongo_db)
 
@@ -141,10 +145,23 @@ fetch-dump DUMP=nmdc_dump DEST="./local/dumps":
             "{{DEST}}/$DUMP/"
     echo "Fetched to {{DEST}}/$DUMP/"
 
-# Trash every fetched dump under ./local/dumps/ (gio trash is recoverable).
+# Trash every fetched dump under ./local/dumps/ (recoverable from the Trash).
+# Uses `gio trash` (Linux) or `trash` (macOS via `brew install trash`). Errors
+# with an install hint if neither is available rather than falling back to rm.
 clean-dumps:
     #!/usr/bin/env bash
     set -euo pipefail
+    if command -v gio >/dev/null 2>&1; then
+        trash_cmd="gio trash"
+    elif command -v trash >/dev/null 2>&1; then
+        trash_cmd="trash"
+    else
+        echo "Neither 'gio' nor 'trash' is installed." >&2
+        echo "  Linux:  sudo apt install libglib2.0-bin   (provides gio)" >&2
+        echo "  macOS:  brew install trash" >&2
+        echo "Refusing to fall back to rm (not recoverable)." >&2
+        exit 1
+    fi
     shopt -s nullglob
     dumps=(./local/dumps/*)
     if [ ${#dumps[@]} -eq 0 ]; then
@@ -152,13 +169,12 @@ clean-dumps:
         exit 0
     fi
     for d in "${dumps[@]}"; do
-        echo "Trashing $d"
-        gio trash "$d"
+        echo "Trashing $d ($trash_cmd)"
+        $trash_cmd "$d"
     done
 
-# Drop the entire target database (the db in MONGO_URI), not just the
-# nsInclude list. Useful before restoring into a known-clean state.
-# Destructive: drops flattened_* collections and anything else there.
+# Drop the entire database named in MONGO_URI's path. Useful before
+# restoring into a known-clean state. Destructive — drops everything.
 drop-db:
     mongosh "{{mongo_uri}}" --quiet --eval 'print("Dropping " + db.getName()); db.dropDatabase()'
 
@@ -169,20 +185,29 @@ list-schema-collections:
 # Restore a local dump directory (the parent, containing an nmdc/ subdir).
 # When paired with `just fetch-dump`, only schema-specified collections are
 # present on disk so mongorestore naturally loads just those. Files from the
-# dump's internal "nmdc" namespace are renamed to $MONGO_DB during restore
-# (default MONGO_DB=nmdc_lakehouse_prep).
+# dump's internal "nmdc" namespace are renamed to the target db derived from
+# MONGO_URI's path (default: nmdc_lakehouse_prep).
 # Usage: just restore-dump ./local/dumps/YYYYMMDD_HHMMSS
-# Override with: MONGO_DB=foo just restore-dump ./local/dumps/YYYYMMDD_HHMMSS
+# Override the target db with either MONGO_DB=foo or a full MONGO_URI whose
+# path points at the intended db — both stay consistent because the target
+# db is parsed out of the URI at runtime.
 restore-dump DUMP_DIR:
     #!/usr/bin/env bash
     set -euo pipefail
-    # Strip the db path from MONGO_URI — mongorestore treats it as an implicit
-    # --db that confuses namespace handling. The target db is set by --nsTo.
-    server_uri="$(python3 -c 'import sys, urllib.parse as u; p=u.urlparse(sys.argv[1]); print(u.urlunparse(p._replace(path=""))) ' "{{mongo_uri}}")"
+    # mongorestore treats the URI path as an implicit --db that confuses
+    # namespace rewriting. Split into (a) server_uri (no path) for --uri and
+    # (b) target_db (the path segment) for --nsTo, so MONGO_URI is the single
+    # source of truth for the target database.
+    read server_uri target_db < <(python3 -c 'import sys, urllib.parse as u; p=u.urlparse(sys.argv[1]); print(u.urlunparse(p._replace(path="")), p.path.lstrip("/").split("?")[0])' "{{mongo_uri}}")
+    if [ -z "$target_db" ]; then
+        echo "MONGO_URI must include a database name in the path, e.g. mongodb://localhost:27017/nmdc_lakehouse_prep" >&2
+        exit 1
+    fi
+    echo "Restoring into database: $target_db"
     mongorestore \
         --uri "$server_uri" \
         --gzip --drop --verbose --stopOnError \
-        --nsFrom "nmdc.*" --nsTo "{{mongo_db}}.*" \
+        --nsFrom "nmdc.*" --nsTo "$target_db.*" \
         --dir "{{DUMP_DIR}}"
 
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------

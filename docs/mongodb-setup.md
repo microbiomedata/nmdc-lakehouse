@@ -97,9 +97,12 @@ loads whatever's on disk — no `--nsInclude` filtering, no chance of loading
 collections you didn't ask for.
 
 Collections are renamed on restore from the dump's internal `nmdc.*` namespace
-to `$MONGO_DB.*` (default `nmdc_lakehouse_prep`). Any existing `nmdc` database
-(e.g. from nmdc-runtime dev work) stays untouched. Override either
-`MONGO_DB` or `MONGO_URI` on the command line:
+to the db named in `MONGO_URI`'s path (default `nmdc_lakehouse_prep`). Any
+existing `nmdc` database (e.g. from nmdc-runtime dev work) stays untouched.
+
+`MONGO_URI` is the single source of truth for the connection. `MONGO_DB` is
+only used to build the default URI; at restore time the target db is parsed
+back out of `MONGO_URI`, so the two can't drift. Override either:
 
 ```bash
 # Default: restore into nmdc_lakehouse_prep
@@ -108,8 +111,8 @@ just restore-dump ./local/dumps/YYYYMMDD_HHMMSS
 # Use a different db name
 MONGO_DB=nmdc_scratch just restore-dump ./local/dumps/YYYYMMDD_HHMMSS
 
-# Authenticated or remote host
-MONGO_URI=mongodb://admin:root@localhost:27018/nmdc_lakehouse_prep \
+# Authenticated or remote host — the db in the URI path is the target
+MONGO_URI=mongodb://admin:root@localhost:27018/nmdc_scratch \
     just restore-dump ./local/dumps/YYYYMMDD_HHMMSS
 ```
 
@@ -132,10 +135,13 @@ A full dump contains ~132 collections. The skipped categories:
 
 ## Verifying the Restore
 
+`$MONGO_URI` already points at the target db, so `mongosh` can connect
+directly:
+
 ```bash
-mongosh nmdc_lakehouse_prep --eval '
+mongosh "$MONGO_URI" --eval '
   const colls = db.getCollectionNames().sort();
-  print("Collections: " + colls.length);
+  print(db.getName() + " has " + colls.length + " collections:");
   colls.forEach(c => print("  " + c + ": " + db.getCollection(c).estimatedDocumentCount()));
 '
 ```
