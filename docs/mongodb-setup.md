@@ -34,20 +34,22 @@ Each dependency name links to its upstream install instructions.
 
 You need a NERSC account with access to the `m3408` (NMDC) project to download dumps.
 
-> **Steps below are not directly verified.** The URLs were fetched from
-> `docs.nersc.gov`, but the literal UI labels (e.g. "I need a new NERSC
-> account") and the exact click-through flow were paraphrased from fetched
-> summaries rather than walked through. The `sshproxy -u <username>` step is
-> verified (runs daily). If you hit a mismatch in the UI, follow NERSC's
-> current docs and please open a PR to fix the wording here.
+> **Steps below are not directly verified.** Only the URLs and the
+> `sshproxy -u <username>` invocation are verified. The exact click-through
+> flow in Iris has not been walked through with a fresh account — follow
+> NERSC's current docs if the UI differs, and please open a PR to correct
+> the wording here.
 
-1. **Request a NERSC account** at [iris.nersc.gov/add-user](https://iris.nersc.gov/add-user).
-   Pick "I need a new NERSC account", enter `m3408` as the project name, and wait
-   for PI approval. Account vetting can take up to a week.
-2. **Set up MFA** in [iris.nersc.gov](https://iris.nersc.gov) after your account is created.
-3. **Download `sshproxy`** from [portal.nersc.gov/cfs/mfa/](https://portal.nersc.gov/cfs/mfa/).
-   Linux (x86-64 and ARM), macOS, and Windows builds are available.
-4. **Refresh your SSH cert** with `sshproxy -u <your-nersc-username>` (24h lifetime). — verified
+1. **Request a NERSC account** and project membership at
+   [iris.nersc.gov/add-user](https://iris.nersc.gov/add-user). The project
+   name is `m3408`. Account vetting can take up to a week.
+2. **Set up MFA** in [iris.nersc.gov](https://iris.nersc.gov) after your
+   account is created.
+3. **Download `sshproxy`** from
+   [portal.nersc.gov/cfs/mfa/](https://portal.nersc.gov/cfs/mfa/). Linux
+   (x86-64 and ARM), macOS, and Windows builds are available.
+4. **Refresh your SSH cert** with `sshproxy -u <your-nersc-username>` (24h
+   lifetime) — verified.
 
 If you already have a NERSC account but not `m3408` membership, ask the NMDC PI
 or a PI proxy to add you via Iris.
