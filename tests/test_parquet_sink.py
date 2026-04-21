@@ -10,23 +10,6 @@ from linkml_runtime.linkml_model import ClassDefinition
 
 from nmdc_lakehouse.sinks.parquet_sink import ParquetSink, class_def_to_arrow_schema
 
-_SIMPLE_CLASS_DEF_YAML = """
-name: FlatRecord
-attributes:
-  id:
-    range: string
-    required: true
-  depth_has_numeric_value:
-    range: float
-  depth_has_unit:
-    range: string
-  count:
-    range: integer
-  active:
-    range: boolean
-"""
-
-
 @pytest.fixture
 def flat_class() -> ClassDefinition:
     """A minimal flat ClassDefinition with mixed ranges."""
@@ -132,3 +115,17 @@ def test_write_empty_input(flat_class, tmp_path):
     total = sink.write(iter([]), table="flat_record")
     assert total == 0
     assert not (tmp_path / "flat_record.parquet").exists()
+
+
+def test_drop_empty_cols_removes_all_null_columns(flat_class, tmp_path):
+    """drop_empty_cols=True strips columns that are null in every row."""
+    sink = ParquetSink(tmp_path, class_def=flat_class)
+    rows = [{"id": "r1", "depth_has_unit": "m"}, {"id": "r2", "depth_has_unit": "cm"}]
+    sink.write(iter(rows), table="flat_record", drop_empty_cols=True)
+    tbl = pq.read_table(tmp_path / "flat_record.parquet")
+    assert "id" in tbl.schema.names
+    assert "depth_has_unit" in tbl.schema.names
+    # depth_has_numeric_value, count, active were never set — should be dropped
+    assert "depth_has_numeric_value" not in tbl.schema.names
+    assert "count" not in tbl.schema.names
+    assert "active" not in tbl.schema.names

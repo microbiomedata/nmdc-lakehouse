@@ -41,7 +41,8 @@ def class_def_to_arrow_schema(class_def: ClassDefinition) -> pa.Schema:
             ranges (as produced by :func:`nmdc_lakehouse.transforms.schema_generator.flatten_class_def`).
 
     Returns:
-        A ``pa.Schema`` with one field per attribute, in alphabetical order.
+        A ``pa.Schema`` with ``id`` first (if present), then remaining fields
+        in alphabetical order.
     """
     fields = []
     # id first, then alphabetical — makes row browsers easier to use.
@@ -77,7 +78,8 @@ class ParquetSink:
         """Construct a ParquetSink.
 
         Args:
-            root: Directory (or object-store URI prefix) to write into.
+            root: Local filesystem directory to write into. Object-store URIs
+                (e.g. ``s3://...``) are not supported by this implementation.
             class_def: Optional flat ``ClassDefinition`` used to derive the
                 Arrow schema. When provided, column types are stable and
                 columns absent from a row are written as null. When ``None``,
@@ -98,7 +100,7 @@ class ParquetSink:
 
         Args:
             rows: Iterable of flat dicts (as produced by
-                :func:`nmdc_lakehouse.transforms.flatteners.flatten_record`).
+                :meth:`nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener.apply`).
             table: Logical table name; becomes the parquet filename stem.
             drop_empty_cols: When True, rewrite the file after writing to
                 remove columns that are entirely null. Useful for wide sparse
