@@ -98,7 +98,10 @@ mongo_dbname := env_var_or_default("MONGO_DBNAME", "nmdc_lakehouse_prep")
 mongo_uri    := env_var_or_default("MONGO_URI", "mongodb://localhost:27017/" + mongo_dbname)
 
 # NERSC connection details for fetching MongoDB dumps.
-# Refresh the SSH cert (24h lifetime) with: sshproxy -u <nersc-username>
+# sshproxy writes a short-lived SSH key (~/.ssh/nersc) and certificate
+# (~/.ssh/nersc-cert.pub, 24h lifetime) pair. Refresh both with:
+#   sshproxy -u <nersc-username>
+# ssh -i <key-path> automatically loads the adjacent -cert.pub.
 nersc_user := env_var_or_default("NERSC_USER", env_var_or_default("USER", ""))
 nersc_key  := env_var_or_default("NERSC_SSH_KEY", "~/.ssh/nersc")
 nersc_host := env_var_or_default("NERSC_HOST", "dtn01.nersc.gov")
