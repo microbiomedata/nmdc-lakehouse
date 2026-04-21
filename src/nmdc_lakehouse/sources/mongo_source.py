@@ -7,6 +7,8 @@ from typing import Any, Iterator, Optional
 from linkml_store import Client
 from linkml_store.api import Database
 
+from nmdc_lakehouse.config import MongoSettings
+
 
 class MongoSource:
     """linkml-store backed source for an NMDC MongoDB backend."""
@@ -23,6 +25,17 @@ class MongoSource:
         self.alias = alias
         self._client: Optional[Client] = None
         self._db: Optional[Database] = None
+
+    @classmethod
+    def from_settings(cls, settings: MongoSettings, alias: str = "nmdc") -> MongoSource:
+        """Construct a MongoSource from a :class:`MongoSettings` instance.
+
+        This is the canonical construction path — it plugs into the package's
+        pydantic-settings configuration (env vars, ``.env`` file). Direct use
+        of ``MongoSource(handle)`` is still supported for one-off calls and
+        tests that want to override the URI.
+        """
+        return cls(handle=settings.uri, alias=alias)
 
     @property
     def db(self) -> Database:

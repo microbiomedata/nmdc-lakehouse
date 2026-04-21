@@ -7,7 +7,39 @@ from itertools import islice
 
 import pytest
 
+from nmdc_lakehouse.config import MongoSettings
 from nmdc_lakehouse.sources.mongo_source import MongoSource
+
+# ---------- Unit tests (no MongoDB required) ----------
+
+
+def test_mongo_settings_uri_without_auth():
+    """Default settings with empty password produce an auth-less URI."""
+    s = MongoSettings(host="localhost", port=27017, db="nmdc_test", password="")
+    assert s.uri == "mongodb://localhost:27017/nmdc_test"
+
+
+def test_mongo_settings_uri_with_auth():
+    """Password-bearing settings produce a URI with percent-escaped credentials."""
+    s = MongoSettings(host="h", port=27018, db="nmdc", username="adm in", password="p@ss")
+    assert s.uri == "mongodb://adm%20in:p%40ss@h:27018/nmdc"
+
+
+def test_mongo_settings_uri_replica_set():
+    """Replica set shows up as a query parameter."""
+    s = MongoSettings(host="rs0", port=27017, db="nmdc", password="", replica_set="rs0")
+    assert s.uri == "mongodb://rs0:27017/nmdc?replicaSet=rs0"
+
+
+def test_mongo_source_from_settings_uses_uri():
+    """``from_settings`` propagates the URI and alias without connecting."""
+    s = MongoSettings(host="localhost", port=27017, db="nmdc_lakehouse_prep", password="")
+    src = MongoSource.from_settings(s, alias="nmdc-lh")
+    assert src.handle == "mongodb://localhost:27017/nmdc_lakehouse_prep"
+    assert src.alias == "nmdc-lh"
+
+
+# ---------- Integration tests (require local MongoDB) ----------
 
 
 @pytest.mark.integration
