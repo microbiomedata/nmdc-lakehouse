@@ -64,6 +64,30 @@ classes:
         multivalued: true
       parent:
         range: Term
+      type:
+
+  # Process hierarchy for testing polymorphic dispatch, modeled on
+  # nmdc-schema's MaterialProcessing / Pooling pattern: a base class with
+  # concrete subclasses that add their own distinct slots.
+  Process:
+    attributes:
+      id:
+        required: true
+      type:
+  Pooling:
+    is_a: Process
+    attributes:
+      pooling_method:
+
+  # A class that embeds a Process inline, for testing polymorphic dispatch
+  # inside an inlined-object range.
+  RecordWithInlinedProcess:
+    attributes:
+      id:
+        required: true
+      performed_step:
+        range: Process
+        inlined: true
 """
 
 
@@ -183,3 +207,63 @@ def test_boolean_scalars_stringified_in_list(sv):
     # multivalued scalars — add a minimal case using tags.
     out = flatten_record({"id": "r1", "tags": [True, False]}, sv, "Record")
     assert out["tags"] == "true|false"
+
+
+def test_polymorphic_dispatch_root_class(sv):
+    """A record's ``type`` field picks up subclass-specific slots."""
+    out = flatten_record(
+        {"id": "p1", "type": "test:Pooling", "pooling_method": "serial"},
+        sv,
+        "Process",
+    )
+    # pooling_method is defined on Pooling, not Process — dispatch picks it up.
+    assert out["pooling_method"] == "serial"
+    assert out["id"] == "p1"
+
+
+def test_polymorphic_dispatch_bare_type_name(sv):
+    """``type`` values without a colon prefix still resolve."""
+    out = flatten_record(
+        {"id": "p1", "type": "Pooling", "pooling_method": "parallel"},
+        sv,
+        "Process",
+    )
+    assert out["pooling_method"] == "parallel"
+
+
+def test_polymorphic_dispatch_unknown_type_falls_back(sv):
+    """Unknown type values fall back to the declared root class."""
+    out = flatten_record(
+        {"id": "p1", "type": "nmdc:MysteriousSubclass", "pooling_method": "serial"},
+        sv,
+        "Process",
+    )
+    # Pooling-specific slot is dropped because we fell back to Process.
+    assert "pooling_method" not in out
+    assert out["id"] == "p1"
+
+
+def test_polymorphic_dispatch_in_inlined_object(sv):
+    """A subclass declared via ``type`` on an inlined object is dispatched.
+
+    Mirrors the nmdc-schema pattern of an inlined slot whose declared range
+    is a base class (e.g. MaterialProcessing) but whose value is a concrete
+    subclass (e.g. Pooling) that defines its own slots. The subclass slot
+    should appear in the flat output as ``<slot>_<subclass_slot>``.
+    """
+    out = flatten_record(
+        {
+            "id": "r1",
+            "performed_step": {
+                "id": "step-1",
+                "type": "test:Pooling",
+                "pooling_method": "serial",
+            },
+        },
+        sv,
+        "RecordWithInlinedProcess",
+    )
+    # pooling_method is on the subclass only — dispatch picks it up via
+    # the inlined expansion, producing performed_step_pooling_method.
+    assert out["performed_step_id"] == "step-1"
+    assert out["performed_step_pooling_method"] == "serial"

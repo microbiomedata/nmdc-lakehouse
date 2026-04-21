@@ -15,7 +15,7 @@ LIST_JOIN = "|"
 def flatten_record(record: dict, schema_view: SchemaView, root_class: str) -> dict:
     """Flatten a single nested record into a flat dict of scalar values.
 
-    Decision tree, schema-driven (each slot of ``root_class``):
+    Decision tree, schema-driven (each slot of the effective class):
 
     - scalar slot, not multivalued: pass the value through unchanged
     - scalar slot, multivalued: pipe-join the list into a string
@@ -27,6 +27,12 @@ def flatten_record(record: dict, schema_view: SchemaView, root_class: str) -> di
       tables are a follow-up; main-row columns would be either ambiguous
       or lossy)
 
+    Polymorphism: when a record has a ``type`` field naming a subclass of
+    ``root_class`` (or of an inlined slot's declared range), the concrete
+    subclass's induced slots are used instead. So a record with
+    ``type: "nmdc:Pooling"`` flattened against ``MaterialProcessing``
+    picks up Pooling-specific slots automatically.
+
     Values not present on the input record are omitted from the output
     (no None-padding) — consumers such as pyarrow will still see consistent
     column sets across rows because the schema is the source of truth.
@@ -34,14 +40,17 @@ def flatten_record(record: dict, schema_view: SchemaView, root_class: str) -> di
     Args:
         record: A dict representation of a ``root_class`` instance.
         schema_view: Loaded LinkML SchemaView for the schema defining ``root_class``.
-        root_class: Name of the root class to flatten against.
+        root_class: Name of the root class to flatten against. If the
+            record declares a concrete subclass via its ``type`` field,
+            that subclass's slots are used.
 
     Returns:
         A flat dict. Keys are slot names (or ``<slot>_<subslot>`` for
         expanded inlined objects). Values are scalars or pipe-joined strings.
     """
     out: dict[str, Any] = {}
-    slots = schema_view.class_induced_slots(root_class)
+    effective_class = _dispatch_class(record, root_class, schema_view)
+    slots = schema_view.class_induced_slots(effective_class)
     for slot in slots:
         if slot.name not in record:
             continue
@@ -92,6 +101,27 @@ def _range_class(slot: SlotDefinition, schema_view: SchemaView) -> ClassDefiniti
     return cls
 
 
+def _dispatch_class(record: dict, declared_class: str, schema_view: SchemaView) -> str:
+    """Resolve the concrete class name for a record via its ``type`` field.
+
+    Accepts LinkML-style class URIs (``nmdc:Pooling``) or bare names
+    (``Pooling``). Falls back to ``declared_class`` if the record has no
+    ``type`` field or the type doesn't resolve to a known class.
+
+    This intentionally does NOT verify that the resolved class is a
+    descendant of ``declared_class`` — if the record's ``type`` points
+    at a known class, we use it. Data-quality issues (wrong type) are
+    reported by a separate QC job.
+    """
+    type_uri = record.get("type")
+    if not isinstance(type_uri, str) or not type_uri:
+        return declared_class
+    name = type_uri.rsplit(":", 1)[-1]
+    if schema_view.get_class(name) is not None:
+        return name
+    return declared_class
+
+
 def _expand_inlined(value: dict, class_def: ClassDefinition, schema_view: SchemaView) -> dict[str, Any]:
     """Flatten a single-valued inlined object one level deep.
 
@@ -102,7 +132,8 @@ def _expand_inlined(value: dict, class_def: ClassDefinition, schema_view: Schema
     controlled terms are exactly two levels deep (slot → term → id/name).
     """
     out: dict[str, Any] = {}
-    induced = schema_view.class_induced_slots(class_def.name)
+    effective_class = _dispatch_class(value, class_def.name, schema_view)
+    induced = schema_view.class_induced_slots(effective_class)
     for sub_slot in induced:
         if sub_slot.name == "type":
             continue
@@ -123,7 +154,8 @@ def _expand_inlined(value: dict, class_def: ClassDefinition, schema_view: Schema
             continue
         # One more level of nesting allowed: expand scalar subslots of this inner class.
         if not sub_slot.multivalued and isinstance(sub_value, dict):
-            inner_induced = schema_view.class_induced_slots(sub_range.name)
+            inner_class = _dispatch_class(sub_value, sub_range.name, schema_view)
+            inner_induced = schema_view.class_induced_slots(inner_class)
             for inner_slot in inner_induced:
                 if inner_slot.name == "type" or inner_slot.name not in sub_value:
                     continue
