@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -25,6 +26,22 @@ class MongoSettings(BaseSettings):
     username: str = "admin"
     password: str = ""
     replica_set: Optional[str] = None
+
+    @property
+    def uri(self) -> str:
+        """Assemble a MongoDB connection URI from the decomposed fields.
+
+        Includes credentials only when ``password`` is non-empty (typical
+        local-dev MongoDB runs without auth). Username and password are
+        percent-escaped. Appends ``?replicaSet=`` if ``replica_set`` is set.
+        """
+        auth = ""
+        if self.password:
+            auth = f"{quote(self.username, safe='')}:{quote(self.password, safe='')}@"
+        base = f"mongodb://{auth}{self.host}:{self.port}/{self.db}"
+        if self.replica_set:
+            base += f"?replicaSet={quote(self.replica_set, safe='')}"
+        return base
 
 
 class PostgresSettings(BaseSettings):
