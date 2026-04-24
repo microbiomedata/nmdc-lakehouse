@@ -14,11 +14,13 @@ dependencies = [
     # Core LinkML data access
     # [all] brings in linkml>=1.8.0 as a transitive dep; the explicit
     # linkml>=1.10.0 floor ensures we don't regress below the version that
-    # fixed the linkml-runtime 1.10 Format enum changes. linkml-runtime is
-    # not pinned directly — linkml 1.10.0 requires linkml-runtime>=1.9.5
-    # and the resolver picks up 1.10.0 (the current latest) automatically.
+    # fixed the linkml-runtime 1.10 Format enum changes.
+    # linkml-runtime is pinned explicitly because linkml 1.10.0's own floor
+    # (>=1.9.5) is too loose — 1.9.x versions have version-skew breakage
+    # (see linkml/linkml#3241, linkml/linkml PR#3183).
     "linkml-store[all]>=0.3.1",
     "linkml>=1.10.0",
+    "linkml-runtime>=1.10.0",
     "nmdc-schema",
 
     # Database drivers (linkml-store routes through these)
