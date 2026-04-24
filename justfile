@@ -68,6 +68,10 @@ cli *ARGS:
 run-job JOB *ARGS:
     uv run nmdc-lakehouse run-job {{JOB}} {{ARGS}}
 
+# Delete every generated Parquet file under ./local/parquet/.
+clean-parquet:
+    rm -rf ./local/parquet/*
+
 # ---------- Docs ----------
 
 # Serve documentation locally.
