@@ -10,6 +10,7 @@ from linkml_runtime.linkml_model import ClassDefinition
 
 from nmdc_lakehouse.sinks.parquet_sink import ParquetSink, class_def_to_arrow_schema
 
+
 @pytest.fixture
 def flat_class() -> ClassDefinition:
     """A minimal flat ClassDefinition with mixed ranges."""
