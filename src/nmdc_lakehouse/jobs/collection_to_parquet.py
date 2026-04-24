@@ -69,10 +69,10 @@ class CollectionToParquetJob(Job):
         schema_path = f"{spec.submodule_search_locations[0]}/nmdc_materialized_patterns.yaml"
         schema_view = SchemaView(schema_path)
 
-        source = MongoSource(self.mongo_uri)  # type: ignore
+        source = MongoSource(self.mongo_uri)
         flattener = SchemaDrivenFlattener(schema_view, self.root_class)
         flat_class = flatten_class_def(schema_view, self.root_class)
-        sink = ParquetSink(self.out_root, class_def=flat_class)  # type: ignore
+        sink = ParquetSink(self.out_root, class_def=flat_class)
 
         records = source.iter_records(self.collection)
         flat_rows = flattener.apply(records)
@@ -84,13 +84,13 @@ class CollectionToParquetJob(Job):
         drop_empty = os.environ.get("LAKEHOUSE_DROP_EMPTY_COLS", "").lower() in ("1", "true", "yes")
         rows_read = 0
 
-        def _counted(rows):  # type: ignore[no-untyped-def]
+        def _counted(rows):
             nonlocal rows_read
             for row in rows:
                 rows_read += 1
                 yield row
 
-        rows_written: int = sink.write(_counted(flat_rows), table=self.collection, drop_empty_cols=drop_empty) or 0  # type: ignore
+        rows_written: int = sink.write(_counted(flat_rows), table=self.collection, drop_empty_cols=drop_empty) or 0
         return JobResult(
             job_name=self.name,
             rows_read=rows_read,
