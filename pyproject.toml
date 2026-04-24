@@ -12,15 +12,13 @@ keywords = ["nmdc", "linkml", "linkml-store", "etl", "lakehouse", "parquet", "ic
 
 dependencies = [
     # Core LinkML data access
-    # linkml-store>=0.3.1 includes the CLI-minimal-install fix from
-    # linkml/linkml-store#67 (earlier versions hard-imported matplotlib).
-    "linkml-store>=0.3.1",
-    # PyPI linkml 1.10.0 is broken (its __init__ references Format.JSON
-    # but linkml-runtime 1.10.0's Format enum no longer exposes it).
-    # 1.11.0rc1 fixes this; the pre-release marker in the spec allows it
-    # to resolve. Remove the rc1 pin once 1.11.0 final is released.
-    "linkml>=1.11.0rc1",
-    "linkml-runtime>=1.11.0rc1",
+    # [all] brings in linkml>=1.8.0 as a transitive dep; the explicit
+    # linkml>=1.10.0 floor ensures we don't regress below the version that
+    # fixed the linkml-runtime 1.10 Format enum changes. linkml-runtime is
+    # not pinned directly — linkml 1.10.0 requires linkml-runtime>=1.9.5
+    # and the resolver picks up 1.10.0 (the current latest) automatically.
+    "linkml-store[all]>=0.3.1",
+    "linkml>=1.10.0",
     "nmdc-schema",
 
     # Database drivers (linkml-store routes through these)
