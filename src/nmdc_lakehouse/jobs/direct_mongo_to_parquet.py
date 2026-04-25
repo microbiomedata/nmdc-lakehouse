@@ -83,7 +83,7 @@ class DirectMongoToParquetJob(Job):
         schema_view = SchemaView(_schema_path())
         flat_class = flatten_class_def(schema_view, self.root_class)
 
-        client = pymongo.MongoClient(self.mongo_uri)
+        client: pymongo.MongoClient = pymongo.MongoClient(self.mongo_uri)
         try:
             dbname = _dbname_from_uri(self.mongo_uri)
             mongo_coll = client[dbname][self.collection]
