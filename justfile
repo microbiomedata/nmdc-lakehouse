@@ -68,7 +68,7 @@ cli *ARGS:
 run-job JOB *ARGS:
     uv run nmdc-lakehouse run-job {{JOB}} {{ARGS}}
 
-# Convert all schema collections except functional_annotation_agg to Parquet (~10-20 min).
+# Convert all schema collections except functional_annotation_agg to Parquet (~5 min).
 # Requires the GCP SSH tunnel to be open — see docs/mongodb-connection.md.
 # Logs to local/etl-collections-<timestamp>.log
 etl-collections:
@@ -79,7 +79,7 @@ etl-collections:
     echo "Logging to $log"
     time uv run nmdc-lakehouse run-job all-collections --skip functional_annotation_agg 2>&1 | tee "$log"
 
-# Convert functional_annotation_agg to Parquet (~13 hours — run overnight).
+# Convert functional_annotation_agg to Parquet (54.8M records — run overnight).
 # Requires the GCP SSH tunnel to be open — see docs/mongodb-connection.md.
 # Logs to local/etl-annotations-<timestamp>.log
 etl-annotations:
