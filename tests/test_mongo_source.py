@@ -14,26 +14,49 @@ from nmdc_lakehouse.sources.mongo_source import MongoSource
 
 
 def test_mongo_settings_uri_without_auth():
-    """Default settings with empty password produce an auth-less URI."""
-    s = MongoSettings(host="localhost", port=27017, db="nmdc_test", password="")
+    """Empty password produces an auth-less URI with no query params."""
+    s = MongoSettings(host="localhost", port=27017, dbname="nmdc_test", password="", direct_connection=False)
     assert s.uri == "mongodb://localhost:27017/nmdc_test"
 
 
 def test_mongo_settings_uri_with_auth():
-    """Password-bearing settings produce a URI with percent-escaped credentials."""
-    s = MongoSettings(host="h", port=27018, db="nmdc", username="adm in", password="p@ss")
-    assert s.uri == "mongodb://adm%20in:p%40ss@h:27018/nmdc"
+    """Password-bearing settings produce a URI with percent-escaped credentials and authSource."""
+    s = MongoSettings(
+        host="h",
+        port=27018,
+        dbname="nmdc",
+        username="adm in",
+        password="p@ss",
+        auth_source="admin",
+        direct_connection=False,
+    )
+    assert s.uri == "mongodb://adm%20in:p%40ss@h:27018/nmdc?authSource=admin"
 
 
 def test_mongo_settings_uri_replica_set():
     """Replica set shows up as a query parameter."""
-    s = MongoSettings(host="rs0", port=27017, db="nmdc", password="", replica_set="rs0")
+    s = MongoSettings(host="rs0", port=27017, dbname="nmdc", password="", replica_set="rs0", direct_connection=False)
     assert s.uri == "mongodb://rs0:27017/nmdc?replicaSet=rs0"
+
+
+def test_mongo_settings_uri_direct_connection():
+    """direct_connection=True appends directConnection=true to the URI."""
+    s = MongoSettings(
+        host="localhost",
+        port=27124,
+        dbname="nmdc",
+        username="mam",
+        password="secret",
+        auth_source="admin",
+        direct_connection=True,
+    )
+    assert "directConnection=true" in s.uri
+    assert "authSource=admin" in s.uri
 
 
 def test_mongo_source_from_settings_uses_uri():
     """``from_settings`` propagates the URI and alias without connecting."""
-    s = MongoSettings(host="localhost", port=27017, db="nmdc_lakehouse_prep", password="")
+    s = MongoSettings(host="localhost", port=27017, dbname="nmdc_lakehouse_prep", password="", direct_connection=False)
     src = MongoSource.from_settings(s, alias="nmdc-lh")
     assert src.handle == "mongodb://localhost:27017/nmdc_lakehouse_prep"
     assert src.alias == "nmdc-lh"

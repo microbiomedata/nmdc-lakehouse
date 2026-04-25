@@ -64,13 +64,37 @@ test-integration:
 cli *ARGS:
     uv run nmdc-lakehouse {{ARGS}}
 
-# Placeholder: run a named ETL job (wired up once jobs exist).
+# Run a named ETL job.
 run-job JOB *ARGS:
     uv run nmdc-lakehouse run-job {{JOB}} {{ARGS}}
 
-# Delete every generated Parquet file under ./local/parquet/.
+# Convert all schema collections except functional_annotation_agg to Parquet (~10-20 min).
+# Requires the GCP SSH tunnel to be open — see docs/mongodb-connection.md.
+# Logs to local/etl-collections-<timestamp>.log
+etl-collections:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p local
+    log="local/etl-collections-$(date +%Y%m%d_%H%M%S).log"
+    echo "Logging to $log"
+    time uv run nmdc-lakehouse run-job all-collections --skip functional_annotation_agg 2>&1 | tee "$log"
+
+# Convert functional_annotation_agg to Parquet (~13 hours — run overnight).
+# Requires the GCP SSH tunnel to be open — see docs/mongodb-connection.md.
+# Logs to local/etl-annotations-<timestamp>.log
+etl-annotations:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p local
+    log="local/etl-annotations-$(date +%Y%m%d_%H%M%S).log"
+    echo "Logging to $log"
+    time uv run nmdc-lakehouse run-job functional_annotation_agg 2>&1 | tee "$log"
+
+lakehouse_root := env_var_or_default("LAKEHOUSE_ROOT", "./lakehouse")
+
+# Delete every generated Parquet file under LAKEHOUSE_ROOT.
 clean-parquet:
-    rm -rf ./local/parquet/*
+    rm -rf "{{lakehouse_root}}"/*
 
 # ---------- Docs ----------
 

@@ -22,10 +22,12 @@ class MongoSettings(BaseSettings):
 
     host: str = "localhost"
     port: int = 27017
-    db: str = "nmdc"
+    dbname: str = "nmdc"
     username: str = "admin"
     password: str = ""
+    auth_source: str = "admin"
     replica_set: Optional[str] = None
+    direct_connection: bool = False
 
     @property
     def uri(self) -> str:
@@ -33,14 +35,28 @@ class MongoSettings(BaseSettings):
 
         Includes credentials only when ``password`` is non-empty (typical
         local-dev MongoDB runs without auth). Username and password are
-        percent-escaped. Appends ``?replicaSet=`` if ``replica_set`` is set.
+        percent-escaped. Appends query parameters for ``replicaSet`` and/or
+        ``directConnection`` when set.
+
+        ``direct_connection=True`` is required when connecting through an SSH
+        tunnel to a replica-set MongoDB: the server advertises internal
+        hostnames that are unreachable from outside the cluster, so pymongo
+        must be told to skip replica-set discovery and use only the provided
+        host:port.
         """
         auth = ""
         if self.password:
             auth = f"{quote(self.username, safe='')}:{quote(self.password, safe='')}@"
-        base = f"mongodb://{auth}{self.host}:{self.port}/{self.db}"
+        base = f"mongodb://{auth}{self.host}:{self.port}/{self.dbname}"
+        params: list[str] = []
+        if self.password:
+            params.append(f"authSource={quote(self.auth_source, safe='')}")
         if self.replica_set:
-            base += f"?replicaSet={quote(self.replica_set, safe='')}"
+            params.append(f"replicaSet={quote(self.replica_set, safe='')}")
+        if self.direct_connection:
+            params.append("directConnection=true")
+        if params:
+            base += "?" + "&".join(params)
         return base
 
 
