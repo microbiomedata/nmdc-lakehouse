@@ -157,12 +157,14 @@ class AllCollectionsToParquetJob(Job):
 
     def run(self, *, dry_run: bool = False) -> JobResult:
         """Run each collection job in sequence and aggregate results."""
+        from nmdc_lakehouse.jobs.registry import get as _get_job
+
         total_read = total_written = 0
         tables: list[str] = []
-        for name, root_class in _db_collection_map().items():
+        for name in _db_collection_map():
             if name in self.skip:
                 continue
-            job = CollectionToParquetJob(name, root_class, self.mongo_uri, self.out_root)
+            job = _get_job(name)
             result = job.run(dry_run=dry_run)
             total_read += result.rows_read
             total_written += result.rows_written
@@ -184,8 +186,14 @@ def _make_factory(collection: str, root_class: str):
     return _factory
 
 
+# Collections registered by direct_mongo_to_parquet — skip here to avoid
+# double-registration. Keep in sync with DIRECT_COLLECTIONS in that module.
+_DIRECT_COLLECTIONS = frozenset({"functional_annotation_agg"})
+
 # Register one job per Database slot at import time.
 for _collection, _root_class in _db_collection_map().items():
+    if _collection in _DIRECT_COLLECTIONS:
+        continue
     register(_collection)(_make_factory(_collection, _root_class))
 
 

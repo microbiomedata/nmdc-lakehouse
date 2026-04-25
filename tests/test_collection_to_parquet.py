@@ -49,6 +49,16 @@ def test_collection_job_instance():
     assert job.root_class == "Study"
 
 
+def test_direct_collections_not_collection_to_parquet():
+    """DIRECT_COLLECTIONS are registered as DirectMongoToParquetJob, not CollectionToParquetJob."""
+    from nmdc_lakehouse.jobs.direct_mongo_to_parquet import DIRECT_COLLECTIONS, DirectMongoToParquetJob
+
+    for name in DIRECT_COLLECTIONS:
+        job = get(name)
+        assert isinstance(job, DirectMongoToParquetJob), f"{name} should use DirectMongoToParquetJob"
+        assert not isinstance(job, CollectionToParquetJob)
+
+
 def test_all_collections_job_instance():
     """registry.get('all-collections') returns an AllCollectionsToParquetJob."""
     job = get("all-collections")
