@@ -26,7 +26,19 @@ NERSC requires MFA for all SSH connections. Enroll after your account is approve
 - Follow [NERSC MFA setup instructions](https://docs.nersc.gov/connect/mfa/).
 - You will need a TOTP authenticator app (Google Authenticator, Authy, etc.).
 
-### 3. `sshproxy` binary
+### 3. `autossh`
+
+Required to keep the tunnel alive for multi-hour ETL jobs. Plain `ssh` dies permanently on a connection drop; `autossh` detects the drop and reconnects automatically.
+
+```bash
+# Debian/Ubuntu
+sudo apt install autossh
+
+# macOS
+brew install autossh
+```
+
+### 4. `sshproxy` binary
 
 `sshproxy` exchanges your NERSC password + OTP for a short-lived SSH key/certificate
 pair (`~/.ssh/nersc` + `~/.ssh/nersc-cert.pub`, 24-hour lifetime). Without it you
@@ -36,7 +48,7 @@ will be prompted for a password + OTP on every SSH command.
   `~/bin/` (or anywhere on your `$PATH`).
 - Make it executable: `chmod +x ~/bin/sshproxy`
 
-### 4. MongoDB credentials for the NMDC production instance
+### 5. MongoDB credentials for the NMDC production instance
 
 Each developer gets a personal MongoDB username and password. Ask the NMDC
 infrastructure team (currently Eric Cavanna or Patrick Kalita) in the NMDC Slack
@@ -75,9 +87,11 @@ The tunnel also closes when the terminal exits.
 sshproxy -u <your-nersc-username>
 
 # 2. Open the SSH tunnel — leave this terminal open while you work
-ssh -i ~/.ssh/jump-dev.microbiomedata.org.private_key \
+# autossh reconnects automatically if the tunnel drops (required for overnight jobs)
+autossh -M 0 -i ~/.ssh/jump-dev.microbiomedata.org.private_key \
     -L 27124:runtime-api-mongodb-headless.nmdc-prod.svc.cluster.local:27017 \
     -o ServerAliveInterval=60 \
+    -o ServerAliveCountMax=3 \
     ssh-mongo@jump-dev.microbiomedata.org
 ```
 

@@ -62,12 +62,14 @@ test-integration:
 
 nmdc_jump_key := env_var_or_default("NMDC_JUMP_KEY", "~/.ssh/jump-dev.microbiomedata.org.private_key")
 
-# Open the GCP SSH tunnel — leave this terminal open while running ETL jobs.
+# Open the GCP SSH tunnel via autossh (auto-reconnects on drop).
+# Requires: apt install autossh  /  brew install autossh
 # Override the key path with NMDC_JUMP_KEY if needed.
 tunnel:
-    ssh -i {{nmdc_jump_key}} \
+    autossh -M 0 -i {{nmdc_jump_key}} \
         -L 27124:runtime-api-mongodb-headless.nmdc-prod.svc.cluster.local:27017 \
         -o ServerAliveInterval=60 \
+        -o ServerAliveCountMax=3 \
         ssh-mongo@jump-dev.microbiomedata.org
 
 # ---------- Run / Jobs ----------
