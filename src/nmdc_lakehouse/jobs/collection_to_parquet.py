@@ -15,7 +15,9 @@ Usage::
 
 from __future__ import annotations
 
+import logging
 import os
+import time
 from pathlib import Path
 
 from nmdc_lakehouse.config import LakehouseSettings, MongoSettings
@@ -24,6 +26,8 @@ from nmdc_lakehouse.jobs.registry import register
 from nmdc_lakehouse.sinks.parquet_sink import ParquetSink
 from nmdc_lakehouse.sources.mongo_source import MongoSource
 from nmdc_lakehouse.transforms.flatteners import SchemaDrivenFlattener
+
+logger = logging.getLogger(__name__)
 
 
 def _db_collection_map() -> dict[str, str]:
@@ -83,12 +87,18 @@ class CollectionToParquetJob(Job):
             return JobResult(job_name=self.name, rows_read=rows_read, rows_written=0, tables_written=())
 
         drop_empty = os.environ.get("LAKEHOUSE_DROP_EMPTY_COLS", "").lower() in ("1", "true", "yes")
+        log_interval = int(os.environ.get("LAKEHOUSE_LOG_INTERVAL", "100000"))
         rows_read = 0
+        t0 = time.monotonic()
 
         def _counted(rows):
             nonlocal rows_read
             for row in rows:
                 rows_read += 1
+                if log_interval > 0 and rows_read % log_interval == 0:
+                    elapsed = time.monotonic() - t0
+                    rate = rows_read / elapsed if elapsed > 0 else 0
+                    logger.info("%s: %d rows (%.0f rows/s)", self.collection, rows_read, rate)
                 yield row
 
         rows_written: int = sink.write(_counted(flat_rows), table=self.collection, drop_empty_cols=drop_empty) or 0
