@@ -141,6 +141,20 @@ Throughput through the GCP SSH tunnel is approximately **1,100–1,200 records/s
 `functional_annotation_agg` has ~54.8 million records and should be run separately
 overnight. All other schema collections total roughly 400K records.
 
+### Expected log output
+
+Each collection produces three linkml-store INFO lines that look alarming but are normal:
+
+```
+INFO - Initializing databases        # linkml-store opening a fresh client
+INFO - Attaching nmdc                # connecting to the nmdc database
+INFO - No metadata for <coll>; no derivations  # no pre-loaded schema cache — expected
+```
+
+`"No metadata … no derivations"` does **not** mean the collection is empty or missing.
+linkml-store uses the installed nmdc-schema at runtime instead of a cached metadata
+object, so this message is expected for every collection.
+
 ### Step 1 — all collections except the large annotation aggregate (~10–20 min)
 
 ```bash
