@@ -90,7 +90,7 @@ class DirectMongoToParquetJob(Job):
 
             total = mongo_coll.estimated_document_count()
             total_str = f"~{total:,}" if total else "?"
-            logger.info("%s: starting (~%s records)", self.collection, total_str)
+            logger.info("%s: starting (%s records)", self.collection, total_str)
 
             log_interval = int(os.environ.get("LAKEHOUSE_LOG_INTERVAL", "1000000"))
             heartbeat_secs = int(os.environ.get("LAKEHOUSE_HEARTBEAT_SECS", "60"))
@@ -138,7 +138,8 @@ class DirectMongoToParquetJob(Job):
                     yield doc
 
             if dry_run:
-                rows_written = sum(1 for _ in _stream())
+                for _ in _stream():
+                    pass
                 return JobResult(
                     job_name=self.name,
                     rows_read=rows_read,

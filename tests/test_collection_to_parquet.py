@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import nmdc_lakehouse.jobs.collection_to_parquet  # noqa: F401 — triggers registration
+import nmdc_lakehouse.jobs  # noqa: F401 — registers all built-in jobs including direct ones
 from nmdc_lakehouse.jobs.collection_to_parquet import (
     AllCollectionsToParquetJob,
     CollectionToParquetJob,
