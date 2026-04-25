@@ -40,6 +40,7 @@ Thumbs.db
 /tmp/
 /output/
 /lakehouse/
+/lakehouse_backup*/
 /local/
 *.parquet
 *.iceberg/
