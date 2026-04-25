@@ -77,6 +77,7 @@ sshproxy -u <your-nersc-username>
 # 2. Open the SSH tunnel — leave this terminal open while you work
 ssh -i ~/.ssh/jump-dev.microbiomedata.org.private_key \
     -L 27124:runtime-api-mongodb-headless.nmdc-prod.svc.cluster.local:27017 \
+    -o ServerAliveInterval=60 \
     ssh-mongo@jump-dev.microbiomedata.org
 ```
 

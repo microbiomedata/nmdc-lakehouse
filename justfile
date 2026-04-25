@@ -80,8 +80,9 @@ etl-collections:
     time uv run nmdc-lakehouse run-job all-collections --skip functional_annotation_agg 2>&1 | tee "$log"
 
 # Convert functional_annotation_agg to Parquet (54.8M records — run overnight).
-# Requires the GCP SSH tunnel to be open — see docs/mongodb-connection.md.
-# Logs to local/etl-annotations-<timestamp>.log
+# Requires the GCP SSH tunnel to be open with -o ServerAliveInterval=60.
+# Run both the tunnel and this recipe inside screen or tmux so they survive
+# terminal close. Logs to local/etl-annotations-<timestamp>.log
 etl-annotations:
     #!/usr/bin/env bash
     set -euo pipefail
