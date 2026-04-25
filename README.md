@@ -8,8 +8,8 @@ and writes the results to **lakehouse-ready** formats
 (Parquet / Apache Iceberg), including references to the large genomic
 sequence and other bulk data files that accompany metadata records.
 
-> Status: **project scaffold** – directory layout, build system, and
-> developer tooling only. No ETL logic has been implemented yet.
+> Status: **active development** – core ETL pipeline is functional;
+> running against NMDC production MongoDB via GCP SSH tunnel.
 
 ## Layout
 
@@ -62,22 +62,30 @@ just cli --help     # show the CLI
 
 ## Configuration
 
-Database connection settings are read from the environment. At minimum:
+Copy `.env.example` to `.env` and fill in your credentials — `just` and the
+CLI load it automatically:
 
 ```bash
-# Mongo (via linkml-store)
-export MONGO_HOST=localhost
-export MONGO_PORT=27017
-export MONGO_DB=nmdc
-export MONGO_USERNAME=admin
-export MONGO_PASSWORD=...
-
-# Postgres (optional)
-export POSTGRES_DSN=postgresql://user:pass@host:5432/nmdc
-
-# Lakehouse output
-export LAKEHOUSE_ROOT=/path/to/lakehouse   # local dir or s3://... uri
+cp .env.example .env
 ```
+
+Key variables (full list in `.env.example`):
+
+| Variable | Default | Notes |
+|---|---|---|
+| `MONGO_HOST` | `localhost` | |
+| `MONGO_PORT` | `27017` | Use `27124` for the GCP SSH tunnel |
+| `MONGO_DBNAME` | `nmdc` | |
+| `MONGO_USERNAME` | `admin` | Personal MongoDB account — see connection guide |
+| `MONGO_PASSWORD` | | |
+| `MONGO_AUTH_SOURCE` | `admin` | Authentication database |
+| `MONGO_REPLICA_SET` | | Optional replica set name |
+| `MONGO_DIRECT_CONNECTION` | `false` | Set `true` when using the SSH tunnel |
+| `LAKEHOUSE_ROOT` | `./lakehouse` | Local path or `s3://` URI |
+
+For production access via the GCP SSH tunnel, see
+**[docs/mongodb-connection.md](docs/mongodb-connection.md)** for the full
+setup procedure (NERSC prerequisites, key installation, tunnel command).
 
 ## Job runner
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from nmdc_lakehouse.config import LakehouseSettings, MongoSettings
 from nmdc_lakehouse.jobs.base import Job, JobResult
 from nmdc_lakehouse.jobs.registry import register
 from nmdc_lakehouse.sinks.parquet_sink import ParquetSink
@@ -26,9 +27,9 @@ _ROOT_CLASS = "Biosample"
 
 @register("biosamples-to-parquet")
 def _factory() -> "BiosampleToParquetJob":
-    """Construct a BiosampleToParquetJob from environment variables."""
-    mongo_uri = os.environ.get("MONGO_URI", "mongodb://localhost:27017/nmdc_lakehouse_prep")
-    out_root = Path(os.environ.get("LAKEHOUSE_ROOT", "./local/parquet"))
+    """Construct a BiosampleToParquetJob from environment / .env settings."""
+    mongo_uri = MongoSettings().uri
+    out_root = LakehouseSettings().root
     return BiosampleToParquetJob(mongo_uri=mongo_uri, out_root=out_root)
 
 
