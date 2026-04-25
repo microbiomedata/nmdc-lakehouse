@@ -45,6 +45,14 @@ class MongoSource:
             self._db = self._client.attach_database(self.handle, alias=self.alias)
         return self._db
 
+    def estimated_count(self, collection: str) -> int | None:
+        """Return the estimated document count for ``collection``, or None on error."""
+        try:
+            coll = self.db.get_collection(collection, create_if_not_exists=False)
+            return coll.size()
+        except Exception:
+            return None
+
     def iter_records(
         self,
         collection: str,

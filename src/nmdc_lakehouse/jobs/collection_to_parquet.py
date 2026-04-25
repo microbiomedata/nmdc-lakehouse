@@ -88,6 +88,8 @@ class CollectionToParquetJob(Job):
 
         drop_empty = os.environ.get("LAKEHOUSE_DROP_EMPTY_COLS", "").lower() in ("1", "true", "yes")
         log_interval = int(os.environ.get("LAKEHOUSE_LOG_INTERVAL", "100000"))
+        total = source.estimated_count(self.collection)
+        total_str = f"~{total:,}" if total else "?"
         rows_read = 0
         t0 = time.monotonic()
 
@@ -98,7 +100,13 @@ class CollectionToParquetJob(Job):
                 if log_interval > 0 and rows_read % log_interval == 0:
                     elapsed = time.monotonic() - t0
                     rate = rows_read / elapsed if elapsed > 0 else 0
-                    logger.info("%s: %d rows (%.0f rows/s)", self.collection, rows_read, rate)
+                    logger.info(
+                        "%s: %d / %s rows (%.0f rows/s)",
+                        self.collection,
+                        rows_read,
+                        total_str,
+                        rate,
+                    )
                 yield row
 
         rows_written: int = sink.write(_counted(flat_rows), table=self.collection, drop_empty_cols=drop_empty) or 0
