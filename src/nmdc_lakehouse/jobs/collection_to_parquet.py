@@ -87,7 +87,7 @@ class CollectionToParquetJob(Job):
             return JobResult(job_name=self.name, rows_read=rows_read, rows_written=0, tables_written=())
 
         drop_empty = os.environ.get("LAKEHOUSE_DROP_EMPTY_COLS", "").lower() in ("1", "true", "yes")
-        log_interval = int(os.environ.get("LAKEHOUSE_LOG_INTERVAL", "1000000"))
+        log_interval = int(os.environ.get("LAKEHOUSE_LOG_INTERVAL", "10000"))
         total = source.estimated_count(self.collection)
         total_str = f"~{total:,}" if total else "?"
         logger.info("%s: starting (~%s records)", self.collection, total_str)
