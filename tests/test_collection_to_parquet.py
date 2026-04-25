@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import nmdc_lakehouse.jobs.collection_to_parquet  # noqa: F401 — triggers registration
+import nmdc_lakehouse.jobs  # noqa: F401 — registers all built-in jobs including direct ones
 from nmdc_lakehouse.jobs.collection_to_parquet import (
     AllCollectionsToParquetJob,
     CollectionToParquetJob,
@@ -47,6 +47,16 @@ def test_collection_job_instance():
     assert isinstance(job, CollectionToParquetJob)
     assert job.collection == "study_set"
     assert job.root_class == "Study"
+
+
+def test_direct_collections_not_collection_to_parquet():
+    """DIRECT_COLLECTIONS are registered as DirectMongoToParquetJob, not CollectionToParquetJob."""
+    from nmdc_lakehouse.jobs.direct_mongo_to_parquet import DIRECT_COLLECTIONS, DirectMongoToParquetJob
+
+    for name in DIRECT_COLLECTIONS:
+        job = get(name)
+        assert isinstance(job, DirectMongoToParquetJob), f"{name} should use DirectMongoToParquetJob"
+        assert not isinstance(job, CollectionToParquetJob)
 
 
 def test_all_collections_job_instance():
