@@ -87,19 +87,28 @@ class CollectionToParquetJob(Job):
             return JobResult(job_name=self.name, rows_read=rows_read, rows_written=0, tables_written=())
 
         drop_empty = os.environ.get("LAKEHOUSE_DROP_EMPTY_COLS", "").lower() in ("1", "true", "yes")
-        log_interval = int(os.environ.get("LAKEHOUSE_LOG_INTERVAL", "100000"))
+        log_interval = int(os.environ.get("LAKEHOUSE_LOG_INTERVAL", "10000"))
+        heartbeat_secs = int(os.environ.get("LAKEHOUSE_HEARTBEAT_SECS", "60"))
         total = source.estimated_count(self.collection)
         total_str = f"~{total:,}" if total else "?"
+        logger.info("%s: starting (~%s records)", self.collection, total_str)
         rows_read = 0
+        first_row_logged = False
         t0 = time.monotonic()
+        last_log_t = t0
 
         def _counted(rows):
-            nonlocal rows_read
+            nonlocal rows_read, first_row_logged, last_log_t
             for row in rows:
                 rows_read += 1
+                now = time.monotonic()
+                if not first_row_logged:
+                    first_row_logged = True
+                    logger.info("%s: first row received", self.collection)
+                    last_log_t = now
+                elapsed = now - t0
+                rate = rows_read / elapsed if elapsed > 0 else 0
                 if log_interval > 0 and rows_read % log_interval == 0:
-                    elapsed = time.monotonic() - t0
-                    rate = rows_read / elapsed if elapsed > 0 else 0
                     logger.info(
                         "%s: %d / %s rows (%.0f rows/s)",
                         self.collection,
@@ -107,6 +116,17 @@ class CollectionToParquetJob(Job):
                         total_str,
                         rate,
                     )
+                    last_log_t = now
+                elif heartbeat_secs > 0 and (now - last_log_t) >= heartbeat_secs:
+                    logger.info(
+                        "%s: heartbeat — %d / %s rows (%.0f rows/s, %.1f min elapsed)",
+                        self.collection,
+                        rows_read,
+                        total_str,
+                        rate,
+                        elapsed / 60,
+                    )
+                    last_log_t = now
                 yield row
 
         rows_written: int = sink.write(_counted(flat_rows), table=self.collection, drop_empty_cols=drop_empty) or 0
