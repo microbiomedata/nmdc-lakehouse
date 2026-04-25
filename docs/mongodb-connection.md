@@ -137,9 +137,10 @@ uv run nmdc-lakehouse run-job biosample_set --dry-run
 
 ## Running ETL jobs
 
-Throughput through the GCP SSH tunnel is approximately **1,100–1,200 records/sec**.
+Throughput through the GCP SSH tunnel is approximately **1,500–2,000 records/sec**
+(observed: 364,957 rows in ~3.5 minutes on 2026-04-24).
 `functional_annotation_agg` has ~54.8 million records and should be run separately
-overnight. All other schema collections total roughly 400K records.
+overnight. All other schema collections total ~365K records.
 
 ### Expected log output
 
@@ -155,7 +156,7 @@ INFO - No metadata for <coll>; no derivations  # no pre-loaded schema cache — 
 linkml-store uses the installed nmdc-schema at runtime instead of a cached metadata
 object, so this message is expected for every collection.
 
-### Step 1 — all collections except the large annotation aggregate (~10–20 min)
+### Step 1 — all collections except the large annotation aggregate (~5 min)
 
 ```bash
 uv run nmdc-lakehouse run-job all-collections \
