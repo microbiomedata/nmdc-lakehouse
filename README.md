@@ -78,6 +78,8 @@ Key variables (full list in `.env.example`):
 | `MONGO_DBNAME` | `nmdc` | |
 | `MONGO_USERNAME` | `admin` | Personal MongoDB account — see connection guide |
 | `MONGO_PASSWORD` | | |
+| `MONGO_AUTH_SOURCE` | `admin` | Authentication database |
+| `MONGO_REPLICA_SET` | | Optional replica set name |
 | `MONGO_DIRECT_CONNECTION` | `false` | Set `true` when using the SSH tunnel |
 | `LAKEHOUSE_ROOT` | `./lakehouse` | Local path or `s3://` URI |
 

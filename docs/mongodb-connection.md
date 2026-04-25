@@ -108,9 +108,10 @@ replica set whose members advertise internal Kubernetes hostnames. Without
 it, pymongo tries to reach those hostnames directly and times out.
 `MONGO_REPLICA_SET` can be left blank.
 
-The `just` recipes and `nmdc-lakehouse` CLI load `.env` automatically via
-pydantic-settings (`MONGO_` prefix). You can also export these variables in your
-shell if you prefer not to use a file.
+The `just` recipes load `.env` via `set dotenv-load := true` in the justfile.
+The `nmdc-lakehouse` CLI loads `.env` via pydantic-settings (`env_file=".env"`).
+Both mechanisms read the same file; exported shell variables take precedence over
+`.env` in both cases.
 
 > **Never commit `.env`** — it is git-ignored. Credentials stay local.
 

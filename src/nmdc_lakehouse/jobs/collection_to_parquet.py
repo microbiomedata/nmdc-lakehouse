@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from nmdc_lakehouse.config import MongoSettings
+from nmdc_lakehouse.config import LakehouseSettings, MongoSettings
 from nmdc_lakehouse.jobs.base import Job, JobResult
 from nmdc_lakehouse.jobs.registry import register
 from nmdc_lakehouse.sinks.parquet_sink import ParquetSink
@@ -140,7 +140,7 @@ class AllCollectionsToParquetJob(Job):
 def _make_factory(collection: str, root_class: str):
     def _factory():
         mongo_uri = MongoSettings().uri
-        out_root = Path(os.environ.get("LAKEHOUSE_ROOT", "./local/parquet"))
+        out_root = LakehouseSettings().root
         return CollectionToParquetJob(collection, root_class, mongo_uri, out_root)
 
     return _factory
@@ -154,7 +154,7 @@ for _collection, _root_class in _db_collection_map().items():
 @register("all-collections")
 def _all_factory():
     mongo_uri = MongoSettings().uri
-    out_root = Path(os.environ.get("LAKEHOUSE_ROOT", "./local/parquet"))
+    out_root = LakehouseSettings().root
     skip_raw = os.environ.get("LAKEHOUSE_SKIP_COLLECTIONS", "")
     skip = {s.strip() for s in skip_raw.split(",") if s.strip()}
     return AllCollectionsToParquetJob(mongo_uri, out_root, skip=skip)

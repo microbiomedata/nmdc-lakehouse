@@ -38,11 +38,12 @@ class MongoSettings(BaseSettings):
         percent-escaped. Appends query parameters for ``replicaSet`` and/or
         ``directConnection`` when set.
 
-        ``direct_connection=True`` is required when connecting through an SSH
-        tunnel to a replica-set MongoDB: the server advertises internal
-        hostnames that are unreachable from outside the cluster, so pymongo
-        must be told to skip replica-set discovery and use only the provided
-        host:port.
+        ``authSource`` is appended whenever ``password`` is set (almost always
+        ``admin`` for NMDC). ``direct_connection=True`` is required when
+        connecting through an SSH tunnel to a replica-set MongoDB: the server
+        advertises internal hostnames that are unreachable from outside the
+        cluster, so pymongo must skip replica-set discovery and use only the
+        provided host:port.
         """
         auth = ""
         if self.password:

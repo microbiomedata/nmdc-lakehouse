@@ -94,7 +94,18 @@ lakehouse_root := env_var_or_default("LAKEHOUSE_ROOT", "./lakehouse")
 
 # Delete every generated Parquet file under LAKEHOUSE_ROOT.
 clean-parquet:
-    rm -rf "{{lakehouse_root}}"/*
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target="$(realpath -m "{{lakehouse_root}}")"
+    repo_root="$(pwd -P)"
+    case "$target" in
+        ""|"/") echo "Refusing to delete unsafe LAKEHOUSE_ROOT: '{{lakehouse_root}}'" >&2; exit 1 ;;
+    esac
+    case "$target" in
+        "$repo_root"/*) ;;
+        *) echo "Refusing to delete outside repository: '$target'" >&2; exit 1 ;;
+    esac
+    rm -rf -- "$target"/*
 
 # ---------- Docs ----------
 
