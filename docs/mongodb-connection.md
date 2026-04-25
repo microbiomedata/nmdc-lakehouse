@@ -139,14 +139,19 @@ uv run nmdc-lakehouse run-job biosample_set --dry-run
 
 ## Running ETL jobs
 
-Throughput through the GCP SSH tunnel is approximately **1,500–2,000 records/sec**
-(observed: 364,957 rows in ~3.5 minutes on 2026-04-24).
-`functional_annotation_agg` has ~54.8 million records and should be run separately
-overnight. All other schema collections total ~365K records.
+All collections except `functional_annotation_agg` go through the linkml-store path.
+Throughput is approximately **1,500–2,000 records/sec** for flat collections
+(observed: 364,957 rows in ~3.5 minutes on 2026-04-24). Polymorphic collections
+(e.g. `workflow_execution_set`) degrade to ~200–300 rows/s after the first 10K records
+due to per-record schema dispatch in linkml-store (tracked upstream at
+[linkml-store#69](https://github.com/linkml/linkml-store/issues/69)).
+
+`functional_annotation_agg` (54.8M records) bypasses linkml-store entirely via a
+raw pymongo cursor, completing in **~17 minutes** at ~30,000 rows/s.
 
 ### Expected log output
 
-Each collection produces three linkml-store INFO lines that look alarming but are normal:
+Each collection going through linkml-store produces three INFO lines that look alarming but are normal:
 
 ```
 INFO - Initializing databases        # linkml-store opening a fresh client
@@ -165,7 +170,7 @@ uv run nmdc-lakehouse run-job all-collections \
     --skip functional_annotation_agg
 ```
 
-### Step 2 — functional annotation aggregate (~13 hours, run overnight)
+### Step 2 — functional annotation aggregate (~17 min)
 
 ```bash
 uv run nmdc-lakehouse run-job functional_annotation_agg
