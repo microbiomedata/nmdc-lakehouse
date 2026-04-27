@@ -129,18 +129,18 @@ class CollectionToParquetJob(Job):
                 rate = rows_read / elapsed if elapsed > 0 else 0
                 if log_interval > 0 and rows_read % log_interval == 0:
                     logger.info(
-                        "%s: %d / %s rows (%.0f rows/s)",
+                        "%s: %s / %s rows (%.0f rows/s)",
                         self.collection,
-                        rows_read,
+                        f"{rows_read:,}",
                         total_str,
                         rate,
                     )
                     last_log_t = now
                 elif heartbeat_secs > 0 and (now - last_log_t) >= heartbeat_secs:
                     logger.info(
-                        "%s: heartbeat — %d / %s rows (%.0f rows/s, %.1f min elapsed)",
+                        "%s: heartbeat — %s / %s rows (%.0f rows/s, %.1f min elapsed)",
                         self.collection,
-                        rows_read,
+                        f"{rows_read:,}",
                         total_str,
                         rate,
                         elapsed / 60,

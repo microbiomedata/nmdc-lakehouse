@@ -230,7 +230,7 @@ def side_table_rows(
     # Constrain dispatch to root_class hierarchy; an out-of-hierarchy type
     # would produce table names that have no ClassDef in side_table_class_defs.
     if effective_class != root_class:
-        ancestors = schema_view.all_ancestors(effective_class, mixins=True) or []
+        ancestors = schema_view.class_ancestors(effective_class, mixins=True) or []
         if root_class not in ancestors:
             effective_class = root_class
     parent_id = record.get("id", "")

@@ -64,6 +64,42 @@ URLs but not loaded by this pipeline. A separate loading mechanism is needed (se
 KEGG, COG, GTDB taxonomy reference tables. Currently in `nmdc_arkin` (Gazi's tenant) with
 no refresh path. Not part of the NMDC data model; not owned by this pipeline.
 
+## Normalization decisions — primary tables vs side tables
+
+Every multivalued slot in the NMDC schema falls into one of three categories,
+each handled differently:
+
+### Scalar multivalued slots
+Simple lists of primitive values (`alternative_identifiers`, `analysis_type`,
+`funding_sources`, `tillage`, etc.). In the primary flat table these are
+**pipe-joined into a single string column** (`"a|b|c"`). A side table (junction
+table with `parent_id` + value) is also generated for any slot that has data.
+
+**Open question:** The pipe-joined column and the junction table are redundant.
+The current default emits both. A `LAKEHOUSE_SCALAR_MV_MODE` env var is planned
+to let callers choose `concatenate` (primary table only, no scalar side tables —
+reduces 148 → 78 side tables), `tables` (both), or `split` (junction table only,
+drop the pipe-joined column from the primary table).
+
+### Ref-class multivalued slots
+Lists of references to other NMDC objects (`associated_studies`, `has_input`,
+`has_output`, `instrument_used`, etc.). These are true M:M relationships. They
+are pipe-joined in the primary flat table **and** emitted as junction side tables
+(`parent_id` + foreign key string). The side table is the correct relational form
+for joins; the pipe-joined column is a convenience for simple string searches.
+
+### Inlined multivalued slots
+Lists of embedded objects (`mags_list`, `chem_administration`, `organism_count`,
+`agrochem_addition`, etc.). These cannot be represented in the primary flat table
+without data loss. Each becomes a **child side table** (flattened object rows with
+`parent_id`). There is no redundancy — the side table is the only representation.
+
+### Side table naming
+All side tables follow the pattern `{collection}_{slot_name}`, e.g.
+`biosample_set_associated_studies`, `workflow_execution_set_mags_list`.
+Only slots that have at least one populated record are written; empty side
+tables are silently skipped at runtime.
+
 ## Jobs and the runner (`nmdc_lakehouse.jobs`, `nmdc_lakehouse.cli`)
 
 A `Job` composes a source, zero or more transforms, and a sink. Jobs are
