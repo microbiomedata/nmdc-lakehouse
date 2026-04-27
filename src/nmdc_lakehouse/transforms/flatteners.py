@@ -7,25 +7,20 @@ from typing import Any, Iterable, Iterator
 from linkml_runtime import SchemaView
 from linkml_runtime.linkml_model import ClassDefinition, SlotDefinition
 
-# Sentinel joining character for multivalued scalar slots. Matches the
-# convention used by external-metadata-awareness's flatten_nmdc_collections.py.
-LIST_JOIN = "|"
-
 
 def flatten_record(record: dict, schema_view: SchemaView, root_class: str) -> dict:
-    """Flatten a single nested record into a flat dict of scalar values.
+    """Flatten a single nested record into a flat dict.
 
     Decision tree, schema-driven (each slot of the effective class):
 
     - scalar slot, not multivalued: pass the value through unchanged
-    - scalar slot, multivalued: pipe-join the list into a string
+    - scalar slot, multivalued: emit a native Python list
     - class range, not inlined (reference by ID): treat the value(s) as
-      scalar identifiers — pass through or pipe-join like a scalar slot
+      scalar identifiers — pass through or emit as list
     - class range, inlined, not multivalued: expand the nested object's
       scalar slots as ``<slot>_<subslot>`` columns (one level deep)
-    - class range, inlined, multivalued: SKIPPED in this pass (helper
-      tables are a follow-up; main-row columns would be either ambiguous
-      or lossy)
+    - class range, inlined, multivalued: SKIPPED in this pass (child
+      side tables capture these rows)
 
     Polymorphism: when a record has a ``type`` field naming a subclass of
     ``root_class`` (or of an inlined slot's declared range), the concrete
@@ -46,7 +41,7 @@ def flatten_record(record: dict, schema_view: SchemaView, root_class: str) -> di
 
     Returns:
         A flat dict. Keys are slot names (or ``<slot>_<subslot>`` for
-        expanded inlined objects). Values are scalars or pipe-joined strings.
+        expanded inlined objects). Multivalued slots are Python lists.
     """
     out: dict[str, Any] = {}
     effective_class = _dispatch_class(record, root_class, schema_view)
@@ -60,24 +55,18 @@ def flatten_record(record: dict, schema_view: SchemaView, root_class: str) -> di
 
         range_class = _range_class(slot, schema_view)
 
-        # Class ranges that aren't inlined are references — treat as scalars.
+        # Class ranges that aren't inlined are references — IDs as scalars or lists.
         if range_class is not None and not _is_inlined(slot, schema_view):
-            if slot.multivalued:
-                if not isinstance(value, list):
-                    value = [value]
-                out[slot.name] = LIST_JOIN.join(_stringify(v) for v in value)
-            else:
-                out[slot.name] = value
+            if slot.multivalued and not isinstance(value, list):
+                value = [value]
+            out[slot.name] = value
             continue
 
         if range_class is None:
             # Scalar range.
-            if slot.multivalued:
-                if not isinstance(value, list):
-                    value = [value]
-                out[slot.name] = LIST_JOIN.join(_stringify(v) for v in value)
-            else:
-                out[slot.name] = value
+            if slot.multivalued and not isinstance(value, list):
+                value = [value]
+            out[slot.name] = value
             continue
 
         # Class range, inlined.
@@ -144,7 +133,7 @@ def _dispatch_class(record: dict, declared_class: str, schema_view: SchemaView) 
 def _expand_inlined(value: dict, class_def: ClassDefinition, schema_view: SchemaView) -> dict[str, Any]:
     """Flatten a single-valued inlined object one level deep.
 
-    Scalar subslots pass through; multivalued scalars pipe-join. Nested
+    Scalar subslots pass through; multivalued scalars become lists. Nested
     classes inside the inlined object are expanded one more level (so
     ``env_broad_scale.term.id`` becomes ``env_broad_scale_term_id``), then
     anything deeper is dropped. This matches the common NMDC shape where
@@ -164,12 +153,9 @@ def _expand_inlined(value: dict, class_def: ClassDefinition, schema_view: Schema
         sub_range = _range_class(sub_slot, schema_view)
         if sub_range is None:
             # Scalar.
-            if sub_slot.multivalued:
-                if not isinstance(sub_value, list):
-                    sub_value = [sub_value]
-                out[sub_slot.name] = LIST_JOIN.join(_stringify(v) for v in sub_value)
-            else:
-                out[sub_slot.name] = sub_value
+            if sub_slot.multivalued and not isinstance(sub_value, list):
+                sub_value = [sub_value]
+            out[sub_slot.name] = sub_value
             continue
         # One more level of nesting allowed: expand scalar subslots of this inner class.
         if not sub_slot.multivalued and isinstance(sub_value, dict):
@@ -184,20 +170,10 @@ def _expand_inlined(value: dict, class_def: ClassDefinition, schema_view: Schema
                 if _range_class(inner_slot, schema_view) is not None:
                     # Three levels deep — dropped.
                     continue
-                if inner_slot.multivalued:
-                    if not isinstance(inner_value, list):
-                        inner_value = [inner_value]
-                    out[f"{sub_slot.name}_{inner_slot.name}"] = LIST_JOIN.join(_stringify(v) for v in inner_value)
-                else:
-                    out[f"{sub_slot.name}_{inner_slot.name}"] = inner_value
+                if inner_slot.multivalued and not isinstance(inner_value, list):
+                    inner_value = [inner_value]
+                out[f"{sub_slot.name}_{inner_slot.name}"] = inner_value
     return out
-
-
-def _stringify(value: Any) -> str:
-    """Coerce a value to its string representation for pipe-joining."""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    return str(value)
 
 
 def side_table_rows(
@@ -208,13 +184,15 @@ def side_table_rows(
 ) -> Iterator[tuple[str, dict]]:
     """Yield ``(table_name, row_dict)`` for every side table row from one record.
 
-    Three slot types produce side table rows:
+    Two slot types produce side table rows:
 
-    - **scalar multivalued** — one ``(parent_id, <slot_name>)`` row per element.
     - **ref_class multivalued** (class range, not inlined) — one
-      ``(parent_id, <slot_name>)`` row per referenced ID.
+      ``(parent_id, <slot_name>)`` junction row per referenced ID.
     - **inlined_class multivalued** — one flattened child-object row per element,
       with ``parent_id`` prepended.
+
+    Scalar multivalued slots are stored as native Parquet ARRAY columns in the
+    primary table and do NOT produce side table rows.
 
     ``table_name`` is ``{collection}_{slot_name}`` in all cases.
 
@@ -252,16 +230,19 @@ def side_table_rows(
         range_class = _range_class(slot, schema_view)
 
         if range_class is not None and _is_inlined(slot, schema_view):
+            # Inlined multivalued → child side table
             for child in value:
                 if not isinstance(child, dict):
                     continue
                 row = _expand_inlined(child, range_class, schema_view)
                 row["parent_id"] = parent_id
                 yield table_name, row
-        else:
+        elif range_class is not None:
+            # Ref-class multivalued → junction table (ARRAY also in primary)
             for v in value:
                 if v is not None:
                     yield table_name, {"parent_id": parent_id, slot.name: v}
+        # Scalar multivalued: ARRAY column in primary table, no side table row
 
 
 class SchemaDrivenFlattener:

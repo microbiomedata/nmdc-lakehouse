@@ -109,12 +109,13 @@ def test_flat_class_includes_scalar_slots(sv):
     assert "name" in flat.attributes
 
 
-def test_flat_class_pipe_joins_multivalued_scalar(sv):
-    """Multivalued scalar slots become a single string slot, with note."""
+def test_flat_class_multivalued_scalar_is_array(sv):
+    """Multivalued scalar slots have multivalued=True and retain their declared range."""
     flat = flatten_class_def(sv, "Record")
     tags = flat.attributes["tags"]
-    assert tags.range == "string"
-    assert "pipe-separated" in (tags.description or "")
+    assert tags.multivalued is True
+    assert tags.range == "string"  # default_range in test schema
+    assert "pipe-separated" not in (tags.description or "")
 
 
 def test_flat_class_treats_class_ref_as_scalar(sv):
@@ -122,7 +123,16 @@ def test_flat_class_treats_class_ref_as_scalar(sv):
     flat = flatten_class_def(sv, "Record")
     parent = flat.attributes["parent"]
     assert parent.range == "string"
+    assert parent.multivalued is False
     assert "Reference by identifier" in (parent.description or "")
+
+
+def test_flat_class_multivalued_ref_is_array_of_strings(sv):
+    """Multivalued ref-class slot becomes multivalued=True with string range."""
+    flat = flatten_class_def(sv, "Record")
+    assoc = flat.attributes["associated_studies"]
+    assert assoc.range == "string"
+    assert assoc.multivalued is True
 
 
 def test_flat_class_expands_inlined_object(sv):
@@ -167,14 +177,10 @@ def test_flatten_database_schema_yields_one_class_per_collection(sv):
 # ── side_table_class_defs ─────────────────────────────────────────────────────
 
 
-def test_side_table_scalar_junction(sv):
-    """Scalar multivalued slot produces a two-column junction ClassDef."""
+def test_side_table_scalar_no_classdef(sv):
+    """Scalar multivalued slots produce no side table ClassDef (ARRAY in primary)."""
     defs = dict(side_table_class_defs(sv, "Record", "record_set"))
-    assert "record_set_tags" in defs
-    cls = defs["record_set_tags"]
-    assert "parent_id" in cls.attributes
-    assert "tags" in cls.attributes
-    assert cls.attributes["parent_id"].range == "string"
+    assert "record_set_tags" not in defs
 
 
 def test_side_table_ref_class_junction(sv):
@@ -206,11 +212,11 @@ def test_side_table_single_valued_slots_excluded(sv):
     assert "record_set_parent" not in defs
 
 
-def test_side_table_includes_descendant_slots(sv):
-    """Subclass-specific multivalued slots appear via proper-descendants scan."""
+def test_side_table_excludes_descendant_scalar_slots(sv):
+    """Subclass-specific scalar multivalued slots have no side table (ARRAY in primary)."""
     defs = dict(side_table_class_defs(sv, "Process", "process_set"))
-    # extraction_targets is only on Extraction, a subclass of Process
-    assert "process_set_extraction_targets" in defs
+    # extraction_targets is scalar multivalued on Extraction — no side table
+    assert "process_set_extraction_targets" not in defs
 
 
 def test_side_table_output_sorted(sv):
@@ -220,9 +226,7 @@ def test_side_table_output_sorted(sv):
     assert names == sorted(names)
 
 
-def test_side_table_scalar_preserves_declared_range(sv):
-    """Non-string scalar multivalued slots retain their declared range in the ClassDef."""
+def test_side_table_scalar_integer_no_classdef(sv):
+    """Integer scalar multivalued slots produce no side table ClassDef (ARRAY in primary)."""
     defs = dict(side_table_class_defs(sv, "Record", "record_set"))
-    assert "record_set_scores" in defs
-    cls = defs["record_set_scores"]
-    assert cls.attributes["scores"].range == "integer"
+    assert "record_set_scores" not in defs

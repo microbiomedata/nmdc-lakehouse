@@ -36,6 +36,8 @@ classes:
   ControlledTermValue:
     attributes:
       has_raw_value:
+      aliases:
+        multivalued: true
       term:
         range: Term
 
@@ -108,16 +110,16 @@ def test_scalar_passthrough(sv):
     assert out == {"id": "r1", "name": "first", "depth": 3.5}
 
 
-def test_multivalued_scalar_pipe_joined(sv):
-    """Multivalued scalar slots are joined with '|'."""
+def test_multivalued_scalar_is_array(sv):
+    """Multivalued scalar slots become a native list (Parquet ARRAY)."""
     out = flatten_record({"id": "r1", "tags": ["a", "b", "c"]}, sv, "Record")
-    assert out["tags"] == "a|b|c"
+    assert out["tags"] == ["a", "b", "c"]
 
 
-def test_single_valued_scalar_not_wrapped_in_list(sv):
-    """A non-list value for a multivalued slot still works (wrapped into one)."""
+def test_single_valued_scalar_wrapped_in_list(sv):
+    """A non-list value for a multivalued slot is wrapped into a single-element list."""
     out = flatten_record({"id": "r1", "tags": "lonely"}, sv, "Record")
-    assert out["tags"] == "lonely"
+    assert out["tags"] == ["lonely"]
 
 
 def test_inlined_object_expanded_one_level(sv):
@@ -129,6 +131,16 @@ def test_inlined_object_expanded_one_level(sv):
     )
     assert out["description_has_raw_value"] == "notes here"
     assert "description" not in out
+
+
+def test_inlined_object_multivalued_subslot_is_array(sv):
+    """Multivalued scalar subslot inside a single-valued inlined object becomes a list."""
+    out = flatten_record(
+        {"id": "r1", "env_broad_scale": {"has_raw_value": "x", "aliases": ["a", "b"]}},
+        sv,
+        "Record",
+    )
+    assert out["env_broad_scale_aliases"] == ["a", "b"]
 
 
 def test_inlined_object_expanded_two_levels(sv):
@@ -149,14 +161,14 @@ def test_inlined_object_expanded_two_levels(sv):
     assert out["env_broad_scale_term_name"] == "freshwater river biome"
 
 
-def test_multivalued_class_ref_pipe_joined(sv):
-    """Multivalued class-range slot without inlined=True treats values as ID refs."""
+def test_multivalued_class_ref_is_array(sv):
+    """Multivalued class-range slot without inlined=True becomes a list of IDs."""
     out = flatten_record(
         {"id": "r1", "associated_studies": ["nmdc:sty-11-a", "nmdc:sty-11-b"]},
         sv,
         "Record",
     )
-    assert out["associated_studies"] == "nmdc:sty-11-a|nmdc:sty-11-b"
+    assert out["associated_studies"] == ["nmdc:sty-11-a", "nmdc:sty-11-b"]
 
 
 def test_single_class_ref_passthrough(sv):
@@ -206,12 +218,10 @@ def test_flattener_apply_yields_one_per_record(sv):
     assert out == [{"id": "r1", "name": "first"}, {"id": "r2", "name": "second"}]
 
 
-def test_boolean_scalars_stringified_in_list(sv):
-    """Booleans inside multivalued scalar lists are rendered as 'true'/'false'."""
-    # Not directly supported by the test schema, but _stringify is called for
-    # multivalued scalars — add a minimal case using tags.
+def test_boolean_scalars_preserved_in_array(sv):
+    """Booleans inside multivalued scalar lists are preserved as booleans."""
     out = flatten_record({"id": "r1", "tags": [True, False]}, sv, "Record")
-    assert out["tags"] == "true|false"
+    assert out["tags"] == [True, False]
 
 
 def test_polymorphic_dispatch_root_class(sv):
@@ -277,13 +287,10 @@ def test_polymorphic_dispatch_in_inlined_object(sv):
 # ── side_table_rows ────────────────────────────────────────────────────────────
 
 
-def test_side_table_scalar_multivalued(sv):
-    """Scalar multivalued slots produce one junction row per element."""
+def test_side_table_scalar_multivalued_no_rows(sv):
+    """Scalar multivalued slots produce no side table rows (ARRAY in primary table)."""
     rows = list(side_table_rows({"id": "r1", "tags": ["a", "b"]}, sv, "Record", "record_set"))
-    assert rows == [
-        ("record_set_tags", {"parent_id": "r1", "tags": "a"}),
-        ("record_set_tags", {"parent_id": "r1", "tags": "b"}),
-    ]
+    assert rows == []
 
 
 def test_side_table_ref_class_multivalued(sv):
@@ -343,14 +350,10 @@ def test_side_table_empty_list_skipped(sv):
     assert rows == []
 
 
-def test_side_table_preserves_non_string_types(sv):
-    """Integer values in side table rows are not cast to string."""
+def test_side_table_scalar_integer_no_rows(sv):
+    """Scalar integer multivalued slots produce no side table rows (ARRAY in primary table)."""
     rows = list(side_table_rows({"id": "r1", "scores": [1, 2, 3]}, sv, "Record", "record_set"))
-    assert rows == [
-        ("record_set_scores", {"parent_id": "r1", "scores": 1}),
-        ("record_set_scores", {"parent_id": "r1", "scores": 2}),
-        ("record_set_scores", {"parent_id": "r1", "scores": 3}),
-    ]
+    assert rows == []
 
 
 def test_side_table_dispatch_outside_hierarchy_falls_back(sv):
