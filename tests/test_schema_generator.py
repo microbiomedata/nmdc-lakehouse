@@ -12,6 +12,7 @@ from linkml_runtime import SchemaView
 from nmdc_lakehouse.transforms.schema_generator import (
     flatten_class_def,
     flatten_database_schema,
+    side_table_class_defs,
 )
 
 _SCHEMA_YAML = """
@@ -69,6 +70,10 @@ classes:
         inlined: true
       description:
         range: TextValue
+        inlined: true
+      chem_admin:
+        range: ControlledTermValue
+        multivalued: true
         inlined: true
       associated_studies:
         range: Term
@@ -154,3 +159,59 @@ def test_flatten_database_schema_yields_one_class_per_collection(sv):
 # emits exists in the generated class") will be added in a follow-up once
 # both #6 (flattener) and #12 (this) have landed and both helpers are in
 # the same source tree.
+
+
+# ── side_table_class_defs ─────────────────────────────────────────────────────
+
+
+def test_side_table_scalar_junction(sv):
+    """Scalar multivalued slot produces a two-column junction ClassDef."""
+    defs = dict(side_table_class_defs(sv, "Record", "record_set"))
+    assert "record_set_tags" in defs
+    cls = defs["record_set_tags"]
+    assert "parent_id" in cls.attributes
+    assert "tags" in cls.attributes
+    assert cls.attributes["parent_id"].range == "string"
+
+
+def test_side_table_ref_class_junction(sv):
+    """Ref-class multivalued slot produces a two-column junction ClassDef."""
+    defs = dict(side_table_class_defs(sv, "Record", "record_set"))
+    assert "record_set_associated_studies" in defs
+    cls = defs["record_set_associated_studies"]
+    assert "parent_id" in cls.attributes
+    assert "associated_studies" in cls.attributes
+    # ref type: value column is string (ID)
+    assert cls.attributes["associated_studies"].range == "string"
+
+
+def test_side_table_inlined_class_child(sv):
+    """Inlined-class multivalued slot produces child-object ClassDef with parent_id."""
+    defs = dict(side_table_class_defs(sv, "Record", "record_set"))
+    assert "record_set_chem_admin" in defs
+    cls = defs["record_set_chem_admin"]
+    assert "parent_id" in cls.attributes
+    # ControlledTermValue slots appear in the child schema
+    assert "has_raw_value" in cls.attributes
+
+
+def test_side_table_single_valued_slots_excluded(sv):
+    """Single-valued slots do not produce side tables."""
+    defs = dict(side_table_class_defs(sv, "Record", "record_set"))
+    assert "record_set_name" not in defs
+    assert "record_set_depth" not in defs
+    assert "record_set_parent" not in defs
+
+
+def test_side_table_includes_descendant_slots(sv):
+    """Subclass-specific multivalued slots appear via proper-descendants scan."""
+    defs = dict(side_table_class_defs(sv, "Process", "process_set"))
+    # extraction_targets is only on Extraction, a subclass of Process
+    assert "process_set_extraction_targets" in defs
+
+
+def test_side_table_output_sorted(sv):
+    """Output is sorted by table name for deterministic ordering."""
+    defs = side_table_class_defs(sv, "Record", "record_set")
+    names = [t for t, _ in defs]
+    assert names == sorted(names)

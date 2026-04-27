@@ -61,12 +61,22 @@ class CollectionToParquetJob(Job):
         self.name = collection
 
     def run(self, *, dry_run: bool = False) -> JobResult:
-        """Stream records from MongoDB through the flattener into Parquet."""
+        """Stream records from MongoDB through the flattener into Parquet.
+
+        Side tables (for all multivalued slots) are buffered in memory during
+        the primary stream and written after the primary table is complete.
+        All collections processed by this job are small enough that buffering
+        is safe; ``functional_annotation_agg`` uses ``DirectMongoToParquetJob``.
+        """
         from importlib.util import find_spec
 
         from linkml_runtime import SchemaView
 
-        from nmdc_lakehouse.transforms.schema_generator import flatten_class_def
+        from nmdc_lakehouse.transforms.flatteners import side_table_rows
+        from nmdc_lakehouse.transforms.schema_generator import (
+            flatten_class_def,
+            side_table_class_defs,
+        )
 
         spec = find_spec("nmdc_schema")
         if spec is None or not spec.submodule_search_locations:
@@ -79,7 +89,16 @@ class CollectionToParquetJob(Job):
         flat_class = flatten_class_def(schema_view, self.root_class)
         sink = ParquetSink(self.out_root, class_def=flat_class)
 
-        records = source.iter_records(self.collection)
+        # Buffer for side table rows accumulated during the primary stream.
+        side_buffer: dict[str, list[dict]] = {}
+
+        def _tee_side_tables(raw_records):
+            for record in raw_records:
+                for table_name, row in side_table_rows(record, schema_view, self.root_class, self.collection):
+                    side_buffer.setdefault(table_name, []).append(row)
+                yield record
+
+        records = _tee_side_tables(source.iter_records(self.collection))
         flat_rows = flattener.apply(records)
 
         if dry_run:
@@ -130,11 +149,24 @@ class CollectionToParquetJob(Job):
                 yield row
 
         rows_written: int = sink.write(_counted(flat_rows), table=self.collection, drop_empty_cols=drop_empty) or 0
+
+        # Write side tables.
+        side_defs = dict(side_table_class_defs(schema_view, self.root_class, self.collection))
+        side_tables: list[str] = []
+        for table_name, side_rows in side_buffer.items():
+            if not side_rows:
+                continue
+            cd = side_defs.get(table_name)
+            side_sink = ParquetSink(self.out_root, class_def=cd)
+            n = side_sink.write(iter(side_rows), table=table_name) or 0
+            logger.info("%s: wrote %d rows to side table %s", self.collection, n, table_name)
+            side_tables.append(table_name)
+
         return JobResult(
             job_name=self.name,
             rows_read=rows_read,
             rows_written=rows_written,
-            tables_written=(self.collection,),
+            tables_written=(self.collection, *side_tables),
         )
 
 

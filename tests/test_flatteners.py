@@ -13,6 +13,7 @@ from linkml_runtime import SchemaView
 from nmdc_lakehouse.transforms.flatteners import (
     SchemaDrivenFlattener,
     flatten_record,
+    side_table_rows,
 )
 
 _SCHEMA_YAML = """
@@ -268,3 +269,72 @@ def test_polymorphic_dispatch_in_inlined_object(sv):
     # the inlined expansion, producing performed_step_pooling_method.
     assert out["performed_step_id"] == "step-1"
     assert out["performed_step_pooling_method"] == "serial"
+
+
+# ── side_table_rows ────────────────────────────────────────────────────────────
+
+
+def test_side_table_scalar_multivalued(sv):
+    """Scalar multivalued slots produce one junction row per element."""
+    rows = list(side_table_rows({"id": "r1", "tags": ["a", "b"]}, sv, "Record", "record_set"))
+    assert rows == [
+        ("record_set_tags", {"parent_id": "r1", "tags": "a"}),
+        ("record_set_tags", {"parent_id": "r1", "tags": "b"}),
+    ]
+
+
+def test_side_table_ref_class_multivalued(sv):
+    """Ref-class multivalued slots produce one junction row per referenced ID."""
+    rows = list(
+        side_table_rows(
+            {"id": "r1", "associated_studies": ["nmdc:sty-11-a", "nmdc:sty-11-b"]},
+            sv,
+            "Record",
+            "record_set",
+        )
+    )
+    assert rows == [
+        ("record_set_associated_studies", {"parent_id": "r1", "associated_studies": "nmdc:sty-11-a"}),
+        ("record_set_associated_studies", {"parent_id": "r1", "associated_studies": "nmdc:sty-11-b"}),
+    ]
+
+
+def test_side_table_inlined_class_multivalued(sv):
+    """Inlined-class multivalued slots produce one flattened child row per element."""
+    rows = list(
+        side_table_rows(
+            {
+                "id": "r1",
+                "chem_admin": [
+                    {"has_raw_value": "formaldehyde"},
+                    {"has_raw_value": "methanol"},
+                ],
+            },
+            sv,
+            "Record",
+            "record_set",
+        )
+    )
+    tables = [t for t, _ in rows]
+    assert all(t == "record_set_chem_admin" for t in tables)
+    child_rows = [r for _, r in rows]
+    assert child_rows[0] == {"has_raw_value": "formaldehyde", "parent_id": "r1"}
+    assert child_rows[1] == {"has_raw_value": "methanol", "parent_id": "r1"}
+
+
+def test_side_table_no_multivalued_slots(sv):
+    """Records with no multivalued slots emit no side table rows."""
+    rows = list(side_table_rows({"id": "r1", "name": "x"}, sv, "Record", "record_set"))
+    assert rows == []
+
+
+def test_side_table_missing_slot_skipped(sv):
+    """Slots absent from the record are silently skipped."""
+    rows = list(side_table_rows({"id": "r1"}, sv, "Record", "record_set"))
+    assert rows == []
+
+
+def test_side_table_empty_list_skipped(sv):
+    """Empty list values produce no rows."""
+    rows = list(side_table_rows({"id": "r1", "tags": []}, sv, "Record", "record_set"))
+    assert rows == []

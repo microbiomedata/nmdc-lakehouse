@@ -200,6 +200,64 @@ def _stringify(value: Any) -> str:
     return str(value)
 
 
+def side_table_rows(
+    record: dict,
+    schema_view: SchemaView,
+    root_class: str,
+    collection: str,
+) -> Iterator[tuple[str, dict]]:
+    """Yield ``(table_name, row_dict)`` for every side table row from one record.
+
+    Three slot types produce side table rows:
+
+    - **scalar multivalued** — one ``(parent_id, <slot_name>)`` row per element.
+    - **ref_class multivalued** (class range, not inlined) — one
+      ``(parent_id, <slot_name>)`` row per referenced ID.
+    - **inlined_class multivalued** — one flattened child-object row per element,
+      with ``parent_id`` prepended.
+
+    ``table_name`` is ``{collection}_{slot_name}`` in all cases.
+
+    Args:
+        record: A dict representation of a ``root_class`` instance.
+        schema_view: Loaded LinkML SchemaView.
+        root_class: Declared class for ``record`` (polymorphic dispatch is
+            applied via the ``type`` field).
+        collection: Collection name (e.g. ``biosample_set``) — used as the
+            table name prefix.
+    """
+    effective_class = _dispatch_class(record, root_class, schema_view)
+    parent_id = record.get("id", "")
+
+    for slot in schema_view.class_induced_slots(effective_class):
+        if not slot.multivalued:
+            continue
+        if slot.name not in record:
+            continue
+        value = record[slot.name]
+        if value is None:
+            continue
+        if not isinstance(value, list):
+            value = [value]
+        if not value:
+            continue
+
+        table_name = f"{collection}_{slot.name}"
+        range_class = _range_class(slot, schema_view)
+
+        if range_class is not None and _is_inlined(slot, schema_view):
+            for child in value:
+                if not isinstance(child, dict):
+                    continue
+                row = _expand_inlined(child, range_class, schema_view)
+                row["parent_id"] = parent_id
+                yield table_name, row
+        else:
+            for v in value:
+                if v is not None:
+                    yield table_name, {"parent_id": parent_id, slot.name: _stringify(v)}
+
+
 class SchemaDrivenFlattener:
     """Flatten NMDC objects using a LinkML SchemaView.
 

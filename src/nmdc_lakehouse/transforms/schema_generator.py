@@ -145,6 +145,62 @@ def flatten_database_schema(
     return out
 
 
+def side_table_class_defs(
+    schema_view: SchemaView,
+    root_class: str,
+    collection: str,
+) -> list[tuple[str, ClassDefinition]]:
+    """Return ``(table_name, ClassDefinition)`` pairs for all side tables of ``root_class``.
+
+    Mirrors the decision tree in :func:`nmdc_lakehouse.transforms.flatteners.side_table_rows`:
+
+    - **scalar** or **ref_class** multivalued: junction table with two slots,
+      ``parent_id`` (string) and ``<slot_name>`` (slot's range or string for refs).
+    - **inlined_class** multivalued: child-class flat schema (via
+      :func:`flatten_class_def`) plus a ``parent_id`` slot.
+
+    Scans ``root_class`` and all its proper descendants so polymorphic
+    subclass-specific slots (e.g. ``mags_list`` on ``MagsAnalysis``) are
+    included even when the collection is declared against the abstract base.
+
+    Args:
+        schema_view: Loaded LinkML SchemaView.
+        root_class: Root class for this collection.
+        collection: Collection name — used as the table name prefix.
+
+    Returns:
+        List of ``(table_name, ClassDefinition)`` pairs, one per distinct
+        multivalued slot. Ordered by table name for deterministic output.
+    """
+    result: list[tuple[str, ClassDefinition]] = []
+    seen: set[str] = set()
+
+    for class_name in [root_class] + _proper_descendants(schema_view, root_class):
+        for slot in schema_view.class_induced_slots(class_name):
+            if not slot.multivalued:
+                continue
+            table_name = f"{collection}_{slot.name}"
+            if table_name in seen:
+                continue
+            seen.add(table_name)
+
+            range_class = _range_class(slot, schema_view)
+
+            if range_class is not None and _is_inlined(slot, schema_view):
+                child_flat = flatten_class_def(schema_view, range_class.name, target_name=table_name)
+                child_flat.attributes["parent_id"] = SlotDefinition(name="parent_id", range="string")
+                result.append((table_name, child_flat))
+            else:
+                cls = ClassDefinition(name=table_name)
+                cls.attributes["parent_id"] = SlotDefinition(name="parent_id", range="string")
+                value_range = "string" if range_class is not None else (slot.range or "string")
+                cls.attributes[slot.name] = SlotDefinition(name=slot.name, range=value_range)
+                result.append((table_name, cls))
+
+    result.sort(key=lambda x: x[0])
+    return result
+
+
 def _flatten_slot(
     slot: SlotDefinition,
     schema_view: SchemaView,
