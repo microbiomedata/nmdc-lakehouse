@@ -130,7 +130,7 @@ class ParquetSink:
 
         if drop_empty_cols and out_path.exists():
             tbl = pq.read_table(out_path)
-            non_empty = [name for name in tbl.schema.names if tbl.column(name).null_count < len(tbl)]
+            non_empty = [name for name in tbl.schema.names if _col_has_data(tbl.column(name))]
             if len(non_empty) < len(tbl.schema.names):
                 pq.write_table(tbl.select(non_empty), out_path)
 
@@ -155,6 +155,17 @@ class ParquetSink:
             ]
             return pa.table(dict(zip(self._arrow_schema.names, arrays, strict=True)), schema=self._arrow_schema)
         return pa.Table.from_pylist(rows)
+
+
+def _col_has_data(col: pa.ChunkedArray) -> bool:
+    """Return True if the column has at least one non-null, non-empty value.
+
+    For list columns a row whose value is [] has null_count==0 but carries no
+    data; flatten() returns an empty array in that case so the column is dropped.
+    """
+    if pa.types.is_list(col.type):
+        return len(col.combine_chunks().flatten()) > 0
+    return col.null_count < len(col)
 
 
 def _coerce(value: object, arrow_type: pa.DataType) -> object:

@@ -186,3 +186,15 @@ def test_drop_empty_cols_removes_all_null_columns(flat_class, tmp_path):
     assert "depth_has_numeric_value" not in tbl.schema.names
     assert "count" not in tbl.schema.names
     assert "active" not in tbl.schema.names
+
+
+def test_drop_empty_cols_removes_all_empty_array_columns(array_class, tmp_path):
+    """drop_empty_cols=True strips ARRAY columns where every row has [] or null."""
+    sink = ParquetSink(tmp_path, class_def=array_class)
+    rows = [{"id": "r1", "tags": ["a"]}, {"id": "r2"}]
+    sink.write(iter(rows), table="array_record", drop_empty_cols=True)
+    tbl = pq.read_table(tmp_path / "array_record.parquet")
+    assert "id" in tbl.schema.names
+    assert "tags" in tbl.schema.names  # has data
+    assert "scores" not in tbl.schema.names  # all null/empty
+    assert "associated_studies" not in tbl.schema.names  # all null/empty
