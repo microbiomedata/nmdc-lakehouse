@@ -66,6 +66,7 @@ nmdc_jump_key := env_var_or_default("NMDC_JUMP_KEY", "~/.ssh/jump-dev.microbiome
 # Override the key path with NMDC_JUMP_KEY if needed.
 tunnel:
     ssh -i {{nmdc_jump_key}} \
+        -o IdentitiesOnly=yes \
         -L 27124:runtime-api-mongodb-headless.nmdc-prod.svc.cluster.local:27017 \
         -o ServerAliveInterval=60 \
         ssh-mongo@jump-dev.microbiomedata.org
