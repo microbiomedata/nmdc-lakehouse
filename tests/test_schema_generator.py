@@ -78,6 +78,9 @@ classes:
       associated_studies:
         range: Term
         multivalued: true
+      scores:
+        range: integer
+        multivalued: true
       parent:
         range: Term
 
@@ -215,3 +218,11 @@ def test_side_table_output_sorted(sv):
     defs = side_table_class_defs(sv, "Record", "record_set")
     names = [t for t, _ in defs]
     assert names == sorted(names)
+
+
+def test_side_table_scalar_preserves_declared_range(sv):
+    """Non-string scalar multivalued slots retain their declared range in the ClassDef."""
+    defs = dict(side_table_class_defs(sv, "Record", "record_set"))
+    assert "record_set_scores" in defs
+    cls = defs["record_set_scores"]
+    assert cls.attributes["scores"].range == "integer"

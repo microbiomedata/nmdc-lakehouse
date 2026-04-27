@@ -227,6 +227,12 @@ def side_table_rows(
             table name prefix.
     """
     effective_class = _dispatch_class(record, root_class, schema_view)
+    # Constrain dispatch to root_class hierarchy; an out-of-hierarchy type
+    # would produce table names that have no ClassDef in side_table_class_defs.
+    if effective_class != root_class:
+        ancestors = schema_view.all_ancestors(effective_class, mixins=True) or []
+        if root_class not in ancestors:
+            effective_class = root_class
     parent_id = record.get("id", "")
 
     for slot in schema_view.class_induced_slots(effective_class):
@@ -255,7 +261,7 @@ def side_table_rows(
         else:
             for v in value:
                 if v is not None:
-                    yield table_name, {"parent_id": parent_id, slot.name: _stringify(v)}
+                    yield table_name, {"parent_id": parent_id, slot.name: v}
 
 
 class SchemaDrivenFlattener:

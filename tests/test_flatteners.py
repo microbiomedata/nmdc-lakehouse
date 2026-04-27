@@ -64,6 +64,9 @@ classes:
       associated_studies:
         range: Term
         multivalued: true
+      scores:
+        range: integer
+        multivalued: true
       parent:
         range: Term
       type:
@@ -338,3 +341,30 @@ def test_side_table_empty_list_skipped(sv):
     """Empty list values produce no rows."""
     rows = list(side_table_rows({"id": "r1", "tags": []}, sv, "Record", "record_set"))
     assert rows == []
+
+
+def test_side_table_preserves_non_string_types(sv):
+    """Integer values in side table rows are not cast to string."""
+    rows = list(side_table_rows({"id": "r1", "scores": [1, 2, 3]}, sv, "Record", "record_set"))
+    assert rows == [
+        ("record_set_scores", {"parent_id": "r1", "scores": 1}),
+        ("record_set_scores", {"parent_id": "r1", "scores": 2}),
+        ("record_set_scores", {"parent_id": "r1", "scores": 3}),
+    ]
+
+
+def test_side_table_dispatch_outside_hierarchy_falls_back(sv):
+    """A record whose type is outside the root_class hierarchy falls back to root_class slots."""
+    # Process is not a descendant of Record — Extraction has extraction_targets (multivalued).
+    # Without the hierarchy guard, side_table_rows would iterate Extraction slots and emit
+    # record_set_extraction_targets rows that have no ClassDef in side_table_class_defs.
+    rows = list(
+        side_table_rows(
+            {"id": "r1", "type": "test:Extraction", "extraction_targets": ["x"]},
+            sv,
+            "Record",
+            "record_set",
+        )
+    )
+    table_names = {t for t, _ in rows}
+    assert "record_set_extraction_targets" not in table_names

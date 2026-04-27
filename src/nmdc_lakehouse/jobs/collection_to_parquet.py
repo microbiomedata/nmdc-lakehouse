@@ -157,11 +157,15 @@ class CollectionToParquetJob(Job):
             if not side_rows:
                 continue
             cd = side_defs.get(table_name)
+            if cd is None:
+                logger.warning("%s: no ClassDef for side table %s — skipping", self.collection, table_name)
+                continue
             side_sink = ParquetSink(self.out_root, class_def=cd)
             n = side_sink.write(iter(side_rows), table=table_name) or 0
             logger.info("%s: wrote %d rows to side table %s", self.collection, n, table_name)
             side_tables.append(table_name)
 
+        side_tables.sort()
         return JobResult(
             job_name=self.name,
             rows_read=rows_read,
