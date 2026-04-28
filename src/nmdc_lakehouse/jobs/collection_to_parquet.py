@@ -90,17 +90,25 @@ class CollectionToParquetJob(Job):
         if spec is None or not spec.submodule_search_locations:
             raise RuntimeError("nmdc_schema package is not installed")
         schema_path = f"{spec.submodule_search_locations[0]}/nmdc_materialized_patterns.yaml"
+        t_schema = time.monotonic()
         schema_view = SchemaView(schema_path)
+        logger.info("%s: schema loaded (%.2fs)", self.collection, time.monotonic() - t_schema)
 
         source = MongoSource(self.mongo_uri)
+        t_setup = time.monotonic()
         flattener = SchemaDrivenFlattener(schema_view, self.root_class)
         flat_class = flatten_class_def(schema_view, self.root_class)
         sink = ParquetSink(self.out_root, class_def=flat_class)
+        has_multivalued = any(s.multivalued for s in schema_view.class_induced_slots(self.root_class))
+        logger.info(
+            "%s: setup complete (%.2fs, multivalued=%s)",
+            self.collection,
+            time.monotonic() - t_setup,
+            has_multivalued,
+        )
 
         # Buffer for side table rows accumulated during the primary stream.
         side_buffer: dict[str, list[dict]] = {}
-
-        has_multivalued = any(s.multivalued for s in schema_view.class_induced_slots(self.root_class))
 
         def _tee_side_tables(raw_records):
             for record in raw_records:

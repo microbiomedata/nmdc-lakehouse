@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any, Iterator, Optional
 
 from linkml_store import Client
 from linkml_store.api import Database
 
 from nmdc_lakehouse.config import MongoSettings
+
+logger = logging.getLogger(__name__)
 
 
 class MongoSource:
@@ -77,4 +81,10 @@ class MongoSource:
             ``_id`` automatically.
         """
         coll = self.db.get_collection(collection, create_if_not_exists=False)
-        yield from coll.find_iter(where=dict(filters), page_size=page_size)
+        t0 = time.monotonic()
+        first = True
+        for record in coll.find_iter(where=dict(filters), page_size=page_size):
+            if first:
+                logger.info("%s: first record from MongoDB (%.2fs)", collection, time.monotonic() - t0)
+                first = False
+            yield record
