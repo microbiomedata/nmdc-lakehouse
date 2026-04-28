@@ -118,6 +118,10 @@ etl-annotations-linkml:
 
 lakehouse_root := env_var_or_default("LAKEHOUSE_ROOT", "./lakehouse")
 
+# Delete zero-row Parquet files under LAKEHOUSE_ROOT (e.g. empty collections).
+drop-empty-parquet:
+    uv run python scripts/python/drop_empty_parquet.py "{{lakehouse_root}}"
+
 # Delete every generated Parquet file under LAKEHOUSE_ROOT.
 clean-parquet:
     #!/usr/bin/env bash
