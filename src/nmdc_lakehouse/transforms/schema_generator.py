@@ -46,7 +46,12 @@ NESTED_NOTE = "Flattened from nested slot '{parent}.{inner}'."
 DISPATCH_NOTE = "Polymorphic subclass-specific slot (from '{subclass}')."
 
 
-def flatten_class_def(schema_view: SchemaView, root_class: str, target_name: str | None = None) -> ClassDefinition:
+def flatten_class_def(
+    schema_view: SchemaView,
+    root_class: str,
+    target_name: str | None = None,
+    expand_embedded_refs: bool = False,
+) -> ClassDefinition:
     """Return a new ClassDefinition describing the flat form of ``root_class``.
 
     Walks the same decision tree as ``flatten_record``:
@@ -66,6 +71,11 @@ def flatten_class_def(schema_view: SchemaView, root_class: str, target_name: str
         schema_view: Loaded SchemaView over the source schema.
         root_class: Name of the class to flatten.
         target_name: Name for the generated class. Defaults to ``<root_class>Flat``.
+        expand_embedded_refs: When True, single-valued non-inlined class-range
+            slots are expanded to ``<slot>_<inner>`` columns instead of being
+            kept as string refs. Use this when flattening a side-table child
+            class whose slots arrive as embedded dicts at runtime (e.g.
+            ``ControlledTermValue.term``).
 
     Returns:
         A new ``ClassDefinition``. Attributes are flat ``SlotDefinition``s.
@@ -83,13 +93,15 @@ def flatten_class_def(schema_view: SchemaView, root_class: str, target_name: str
 
     # Base class slots — faithful to induced_slots(root_class)
     for slot in schema_view.class_induced_slots(root_class):
-        for flat in _flatten_slot(slot, schema_view):
+        for flat in _flatten_slot(slot, schema_view, expand_embedded_refs=expand_embedded_refs):
             attrs.setdefault(flat.name, flat)
 
     # Union in slots from concrete subclasses (polymorphic dispatch)
     for descendant in _proper_descendants(schema_view, root_class):
         for slot in schema_view.class_induced_slots(descendant):
-            for flat in _flatten_slot(slot, schema_view, dispatch_subclass=descendant):
+            for flat in _flatten_slot(
+                slot, schema_view, dispatch_subclass=descendant, expand_embedded_refs=expand_embedded_refs
+            ):
                 # Keep the first-seen slot (base class takes precedence); add
                 # a dispatch annotation if only a subclass contributed it.
                 attrs.setdefault(flat.name, flat)
@@ -188,8 +200,13 @@ def side_table_class_defs(
             range_class = _range_class(slot, schema_view)
 
             if range_class is not None and _is_inlined(slot, schema_view):
-                # Inlined multivalued → child side table
-                child_flat = flatten_class_def(schema_view, range_class.name, target_name=table_name)
+                # Inlined multivalued → child side table.
+                # expand_embedded_refs=True so non-inlined class-range sub-slots
+                # (e.g. ControlledTermValue.term) are expanded to <sub>_<inner>
+                # columns, matching what _expand_inlined emits at runtime.
+                child_flat = flatten_class_def(
+                    schema_view, range_class.name, target_name=table_name, expand_embedded_refs=True
+                )
                 child_flat.attributes["parent_id"] = SlotDefinition(name="parent_id", range="string")
                 result.append((table_name, child_flat))
             elif range_class is not None:
@@ -208,30 +225,39 @@ def _flatten_slot(
     slot: SlotDefinition,
     schema_view: SchemaView,
     dispatch_subclass: str | None = None,
+    expand_embedded_refs: bool = False,
 ) -> Iterable[SlotDefinition]:
     """Yield one or more flat SlotDefinitions for a single source slot.
 
     ``dispatch_subclass`` marks the resulting slot(s) as coming from a
     polymorphic-dispatch path so the output schema can distinguish them.
+
+    ``expand_embedded_refs``: when True, single-valued non-inlined class-range
+    slots are expanded to ``<slot>_<inner>`` columns (same as inlined). Used
+    for side-table child classes whose data arrives as embedded dicts.
     """
     range_class = _range_class(slot, schema_view)
     notes: list[str] = []
     if dispatch_subclass:
         notes.append(DISPATCH_NOTE.format(subclass=dispatch_subclass))
 
-    # Class range, not inlined → reference (string scalar or ARRAY of ID strings)
+    # Class range, not inlined → reference (string scalar or ARRAY of ID strings).
+    # Exception: single-valued slots with expand_embedded_refs=True fall through
+    # to the inlined expansion below (data stores them as embedded dicts).
     if range_class is not None and not _is_inlined(slot, schema_view):
-        ref_desc = ((slot.description or "") + " " + REF_NOTE.format(range=slot.range)).strip()
-        new_slot = SlotDefinition(
-            name=slot.name,
-            range="string",
-            multivalued=slot.multivalued or False,
-            description=ref_desc or None,
-            required=(slot.required if not dispatch_subclass else False),
-        )
-        _attach_notes(new_slot, notes)
-        yield new_slot
-        return
+        if slot.multivalued or not expand_embedded_refs:
+            ref_desc = ((slot.description or "") + " " + REF_NOTE.format(range=slot.range)).strip()
+            new_slot = SlotDefinition(
+                name=slot.name,
+                range="string",
+                multivalued=slot.multivalued or False,
+                description=ref_desc or None,
+                required=(slot.required if not dispatch_subclass else False),
+            )
+            _attach_notes(new_slot, notes)
+            yield new_slot
+            return
+        # Single-valued non-inlined with expand_embedded_refs: expand below.
 
     # Scalar range (scalar or ARRAY)
     if range_class is None:
