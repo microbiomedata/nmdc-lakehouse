@@ -222,22 +222,31 @@ class AllCollectionsToParquetJob(Job):
 
     def run(self, *, dry_run: bool = False) -> JobResult:
         """Run each collection job in sequence and aggregate results."""
+        import logging as _logging
+
         from nmdc_lakehouse.jobs.direct_mongo_to_parquet import DIRECT_COLLECTIONS, DirectMongoToParquetJob
+
+        # Downgrade linkml-store chatter (Initializing databases / Attaching / No metadata)
+        for _noisy in ("linkml_store", "linkml_runtime"):
+            _logging.getLogger(_noisy).setLevel(_logging.WARNING)
 
         total_read = total_written = 0
         tables: list[str] = []
         for name, root_class in _db_collection_map().items():
             if name in self.skip:
+                logger.info("%s: skipped", name)
                 continue
             job: Job
             if name in DIRECT_COLLECTIONS:
                 job = DirectMongoToParquetJob(name, root_class, self.mongo_uri, self.out_root)
             else:
                 job = CollectionToParquetJob(name, root_class, self.mongo_uri, self.out_root)
+            logger.info("%s: running", name)
             result = job.run(dry_run=dry_run)
             total_read += result.rows_read
             total_written += result.rows_written
             tables.extend(result.tables_written)
+            logger.info("%s: %d rows -> %s.parquet", name, result.rows_written, name)
         return JobResult(
             job_name=self.name,
             rows_read=total_read,
