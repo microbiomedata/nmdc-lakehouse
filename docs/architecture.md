@@ -71,24 +71,17 @@ each handled differently:
 
 ### Scalar multivalued slots
 Simple lists of primitive values (`alternative_identifiers`, `analysis_type`,
-`funding_sources`, `tillage`, etc.). In the primary flat table these are
-**pipe-joined into a single string column** (`"a|b|c"`). A side table (junction
-table with `parent_id` + value) is also generated for any slot that has data.
-
-The pipe-joined column and the junction table are redundant. See issue #60 for
-the planned replacement: native Parquet ARRAY columns, which eliminate both the
-pipe-join and the scalar side tables.
+`funding_sources`, `tillage`, etc.). In the primary flat table these are stored as
+**native Parquet ARRAY columns** (`pa.list_(element_type)`). No scalar junction
+side table is generated.
 
 ### Ref-class multivalued slots
 Lists of references to other NMDC objects (`associated_studies`, `has_input`,
 `has_output`, `instrument_used`, etc.). These are true M:M relationships. They
-are pipe-joined in the primary flat table **and** emitted as junction side tables
-(`parent_id` + foreign key string). The side table is the correct relational form
-for joins; the pipe-joined column is a convenience for simple string searches.
-
-Native ARRAY columns (issue #60) would also replace these: `array_contains()` and
-`UNNEST` are supported in DuckDB, Spark, and Dremio, making junction side tables
-redundant at NMDC's data scale.
+are stored as **native ARRAY columns** in the primary flat table and **also**
+emitted as junction side tables (`parent_id` + foreign-key string). The side
+table is the correct relational form for joins; the ARRAY column supports simple
+`array_contains()` lookups without a join.
 
 ### Inlined multivalued slots
 Lists of embedded objects (`mags_list`, `chem_administration`, `organism_count`,
@@ -98,9 +91,10 @@ without data loss. Each becomes a **child side table** (flattened object rows wi
 
 ### Recursive side tables
 Six cases in the current NMDC schema have inlined child classes that themselves
-contain multivalued slots, creating a need for grandchild tables:
+contain multivalued slots. Those child slots are stored as ARRAY columns inside
+the side table row (same rule as the primary table):
 
-| Parent side table | Child class | Child multivalued slot |
+| Parent side table | Child class | Child ARRAY column |
 |---|---|---|
 | `workflow_execution_set_mags_list` | `MagBin` | `members_id` |
 | `study_set_has_credit_associations` | `CreditAssociation` | `applied_roles` |
@@ -108,10 +102,6 @@ contain multivalued slots, creating a need for grandchild tables:
 | `configuration_set_ordered_mobile_phases` | `MobilePhaseSegment` | `substances_used` |
 | `material_processing_set_ordered_mobile_phases` | `MobilePhaseSegment` | `substances_used` |
 | `study_set_protocol_link` | `Protocol` | `analysis_type` |
-
-Currently these child multivalued slots are pipe-joined inside the side table row.
-With native ARRAY columns (issue #60), they would become ARRAY columns within the
-side table — eliminating the need for recursive side table generation entirely.
 
 ### Side table naming
 All side tables follow the pattern `{collection}_{slot_name}`, e.g.

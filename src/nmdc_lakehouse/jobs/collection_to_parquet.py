@@ -65,8 +65,9 @@ class CollectionToParquetJob(Job):
 
         Side tables (for all multivalued slots) are buffered in memory during
         the primary stream and written after the primary table is complete.
-        All collections processed by this job are small enough that buffering
-        is safe; ``functional_annotation_agg`` uses ``DirectMongoToParquetJob``.
+        Memory usage scales with the total number of side-table rows, not the
+        number of primary records. ``functional_annotation_agg`` uses
+        ``DirectMongoToParquetJob`` because it is too large for this path.
         """
         from importlib.util import find_spec
 
