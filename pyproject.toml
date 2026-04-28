@@ -22,25 +22,21 @@ dependencies = [
     "linkml>=1.10.0",
     "linkml-runtime>=1.10.0",
     "nmdc-schema",
-
     # Database drivers (linkml-store routes through these)
     "pymongo>=4.9",
     "psycopg[binary]>=3.1",
     "sqlalchemy>=2.0",
-
     # Lakehouse output formats
     "pyarrow>=16.0",
     "pyiceberg>=0.7",
     "duckdb>=1.0",
     "pandas>=2.2",
-
     # Job / CLI scaffolding
     "click>=8.1",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "pyyaml>=6.0",
     "tqdm>=4.66",
-
     # Used by scripts/python/ (copied from external-metadata-awareness)
     "oaklib>=0.6",
     "python-dotenv>=1.0",
@@ -77,6 +73,9 @@ packages = ["src/nmdc_lakehouse"]
 # uv
 # ---------------------------------------------------------------------------
 [tool.uv]
+
+[tool.uv.sources]
+linkml-store = { git = "https://github.com/linkml/linkml-store.git", rev = "fix/find-iter-count-per-page" }
 # Dev dependencies managed via the `dev` extra above so `uv sync --extra dev`
 # is sufficient. Keep this block for future uv-specific settings.
 

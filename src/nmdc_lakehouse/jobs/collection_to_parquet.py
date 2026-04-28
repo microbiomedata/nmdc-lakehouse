@@ -52,12 +52,20 @@ def _db_collection_map() -> dict[str, str]:
 class CollectionToParquetJob(Job):
     """Flatten one schema-specified NMDC collection and write to Parquet."""
 
-    def __init__(self, collection: str, root_class: str, mongo_uri: str, out_root: Path) -> None:
+    def __init__(
+        self,
+        collection: str,
+        root_class: str,
+        mongo_uri: str,
+        out_root: Path,
+        page_size: int = 50_000,
+    ) -> None:
         """Construct the job for a single collection."""
         self.collection = collection
         self.root_class = root_class
         self.mongo_uri = mongo_uri
         self.out_root = out_root
+        self.page_size = page_size
         self.name = collection
 
     def run(self, *, dry_run: bool = False) -> JobResult:
@@ -66,8 +74,7 @@ class CollectionToParquetJob(Job):
         Side tables (for all multivalued slots) are buffered in memory during
         the primary stream and written after the primary table is complete.
         Memory usage scales with the total number of side-table rows, not the
-        number of primary records. ``functional_annotation_agg`` uses
-        ``DirectMongoToParquetJob`` because it is too large for this path.
+        number of primary records.
         """
         from importlib.util import find_spec
 
@@ -99,7 +106,7 @@ class CollectionToParquetJob(Job):
                     side_buffer.setdefault(table_name, []).append(row)
                 yield record
 
-        records = _tee_side_tables(source.iter_records(self.collection))
+        records = _tee_side_tables(source.iter_records(self.collection, page_size=self.page_size))
         flat_rows = flattener.apply(records)
 
         if dry_run:
@@ -236,6 +243,11 @@ for _collection, _root_class in _db_collection_map().items():
     if _collection in _DIRECT_COLLECTIONS:
         continue
     register(_collection)(_make_factory(_collection, _root_class))
+
+# Register linkml-store path for DIRECT_COLLECTIONS under a separate name for benchmarking.
+for _collection, _root_class in _db_collection_map().items():
+    if _collection in _DIRECT_COLLECTIONS:
+        register(f"{_collection}__linkml")(_make_factory(_collection, _root_class))
 
 
 @register("all-collections")
