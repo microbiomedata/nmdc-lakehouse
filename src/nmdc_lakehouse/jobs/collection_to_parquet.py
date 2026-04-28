@@ -226,27 +226,37 @@ class AllCollectionsToParquetJob(Job):
 
         from nmdc_lakehouse.jobs.direct_mongo_to_parquet import DIRECT_COLLECTIONS, DirectMongoToParquetJob
 
-        # Downgrade linkml-store chatter (Initializing databases / Attaching / No metadata)
-        for _noisy in ("linkml_store", "linkml_runtime"):
-            _logging.getLogger(_noisy).setLevel(_logging.WARNING)
+        # Downgrade linkml-store chatter for the duration of this run, then restore.
+        _noisy = ("linkml_store", "linkml_runtime")
+        _saved = {n: _logging.getLogger(n).level for n in _noisy}
+        for n in _noisy:
+            _logging.getLogger(n).setLevel(_logging.WARNING)
 
-        total_read = total_written = 0
-        tables: list[str] = []
-        for name, root_class in _db_collection_map().items():
-            if name in self.skip:
-                logger.info("%s: skipped", name)
-                continue
-            job: Job
-            if name in DIRECT_COLLECTIONS:
-                job = DirectMongoToParquetJob(name, root_class, self.mongo_uri, self.out_root)
-            else:
-                job = CollectionToParquetJob(name, root_class, self.mongo_uri, self.out_root)
-            logger.info("%s: running", name)
-            result = job.run(dry_run=dry_run)
-            total_read += result.rows_read
-            total_written += result.rows_written
-            tables.extend(result.tables_written)
-            logger.info("%s: %d rows -> %s.parquet", name, result.rows_written, name)
+        try:
+            total_read = total_written = 0
+            tables: list[str] = []
+            for name, root_class in _db_collection_map().items():
+                if name in self.skip:
+                    logger.info("%s: skipped", name)
+                    continue
+                job: Job
+                if name in DIRECT_COLLECTIONS:
+                    job = DirectMongoToParquetJob(name, root_class, self.mongo_uri, self.out_root)
+                else:
+                    job = CollectionToParquetJob(name, root_class, self.mongo_uri, self.out_root)
+                logger.info("%s: running", name)
+                result = job.run(dry_run=dry_run)
+                total_read += result.rows_read
+                total_written += result.rows_written
+                tables.extend(result.tables_written)
+                if dry_run:
+                    logger.info("%s: %d records read (dry run)", name, result.rows_read)
+                else:
+                    logger.info("%s: %d rows -> %s.parquet", name, result.rows_written, name)
+        finally:
+            for n, lvl in _saved.items():
+                _logging.getLogger(n).setLevel(lvl)
+
         return JobResult(
             job_name=self.name,
             rows_read=total_read,
