@@ -216,6 +216,17 @@ def _col_has_data(col: pa.ChunkedArray) -> bool:
     return col.null_count < len(col)
 
 
+def _col_has_data(col: pa.ChunkedArray) -> bool:
+    """Return True if the column has at least one non-null, non-empty value.
+
+    For list columns a row whose value is [] has null_count==0 but carries no
+    data; flatten() returns an empty array in that case so the column is dropped.
+    """
+    if pa.types.is_list(col.type):
+        return len(col.combine_chunks().flatten()) > 0
+    return col.null_count < len(col)
+
+
 def _coerce(value: object, arrow_type: pa.DataType) -> object:
     """Coerce a Python value to be compatible with ``arrow_type``.
 
