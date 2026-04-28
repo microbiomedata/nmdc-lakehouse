@@ -75,7 +75,7 @@ packages = ["src/nmdc_lakehouse"]
 [tool.uv]
 
 [tool.uv.sources]
-linkml-store = { git = "https://github.com/linkml/linkml-store.git", rev = "f3006e2" }
+linkml-store = { git = "https://github.com/linkml/linkml-store.git", rev = "8ea34d6" }
 # Dev dependencies managed via the `dev` extra above so `uv sync --extra dev`
 # is sufficient. Keep this block for future uv-specific settings.
 
