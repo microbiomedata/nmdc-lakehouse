@@ -100,6 +100,8 @@ class CollectionToParquetJob(Job):
         # Buffer for side table rows accumulated during the primary stream.
         side_buffer: dict[str, list[dict]] = {}
 
+        has_multivalued = any(s.multivalued for s in schema_view.class_induced_slots(self.root_class))
+
         def _tee_side_tables(raw_records):
             for record in raw_records:
                 for table_name, row in side_table_rows(
@@ -108,7 +110,8 @@ class CollectionToParquetJob(Job):
                     side_buffer.setdefault(table_name, []).append(row)
                 yield record
 
-        records = _tee_side_tables(source.iter_records(self.collection, page_size=self.page_size))
+        raw = source.iter_records(self.collection, page_size=self.page_size)
+        records = _tee_side_tables(raw) if has_multivalued else raw
         flat_rows = flattener.apply(records)
 
         if dry_run:
