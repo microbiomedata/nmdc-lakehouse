@@ -63,8 +63,11 @@ class CollectionToParquetJob(Job):
     def run(self, *, dry_run: bool = False) -> JobResult:
         """Stream records from MongoDB through the flattener into Parquet.
 
-        Side tables (for all multivalued slots) are buffered in memory during
-        the primary stream and written after the primary table is complete.
+        Side tables (for ref-class and inlined-class multivalued slots) are
+        buffered in memory during the primary stream and written after the
+        primary table is complete. Scalar multivalued slots are stored as
+        native Parquet ARRAY columns in the primary table and do not produce
+        side tables.
         Memory usage scales with the total number of side-table rows, not the
         number of primary records. ``functional_annotation_agg`` uses
         ``DirectMongoToParquetJob`` because it is too large for this path.
