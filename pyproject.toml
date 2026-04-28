@@ -18,29 +18,25 @@ dependencies = [
     # linkml-runtime is pinned explicitly because linkml 1.10.0's own floor
     # (>=1.9.5) is too loose — 1.9.x versions have version-skew breakage
     # (see linkml/linkml#3241, linkml/linkml PR#3183).
-    "linkml-store[all]>=0.3.1",
+    "linkml-store[all]>=0.3.2",
     "linkml>=1.10.0",
     "linkml-runtime>=1.10.0",
     "nmdc-schema",
-
     # Database drivers (linkml-store routes through these)
     "pymongo>=4.9",
     "psycopg[binary]>=3.1",
     "sqlalchemy>=2.0",
-
     # Lakehouse output formats
     "pyarrow>=16.0",
     "pyiceberg>=0.7",
     "duckdb>=1.0",
     "pandas>=2.2",
-
     # Job / CLI scaffolding
     "click>=8.1",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "pyyaml>=6.0",
     "tqdm>=4.66",
-
     # Used by scripts/python/ (copied from external-metadata-awareness)
     "oaklib>=0.6",
     "python-dotenv>=1.0",

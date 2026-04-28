@@ -104,6 +104,18 @@ etl-annotations:
     echo "Logging to $log"
     time uv run nmdc-lakehouse run-job functional_annotation_agg 2>&1 | tee "$log"
 
+# Convert functional_annotation_agg via the linkml-store schema-driven path (bypasses DirectMongoToParquetJob).
+# Use this to benchmark the linkml-store find_iter fix against the direct pymongo path.
+# Requires the GCP SSH tunnel to be open — see docs/mongodb-connection.md.
+# Logs to local/etl-faa-linkml-<timestamp>.log
+etl-annotations-linkml:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p local
+    log="local/etl-faa-linkml-$(date +%Y%m%d_%H%M%S).log"
+    echo "Logging to $log"
+    time uv run nmdc-lakehouse run-job functional_annotation_agg__linkml 2>&1 | tee "$log"
+
 lakehouse_root := env_var_or_default("LAKEHOUSE_ROOT", "./lakehouse")
 
 # Delete every generated Parquet file under LAKEHOUSE_ROOT.

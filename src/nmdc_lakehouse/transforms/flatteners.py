@@ -211,7 +211,9 @@ def side_table_rows(
         ancestors = schema_view.class_ancestors(effective_class, mixins=True) or []
         if root_class not in ancestors:
             effective_class = root_class
-    parent_id = record.get("id", "")
+    parent_id = record.get("id")
+    if not parent_id:
+        return
 
     for slot in schema_view.class_induced_slots(effective_class):
         if not slot.multivalued:
