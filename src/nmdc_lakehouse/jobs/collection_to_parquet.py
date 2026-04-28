@@ -102,7 +102,9 @@ class CollectionToParquetJob(Job):
 
         def _tee_side_tables(raw_records):
             for record in raw_records:
-                for table_name, row in side_table_rows(record, schema_view, self.root_class, self.collection):
+                for table_name, row in side_table_rows(
+                    record, schema_view, self.root_class, self.collection, flattener._slots_cache
+                ):
                     side_buffer.setdefault(table_name, []).append(row)
                 yield record
 

@@ -8,7 +8,7 @@ from linkml_runtime import SchemaView
 from linkml_runtime.linkml_model import ClassDefinition, SlotDefinition
 
 
-def flatten_record(record: dict, schema_view: SchemaView, root_class: str) -> dict:
+def flatten_record(record: dict, schema_view: SchemaView, root_class: str, _cache: dict | None = None) -> dict:
     """Flatten a single nested record into a flat dict.
 
     Decision tree, schema-driven (each slot of the effective class):
@@ -45,7 +45,12 @@ def flatten_record(record: dict, schema_view: SchemaView, root_class: str) -> di
     """
     out: dict[str, Any] = {}
     effective_class = _dispatch_class(record, root_class, schema_view)
-    slots = schema_view.class_induced_slots(effective_class)
+    if _cache is not None and effective_class in _cache:
+        slots = _cache[effective_class]
+    else:
+        slots = schema_view.class_induced_slots(effective_class)
+        if _cache is not None:
+            _cache[effective_class] = slots
     for slot in slots:
         if slot.name not in record:
             continue
@@ -181,6 +186,7 @@ def side_table_rows(
     schema_view: SchemaView,
     root_class: str,
     collection: str,
+    _cache: dict | None = None,
 ) -> Iterator[tuple[str, dict]]:
     """Yield ``(table_name, row_dict)`` for every side table row from one record.
 
@@ -213,7 +219,14 @@ def side_table_rows(
             effective_class = root_class
     parent_id = record.get("id", "")
 
-    for slot in schema_view.class_induced_slots(effective_class):
+    if _cache is not None and effective_class in _cache:
+        slots = _cache[effective_class]
+    else:
+        slots = schema_view.class_induced_slots(effective_class)
+        if _cache is not None:
+            _cache[effective_class] = slots
+
+    for slot in slots:
         if not slot.multivalued:
             continue
         if slot.name not in record:
@@ -257,8 +270,9 @@ class SchemaDrivenFlattener:
         """Construct a flattener for ``root_class`` under ``schema_view``."""
         self.schema_view = schema_view
         self.root_class = root_class
+        self._slots_cache: dict = {}
 
     def apply(self, records: Iterable[dict]) -> Iterator[dict]:
         """Yield one flat dict per input record."""
         for record in records:
-            yield flatten_record(record, self.schema_view, self.root_class)
+            yield flatten_record(record, self.schema_view, self.root_class, self._slots_cache)
