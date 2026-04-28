@@ -23,7 +23,7 @@ from pathlib import Path
 from nmdc_lakehouse.config import LakehouseSettings, MongoSettings
 from nmdc_lakehouse.jobs.base import Job, JobResult
 from nmdc_lakehouse.jobs.registry import register
-from nmdc_lakehouse.sinks.parquet_sink import ParquetSink
+from nmdc_lakehouse.sinks.parquet_sink import ParquetSink, StreamingWriter, class_def_to_arrow_schema
 from nmdc_lakehouse.sources.mongo_source import MongoSource
 from nmdc_lakehouse.transforms.flatteners import SchemaDrivenFlattener
 
@@ -71,20 +71,16 @@ class CollectionToParquetJob(Job):
     def run(self, *, dry_run: bool = False) -> JobResult:
         """Stream records from MongoDB through the flattener into Parquet.
 
-        Side tables (for all multivalued slots) are buffered in memory during
-        the primary stream and written after the primary table is complete.
-        Memory usage scales with the total number of side-table rows, not the
-        number of primary records.
+        Side-table rows are written to disk in rolling batches as they arrive
+        so memory use stays bounded regardless of the number of multivalued
+        slots or the size of the collection.
         """
         from importlib.util import find_spec
 
         from linkml_runtime import SchemaView
 
         from nmdc_lakehouse.transforms.flatteners import side_table_rows
-        from nmdc_lakehouse.transforms.schema_generator import (
-            flatten_class_def,
-            side_table_class_defs,
-        )
+        from nmdc_lakehouse.transforms.schema_generator import flatten_class_def, side_table_class_defs
 
         spec = find_spec("nmdc_schema")
         if spec is None or not spec.submodule_search_locations:
@@ -107,13 +103,34 @@ class CollectionToParquetJob(Job):
             has_multivalued,
         )
 
-        # Buffer for side table rows accumulated during the primary stream.
-        side_buffer: dict[str, list[dict]] = {}
+        # Side-table writers opened lazily on the first row for each table.
+        # Rows are written in rolling batches so the live set stays small.
+        side_defs = (
+            dict(side_table_class_defs(schema_view, self.root_class, self.collection)) if has_multivalued else {}
+        )
+        side_writers: dict[str, StreamingWriter] = {}
+
+        def _get_side_writer(table_name: str) -> StreamingWriter | None:
+            if table_name in side_writers:
+                return side_writers[table_name]
+            cd = side_defs.get(table_name)
+            if cd is None:
+                logger.warning("%s: no ClassDef for side table %s — skipping", self.collection, table_name)
+                return None
+            w = StreamingWriter(
+                self.out_root / f"{table_name}.parquet",
+                class_def_to_arrow_schema(cd),
+            )
+            side_writers[table_name] = w
+            return w
 
         def _tee_side_tables(raw_records):
             for record in raw_records:
                 for table_name, row in side_table_rows(record, schema_view, self.root_class, self.collection):
-                    side_buffer.setdefault(table_name, []).append(row)
+                    if not dry_run:
+                        w = _get_side_writer(table_name)
+                        if w is not None:
+                            w.append(row)
                 yield record
 
         raw = source.iter_records(self.collection, page_size=self.page_size)
@@ -169,20 +186,13 @@ class CollectionToParquetJob(Job):
 
         rows_written: int = sink.write(_counted(flat_rows), table=self.collection, drop_empty_cols=drop_empty) or 0
 
-        # Write side tables.
-        side_defs = dict(side_table_class_defs(schema_view, self.root_class, self.collection))
+        # Finalise side-table writers (flush remaining batches and close files).
         side_tables: list[str] = []
-        for table_name, side_rows in side_buffer.items():
-            if not side_rows:
-                continue
-            cd = side_defs.get(table_name)
-            if cd is None:
-                logger.warning("%s: no ClassDef for side table %s — skipping", self.collection, table_name)
-                continue
-            side_sink = ParquetSink(self.out_root, class_def=cd)
-            n = side_sink.write(iter(side_rows), table=table_name) or 0
-            logger.info("%s: wrote %d rows to side table %s", self.collection, n, table_name)
-            side_tables.append(table_name)
+        for table_name, writer in side_writers.items():
+            n = writer.close()
+            if n > 0:
+                logger.info("%s: wrote %d rows to side table %s", self.collection, n, table_name)
+                side_tables.append(table_name)
 
         side_tables.sort()
         return JobResult(

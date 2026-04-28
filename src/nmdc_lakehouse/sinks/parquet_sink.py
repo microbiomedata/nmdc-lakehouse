@@ -59,6 +59,52 @@ def class_def_to_arrow_schema(class_def: ClassDefinition) -> pa.Schema:
     return pa.schema(fields)
 
 
+class StreamingWriter:
+    """Batch-buffered incremental Parquet writer for a single table.
+
+    Unlike :class:`ParquetSink`, which consumes a complete iterable, this
+    class accepts rows one at a time via :meth:`append` and flushes row groups
+    as the buffer fills. Call :meth:`close` to flush the remainder and
+    finalise the file. Intended for side tables that are populated
+    concurrently with the primary stream so their rows can be written to disk
+    as they arrive rather than buffered in memory for the entire run.
+    """
+
+    def __init__(self, path: Path, schema: pa.Schema, batch_size: int = DEFAULT_BATCH_SIZE) -> None:
+        """Open a streaming Parquet writer at ``path`` using ``schema``."""
+        self._path = path
+        self._schema = schema
+        self._batch_size = batch_size
+        self._buffer: list[dict] = []
+        self._writer: pq.ParquetWriter | None = None
+        self._total = 0
+
+    def append(self, row: dict) -> None:
+        """Buffer one row; flush a row group to disk when the batch is full."""
+        self._buffer.append(row)
+        if len(self._buffer) >= self._batch_size:
+            self._flush()
+
+    def close(self) -> int:
+        """Flush remaining rows and close the file. Returns total rows written."""
+        self._flush()
+        if self._writer is not None:
+            self._writer.close()
+            self._writer = None
+        return self._total
+
+    def _flush(self) -> None:
+        if not self._buffer:
+            return
+        arrow_table = _rows_to_arrow_table(self._buffer, self._schema)
+        if self._writer is None:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._writer = pq.ParquetWriter(self._path, arrow_table.schema)
+        self._writer.write_table(arrow_table)
+        self._total += len(self._buffer)
+        self._buffer = []
+
+
 class ParquetSink:
     """Write flat row dicts to Parquet files under a root directory.
 
@@ -137,24 +183,26 @@ class ParquetSink:
         return total
 
     def _to_arrow_table(self, rows: list[dict]) -> pa.Table:
-        """Convert a list of flat dicts to a PyArrow Table.
+        return _rows_to_arrow_table(rows, self._arrow_schema)
 
-        When a fixed schema is available, missing columns are filled with nulls
-        so every row group has the same shape. Without a fixed schema, the schema
-        is inferred from the batch (column types may differ across batches).
-        """
-        if self._arrow_schema is not None:
-            columns: dict[str, list] = {name: [] for name in self._arrow_schema.names}
-            for row in rows:
-                for name in self._arrow_schema.names:
-                    val = row.get(name)
-                    field_type = self._arrow_schema.field(name).type
-                    columns[name].append(_coerce(val, field_type))
-            arrays = [
-                pa.array(columns[name], type=self._arrow_schema.field(name).type) for name in self._arrow_schema.names
-            ]
-            return pa.table(dict(zip(self._arrow_schema.names, arrays, strict=True)), schema=self._arrow_schema)
-        return pa.Table.from_pylist(rows)
+
+def _rows_to_arrow_table(rows: list[dict], schema: pa.Schema | None) -> pa.Table:
+    """Convert a list of flat dicts to a PyArrow Table.
+
+    When ``schema`` is provided, missing columns are filled with nulls so every
+    row group has the same shape. Without a schema the type is inferred from
+    the batch (column types may differ across batches).
+    """
+    if schema is not None:
+        columns: dict[str, list] = {name: [] for name in schema.names}
+        for row in rows:
+            for name in schema.names:
+                val = row.get(name)
+                field_type = schema.field(name).type
+                columns[name].append(_coerce(val, field_type))
+        arrays = [pa.array(columns[name], type=schema.field(name).type) for name in schema.names]
+        return pa.table(dict(zip(schema.names, arrays, strict=True)), schema=schema)
+    return pa.Table.from_pylist(rows)
 
 
 def _col_has_data(col: pa.ChunkedArray) -> bool:
