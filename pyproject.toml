@@ -31,6 +31,8 @@ dependencies = [
     "pyiceberg>=0.7",
     "duckdb>=1.0",
     "pandas>=2.2",
+    # HTTP (used by notebooks/load_taxonomy_summaries.ipynb and future NERSC loaders)
+    "requests>=2.32",
     # Job / CLI scaffolding
     "click>=8.1",
     "pydantic>=2.7",
