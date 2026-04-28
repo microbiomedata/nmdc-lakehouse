@@ -2385,8 +2385,8 @@ wheels = [
 
 [[package]]
 name = "linkml-store"
-version = "0.3.1.post1.dev0+333e3df"
-source = { git = "https://github.com/linkml/linkml-store.git?rev=fix%2Ffind-iter-count-per-page#333e3dfdb6e9ad2b8af5677303f2aef441e6602a" }
+version = "0.3.1.post3.dev0+1ea6832"
+source = { git = "https://github.com/linkml/linkml-store.git?rev=1ea6832#1ea68327dbc48b9f329809cc652800d514121d0b" }
 dependencies = [
     { name = "click" },
     { name = "duckdb" },
@@ -3255,7 +3255,7 @@ requires-dist = [
     { name = "duckdb", specifier = ">=1.0" },
     { name = "linkml", specifier = ">=1.10.0" },
     { name = "linkml-runtime", specifier = ">=1.10.0" },
-    { name = "linkml-store", extras = ["all"], git = "https://github.com/linkml/linkml-store.git?rev=fix%2Ffind-iter-count-per-page" },
+    { name = "linkml-store", extras = ["all"], git = "https://github.com/linkml/linkml-store.git?rev=1ea6832" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6" },
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.5" },
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=0.25" },
