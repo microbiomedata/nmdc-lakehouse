@@ -31,14 +31,15 @@ _RANGE_TO_ARROW: dict[str, pa.DataType] = {
 
 
 def class_def_to_arrow_schema(class_def: ClassDefinition) -> pa.Schema:
-    """Derive a PyArrow schema from a (flat) LinkML ClassDefinition.
+    """Derive a PyArrow schema from a LinkML ClassDefinition.
 
-    Each attribute becomes a nullable Arrow field. The range is mapped
-    via ``_RANGE_TO_ARROW``; unknown ranges default to string.
+    Each attribute becomes a nullable Arrow field. The range is mapped via
+    ``_RANGE_TO_ARROW``; unknown ranges default to string. Multivalued slots
+    become ``pa.list_(element_type)``.
 
     Args:
-        class_def: A flat ``ClassDefinition`` whose attributes have scalar
-            ranges (as produced by :func:`nmdc_lakehouse.transforms.schema_generator.flatten_class_def`).
+        class_def: A ``ClassDefinition`` produced by
+            :func:`nmdc_lakehouse.transforms.schema_generator.flatten_class_def`.
 
     Returns:
         A ``pa.Schema`` with ``id`` first (if present), then remaining fields
@@ -52,7 +53,8 @@ def class_def_to_arrow_schema(class_def: ClassDefinition) -> pa.Schema:
     for name in names:
         slot = class_def.attributes[name]
         range_name = slot.range or "string"
-        arrow_type = _RANGE_TO_ARROW.get(range_name, pa.string())
+        element_type = _RANGE_TO_ARROW.get(range_name, pa.string())
+        arrow_type = pa.list_(element_type) if slot.multivalued else element_type
         fields.append(pa.field(name, arrow_type, nullable=True))
     return pa.schema(fields)
 
@@ -128,7 +130,7 @@ class ParquetSink:
 
         if drop_empty_cols and out_path.exists():
             tbl = pq.read_table(out_path)
-            non_empty = [name for name in tbl.schema.names if tbl.column(name).null_count < len(tbl)]
+            non_empty = [name for name in tbl.schema.names if _col_has_data(tbl.column(name))]
             if len(non_empty) < len(tbl.schema.names):
                 pq.write_table(tbl.select(non_empty), out_path)
 
@@ -155,17 +157,32 @@ class ParquetSink:
         return pa.Table.from_pylist(rows)
 
 
+def _col_has_data(col: pa.ChunkedArray) -> bool:
+    """Return True if the column has at least one non-null, non-empty value.
+
+    For list columns a row whose value is [] has null_count==0 but carries no
+    data; flatten() returns an empty array in that case so the column is dropped.
+    """
+    if pa.types.is_list(col.type):
+        return len(col.combine_chunks().flatten()) > 0
+    return col.null_count < len(col)
+
+
 def _coerce(value: object, arrow_type: pa.DataType) -> object:
     """Coerce a Python value to be compatible with ``arrow_type``.
 
     Arrow is strict about types; real NMDC data sometimes has numeric values
     in slots declared as string (e.g. ``depth_has_raw_value = 0.5``). When
-    the value is incompatible with a string column, stringify it. For numeric
-    columns, leave None as-is and let Arrow handle coercion from compatible
-    Python scalars.
+    the value is incompatible with a string column, stringify it. For list
+    columns, wrap non-list values and recursively coerce elements.
     """
     if value is None:
         return None
+    if pa.types.is_list(arrow_type):
+        if not isinstance(value, list):
+            value = [value]
+        elem_type = arrow_type.value_type
+        return [_coerce(v, elem_type) for v in value]
     if arrow_type == pa.string() and not isinstance(value, str):
         return str(value)
     return value

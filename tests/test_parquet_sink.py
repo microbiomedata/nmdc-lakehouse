@@ -39,6 +39,35 @@ classes:
     return sv.get_class("FlatRecord")
 
 
+@pytest.fixture
+def array_class() -> ClassDefinition:
+    """A ClassDefinition with multivalued (ARRAY) slots of various element types."""
+    sv = SchemaView("""
+id: https://example.org/test
+name: test
+prefixes:
+  linkml: https://w3id.org/linkml/
+imports:
+  - linkml:types
+classes:
+  ArrayRecord:
+    attributes:
+      id:
+        range: string
+        required: true
+      tags:
+        range: string
+        multivalued: true
+      scores:
+        range: integer
+        multivalued: true
+      associated_studies:
+        range: string
+        multivalued: true
+""")
+    return sv.get_class("ArrayRecord")
+
+
 def test_arrow_schema_types(flat_class, tmp_path):
     """class_def_to_arrow_schema maps ranges to Arrow types correctly."""
     schema = class_def_to_arrow_schema(flat_class)
@@ -118,6 +147,33 @@ def test_write_empty_input(flat_class, tmp_path):
     assert not (tmp_path / "flat_record.parquet").exists()
 
 
+def test_arrow_schema_multivalued_becomes_list_type(array_class):
+    """Multivalued slots map to pa.list_(element_type) in the Arrow schema."""
+    schema = class_def_to_arrow_schema(array_class)
+    field_map = {f.name: f.type for f in schema}
+    assert field_map["tags"] == pa.list_(pa.string())
+    assert field_map["scores"] == pa.list_(pa.int64())
+    assert field_map["associated_studies"] == pa.list_(pa.string())
+    assert field_map["id"] == pa.string()  # single-valued — not a list
+
+
+def test_write_array_columns_roundtrip(array_class, tmp_path):
+    """ARRAY columns survive a write/read roundtrip with correct values."""
+    sink = ParquetSink(tmp_path, class_def=array_class)
+    rows = [
+        {"id": "r1", "tags": ["a", "b"], "scores": [1, 2, 3]},
+        {"id": "r2", "tags": ["x"]},
+        {"id": "r3"},  # all array cols null
+    ]
+    total = sink.write(iter(rows), table="array_record")
+    assert total == 3
+    tbl = pq.read_table(tmp_path / "array_record.parquet")
+    assert tbl.schema.field("tags").type == pa.list_(pa.string())
+    assert tbl.schema.field("scores").type == pa.list_(pa.int64())
+    assert tbl.column("tags").to_pylist() == [["a", "b"], ["x"], None]
+    assert tbl.column("scores").to_pylist() == [[1, 2, 3], None, None]
+
+
 def test_drop_empty_cols_removes_all_null_columns(flat_class, tmp_path):
     """drop_empty_cols=True strips columns that are null in every row."""
     sink = ParquetSink(tmp_path, class_def=flat_class)
@@ -130,3 +186,15 @@ def test_drop_empty_cols_removes_all_null_columns(flat_class, tmp_path):
     assert "depth_has_numeric_value" not in tbl.schema.names
     assert "count" not in tbl.schema.names
     assert "active" not in tbl.schema.names
+
+
+def test_drop_empty_cols_removes_all_empty_array_columns(array_class, tmp_path):
+    """drop_empty_cols=True strips ARRAY columns where every row has [] or null."""
+    sink = ParquetSink(tmp_path, class_def=array_class)
+    rows = [{"id": "r1", "tags": ["a"]}, {"id": "r2"}]
+    sink.write(iter(rows), table="array_record", drop_empty_cols=True)
+    tbl = pq.read_table(tmp_path / "array_record.parquet")
+    assert "id" in tbl.schema.names
+    assert "tags" in tbl.schema.names  # has data
+    assert "scores" not in tbl.schema.names  # all null/empty
+    assert "associated_studies" not in tbl.schema.names  # all null/empty
