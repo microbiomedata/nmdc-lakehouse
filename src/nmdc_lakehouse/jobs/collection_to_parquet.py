@@ -146,7 +146,7 @@ class CollectionToParquetJob(Job):
         heartbeat_secs = int(os.environ.get("LAKEHOUSE_HEARTBEAT_SECS", "60"))
         total = source.estimated_count(self.collection)
         total_str = f"~{total:,}" if total else "?"
-        logger.info("%s: starting (~%s records)", self.collection, total_str)
+        logger.info("%s: starting (%s records)", self.collection, total_str)
         rows_read = 0
         first_row_logged = False
         t0 = time.monotonic()
