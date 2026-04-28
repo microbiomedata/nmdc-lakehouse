@@ -2385,8 +2385,8 @@ wheels = [
 
 [[package]]
 name = "linkml-store"
-version = "0.3.1.post3.dev0+1ea6832"
-source = { git = "https://github.com/linkml/linkml-store.git?rev=1ea6832#1ea68327dbc48b9f329809cc652800d514121d0b" }
+version = "0.3.1.post4.dev0+f3006e2"
+source = { git = "https://github.com/linkml/linkml-store.git?rev=f3006e2#f3006e2d181965bbc30e0d15adfec4061e356a2c" }
 dependencies = [
     { name = "click" },
     { name = "duckdb" },
@@ -3255,7 +3255,7 @@ requires-dist = [
     { name = "duckdb", specifier = ">=1.0" },
     { name = "linkml", specifier = ">=1.10.0" },
     { name = "linkml-runtime", specifier = ">=1.10.0" },
-    { name = "linkml-store", extras = ["all"], git = "https://github.com/linkml/linkml-store.git?rev=1ea6832" },
+    { name = "linkml-store", extras = ["all"], git = "https://github.com/linkml/linkml-store.git?rev=f3006e2" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6" },
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.5" },
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=0.25" },
