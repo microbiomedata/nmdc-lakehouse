@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 from linkml_runtime import SchemaView
 
+from nmdc_lakehouse.transforms.flatteners import side_table_rows
 from nmdc_lakehouse.transforms.schema_generator import (
     flatten_class_def,
     flatten_database_schema,
@@ -230,3 +231,31 @@ def test_side_table_scalar_integer_no_classdef(sv):
     """Integer scalar multivalued slots produce no side table ClassDef (ARRAY in primary)."""
     defs = dict(side_table_class_defs(sv, "Record", "record_set"))
     assert "record_set_scores" not in defs
+
+
+def test_side_table_schema_covers_runtime_row_keys(sv):
+    """Every key emitted by side_table_rows must appear in the ClassDef from side_table_class_defs.
+
+    Regression guard: if the two functions drift apart (schema says col X exists
+    but runtime never emits it, or runtime emits col Y with no schema entry),
+    ParquetSink will silently drop or mistype columns.
+    """
+    defs = dict(side_table_class_defs(sv, "Record", "record_set"))
+
+    # Omit the nested term dict inside chem_admin — non-inlined class-range
+    # slots inside a side-table child use the ref-as-string path in the schema
+    # but the two-level expansion path in the runtime (a known open gap, not
+    # tested here).
+    record = {
+        "id": "r1",
+        "chem_admin": [
+            {"has_raw_value": "NaCl"},
+        ],
+        "associated_studies": ["study:1", "study:2"],
+    }
+
+    for table_name, row in side_table_rows(record, sv, "Record", "record_set"):
+        assert table_name in defs, f"side_table_rows emitted unknown table {table_name!r}"
+        schema_cols = {attr for attr in defs[table_name].attributes}
+        extra = set(row.keys()) - schema_cols
+        assert not extra, f"side_table_rows emitted keys {extra} not in ClassDef for {table_name!r}"

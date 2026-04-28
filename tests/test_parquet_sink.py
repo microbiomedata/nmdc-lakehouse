@@ -140,8 +140,22 @@ def test_write_without_class_def_infers_schema(tmp_path):
 
 
 def test_write_empty_input(flat_class, tmp_path):
-    """Writing zero rows produces no file."""
+    """Writing zero rows with a known schema writes a zero-row Parquet file."""
     sink = ParquetSink(tmp_path, class_def=flat_class)
+    total = sink.write(iter([]), table="flat_record")
+    assert total == 0
+    out = tmp_path / "flat_record.parquet"
+    assert out.exists()
+    import pyarrow.parquet as _pq
+
+    tbl = _pq.read_table(out)
+    assert len(tbl) == 0
+    assert "id" in tbl.schema.names
+
+
+def test_write_empty_input_no_schema(tmp_path):
+    """Writing zero rows without a schema produces no file (schema unknown)."""
+    sink = ParquetSink(tmp_path)
     total = sink.write(iter([]), table="flat_record")
     assert total == 0
     assert not (tmp_path / "flat_record.parquet").exists()

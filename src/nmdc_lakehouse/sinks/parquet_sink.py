@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Iterable, Iterator
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 from linkml_runtime.linkml_model import ClassDefinition
 
@@ -170,6 +171,13 @@ class ParquetSink:
                     writer = pq.ParquetWriter(out_path, arrow_table.schema)
                 writer.write_table(arrow_table)
                 total += len(batch)
+            if writer is None and self._arrow_schema is not None:
+                pq.write_table(
+                    pa.table(
+                        {f.name: pa.array([], type=f.type) for f in self._arrow_schema}, schema=self._arrow_schema
+                    ),
+                    out_path,
+                )
         finally:
             if writer is not None:
                 writer.close()
@@ -209,21 +217,11 @@ def _col_has_data(col: pa.ChunkedArray) -> bool:
     """Return True if the column has at least one non-null, non-empty value.
 
     For list columns a row whose value is [] has null_count==0 but carries no
-    data; flatten() returns an empty array in that case so the column is dropped.
+    data; uses list_value_length to avoid materialising all elements.
     """
     if pa.types.is_list(col.type):
-        return len(col.combine_chunks().flatten()) > 0
-    return col.null_count < len(col)
-
-
-def _col_has_data(col: pa.ChunkedArray) -> bool:
-    """Return True if the column has at least one non-null, non-empty value.
-
-    For list columns a row whose value is [] has null_count==0 but carries no
-    data; flatten() returns an empty array in that case so the column is dropped.
-    """
-    if pa.types.is_list(col.type):
-        return len(col.combine_chunks().flatten()) > 0
+        lengths = pc.list_value_length(col)
+        return pc.any(pc.greater(pc.fill_null(lengths, 0), 0)).as_py()
     return col.null_count < len(col)
 
 
