@@ -236,9 +236,10 @@ def test_side_table_scalar_integer_no_classdef(sv):
 def test_side_table_schema_covers_runtime_row_keys(sv):
     """Every key emitted by side_table_rows must appear in the ClassDef from side_table_class_defs.
 
-    Regression guard: if the two functions drift apart (schema says col X exists
-    but runtime never emits it, or runtime emits col Y with no schema entry),
-    ParquetSink will silently drop or mistype columns.
+    Regression guard: if side_table_rows emits a key that has no matching
+    attribute in the ClassDef, ParquetSink will silently drop or mistype that
+    column. (The reverse direction — schema columns never emitted at runtime —
+    is not checked here; those become nullable nulls, which is harmless.)
     """
     defs = dict(side_table_class_defs(sv, "Record", "record_set"))
 

@@ -182,7 +182,7 @@ class ParquetSink:
             if writer is not None:
                 writer.close()
 
-        if drop_empty_cols and out_path.exists():
+        if drop_empty_cols and out_path.exists() and total > 0:
             tbl = pq.read_table(out_path)
             non_empty = [name for name in tbl.schema.names if _col_has_data(tbl.column(name))]
             if len(non_empty) < len(tbl.schema.names):
