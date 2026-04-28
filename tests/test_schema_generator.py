@@ -201,8 +201,12 @@ def test_side_table_inlined_class_child(sv):
     assert "record_set_chem_admin" in defs
     cls = defs["record_set_chem_admin"]
     assert "parent_id" in cls.attributes
-    # ControlledTermValue slots appear in the child schema
     assert "has_raw_value" in cls.attributes
+    # Non-inlined class-range sub-slots are expanded to <sub>_<inner> columns,
+    # matching what _expand_inlined emits at runtime.
+    assert "term_id" in cls.attributes
+    assert "term_name" in cls.attributes
+    assert "term" not in cls.attributes
 
 
 def test_side_table_single_valued_slots_excluded(sv):
@@ -243,14 +247,10 @@ def test_side_table_schema_covers_runtime_row_keys(sv):
     """
     defs = dict(side_table_class_defs(sv, "Record", "record_set"))
 
-    # Omit the nested term dict inside chem_admin — non-inlined class-range
-    # slots inside a side-table child use the ref-as-string path in the schema
-    # but the two-level expansion path in the runtime (a known open gap, not
-    # tested here).
     record = {
         "id": "r1",
         "chem_admin": [
-            {"has_raw_value": "NaCl"},
+            {"has_raw_value": "NaCl", "term": {"id": "CHEBI:26710", "name": "sodium chloride"}},
         ],
         "associated_studies": ["study:1", "study:2"],
     }
