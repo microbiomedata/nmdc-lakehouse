@@ -45,3 +45,10 @@ Thumbs.db
 *.parquet
 *.iceberg/
 reports/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Notebook-local artifacts (raw HTTP cache, generated parquets, run logs)
+notebooks/loaded_taxonomy/
+notebooks/local_logs/
