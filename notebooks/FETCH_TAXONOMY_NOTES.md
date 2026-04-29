@@ -1,4 +1,4 @@
-# load_taxonomy_summaries.ipynb — lessons from the build-out
+# fetch_taxonomy_summaries.ipynb — lessons from the build-out
 
 Notes captured while iterating on issue #77 (load NOW-tier NMDC taxonomy summaries).
 Most lessons are transferable to other on-pod loaders.
@@ -94,7 +94,7 @@ Each row carries `workflow_run_id` and `data_object_id`. To go from workflow run
 
 ## Files in this directory
 
-- `load_taxonomy_summaries.ipynb` — the notebook
+- `fetch_taxonomy_summaries.ipynb` — the notebook
 - `loaded_taxonomy/` — outputs
   - `*.parquet` — final tables
   - `raw_cache/` — raw HTTP downloads, keyed by URL path. Safe to delete to force re-fetch
