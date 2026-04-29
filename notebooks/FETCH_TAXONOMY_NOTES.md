@@ -56,7 +56,7 @@ If you let `pd.read_csv` parse these, the placeholder line becomes a *unique col
 
 Same workflow runs are duplicated across all three MAG-derived types (e.g. `nmdc:wfmag-11-acysmk94.4`). Each duplicate URL has 2–3 distinct `nmdc:dobj-...` ids. Likely cause: MAG workflow was re-ingested without replacing prior `data_object` records. **Always dedup on `(url, data_object_type)` before processing** — duplicates cause cache-write races and double the parsing work.
 
-### 8 broken URLs per *bt-type*
+### 8 broken URLs across *both types*
 GOTTCHA2 and Kraken2 each have 8 manifest URLs that 404 on `data.microbiomedata.org` (same workflow run IDs in both, so it's the workflow output that's missing, not type-specific). Real upstream gap; surface in error log and move on.
 
 ## Format-parsing notes
