@@ -3235,6 +3235,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "requests" },
     { name = "sqlalchemy" },
+    { name = "tenacity" },
     { name = "tqdm" },
 ]
 
@@ -3283,6 +3284,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.32" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
     { name = "sqlalchemy", specifier = ">=2.0" },
+    { name = "tenacity", specifier = ">=8.0" },
     { name = "tqdm", specifier = ">=4.66" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.12.20260408" },
 ]
