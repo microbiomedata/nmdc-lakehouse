@@ -67,39 +67,56 @@ def workflows_to_biosamples_bulk(conn, workflow_run_ids, max_depth=15):
     return pd.DataFrame(rows or [], columns=["workflow_run_id", "biosample_id"])
 ```
 
-## End-to-end: KO hits per biosample (single Trino query)
+## End-to-end: KO hits per biosample (two-step approach)
 
-```sql
-WITH RECURSIVE
-ko_hits(workflow_run_id, n_hits) AS (
+Combining the annotation table scan and the recursive walk into a single
+`WITH RECURSIVE` query causes `TOO_MANY_REQUESTS_FAILED` — the Trino worker
+node crashes under the combined load. Split into two steps instead:
+
+```python
+import time, pandas as pd
+
+TARGET_KO = 'KO:K00001'
+
+# Step 1: flat scan — annotation table only, no recursion
+t0 = time.monotonic()
+cur = conn.cursor()
+cur.execute(f"""
     SELECT workflow_run_id, COUNT(*) AS n_hits
     FROM   nmdc_results.annotation_kegg_orthology
-    WHERE  annotation_id = 'KO:K00001'
+    WHERE  annotation_id = '{TARGET_KO}'
     GROUP  BY workflow_run_id
-),
-upstream(origin, id, depth) AS (
-    SELECT CAST(workflow_run_id AS VARCHAR),
-           CAST(workflow_run_id AS VARCHAR),
-           CAST(0 AS BIGINT)
-    FROM   ko_hits
-    UNION ALL
-    SELECT u.origin, e.next_id, u.depth + 1
-    FROM   upstream u
-    JOIN   (-- _EDGES union here --) e ON e.src = u.id
-    WHERE  u.depth < 15
-      AND  u.id NOT LIKE 'nmdc:bsm%'
-),
-run_to_biosample(workflow_run_id, biosample_id) AS (
-    SELECT DISTINCT origin, id FROM upstream WHERE id LIKE 'nmdc:bsm%'
+""")
+ko_hits = pd.DataFrame(cur.fetchall(), columns=["workflow_run_id", "n_hits"])
+print(f"Step 1: {len(ko_hits)} workflow runs  ({time.monotonic() - t0:.1f}s)")
+
+# Step 2: recursive walk those run IDs to biosamples, then join metadata
+t1 = time.monotonic()
+r2b = workflows_to_biosamples_bulk(conn, ko_hits["workflow_run_id"].tolist())
+
+bsm_ids = r2b["biosample_id"].unique().tolist()
+ids_sql = ", ".join(f"'{i}'" for i in bsm_ids)
+cur.execute(f"""
+    SELECT id AS biosample_id, env_broad_scale_term_id, env_medium_term_id,
+           geo_loc_name_has_raw_value
+    FROM   nmdc_metadata.biosample_set
+    WHERE  id IN ({ids_sql})
+""")
+bsm_meta = pd.DataFrame(cur.fetchall(), columns=["biosample_id", "env_broad_scale_term_id",
+                                                   "env_medium_term_id", "geo_loc_name_has_raw_value"])
+
+result = (
+    r2b.merge(ko_hits, on="workflow_run_id")
+       .merge(bsm_meta, on="biosample_id")
+       .groupby(["biosample_id", "env_broad_scale_term_id",
+                 "env_medium_term_id", "geo_loc_name_has_raw_value"], as_index=False)["n_hits"]
+       .sum()
+       .rename(columns={"n_hits": "total_hits"})
+       .sort_values("total_hits", ascending=False)
+       .head(20)
+       .reset_index(drop=True)
 )
-SELECT bs.id, bs.env_broad_scale_term_id, bs.geo_loc_name_has_raw_value,
-       SUM(kh.n_hits) AS total_hits
-FROM   run_to_biosample r2b
-JOIN   ko_hits kh ON kh.workflow_run_id = r2b.workflow_run_id
-JOIN   nmdc_metadata.biosample_set bs ON bs.id = r2b.biosample_id
-GROUP  BY 1, 2, 3
-ORDER  BY total_hits DESC
-LIMIT  20
+print(f"Total elapsed: {time.monotonic() - t0:.1f}s")
 ```
 
 ## Trino WITH RECURSIVE syntax rules
