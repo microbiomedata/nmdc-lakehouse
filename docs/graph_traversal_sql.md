@@ -1,4 +1,29 @@
-# Graph traversal in Spark SQL: Biosample ↔ DataObject paths
+# Graph traversal: Biosample ↔ DataObject paths
+
+> **TL;DR for BERDL notebooks:** Use Trino (`get_trino_connection()`), not Spark.
+> Spark 4.0.1 `WITH RECURSIVE` is broken (see below). The working solution uses
+> four existing Silver side tables — no `nmdc_graph_edges` or alldocs required.
+> See [`trino_recursive_graph_traversal.md`](trino_recursive_graph_traversal.md)
+> for tested, production-ready code.
+
+## Spark 4.0.1 WITH RECURSIVE is broken
+
+Both Spark transport modes fail with the same root cause:
+
+```
+assertion failed: No plan for UnionLoop 0
+```
+
+- **Spark Connect** (`get_spark_session()` default): surfaces as `No plan for UnionLoop`
+- **Classic standalone** (`get_spark_session(use_spark_connect=False)`): surfaces as
+  `INTERNAL_ERROR: transpose requires all collections have the same size`
+
+This is a Spark planner bug, not a configuration problem. Setting
+`spark.sql.ansi.enabled = true` or switching master URLs does not help.
+
+**Use Trino instead.** Trino is available in every BERDL notebook via
+`get_trino_connection()`, reads the same Delta tables from the Hive metastore,
+and supports `WITH RECURSIVE` natively.
 
 ## The problem
 
@@ -287,10 +312,28 @@ COPY (
 Upload `dg_to_biosample.parquet` to BERDL Bronze and register as a Delta
 table. The recursive heavy lifting happens once outside Spark.
 
-### Option C: `WITH RECURSIVE` on `nmdc_graph_edges` (requires table to be loaded)
+### Option C: `WITH RECURSIVE` in Trino on the four Silver side tables (recommended)
 
-See the patterns later in this document. This is the most general solution but
-requires `nmdc_graph_edges` to be registered in `nmdc_metadata` first (issue #97).
+Trino supports `WITH RECURSIVE` and no new tables are needed. The four existing
+Silver side tables form a complete edge set for upstream provenance traversal:
+
+| Table | src col | dst col |
+|---|---|---|
+| `workflow_execution_set_was_informed_by` | `parent_id` | `was_informed_by` |
+| `data_generation_set_has_input` | `parent_id` | `has_input` |
+| `material_processing_set_has_output` | `has_output` | `parent_id` |
+| `material_processing_set_has_input` | `parent_id` | `has_input` |
+
+Tested against real NMDC data including 8-hop Pooling chains. See
+[`trino_recursive_graph_traversal.md`](trino_recursive_graph_traversal.md)
+for the full working code and the two-step pattern required to avoid
+`TOO_MANY_REQUESTS_FAILED` on large annotation scans.
+
+### Option D: `WITH RECURSIVE` on `nmdc_graph_edges` (requires table to be loaded)
+
+A more general approach once `nmdc_graph_edges` is registered in `nmdc_metadata`
+(issue #97). Not required for the biosample ↔ DataObject use case — Option C
+using Trino and the existing Silver tables is sufficient.
 
 ---
 
