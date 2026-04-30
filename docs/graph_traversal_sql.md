@@ -164,6 +164,136 @@ GROUP  BY 1, 2, 3, 4
 ORDER  BY total_ko_hits DESC
 ```
 
+## Alternative approaches that don't require alldocs or the Linked Instances API
+
+### Check whether recursion is needed at all
+
+`WorkflowExecution.was_informed_by` already points directly to the
+`DataGeneration` (NucleotideSequencing or MassSpectrometry), bypassing the
+DataObject → WorkflowExecution → DataObject chain entirely. So the workflow
+side of the bipartite graph is a single hop for any annotation workflow.
+
+The only variable-depth problem is the **material processing chain** on the
+other side: `DataGeneration.has_input` can point to a Biosample (`bsm-`), a
+ProcessedSample (`procsm-`), or an OrganismSample (`osm-`). If all values in
+the current BERDL data start with `bsm-`, no recursion is needed at all.
+
+**Check this first before writing any recursive query:**
+
+```sql
+SELECT DISTINCT SUBSTRING(has_input, 1, INSTR(has_input, '-') - 1) AS id_prefix,
+               COUNT(*) AS n
+FROM nmdc_metadata.data_generation_set_has_input
+GROUP BY 1
+ORDER BY 2 DESC
+```
+
+If only `bsm-` appears, the fixed equi-join chain in `nmdc_metadata_tables.md`
+is sufficient for all current data.
+
+### Option A: Fixed-depth UNION for the material processing chain
+
+No recursive CTE required. Unroll the material processing hops explicitly with
+`UNION ALL`. Each additional `SELECT` handles one more hop. In practice NMDC
+material processing chains are at most 3–4 steps deep.
+
+This produces a `(data_generation_id, biosample_id)` mapping that can be used
+as a replacement for `data_generation_set_has_input` when that table points to
+`procsm-` or `osm-` IDs:
+
+```sql
+WITH dg_to_biosample AS (
+
+  -- depth 0: DataGeneration.has_input → Biosample directly
+  SELECT dhi.parent_id AS dg_id,
+         dhi.has_input AS biosample_id,
+         0             AS n_hops
+  FROM   nmdc_metadata.data_generation_set_has_input dhi
+  WHERE  dhi.has_input LIKE 'bsm-%'
+
+  UNION ALL
+
+  -- depth 1: DataGeneration → ProcessedSample → MaterialProcessing → Biosample
+  SELECT dhi.parent_id,
+         mpi.has_input,
+         1
+  FROM   nmdc_metadata.data_generation_set_has_input dhi
+  JOIN   nmdc_metadata.material_processing_set_has_output mpho
+           ON mpho.has_output = dhi.has_input
+  JOIN   nmdc_metadata.material_processing_set_has_input mpi
+           ON mpi.parent_id  = mpho.parent_id
+  WHERE  mpi.has_input LIKE 'bsm-%'
+
+  UNION ALL
+
+  -- depth 2: one more material processing step back
+  SELECT dhi.parent_id,
+         mpi2.has_input,
+         2
+  FROM   nmdc_metadata.data_generation_set_has_input dhi
+  JOIN   nmdc_metadata.material_processing_set_has_output mpho1
+           ON mpho1.has_output = dhi.has_input
+  JOIN   nmdc_metadata.material_processing_set_has_input mpi1
+           ON mpi1.parent_id   = mpho1.parent_id
+  JOIN   nmdc_metadata.material_processing_set_has_output mpho2
+           ON mpho2.has_output = mpi1.has_input
+  JOIN   nmdc_metadata.material_processing_set_has_input mpi2
+           ON mpi2.parent_id   = mpho2.parent_id
+  WHERE  mpi2.has_input LIKE 'bsm-%'
+  -- add more UNION ALL blocks if deeper chains exist in the data
+
+)
+SELECT dg_id, biosample_id, MIN(n_hops) AS n_hops
+FROM   dg_to_biosample
+GROUP  BY 1, 2
+```
+
+Plug this CTE into the full annotation → biosample chain by replacing the
+`data_generation_set_has_input` join with a join to `dg_to_biosample`.
+
+### Option B: Precomputed `dg_to_biosample` Delta table
+
+Run Option A once (or use DuckDB locally against the Silver Parquet exports,
+where `WITH RECURSIVE` is fully supported), store the result as a small Delta
+table `nmdc_metadata.dg_to_biosample`, and every subsequent Spark SQL query
+is a plain equi-join. Needs refreshing when NMDC data is updated.
+
+DuckDB against local Parquets:
+
+```bash
+duckdb -c "
+COPY (
+  WITH RECURSIVE dg_to_biosample(dg_id, id, depth) AS (
+    SELECT parent_id, has_input, 0
+    FROM   read_parquet('lakehouse/data_generation_set_has_input.parquet')
+    UNION ALL
+    SELECT t.dg_id, mpi.has_input, t.depth + 1
+    FROM   dg_to_biosample t
+    JOIN   read_parquet('lakehouse/material_processing_set_has_output.parquet') mpho
+             ON mpho.has_output = t.id
+    JOIN   read_parquet('lakehouse/material_processing_set_has_input.parquet') mpi
+             ON mpi.parent_id   = mpho.parent_id
+    WHERE  t.depth < 10
+      AND  t.id NOT LIKE 'bsm-%'
+  )
+  SELECT dg_id, id AS biosample_id, MIN(depth) AS n_hops
+  FROM   dg_to_biosample
+  WHERE  id LIKE 'bsm-%'
+  GROUP  BY 1, 2
+) TO 'lakehouse/dg_to_biosample.parquet' (FORMAT PARQUET)
+"
+```
+
+Upload `dg_to_biosample.parquet` to BERDL Bronze and register as a Delta
+table. The recursive heavy lifting happens once outside Spark.
+
+### Option C: `WITH RECURSIVE` on `nmdc_graph_edges` (requires table to be loaded)
+
+See the patterns later in this document. This is the most general solution but
+requires `nmdc_graph_edges` to be registered in `nmdc_metadata` first (issue #97).
+
+---
+
 ## Why BERDL Claude's earlier attempts probably failed
 
 Before `nmdc_graph_edges` existed in `nmdc_metadata`, recursive traversal
@@ -192,7 +322,8 @@ annotation.workflow_run_id
 ```
 
 Check the `has_input` prefix: `bsm-` = direct Biosample (no recursion needed),
-`procsm-` = ProcessedSample (use the recursive CTE above).
+`procsm-` = ProcessedSample (use recursive CTE or Option A above),
+`osm-` = OrganismSample (same variable-depth problem as ProcessedSample).
 
 ## Depth limit guidance
 
