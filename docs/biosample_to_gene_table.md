@@ -79,8 +79,10 @@ pattern: one recursive CTE per batch of workflow runs (500 at a time to avoid
 `TOO_MANY_REQUESTS_FAILED`), collecting both biosample endpoints and
 intermediate MaterialProcessing node types in a single pass.
 
-The resulting DataFrame is written to Bronze MinIO and registered as a Delta
-table in `nmdc_metadata` via `data_lakehouse_ingest.ingest()`.
+The resulting DataFrame is written directly to Silver as a Hive-registered
+Delta table via `spark.createDataFrame(result).write.saveAsTable()`. No Bronze
+intermediate — this is a derived table computed from existing Silver tables,
+not ingested from raw external data.
 
 ## Maintenance
 
