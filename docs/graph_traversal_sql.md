@@ -1,10 +1,15 @@
 # Graph traversal: Biosample ↔ DataObject paths
 
-> **TL;DR for BERDL notebooks:** Use Trino (`get_trino_connection()`), not Spark.
+> **TL;DR for BERDL notebook users:** Use Trino (`get_trino_connection()`), not Spark.
 > Spark 4.0.1 `WITH RECURSIVE` is broken (see below). The working solution uses
 > four existing Silver side tables — no `nmdc_graph_edges` or alldocs required.
 > See [`trino_recursive_graph_traversal.md`](trino_recursive_graph_traversal.md)
 > for tested, production-ready code.
+>
+> **TL;DR for remote / API users:** The Trino two-step pattern requires Python
+> orchestration between calls and does not translate to a single MCP API query.
+> Use the precomputed `workflow_to_biosample` table instead — see
+> [Precomputed closure for remote and API access](#precomputed-closure-for-remote-and-api-access).
 
 ## Spark 4.0.1 WITH RECURSIVE is broken
 
@@ -379,3 +384,104 @@ Check the `has_input` prefix: `bsm-` = direct Biosample (no recursion needed),
 Set the limit conservatively high rather than tight. The depth guard only
 prevents runaway queries on unexpected cycles; it does not affect correctness
 for well-formed data.
+
+---
+
+## Precomputed closure for remote and API access
+
+### Why the Trino solution doesn't work remotely
+
+The Trino two-step pattern (`trino_recursive_graph_traversal.md`) requires
+Python orchestration: step 1 returns workflow run IDs to a Python variable,
+which step 2 injects as `VALUES` literals into a new query. A remote caller
+using the BERDL MCP REST API (`/delta/tables/query`) cannot hold state between
+calls. Additionally:
+
+- The MCP API routes queries through Spark, not Trino — `WITH RECURSIVE` fails
+  with the same `No plan for UnionLoop` bug.
+- Injecting thousands of IDs as `VALUES` literals does not scale and may exceed
+  query size limits.
+
+### The solution: `workflow_to_biosample` Delta table
+
+Precompute the full workflow-run → biosample mapping once and store it as a
+small Delta table in `nmdc_metadata`. Remote and API users then get the linkage
+with a plain equi-join that works through any query interface — Spark, Trino,
+MCP REST, or DuckDB against exported Parquet.
+
+**Generate with the Trino recursive CTE** (run once in a BERDL notebook,
+refresh whenever NMDC data is updated):
+
+```python
+from berdl_notebook_utils.setup_trino_session import get_trino_connection
+conn = get_trino_connection()
+
+_EDGES = """
+    SELECT parent_id AS src, was_informed_by AS next_id
+    FROM   nmdc_metadata.workflow_execution_set_was_informed_by
+    UNION ALL
+    SELECT parent_id AS src, has_input       AS next_id
+    FROM   nmdc_metadata.data_generation_set_has_input
+    UNION ALL
+    SELECT has_output AS src, parent_id      AS next_id
+    FROM   nmdc_metadata.material_processing_set_has_output
+    UNION ALL
+    SELECT parent_id AS src, has_input       AS next_id
+    FROM   nmdc_metadata.material_processing_set_has_input
+"""
+
+cur = conn.cursor()
+cur.execute(f"""
+    WITH RECURSIVE upstream(origin, id, depth) AS (
+        SELECT CAST(we.id AS VARCHAR), CAST(we.id AS VARCHAR), CAST(0 AS BIGINT)
+        FROM   nmdc_metadata.workflow_execution_set we
+        UNION ALL
+        SELECT u.origin, e.next_id, u.depth + 1
+        FROM   upstream u
+        JOIN   ({_EDGES}) e ON e.src = u.id
+        WHERE  u.depth < 15
+          AND  u.id NOT LIKE 'nmdc:bsm%'
+    )
+    SELECT DISTINCT origin AS workflow_run_id,
+                    id     AS biosample_id,
+                    depth  AS n_hops
+    FROM   upstream
+    WHERE  id LIKE 'nmdc:bsm%'
+""")
+import pandas as pd
+w2b = pd.DataFrame(cur.fetchall(), columns=["workflow_run_id", "biosample_id", "n_hops"])
+```
+
+Write to Parquet, upload to Bronze MinIO, and register as a Delta table in
+`nmdc_metadata` following the same pattern as other ingest notebooks.
+
+**Once loaded, any query interface can join on it:**
+
+```sql
+-- Works via MCP REST API, Spark, Trino, or DuckDB — no recursion needed
+SELECT ko.annotation_id,
+       w2b.biosample_id,
+       w2b.n_hops,
+       bs.env_broad_scale_term_id,
+       bs.geo_loc_name_has_raw_value,
+       COUNT(*) AS n_hits
+FROM   nmdc_results.annotation_kegg_orthology ko
+JOIN   nmdc_metadata.workflow_to_biosample w2b
+         ON w2b.workflow_run_id = ko.workflow_run_id
+JOIN   nmdc_metadata.biosample_set bs
+         ON bs.id = w2b.biosample_id
+WHERE  ko.annotation_id = 'KO:K00001'
+GROUP  BY 1, 2, 3, 4, 5
+ORDER  BY n_hits DESC
+```
+
+### Refresh strategy
+
+`workflow_to_biosample` is a derived table — it must be rebuilt when the
+underlying Silver tables change. NMDC data is loaded in batches (not
+continuously), so a manual rebuild after each load cycle is sufficient for now.
+A Dagster or notebook-triggered refresh can be added later.
+
+The table is small: one row per (workflow run, biosample) pair. With ~30K
+workflow runs and typically 1–3 biosamples each, the table will be well under
+100K rows and fast to regenerate.
