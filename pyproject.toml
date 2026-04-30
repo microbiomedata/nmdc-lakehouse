@@ -31,6 +31,8 @@ dependencies = [
     "pyiceberg>=0.7",
     "duckdb>=1.0",
     "pandas>=2.2",
+    # HTTP (used by notebooks/fetch_taxonomy_summaries.ipynb and future NERSC loaders)
+    "requests>=2.32",
     # Job / CLI scaffolding
     "click>=8.1",
     "pydantic>=2.7",
@@ -40,8 +42,7 @@ dependencies = [
     # Used by scripts/python/ (copied from external-metadata-awareness)
     "oaklib>=0.6",
     "python-dotenv>=1.0",
-    # Used by scripts/download_to_cache.py (parallel HTTP cache downloader)
-    "requests>=2.31",
+    # Used by notebooks/fetch_*.ipynb retry logic and scripts/download_to_cache.py
     "tenacity>=8.0",
 ]
 
