@@ -51,4 +51,8 @@ reports/
 
 # Notebook-local artifacts (raw HTTP cache, generated parquets, run logs)
 notebooks/loaded_taxonomy/
+notebooks/loaded_ko_ec/
 notebooks/local_logs/
+
+# Claude Code worktrees / agent scratch
+.claude/
