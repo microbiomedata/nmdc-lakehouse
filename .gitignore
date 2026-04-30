@@ -53,3 +53,6 @@ reports/
 notebooks/loaded_taxonomy/
 notebooks/loaded_ko_ec/
 notebooks/local_logs/
+
+# Claude Code worktrees / agent scratch
+.claude/
