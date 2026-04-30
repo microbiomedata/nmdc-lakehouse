@@ -1,0 +1,207 @@
+# Graph traversal in Spark SQL: Biosample ↔ DataObject paths
+
+## The problem
+
+NMDC metadata forms two interleaved bipartite chains between a Biosample and
+the DataObjects that were produced from it:
+
+**Material transformation chain** (variable depth):
+```
+Biosample → Extraction/Filtration/SubSampling/Pooling/LibraryPrep
+          → ProcessedSample → more MaterialProcessing → ProcessedSample
+          → DataGeneration (NucleotideSequencing or MassSpectrometry)
+```
+
+**Workflow / data object chain** (variable depth):
+```
+DataGeneration → DataObject (raw reads)
+              → ReadQcAnalysis → DataObject
+              → MetagenomeAssembly → DataObject
+              → MetagenomeAnnotation → DataObject (annotation TSV)
+```
+
+The depth of each chain is not fixed. It depends on the number of sample
+preparation steps and the workflow DAG for a given study. The Silver schema
+tables (`data_generation_set_has_input`, `workflow_execution_set_has_input`,
+etc.) are each one hop only and all share the same polymorphic `type` column —
+writing a generic recursive CTE against them requires knowing which table to
+join at each hop, which makes the query non-generic and fragile.
+
+## Why `nmdc_graph_edges` solves this
+
+`nmdc_graph_edges` (see issue #97) collapses all entity types and all
+relationship types into a single directed edge table:
+
+| Column | Meaning |
+|---|---|
+| `src_id` | upstream entity ID |
+| `src_type` | upstream entity type (e.g. `nmdc:Biosample`) |
+| `dst_id` | downstream entity ID |
+| `dst_type` | downstream entity type (e.g. `nmdc:DataObject`) |
+
+Every hop — whether it crosses a MaterialProcessing step, a DataGeneration,
+or a WorkflowExecution — is a row in this table. A recursive CTE can traverse
+any depth without knowing the intermediate entity types in advance.
+
+**Prerequisite:** `nmdc_graph_edges` must be loaded into `nmdc_metadata`.
+The ETL job exists (`nmdc-lakehouse run-job alldocs`) and a BERDL ingest
+notebook is needed to register the three tables as Delta tables. Until that
+is done, use the fixed-join patterns in `nmdc_metadata_tables.md`.
+
+## Recursive CTE patterns (Spark 4.0+)
+
+Spark 4.0 supports `WITH RECURSIVE` natively. A depth guard (`depth < N`) is
+mandatory to prevent infinite loops on any cycles in the graph.
+
+### Downstream: Biosample → all reachable DataObjects
+
+```sql
+WITH RECURSIVE downstream(id, type, depth) AS (
+  -- anchor: the starting biosample
+  SELECT 'nmdc:bsm-11-xyz123' AS id,
+         'nmdc:Biosample'     AS type,
+         0                    AS depth
+
+  UNION ALL
+
+  -- recursive: follow one edge downstream per iteration
+  SELECT e.dst_id,
+         e.dst_type,
+         d.depth + 1
+  FROM   downstream d
+  JOIN   nmdc_metadata.nmdc_graph_edges e ON e.src_id = d.id
+  WHERE  d.depth < 10            -- safety limit; NMDC paths rarely exceed 6
+)
+SELECT DISTINCT id AS data_object_id, depth
+FROM   downstream
+WHERE  type = 'nmdc:DataObject'
+ORDER  BY depth
+```
+
+### Upstream: DataObject → all reachable Biosamples
+
+Traverse in reverse by matching `e.dst_id = d.id` and collecting `e.src_id`:
+
+```sql
+WITH RECURSIVE upstream(id, type, depth) AS (
+  SELECT 'nmdc:dobj-11-abc456' AS id,
+         'nmdc:DataObject'     AS type,
+         0                     AS depth
+
+  UNION ALL
+
+  SELECT e.src_id,
+         e.src_type,
+         u.depth + 1
+  FROM   upstream u
+  JOIN   nmdc_metadata.nmdc_graph_edges e ON e.dst_id = u.id
+  WHERE  u.depth < 10
+)
+SELECT DISTINCT id AS biosample_id, depth
+FROM   upstream
+WHERE  type = 'nmdc:Biosample'
+ORDER  BY depth
+```
+
+### Science query: KO annotation hits per biosample (any path length)
+
+Filter early on the annotation table, then traverse upstream to find
+biosamples regardless of how many material processing or workflow steps
+intervene:
+
+```sql
+WITH
+
+-- 1. Collect the distinct workflow run IDs that have the target KO
+ko_runs AS (
+  SELECT DISTINCT workflow_run_id
+  FROM   nmdc_results.annotation_kegg_orthology
+  WHERE  annotation_id = 'KO:K00001'
+),
+
+-- 2. Traverse upstream from each workflow run to find all Biosamples
+RECURSIVE upstream(start_id, id, type, depth) AS (
+  SELECT workflow_run_id AS start_id,
+         workflow_run_id AS id,
+         'nmdc:MetagenomeAnnotation' AS type,
+         0 AS depth
+  FROM   ko_runs
+
+  UNION ALL
+
+  SELECT u.start_id,
+         e.src_id,
+         e.src_type,
+         u.depth + 1
+  FROM   upstream u
+  JOIN   nmdc_metadata.nmdc_graph_edges e ON e.dst_id = u.id
+  WHERE  u.depth < 10
+    AND  u.type != 'nmdc:Biosample'   -- prune: stop expanding once we reach a biosample
+),
+
+-- 3. Keep only the biosample endpoints
+run_to_biosample AS (
+  SELECT DISTINCT start_id AS workflow_run_id, id AS biosample_id
+  FROM   upstream
+  WHERE  type = 'nmdc:Biosample'
+)
+
+-- 4. Join biosample attributes and aggregate KO hit counts
+SELECT bs.id                         AS biosample_id,
+       bs.env_broad_scale_term_id,
+       bs.env_medium_term_id,
+       bs.geo_loc_name_has_raw_value,
+       SUM(ko.n_hits)                AS total_ko_hits
+FROM   run_to_biosample r2b
+JOIN   nmdc_metadata.biosample_set bs
+         ON bs.id = r2b.biosample_id
+JOIN   (SELECT workflow_run_id, COUNT(*) AS n_hits
+        FROM   nmdc_results.annotation_kegg_orthology
+        WHERE  annotation_id = 'KO:K00001'
+        GROUP  BY workflow_run_id) ko
+         ON ko.workflow_run_id = r2b.workflow_run_id
+GROUP  BY 1, 2, 3, 4
+ORDER  BY total_ko_hits DESC
+```
+
+## Why BERDL Claude's earlier attempts probably failed
+
+Before `nmdc_graph_edges` existed in `nmdc_metadata`, recursive traversal
+required joining against multiple polymorphic Silver tables at each hop
+(`material_processing_set_has_input`, `data_generation_set_has_input`,
+`workflow_execution_set_has_input`, etc.) with different column names and no
+shared edge schema. A recursive CTE cannot switch join targets between
+iterations — each iteration must be a structurally identical query. Without
+a uniform edge table this is impossible to write generically.
+
+The fix is `nmdc_graph_edges`: one table, one join, works for any entity type
+at any hop depth.
+
+## When you don't need recursion
+
+If the data you are working with has NucleotideSequencing runs whose
+`has_input` points directly to a Biosample (most metagenomics data in NMDC
+today), the fixed-join pattern in `nmdc_metadata_tables.md` is simpler and
+faster:
+
+```
+annotation.workflow_run_id
+  → workflow_execution_set_was_informed_by
+  → data_generation_set_has_input   (check: is has_input a bsm- ID or procsm-?)
+  → biosample_set
+```
+
+Check the `has_input` prefix: `bsm-` = direct Biosample (no recursion needed),
+`procsm-` = ProcessedSample (use the recursive CTE above).
+
+## Depth limit guidance
+
+| Path type | Typical depth | Recommended limit |
+|---|---|---|
+| Biosample → raw DataObject (no processing) | 2 | 5 |
+| Biosample → annotation DataObject (metagenomics) | 5–7 | 10 |
+| Biosample → DataObject (complex MS sample prep) | 8–12 | 15 |
+
+Set the limit conservatively high rather than tight. The depth guard only
+prevents runaway queries on unexpected cycles; it does not affect correctness
+for well-formed data.
