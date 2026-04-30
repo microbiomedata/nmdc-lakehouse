@@ -485,3 +485,209 @@ A Dagster or notebook-triggered refresh can be added later.
 The table is small: one row per (workflow run, biosample) pair. With ~30K
 workflow runs and typically 1–3 biosamples each, the table will be well under
 100K rows and fast to regenerate.
+
+---
+
+## Fully-normalized biosample_to_gene_entity table
+
+### Motivation
+
+`workflow_to_biosample` records (workflow_run_id, biosample_id, n_hops) but
+drops provenance detail. For scientific use — answering "which slots connect
+this biosample to that annotation workflow?" — a richer precomputed table is
+more useful.
+
+`biosample_to_gene_entity` adds a `slot_path` column: a dot-separated list of
+schema slot names traversed from the **annotation workflow** back to the
+**biosample**, written in forward (biosample → workflow) reading order.
+
+### Table schema
+
+| column | type | description |
+|---|---|---|
+| `biosample_id` | string | `nmdc:bsm-*` identifier |
+| `entity_id` | string | WorkflowExecution `id` (the annotation workflow run) |
+| `entity_type` | string | e.g. `nmdc:MetagenomeAnnotation` |
+| `slot_path` | string | dot-separated slot names, biosample-to-entity order |
+| `n_hops` | int | number of edges in the path |
+
+**`slot_path` semantics:** each element names the schema slot traversed in the
+upstream direction from the annotation workflow to the biosample. Because the
+traversal walks *upstream* (workflow → biosample) but the path should read
+*downstream* (biosample → workflow), each new slot name is **prepended** to the
+accumulator during recursion.
+
+**Example rows:**
+
+| biosample_id | entity_id | entity_type | slot_path | n_hops |
+|---|---|---|---|---|
+| `nmdc:bsm-11-abc` | `nmdc:wfmgan-11-xyz` | `nmdc:MetagenomeAnnotation` | `has_input.was_informed_by` | 2 |
+| `nmdc:bsm-11-def` | `nmdc:wfmgan-11-xyz` | `nmdc:MetagenomeAnnotation` | `has_input.has_output.has_input.was_informed_by` | 4 |
+
+Row 1: `DataGeneration.has_input → Biosample` (direct biosample input).
+Row 2: `MaterialProcessing.has_input → Biosample` via a ProcessedSample
+intermediate (material transformation chain added 2 more hops).
+
+### Trino CTE to generate it
+
+Start from annotation workflow runs only (filter by type), walk upstream
+accumulating slot names, stop when a `bsm-` node is reached.
+
+```python
+from berdl_notebook_utils.setup_trino_session import get_trino_connection
+import pandas as pd
+
+conn = get_trino_connection()
+cur = conn.cursor()
+
+# Step 1: collect annotation workflow run IDs and types
+cur.execute("""
+    SELECT id, type
+    FROM   nmdc_metadata.workflow_execution_set
+    WHERE  type IN (
+        'nmdc:MetagenomeAnnotation',
+        'nmdc:MetaproteomicsAnalysis',
+        'nmdc:MetabolomicsAnalysis',
+        'nmdc:NOMAnalysis',
+        'nmdc:MetagenomeAssembly',
+        'nmdc:MetatranscriptomeAnnotation'
+    )
+""")
+annotation_workflows = pd.DataFrame(cur.fetchall(), columns=["id", "type"])
+ids_csv = ", ".join(f"'{r}'" for r in annotation_workflows["id"])
+
+# Step 2: recursive upstream walk with slot_path accumulation
+# Each edge prepends the slot name so the final path reads biosample → workflow
+cur.execute(f"""
+    WITH RECURSIVE upstream(origin, origin_type, id, slot_path, depth) AS (
+        -- seed: annotation workflows, path starts empty
+        SELECT CAST(id AS VARCHAR),
+               CAST(type AS VARCHAR),
+               CAST(id AS VARCHAR),
+               CAST('' AS VARCHAR),
+               CAST(0 AS BIGINT)
+        FROM   nmdc_metadata.workflow_execution_set
+        WHERE  id IN ({ids_csv})
+
+        UNION ALL
+
+        -- hop via was_informed_by (WorkflowExecution → DataGeneration)
+        SELECT u.origin,
+               u.origin_type,
+               CAST(wib.was_informed_by AS VARCHAR),
+               CAST(
+                 CASE WHEN u.slot_path = '' THEN 'was_informed_by'
+                      ELSE 'was_informed_by.' || u.slot_path END
+               AS VARCHAR),
+               u.depth + 1
+        FROM   upstream u
+        JOIN   nmdc_metadata.workflow_execution_set_was_informed_by wib
+                 ON wib.parent_id = u.id
+        WHERE  u.depth < 15
+          AND  u.id NOT LIKE 'nmdc:bsm%'
+
+        UNION ALL
+
+        -- hop via has_input (DataGeneration → Biosample or ProcessedSample)
+        SELECT u.origin,
+               u.origin_type,
+               CAST(dgi.has_input AS VARCHAR),
+               CAST(
+                 CASE WHEN u.slot_path = '' THEN 'has_input'
+                      ELSE 'has_input.' || u.slot_path END
+               AS VARCHAR),
+               u.depth + 1
+        FROM   upstream u
+        JOIN   nmdc_metadata.data_generation_set_has_input dgi
+                 ON dgi.parent_id = u.id
+        WHERE  u.depth < 15
+          AND  u.id NOT LIKE 'nmdc:bsm%'
+
+        UNION ALL
+
+        -- hop via has_output reversed (ProcessedSample → MaterialProcessing)
+        SELECT u.origin,
+               u.origin_type,
+               CAST(mpo.parent_id AS VARCHAR),
+               CAST(
+                 CASE WHEN u.slot_path = '' THEN 'has_output'
+                      ELSE 'has_output.' || u.slot_path END
+               AS VARCHAR),
+               u.depth + 1
+        FROM   upstream u
+        JOIN   nmdc_metadata.material_processing_set_has_output mpo
+                 ON mpo.has_output = u.id
+        WHERE  u.depth < 15
+          AND  u.id NOT LIKE 'nmdc:bsm%'
+
+        UNION ALL
+
+        -- hop via has_input (MaterialProcessing → Biosample or ProcessedSample)
+        SELECT u.origin,
+               u.origin_type,
+               CAST(mpi.has_input AS VARCHAR),
+               CAST(
+                 CASE WHEN u.slot_path = '' THEN 'has_input'
+                      ELSE 'has_input.' || u.slot_path END
+               AS VARCHAR),
+               u.depth + 1
+        FROM   upstream u
+        JOIN   nmdc_metadata.material_processing_set_has_input mpi
+                 ON mpi.parent_id = u.id
+        WHERE  u.depth < 15
+          AND  u.id NOT LIKE 'nmdc:bsm%'
+    )
+    SELECT DISTINCT
+        id            AS biosample_id,
+        origin        AS entity_id,
+        origin_type   AS entity_type,
+        slot_path,
+        depth         AS n_hops
+    FROM   upstream
+    WHERE  id LIKE 'nmdc:bsm%'
+""")
+
+b2ge = pd.DataFrame(cur.fetchall(),
+                    columns=["biosample_id", "entity_id", "entity_type",
+                             "slot_path", "n_hops"])
+```
+
+Write `b2ge` to Parquet, upload to Bronze MinIO, and register as
+`nmdc_metadata.biosample_to_gene_entity` following the standard ingest pattern.
+
+### Using the table in a science query
+
+```sql
+-- Genes (KO hits) grouped by biosample ecosystem — works via any query interface
+SELECT ko.annotation_id,
+       b2ge.slot_path,
+       bs.env_broad_scale_term_id,
+       bs.geo_loc_name_has_raw_value,
+       COUNT(*) AS n_hits
+FROM   nmdc_results.annotation_kegg_orthology ko
+JOIN   nmdc_metadata.biosample_to_gene_entity b2ge
+         ON b2ge.entity_id = ko.workflow_run_id
+JOIN   nmdc_metadata.biosample_set bs
+         ON bs.id = b2ge.biosample_id
+WHERE  ko.annotation_id = 'KO:K00001'
+GROUP  BY 1, 2, 3, 4
+ORDER  BY n_hits DESC
+```
+
+The `slot_path` column lets you filter to specific traversal shapes:
+
+```sql
+-- Only biosamples that fed directly into DataGeneration (no material processing)
+WHERE  b2ge.slot_path = 'has_input.was_informed_by'
+
+-- Only biosamples that went through at least one material processing step
+WHERE  b2ge.slot_path LIKE 'has_input.has_output.%'
+```
+
+### Relationship to workflow_to_biosample
+
+`workflow_to_biosample` is the simpler version — no `slot_path`, covers all
+workflow types. Use it when you don't need provenance detail or when joining
+across all workflow types at once. `biosample_to_gene_entity` is scoped to
+annotation workflows and adds the slot-path column for queries that care about
+the shape of the processing chain.
