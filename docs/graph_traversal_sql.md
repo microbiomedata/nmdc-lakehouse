@@ -691,3 +691,61 @@ workflow types. Use it when you don't need provenance detail or when joining
 across all workflow types at once. `biosample_to_gene_entity` is scoped to
 annotation workflows and adds the slot-path column for queries that care about
 the shape of the processing chain.
+
+### Caveats and known limitations
+
+#### slot_path mixes forward and reverse edge directions
+
+The traversal walks *upstream* (workflow → biosample), but not every hop
+follows a slot in the schema's stated direction. The material processing
+portion of the chain requires a **reverse** traversal of `has_output`:
+
+| step | current node | join table | slot | direction |
+|---|---|---|---|---|
+| 1 | WorkflowExecution | `workflow_execution_set_was_informed_by` | `was_informed_by` | forward |
+| 2 | DataGeneration | `data_generation_set_has_input` | `has_input` | forward |
+| 3 | ProcessedSample | `material_processing_set_has_output` | `has_output` | **reverse** — we look up rows WHERE has_output = current node |
+| 4 | MaterialProcessing | `material_processing_set_has_input` | `has_input` | forward |
+
+The resulting path `has_input.has_output.has_input.was_informed_by` includes
+`has_output` at step 3, but that hop is a *reverse* traversal — the slot
+points FROM MaterialProcessing TO ProcessedSample, not the other way around.
+A reader of the path cannot tell which hops go which direction without already
+knowing the schema.
+
+In RDF/SPARQL this would be written `^has_output` (inverse property path
+notation). In the flat string form used here there is no such marker. Treat
+`slot_path` as an opaque shape key for grouping and filtering, not a
+navigable property path.
+
+#### Slot name collisions
+
+Both `data_generation_set_has_input` and `material_processing_set_has_input`
+contribute the string `has_input` to the path. The path alone doesn't tell
+you which class's `has_input` is being traversed at each position.
+
+#### Generation query complexity
+
+The recursive CTE has four UNION ALL branches in the recursive term. BERDL
+Claude's tested version had three. The added branch (reverse `has_output`
+traversal) and the string-accumulation per row both increase planning and
+execution cost. If Trino returns `TOO_MANY_REQUESTS_FAILED`, fall back to the
+two-step approach: generate `workflow_to_biosample` (without `slot_path`) in
+one query, then derive a separate `chain_shape` column from `n_hops` and spot
+queries against the Silver side tables.
+
+#### Simpler alternatives to slot_path
+
+If the main goal is filtering by processing chain shape, these alternatives
+have cleaner semantics:
+
+1. **Intermediate type sequence** — record the ordered list of entity types
+   between biosample and workflow, e.g. `Biosample|ProcessedSample|DataGeneration|MetagenomeAnnotation`.
+   Unambiguous, readable without schema knowledge, easy to pattern-match.
+
+2. **Boolean flag** — `has_material_processing` (true if any ProcessedSample
+   appears in the chain). Covers the main scientific distinction (direct
+   biosample input vs. derived from extracted material) with one bit.
+
+3. **Drop slot_path, keep n_hops** — chain depth alone is often a sufficient
+   proxy for processing complexity, and `n_hops` is unambiguous.
