@@ -153,26 +153,13 @@ for tbl in ("workflow_execution_set_was_informed_by",
 
 ## Other BERDL namespaces with NMDC-relevant data
 
-`nmdc_arkin` is maintained by the Arkin group and is queryable via `spark.sql()` like any other registered namespace. **Do not write into it.** It contains:
+`nmdc_arkin` (Arkin group — **read only, do not write**) is queryable via `spark.sql()` like any other registered namespace. It contains annotation term tables (GO, EC, MetaCyc, COG names populated; KEGG names empty — see Known gaps), Arkin-curated NMDC study/file metadata, taxonomy gold-standard tables, omics result tables (NOM, metabolomics, proteomics, metatranscriptomics, lipidomics), and embeddings. Treat it as a reference source for awareness; whether to join against it in production queries is a judgment call outside the scope of this doc.
 
-- `annotation_terms_unified` — unified term lookup across GO (48K terms, names populated), EC (8.8K, populated), MetaCyc (1.5K, populated), COG (26, populated), and KEGG KO/Module/Pathway (names **not** populated — see below)
-- `go_terms`, `ec_terms`, `cog_hierarchy_flat`, `metacyc_pathways` — source-specific term tables, all with names populated
-- `study_table`, `omics_files_table`, `sample_file_lookup` — Arkin-curated NMDC study and file metadata
-- Taxonomy tables: `centrifuge_gold`, `gottcha_gold`, `kraken_gold`, `taxonomy_dim`
-- Omics result tables: `nom_gold`, `metabolomics_gold`, `proteomics_gold`, `metatranscriptomics_gold`, `lipidomics_gold`
-- Embeddings: `abiotic_embeddings`, `taxonomy_embeddings`, `biochemical_embeddings`, `unified_embeddings`, and others
-
-To look up GO or EC names for annotation IDs:
-```sql
-SELECT a.annotation_id, t.name, t.definition
-FROM nmdc_results.annotation_enzyme_commission a
-JOIN nmdc_arkin.ec_terms t ON t.ec_id = REPLACE(a.annotation_id, 'EC:', '')
-LIMIT 10
-```
+`nmdc_ref_data` does not yet exist but is the intended home for reference tables we build and maintain — e.g. Pfam term definitions (see issue #100), and potentially other ontology/vocabulary tables that can be freely redistributed.
 
 ## Known gaps
 
-**KEGG term names are unavailable.** `nmdc_arkin.kegg_ko_terms` and the `kegg_ko` rows in `annotation_terms_unified` have IDs but empty `name`/`description` fields. KEGG's [redistribution license](https://www.kegg.jp/kegg/legal.html) prohibits republishing term names. Queries against `annotation_kegg_orthology` return bare `KO:Kxxxxx` identifiers only. If human-readable names are needed, hit the KEGG API at query time (subject to rate limiting). Do not write into `nmdc_arkin`.
+**KEGG term names are unavailable.** `nmdc_arkin.kegg_ko_terms` has IDs but empty `name`/`description` fields everywhere — KEGG's [redistribution license](https://www.kegg.jp/kegg/legal.html) prohibits republishing term names. Queries against `annotation_kegg_orthology` return bare `KO:Kxxxxx` identifiers only. If human-readable names are needed, hit the KEGG API at query time (subject to rate limiting). Do not write into `nmdc_arkin`.
 
 ## KO prefix translation (annotation tables vs functional_annotation_agg)
 
