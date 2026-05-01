@@ -22,11 +22,6 @@ jobs:
 
       - name: Install just
         uses: extractions/setup-just@v2
-        with:
-          # Pin explicitly — without `just-version` the action's "find
-          # latest" path errors with "no release for just matching version
-          # specifier" (worked on main 2026-04-29, broke 2026-04-30).
-          just-version: "1.50.0"
 
       - name: Install dependencies
         run: uv sync --extra dev

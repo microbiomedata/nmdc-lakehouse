@@ -151,6 +151,16 @@ for tbl in ("workflow_execution_set_was_informed_by",
     print(f"{'OK' if n else 'MISSING'}: nmdc_metadata.{tbl}")
 ```
 
+## Other BERDL namespaces with NMDC-relevant data
+
+`nmdc_arkin` (Arkin group — **read only, do not write**) is queryable via `spark.sql()` like any other registered namespace. It contains annotation term tables (GO, EC, MetaCyc, COG names populated; KEGG names empty — see Known gaps), Arkin-curated NMDC study/file metadata, taxonomy gold-standard tables, omics result tables (NOM, metabolomics, proteomics, metatranscriptomics, lipidomics), and embeddings. Treat it as a reference source for awareness; whether to join against it in production queries is a judgment call outside the scope of this doc.
+
+`nmdc_ref_data` does not yet exist but is the intended home for reference tables we build and maintain — e.g. Pfam term definitions (see issue #100), and potentially other ontology/vocabulary tables that can be freely redistributed.
+
+## Known gaps
+
+**KEGG term names are unavailable.** `nmdc_arkin.kegg_ko_terms` has IDs but empty `name`/`description` fields everywhere — likely due to KEGG's [redistribution license](https://www.kegg.jp/kegg/legal.html), though this doc does not confirm the exact loader/source reason. Queries against `annotation_kegg_orthology` return bare `KO:Kxxxxx` identifiers only. If human-readable names are needed, hit the KEGG API at query time (subject to rate limiting). Do not write into `nmdc_arkin`.
+
 ## KO prefix translation (annotation tables vs functional_annotation_agg)
 
 The `functional_annotation_agg` table (also in `nmdc_metadata`) uses
