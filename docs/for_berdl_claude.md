@@ -84,9 +84,11 @@ and rejected — see [`decisions/alldocs-not-ingested.md`](decisions/alldocs-not
 
 If your task is to add a Silver table for a data product the loaders already
 support but BERDL hasn't ingested yet (e.g. Centrifuge per issue #94, GTDBTK
-Archaeal per issue #95), use the existing on-pod two-phase pattern. **Do
-not run the loaders end-to-end with default settings** — they will silently
-re-overwrite already-loaded tables. Run with the scoped flags below.
+Archaeal per issue #95), use the existing on-pod two-phase pattern. The
+ingest notebook's default behavior is now agent-safe — it auto-discovers
+parquets in `SOURCE_DIR` and skips any whose stem is already registered in
+`nmdc_results`. Still, scope the **fetch** to only the missing types so you
+don't re-parse parquets you don't need.
 
 **Step 1 — preflight: list what's already in `nmdc_results`**
 
