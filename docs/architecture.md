@@ -40,20 +40,24 @@ that live alongside the flattened metadata rows.
 
 ## Data taxonomy — what this pipeline covers
 
-NMDC data falls into four categories. All four are now in scope and land in
-one of three BERDL Delta namespaces.
+NMDC data falls into four categories. All four are now in scope and, for the
+BERDL deployment target, land in one of three BERDL Delta namespaces. The
+sinks (`ParquetSink` / `IcebergSink`) can run outside BERDL — the namespace
+split below is the BERDL-side convention, not a property of every output
+the pipeline can produce.
 
 ### Namespace policy
 
 | Namespace | Contents | Source |
 |---|---|---|
-| `nmdc_metadata` | Schema-driven Silver tables from the 17 NMDC MongoDB collections. | NMDC MongoDB → linkml-store flattening |
+| `nmdc_metadata` | Schema-driven Silver tables from the 17 NMDC MongoDB collections. | NMDC MongoDB → linkml-store flattening (with `functional_annotation_agg` as a special-case raw-pymongo loader for performance — see #48). |
 | `nmdc_results` | Tables derived from workflow output files (per-gene annotations, taxonomy summaries). | NERSC files referenced by `data_object_set` URLs |
-| `nmdc_ref_data` | Reference / ontology tables loaded from external sources. | Pfam, GO, EC, KEGG, etc. |
+| `nmdc_ref_data` | Reference / ontology tables loaded from external sources. | Pfam terms, GO/EC where redistributable, etc. KEGG term names are excluded — see #103 (KEGG redistribution license). |
 
-`nmdc_arkin` (Gazi's tenant) and other non-NMDC tenants are read-only sources of
-awareness — we may query them to understand what already exists, but we do
-not write to them and they are not used in user-facing query examples.
+`nmdc_arkin` (Gazi's tenant) and other non-NMDC tenants are **read-only** for
+this pipeline: we may query them via `spark.sql()` to understand what already
+exists, but we never write to them, and they are not used in user-facing
+query examples produced by this pipeline.
 
 ### Categories
 
