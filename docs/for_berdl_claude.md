@@ -151,6 +151,10 @@ for tbl in ("workflow_execution_set_was_informed_by",
     print(f"{'OK' if n else 'MISSING'}: nmdc_metadata.{tbl}")
 ```
 
+## Known gaps
+
+**KEGG term names are unavailable.** `nmdc_arkin.kegg_ko_terms` has 8,104 rows but 0% fill on `name` and `description` — KEGG's [redistribution license](https://www.kegg.jp/kegg/legal.html) prohibits republishing term names. Queries against `annotation_kegg_orthology` return bare `KO:Kxxxxx` identifiers only. If human-readable names are needed, hit the KEGG API at query time (rate-limited, ~3 req/s) or load a redistribution-permitted mapping into `nmdc_ref_data.kegg_ko_terms`. Do not write into `nmdc_arkin`.
+
 ## KO prefix translation (annotation tables vs functional_annotation_agg)
 
 The `functional_annotation_agg` table (also in `nmdc_metadata`) uses
