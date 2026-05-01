@@ -30,7 +30,7 @@ with and without clan assignments.
 NMDC lakehouse. Distinct from `nmdc_metadata` (schema-driven NMDC MongoDB collections) and
 `nmdc_results` (workflow output files). All term/ontology tables land here.
 
-Do not read from or write to `nmdc_arkin` or any other tenant's namespace.
+Do not write to `nmdc_arkin` or any other tenant's namespace — they are read-only for this pipeline (see [architecture.md](architecture.md#namespace-policy)).
 
 ## Generation
 

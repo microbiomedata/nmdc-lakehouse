@@ -40,29 +40,53 @@ that live alongside the flattened metadata rows.
 
 ## Data taxonomy — what this pipeline covers
 
-NMDC data falls into four categories with different loading strategies:
+NMDC data falls into four categories. All four are now in scope and, for the
+BERDL deployment target, land in one of three BERDL Delta namespaces. The
+sinks (`ParquetSink` / `IcebergSink`) can run outside BERDL — the namespace
+split below is the BERDL-side convention, not a property of every output
+the pipeline can produce.
 
-**MongoDB metadata** (scope of this pipeline)
-The 17 schema-specified collections (`biosample_set`, `study_set`, `data_generation_set`, etc.)
-stored in the NMDC MongoDB instance. These are schema-validated, authoritative, and bounded
-in size (largest is `functional_annotation_agg` at ~54M rows). `nmdc-lakehouse` owns this
-path: MongoDB → Parquet → BERDL Silver.
+### Namespace policy
 
-**Derived aggregates** (gray zone — already loaded, but not ground truth)
-`functional_annotation_agg` lives in MongoDB but is a pre-aggregated summary of GFF file
-content. It is a query convenience layer. The per-gene detail lives in NERSC files; the
-aggregate is one row per (workflow run, function term). Loading it via this pipeline is
-correct, but users should know it is not the source of record.
+| Namespace | Contents | Source |
+|---|---|---|
+| `nmdc_metadata` | Schema-driven Silver tables from the 17 NMDC MongoDB collections. | NMDC MongoDB → `linkml-store` source adapter → `nmdc_lakehouse.transforms` schema-driven flattening (with `functional_annotation_agg` as a special-case raw-`pymongo` loader for performance — see #48). |
+| `nmdc_results` | Tables derived from workflow output files (per-gene annotations, taxonomy summaries). | NERSC files referenced by `data_object_set` URLs |
+| `nmdc_ref_data` | Reference / ontology tables loaded from external sources. | Pfam terms, GO/EC where redistributable, etc. KEGG term names are excluded — see #103 (KEGG redistribution license). |
 
-**Workflow output files** (out of scope for this pipeline today)
-NERSC files under `/global/cfs/cdirs/m3408/gsharing/`: GFF annotations, GTDB-tk TSVs,
-CheckM TSVs, FAA sequences, MAG bin ZIPs, etc. These are referenced by `data_object_set`
-URLs but not loaded by this pipeline. A separate loading mechanism is needed (see issue #57).
-`data_object_set` records act as the index/manifest for these files.
+`nmdc_arkin` (Gazi's tenant) and other non-NMDC tenants are **read-only** for
+this pipeline: we may query them via `spark.sql()` to understand what already
+exists, but we never write to them, and they are not used in user-facing
+query examples produced by this pipeline.
 
-**Reference data** (out of scope — lives in other tenants)
-KEGG, COG, GTDB taxonomy reference tables. Currently in `nmdc_arkin` (Gazi's tenant) with
-no refresh path. Not part of the NMDC data model; not owned by this pipeline.
+### Categories
+
+**MongoDB metadata** → `nmdc_metadata`
+The 17 schema-specified collections (`biosample_set`, `study_set`,
+`data_generation_set`, etc.). Schema-validated, authoritative, bounded in size
+(largest is `functional_annotation_agg` at ~54M rows). MongoDB → Parquet →
+BERDL Silver via the schema-driven flattener.
+
+**Derived aggregates** → `nmdc_metadata` (gray zone — loaded, but not ground truth)
+`functional_annotation_agg` lives in MongoDB but is a pre-aggregated summary of
+GFF file content. It is a query convenience layer; the per-gene detail lives in
+the workflow output files. Loading it here is correct, but users should know it
+is not the source of record.
+
+**Workflow output files** → `nmdc_results`
+NERSC files referenced by `data_object_set` URLs: per-gene annotation GFFs and
+TSVs, taxonomy summaries (GOTTCHA2 / GTDB-tk / CheckM / Kraken2 reports),
+annotation statistics. Loaded via a three-stage cache-then-parse pattern
+(fetch manifest in Spark → multi-hour standalone download → streaming parse to
+Parquet). The `data_object_type` field on `data_object_set` rows is the
+permissible value used to dispatch a loader; that value lines up with
+`FileTypeEnum` in nmdc-schema.
+
+**Reference data** → `nmdc_ref_data`
+External term and hierarchy tables loaded to support joins from `nmdc_results`
+back to canonical IDs (e.g. `pfam_terms.pfam_id` joins to
+`nmdc_results.pfam_annotation_gff.pfam_accession`). Not part of the NMDC data
+model — owned by this pipeline only in the sense that we maintain the loader.
 
 ## Normalization decisions — primary tables vs side tables
 
