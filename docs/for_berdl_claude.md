@@ -16,7 +16,8 @@ and join patterns.
 output files:
 - `annotation_kegg_orthology` — one row per (gene, KO term)
 - `annotation_enzyme_commission` — one row per (gene, EC number)
-- `centrifuge_output_report_file` — Centrifuge per-read classifications (if loaded; see `peek_read_taxonomy_links.ipynb`)
+- `centrifuge_output_report_file` — Centrifuge per-read classifications (see `peek_read_taxonomy_links.ipynb`)
+- `annotation_statistics` — 17 per-run QC metrics: sequence counts/lengths, gene-type counts (CDS, tRNA, ncRNA, rRNA, CRISPR), coding density, genes-per-Mbp (see `peek_ko_ec_links.ipynb` §9)
 
 ## Anchor columns on annotation tables
 
