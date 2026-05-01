@@ -80,6 +80,57 @@ plain equi-join.
 Ingesting the runtime-maintained `alldocs` MongoDB collection was considered
 and rejected — see [`decisions/alldocs-not-ingested.md`](decisions/alldocs-not-ingested.md).
 
+## Loading a new data product into `nmdc_results`
+
+If your task is to add a Silver table for a data product the loaders already
+support but BERDL hasn't ingested yet (e.g. Centrifuge per issue #94, GTDBTK
+Archaeal per issue #95), use the existing on-pod two-phase pattern. **Do
+not run the loaders end-to-end with default settings** — they will silently
+re-overwrite already-loaded tables. Run with the scoped flags below.
+
+**Step 1 — preflight: list what's already in `nmdc_results`**
+
+```python
+existing = sorted(r.tableName for r in spark.sql("SHOW TABLES IN nmdc_results").collect())
+print(existing)
+```
+
+If your target table is already there, stop — there is nothing to load.
+
+**Step 2 — fetch only the missing types**
+
+`fetch_taxonomy_summaries.ipynb` honors the `TAXONOMY_TYPES` env var
+(comma-separated, exact match against entries in `_DEFAULT_TARGET_TYPES`):
+
+```bash
+export TAXONOMY_TYPES="Centrifuge output report file"
+```
+
+The on-disk raw cache (`loaded_taxonomy/raw_cache/`) means re-running with the
+full default list is recoverable but wasteful — narrow the scope.
+
+**Step 3 — ingest with the safety net engaged**
+
+`ingest_taxonomy_summaries.ipynb` auto-discovers `*.parquet` files under
+`SOURCE_DIR` and skips any whose stem already appears in
+`SHOW TABLES IN nmdc_results`. To intentionally re-overwrite a specific
+table, add its name to `FORCE_OVERWRITE` in the configuration cell:
+
+```python
+FORCE_OVERWRITE = {"gtdbtk_bacterial_summary"}
+```
+
+The default empty set is the agent-safe default.
+
+**Step 4 — verify**
+
+Re-run the preflight from Step 1 and confirm the new table is present.
+
+For other on-pod loaders (`fetch_ko_ec_annotations.ipynb` /
+`ingest_ko_ec_annotations.ipynb`), see [`FETCH_TAXONOMY_NOTES.md`](../notebooks/FETCH_TAXONOMY_NOTES.md)
+for the full set of gotchas (placeholder files, duplicate URLs, broken
+upstream URLs, kernel staleness).
+
 ## Preflight check
 
 Before running annotation queries, verify the tables are registered:
