@@ -153,7 +153,7 @@ for tbl in ("workflow_execution_set_was_informed_by",
 
 ## Known gaps
 
-**KEGG term names are unavailable.** `nmdc_arkin.kegg_ko_terms` has 8,104 rows but 0% fill on `name` and `description` — KEGG's [redistribution license](https://www.kegg.jp/kegg/legal.html) prohibits republishing term names. Queries against `annotation_kegg_orthology` return bare `KO:Kxxxxx` identifiers only. If human-readable names are needed, hit the KEGG API at query time (rate-limited, ~3 req/s) or load a redistribution-permitted mapping into `nmdc_ref_data.kegg_ko_terms`. Do not write into `nmdc_arkin`.
+**KEGG term names are unavailable.** A KEGG term-name table exists in the `nmdc_arkin` tenant (not queryable via `spark.sql()` — REST/Trino only), but its `name` and `description` fields are unpopulated. KEGG's [redistribution license](https://www.kegg.jp/kegg/legal.html) prohibits republishing term names. Queries against `annotation_kegg_orthology` therefore return bare `KO:Kxxxxx` identifiers only. If human-readable names are needed, hit the KEGG API at query time (subject to rate limiting) or load a redistribution-permitted mapping into a new reference-data schema — `nmdc_ref_data` is a suggested name, not a currently registered database. Do not write into `nmdc_arkin`.
 
 ## KO prefix translation (annotation tables vs functional_annotation_agg)
 
