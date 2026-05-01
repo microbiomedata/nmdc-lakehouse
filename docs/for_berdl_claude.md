@@ -151,9 +151,28 @@ for tbl in ("workflow_execution_set_was_informed_by",
     print(f"{'OK' if n else 'MISSING'}: nmdc_metadata.{tbl}")
 ```
 
+## Other BERDL namespaces with NMDC-relevant data
+
+`nmdc_arkin` is maintained by the Arkin group and is queryable via `spark.sql()` like any other registered namespace. **Do not write into it.** It contains:
+
+- `annotation_terms_unified` — unified term lookup across GO (48K terms, names populated), EC (8.8K, populated), MetaCyc (1.5K, populated), COG (26, populated), and KEGG KO/Module/Pathway (names **not** populated — see below)
+- `go_terms`, `ec_terms`, `cog_hierarchy_flat`, `metacyc_pathways` — source-specific term tables, all with names populated
+- `study_table`, `omics_files_table`, `sample_file_lookup` — Arkin-curated NMDC study and file metadata
+- Taxonomy tables: `centrifuge_gold`, `gottcha_gold`, `kraken_gold`, `taxonomy_dim`
+- Omics result tables: `nom_gold`, `metabolomics_gold`, `proteomics_gold`, `metatranscriptomics_gold`, `lipidomics_gold`
+- Embeddings: `abiotic_embeddings`, `taxonomy_embeddings`, `biochemical_embeddings`, `unified_embeddings`, and others
+
+To look up GO or EC names for annotation IDs:
+```sql
+SELECT a.annotation_id, t.name, t.definition
+FROM nmdc_results.annotation_enzyme_commission a
+JOIN nmdc_arkin.ec_terms t ON t.ec_id = REPLACE(a.annotation_id, 'EC:', '')
+LIMIT 10
+```
+
 ## Known gaps
 
-**KEGG term names are unavailable.** A KEGG term-name table exists in the `nmdc_arkin` tenant (not queryable via `spark.sql()` — REST/Trino only), but its `name` and `description` fields are unpopulated. KEGG's [redistribution license](https://www.kegg.jp/kegg/legal.html) prohibits republishing term names. Queries against `annotation_kegg_orthology` therefore return bare `KO:Kxxxxx` identifiers only. If human-readable names are needed, hit the KEGG API at query time (subject to rate limiting) or load a redistribution-permitted mapping into a new reference-data schema — `nmdc_ref_data` is a suggested name, not a currently registered database. Do not write into `nmdc_arkin`.
+**KEGG term names are unavailable.** `nmdc_arkin.kegg_ko_terms` and the `kegg_ko` rows in `annotation_terms_unified` have IDs but empty `name`/`description` fields. KEGG's [redistribution license](https://www.kegg.jp/kegg/legal.html) prohibits republishing term names. Queries against `annotation_kegg_orthology` return bare `KO:Kxxxxx` identifiers only. If human-readable names are needed, hit the KEGG API at query time (subject to rate limiting). Do not write into `nmdc_arkin`.
 
 ## KO prefix translation (annotation tables vs functional_annotation_agg)
 
