@@ -16,7 +16,7 @@ and join patterns.
 output files:
 - `annotation_kegg_orthology` — one row per (gene, KO term)
 - `annotation_enzyme_commission` — one row per (gene, EC number)
-- `taxonomy_centrifuge_classification` — Centrifuge per-read classifications (if loaded)
+- `centrifuge_output_report_file` — Centrifuge per-read classifications (if loaded; see `peek_read_taxonomy_links.ipynb`)
 
 ## Anchor columns on annotation tables
 

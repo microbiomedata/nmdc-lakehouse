@@ -86,8 +86,10 @@ AND  b2wr.workflow_type = 'nmdc:ReadBasedTaxonomyAnalysis'
 `notebooks/build_biosample_to_workflow_run.ipynb` generates and registers this
 table. Run it once after each NMDC data load. The notebook uses an iterative
 BFS walk over `nmdc_metadata.graph_edges` — one flat JOIN per hop level,
-avoiding Trino's 150-stage `WITH RECURSIVE` limit. `graph_edges` is built and
-dropped within the same notebook run.
+avoiding Trino's 150-stage `WITH RECURSIVE` limit. `graph_edges` is created
+or replaced as a Delta table in Step 0 and persists in `nmdc_metadata` after
+the notebook completes; refresh it whenever the underlying Silver provenance
+side tables are reloaded.
 
 The result is written directly to Silver via
 `spark.createDataFrame().write.saveAsTable()`. No Bronze roundtrip.

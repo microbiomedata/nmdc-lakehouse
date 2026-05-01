@@ -22,7 +22,13 @@ biosamples, regardless of chain depth:
 | `material_processing_set_has_output` | `has_output` | `parent_id` | procsm → the processing that produced it |
 | `material_processing_set_has_input` | `parent_id` | `has_input` | processing → its input (biosample or procsm) |
 
-## Helper pattern (used in peek_ko_ec_links.ipynb)
+## Helper pattern (alternative to `biosample_to_workflow_run`)
+
+For most queries, prefer the precomputed `nmdc_metadata.biosample_to_workflow_run`
+table — it requires no recursion at the consumer side and is what the peek
+notebooks now use. The Trino `WITH RECURSIVE` pattern below is documented as
+an on-the-fly alternative for ad-hoc exploration where the precomputed table
+is not yet available or when you want to traverse a path it doesn't cover.
 
 ```python
 from berdl_notebook_utils.setup_trino_session import get_trino_connection
