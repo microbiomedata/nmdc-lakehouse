@@ -62,11 +62,15 @@ LIMIT  20
 ### Co-occurrence demo: siderophore + iron-reductase domains in the same workflow run
 
 ```sql
-SELECT a.workflow_run_id
+SELECT DISTINCT a.workflow_run_id
 FROM   nmdc_results.pfam_annotation_gff a
-JOIN   nmdc_results.pfam_annotation_gff b ON b.workflow_run_id = a.workflow_run_id
 WHERE  a.pfam_accession = 'PF04183'
-  AND  b.pfam_accession = 'PF06276'
+  AND  EXISTS (
+         SELECT 1
+         FROM   nmdc_results.pfam_annotation_gff b
+         WHERE  b.workflow_run_id = a.workflow_run_id
+           AND  b.pfam_accession = 'PF06276'
+       )
 ```
 
 ## Maintenance
