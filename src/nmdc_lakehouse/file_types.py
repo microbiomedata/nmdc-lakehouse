@@ -15,8 +15,12 @@ from nmdc_schema.nmdc import FileTypeEnum
 
 
 @cache
-def _permissible_values() -> frozenset[str]:
-    return frozenset(a for a in dir(FileTypeEnum) if not a.startswith("_"))
+def _permissible_values() -> tuple[frozenset[str], tuple[str, ...]]:
+    # nmdc-schema's FileTypeEnum is a LinkML EnumDefinitionImpl, not a stdlib
+    # Enum: dir() exposes the human-readable permissible-value strings as
+    # attribute names ("Pfam Annotation GFF", not "PFAM_ANNOTATION_GFF").
+    values = sorted(a for a in dir(FileTypeEnum) if not a.startswith("_"))
+    return frozenset(values), tuple(values)
 
 
 def resolve_file_type(value: str) -> str:
@@ -24,10 +28,10 @@ def resolve_file_type(value: str) -> str:
 
     Raises ValueError with up to three close matches if not.
     """
-    values = _permissible_values()
-    if value in values:
+    membership, ordered = _permissible_values()
+    if value in membership:
         return value
-    suggestions = difflib.get_close_matches(value, values, n=3, cutoff=0.6)
+    suggestions = difflib.get_close_matches(value, ordered, n=3, cutoff=0.6)
     hint = f" Did you mean: {suggestions}?" if suggestions else ""
     raise ValueError(f"{value!r} is not a permissible value of nmdc-schema FileTypeEnum.{hint}")
 
