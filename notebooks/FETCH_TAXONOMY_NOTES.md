@@ -7,6 +7,14 @@ Most lessons are transferable to other on-pod loaders.
 
 Pull the URL manifest from the BERDL Hive catalog over **Spark Connect** (`get_spark_session()` is auto-imported on the pod). Dedupe and group by `data_object_type`. For each type, fetch every URL in parallel from `data.microbiomedata.org` (HTTP, no auth needed for downloads), cache raw text on disk, parse per-format, concat into a single pandas DataFrame, write one Parquet per type. Each Parquet carries `workflow_run_id` (`= was_generated_by`) and `data_object_id` for downstream joins.
 
+## Idempotency for agents (or any incremental re-run)
+
+- `fetch_taxonomy_summaries.ipynb` honors the `TAXONOMY_TYPES` env var. Set it to a comma-separated list of types from `_DEFAULT_TARGET_TYPES` to scope the fetch to only the products you actually need to add.
+- The on-disk raw cache lives at `${TAXONOMY_OUT_DIR:-loaded_taxonomy}/raw_cache/` and is keyed by URL. Re-running fetch with the cache present is fast (HTTP skipped) but still re-parses and re-writes parquets — narrow `TAXONOMY_TYPES` rather than relying on cache.
+- To force a re-download (e.g. an upstream file changed), delete the relevant entries under `raw_cache/` rather than the whole directory.
+- `ingest_taxonomy_summaries.ipynb` skips parquets whose stem matches a table already in `nmdc_results`. To intentionally re-overwrite, add the table name to the `FORCE_OVERWRITE` set in its configuration cell. Default empty = agent-safe.
+- See `docs/for_berdl_claude.md` ("Loading a new data product") for the agent-facing runbook.
+
 ## On-pod Spark + auth (the biggest gotcha)
 
 - **Use the auto-imported `get_spark_session()`**. The BERDL kernel image runs `~/.ipython/profile_default/startup/00-notebookutils.py` which imports the helper and `03-spark-connect-server.py` which starts a per-kernel Spark Connect server. **Do not** import `from pyspark.sql import SparkSession` and build the URI yourself — you'll fight auth all day.
