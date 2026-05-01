@@ -50,7 +50,7 @@ the pipeline can produce.
 
 | Namespace | Contents | Source |
 |---|---|---|
-| `nmdc_metadata` | Schema-driven Silver tables from the 17 NMDC MongoDB collections. | NMDC MongoDB → linkml-store flattening (with `functional_annotation_agg` as a special-case raw-pymongo loader for performance — see #48). |
+| `nmdc_metadata` | Schema-driven Silver tables from the 17 NMDC MongoDB collections. | NMDC MongoDB → `linkml-store` source adapter → `nmdc_lakehouse.transforms` schema-driven flattening (with `functional_annotation_agg` as a special-case raw-`pymongo` loader for performance — see #48). |
 | `nmdc_results` | Tables derived from workflow output files (per-gene annotations, taxonomy summaries). | NERSC files referenced by `data_object_set` URLs |
 | `nmdc_ref_data` | Reference / ontology tables loaded from external sources. | Pfam terms, GO/EC where redistributable, etc. KEGG term names are excluded — see #103 (KEGG redistribution license). |
 
@@ -84,9 +84,9 @@ permissible value used to dispatch a loader; that value lines up with
 
 **Reference data** → `nmdc_ref_data`
 External term and hierarchy tables loaded to support joins from `nmdc_results`
-back to canonical IDs (e.g. `pfam_terms` joins to `nmdc_results.pfam_annotation_gff`
-on `pfam_id`). Not part of the NMDC data model — owned by this pipeline only
-in the sense that we maintain the loader.
+back to canonical IDs (e.g. `pfam_terms.pfam_id` joins to
+`nmdc_results.pfam_annotation_gff.pfam_accession`). Not part of the NMDC data
+model — owned by this pipeline only in the sense that we maintain the loader.
 
 ## Normalization decisions — primary tables vs side tables
 
