@@ -159,7 +159,7 @@ for tbl in ("workflow_execution_set_was_informed_by",
 
 ## Known gaps
 
-**KEGG term names are unavailable.** `nmdc_arkin.kegg_ko_terms` has IDs but empty `name`/`description` fields everywhere — KEGG's [redistribution license](https://www.kegg.jp/kegg/legal.html) prohibits republishing term names. Queries against `annotation_kegg_orthology` return bare `KO:Kxxxxx` identifiers only. If human-readable names are needed, hit the KEGG API at query time (subject to rate limiting). Do not write into `nmdc_arkin`.
+**KEGG term names are unavailable.** `nmdc_arkin.kegg_ko_terms` has IDs but empty `name`/`description` fields everywhere — likely due to KEGG's [redistribution license](https://www.kegg.jp/kegg/legal.html), though this doc does not confirm the exact loader/source reason. Queries against `annotation_kegg_orthology` return bare `KO:Kxxxxx` identifiers only. If human-readable names are needed, hit the KEGG API at query time (subject to rate limiting). Do not write into `nmdc_arkin`.
 
 ## KO prefix translation (annotation tables vs functional_annotation_agg)
 
