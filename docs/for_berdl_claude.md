@@ -68,9 +68,17 @@ handle the most common traversals through explicit side tables. For paths that
 cross multiple collection types or require arbitrary-depth traversal, the side
 tables require knowing the sequence of hops in advance.
 
-A `alldocs`-derived graph table is being built (issue #97) that will provide a
-general edge table (`nmdc_graph_edges`) covering all entity types. Until it
-lands, use the known join chains in `nmdc_metadata_tables.md`.
+For the most common multi-hop case — Biosample to / from any WorkflowExecution
+that produced annotations, taxonomy, MAGs, or other results — use the
+precomputed table `nmdc_metadata.biosample_to_workflow_run`. See
+[`biosample_to_workflow_run.md`](biosample_to_workflow_run.md). It collapses the
+variable-depth bipartite chain (Biosample → MaterialProcessing → ProcessedSample
+→ DataGeneration → WorkflowExecution) into one row per (biosample, workflow run)
+pair and works through any query interface (Spark, Trino, REST API) with a
+plain equi-join.
+
+Ingesting the runtime-maintained `alldocs` MongoDB collection was considered
+and rejected — see [`decisions/alldocs-not-ingested.md`](decisions/alldocs-not-ingested.md).
 
 ## Preflight check
 

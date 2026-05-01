@@ -103,17 +103,12 @@ The Silver side tables cover the same ground under different names:
   the agg uses `KEGG.ORTHOLOGY:K00001`. Translate with
   `'KEGG.ORTHOLOGY:' || SUBSTRING(annotation_id, 4)` before joining.
 
-## Upcoming: graph traversal tables
+## Multi-hop traversal: biosample_to_workflow_run
 
-`nmdc_metadata` will gain two additional tables built from the MongoDB `alldocs`
-collection (see issue #97):
+For variable-depth queries (Biosample to / from any WorkflowExecution),
+use the precomputed table `nmdc_metadata.biosample_to_workflow_run` —
+see [`biosample_to_workflow_run.md`](biosample_to_workflow_run.md).
+Plain equi-join, no recursion at the consumer side.
 
-| Table | Description |
-|---|---|
-| `nmdc_graph_nodes` | One row per NMDC entity (`id`, `type`) |
-| `nmdc_graph_nodes_type_ancestors` | Side table: `parent_id`, `type_ancestor` (full LinkML class hierarchy) |
-| `nmdc_graph_edges` | Directed edges: `src_id`, `src_type`, `dst_id`, `dst_type` |
-
-These enable arbitrary multi-hop traversal and type-hierarchy-aware queries
-beyond what the schema side tables expose directly. Until they land, use the
-join chain above for annotation → biosample navigation.
+Ingesting the runtime-maintained `alldocs` MongoDB collection was considered
+and rejected — see [`decisions/alldocs-not-ingested.md`](decisions/alldocs-not-ingested.md).
