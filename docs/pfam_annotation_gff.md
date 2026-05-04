@@ -24,6 +24,10 @@ human-readable names and descriptions, and to
 | `model_end` | int | Alignment end on the Pfam HMM (from col-9 attribute) |
 | `data_object_id` | string | Source `nmdc:dobj-*` ID (one per file) |
 
+`workflow_run_id` may be `NULL` when the source `data_object` has no
+`was_generated_by` value upstream; the parse stage logs the count and those
+rows cannot participate in `biosample_to_workflow_run` joins.
+
 ## Source
 
 NMDC workflow output: `data_object_type = 'Pfam Annotation GFF'` rows in
@@ -96,7 +100,8 @@ WHERE  a.pfam_accession = 'PF04183'
 
 ## Maintenance
 
-Re-run the four-stage pipeline after each NMDC data load. The fetch and parse
-notebooks are resumable; the ingest notebook refuses to overwrite by default,
-so set `FORCE_OVERWRITE = True` once you've decided to replace the existing
-table.
+Re-run the four-stage pipeline after each NMDC data load. The download script
+(`scripts/download_to_cache.py`) is resumable; the parse and ingest stages
+re-build their outputs from scratch on each run. The ingest notebook refuses
+to overwrite an existing Delta table by default, so set `FORCE_OVERWRITE = True`
+once you've decided to replace it.
