@@ -44,7 +44,7 @@ not stored — they are constants, derivable, or redundant with `pfam_terms`.
 
 ## Generation
 
-Three-stage pipeline (matching the KO/EC pattern, since 650 GB of HTTP would
+Four-stage pipeline (matching the KO/EC pattern, since 650 GB of HTTP would
 crash an in-kernel fetch):
 
 1. `notebooks/fetch_pfam_gff.ipynb` — queries `data_object_set` and writes
