@@ -16,9 +16,9 @@ CLI) where ``berdl_notebook_utils`` and ``data_lakehouse_ingest`` are
 importable.
 
 Usage:
-    python scripts/backfill_nmdc_ref_data_comments.py --dry-run
-    python scripts/backfill_nmdc_ref_data_comments.py
-    python scripts/backfill_nmdc_ref_data_comments.py --skip-verify
+    python scripts/python/backfill_nmdc_ref_data_comments.py --dry-run
+    python scripts/python/backfill_nmdc_ref_data_comments.py
+    python scripts/python/backfill_nmdc_ref_data_comments.py --skip-verify
 """
 
 from __future__ import annotations
@@ -69,13 +69,13 @@ COLUMN_SCHEMA: list[dict[str, object]] = [
     {
         "column": "name",
         "type": "string",
-        "nullable": True,
+        "nullable": False,
         "comment": "Short name (e.g. 7tm_1).",
     },
     {
         "column": "description",
         "type": "string",
-        "nullable": True,
+        "nullable": False,
         "comment": "Human-readable description of the Pfam family.",
     },
     {
@@ -123,7 +123,7 @@ def _quote_dbproperty_value(s: str) -> str:
     return s.replace("'", "''")
 
 
-def apply_db_properties(spark, dry_run: bool) -> None:
+def set_db_properties(spark, dry_run: bool) -> None:
     pairs = ", ".join(
         f"'{k}' = '{_quote_dbproperty_value(v)}'"
         for k, v in DB_PROPERTIES.items()
@@ -137,7 +137,7 @@ def apply_db_properties(spark, dry_run: bool) -> None:
         spark.sql(sql)
 
 
-def apply_table_comment_(spark, dry_run: bool, logger: logging.Logger) -> None:
+def set_table_comment(spark, dry_run: bool, logger: logging.Logger) -> None:
     from data_lakehouse_ingest.utils.delta_comments import apply_table_comment
 
     full = f"{DB}.{TABLE}"
@@ -150,7 +150,7 @@ def apply_table_comment_(spark, dry_run: bool, logger: logging.Logger) -> None:
     print(f"        → status={report.get('status')} applied={report.get('applied')}")
 
 
-def apply_column_comments(spark, dry_run: bool, logger: logging.Logger) -> None:
+def set_column_comments(spark, dry_run: bool, logger: logging.Logger) -> None:
     from data_lakehouse_ingest.utils.delta_comments import (
         apply_comments_from_table_schema,
     )
@@ -210,7 +210,10 @@ def verify(spark) -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
+    ap = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     ap.add_argument(
         "--dry-run",
         action="store_true",
@@ -231,9 +234,9 @@ def main() -> int:
 
     spark = get_spark()
 
-    apply_db_properties(spark, args.dry_run)
-    apply_table_comment_(spark, args.dry_run, logger)
-    apply_column_comments(spark, args.dry_run, logger)
+    set_db_properties(spark, args.dry_run)
+    set_table_comment(spark, args.dry_run, logger)
+    set_column_comments(spark, args.dry_run, logger)
 
     if args.dry_run:
         print("\n(dry-run — no changes written)")
