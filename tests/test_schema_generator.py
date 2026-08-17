@@ -38,6 +38,7 @@ classes:
       has_raw_value:
       term:
         range: Term
+      type:
 
   TextValue:
     attributes:
@@ -48,6 +49,7 @@ classes:
       id:
         required: true
       type:
+        designates_type: true
   Pooling:
     is_a: Process
     attributes:
@@ -145,6 +147,27 @@ def test_flat_class_expands_inlined_object(sv):
     assert "env_broad_scale_term_id" in flat.attributes
 
 
+def test_flat_class_carries_designates_type(sv):
+    """A slot's `designates_type: true` survives flattening onto the flat column.
+
+    Regression test for microbiomedata/nmdc-lakehouse#123: ParquetSink needs
+    this to know `type` is part of the schema contract and must not be
+    dropped by drop_empty_cols even when null for a given dataset.
+    """
+    flat = flatten_class_def(sv, "Process")
+    assert flat.attributes["type"].designates_type is True
+
+
+def test_flat_class_carries_identifier_through_nested_expansion(sv):
+    """A nested identifier slot (Term.id) survives two-level expansion.
+
+    `env_broad_scale_term_id` is derived from `Term.id`, which has
+    `identifier: true` — that flag should carry onto the flat column too.
+    """
+    flat = flatten_class_def(sv, "Record")
+    assert flat.attributes["env_broad_scale_term_id"].identifier is True
+
+
 def test_flat_class_unions_subclass_slots(sv):
     """Polymorphic dispatch: subclass slots appear on the base flat class."""
     flat = flatten_class_def(sv, "Process")
@@ -207,6 +230,37 @@ def test_side_table_inlined_class_child(sv):
     assert "term_id" in cls.attributes
     assert "term_name" in cls.attributes
     assert "term" not in cls.attributes
+    # The child class's own `type` slot is a normal top-level induced slot on
+    # ControlledTermValue, so it is declared like any other attribute.
+    assert "type" in cls.attributes
+
+
+def test_side_table_type_column_declared_and_populated(sv):
+    """The schema-declared ``type`` column on a side table is actually populated at runtime.
+
+    Regression test for microbiomedata/nmdc-lakehouse#122: `side_table_class_defs`
+    already declared a `type` column for the child class's own top-level `type`
+    slot, but `_expand_inlined` unconditionally dropped that value when building
+    the runtime row. Companion to `test_side_table_inlined_class_multivalued_populates_type`
+    in test_flatteners.py, which checks the runtime side; this checks the schema
+    side agrees.
+    """
+    defs = dict(side_table_class_defs(sv, "Record", "record_set"))
+    assert "type" in defs["record_set_chem_admin"].attributes
+
+    rows = list(
+        side_table_rows(
+            {
+                "id": "r1",
+                "chem_admin": [{"type": "test:ChemicalAdministration", "has_raw_value": "NaCl"}],
+            },
+            sv,
+            "Record",
+            "record_set",
+        )
+    )
+    _, row = rows[0]
+    assert row["type"] == "test:ChemicalAdministration"
 
 
 def test_side_table_single_valued_slots_excluded(sv):
