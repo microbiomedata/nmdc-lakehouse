@@ -20,16 +20,15 @@ because the work is scattered across seven issues (#114–#120) with no single m
 `berdl_notebook_utils.list_tenants()` / `get_tenant_detail()`. The returned
 `TenantInfo` has real descriptive fields: `display_name`, `description`, `website`,
 `organization`, alongside the access-control fields (`stewards`, `members_rw`,
-`members_ro`, `namespace_prefix`) documented in Claude memory
-`reference_berdl_tenant_access`.
+`members_ro`, `namespace_prefix`).
 
 **Unconfirmed: whether these are settable, and by whom.** `berdl_notebook_utils`
 is a JupyterHub-pod-only package (not installable off-cluster — its dependencies
 assume the cluster environment), so its write-side API couldn't be checked from
-here. Mark is steward of the `nmdc` tenant, which might carry update rights, but
-the tenant/org model in BERDL looks platform-owned (KBase) rather than
-per-tenant-owned. Worth a direct question to BERDL platform owners — same move
-already used for the `docs_url` redaction question in #118.
+here. The `nmdc` tenant's steward might carry update rights, but the tenant/org
+model in BERDL looks platform-owned (KBase) rather than per-tenant-owned. Worth
+a direct question to BERDL platform owners — same move already used for the
+`docs_url` redaction question in #118.
 
 If a write path exists, `nmdc` tenant's `description`/`website`/`organization`
 would be the natural home for the top-level "what is this and who maintains it"

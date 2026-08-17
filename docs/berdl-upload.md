@@ -64,6 +64,13 @@ starting anything else in this doc.
 
 ## Per-session: open the tunnels and configure `mc`
 
+**Everything from this point through "Run the ingest notebook" runs from a
+[`kbaseincubator/BERIL-research-observatory`](https://github.com/kbaseincubator/BERIL-research-observatory)
+checkout, not this repo.** `.venv-berdl` and every `scripts/*.py`/`scripts/*.sh`
+path below is relative to that checkout's root — `cd` there first. The
+`--data-dir` argument in Preflight is the only place a path back into
+`nmdc-lakehouse` (its `LAKEHOUSE_ROOT`) is needed.
+
 Two SOCKS tunnels reach BERDL's storage and compute from outside the cluster:
 
 ```bash
@@ -75,7 +82,7 @@ Then configure the MinIO client through the proxy:
 
 ```bash
 source .venv-berdl/bin/activate
-eval "$(python scripts/get_minio_creds.py --bootstrap-remote --shell)"   # from BERIL-research-observatory
+eval "$(python scripts/get_minio_creds.py --bootstrap-remote --shell)"
 bash scripts/configure_mc.sh --berdl-proxy
 ```
 
@@ -109,11 +116,16 @@ https_proxy=http://127.0.0.1:8123 ~/bin/mc cp --recursive \
 
 ## Run the ingest notebook
 
+The notebook itself isn't checked into either repo — it's a
+[file attachment on #51](https://github.com/user-attachments/files/27073485/nmdc_linkml_store_ingest.ipynb),
+adapted on-cluster during the 2026-04-25 run. Download it into your BERIL-research-observatory
+checkout (or wherever you're running from) before executing:
+
 ```bash
 source .venv-berdl/bin/activate
 jupyter nbconvert --to notebook --execute --inplace \
     --ExecutePreprocessor.timeout=-1 \
-    lakehouse/nmdc_linkml_store_ingest.ipynb
+    /path/to/nmdc_linkml_store_ingest.ipynb
 ```
 
 Poll progress:
