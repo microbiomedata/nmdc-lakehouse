@@ -46,7 +46,7 @@ jobs:
           args: >-
             --no-progress
             --max-retries 3
-            README.md scripts/README.md docs notebooks
+            README.md scripts/README.md docs notebooks/*.md
           # Non-blocking for now: a first local run already found a live
           # external 500 (sshproxy.nersc.gov) unrelated to any PR content.
           # Report-only until that class of noise is dealt with (an
