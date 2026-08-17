@@ -9,7 +9,8 @@ Defaults to the three NMDC-representative databases. Pass database names as
 positional args to override.
 
 Requires `berdl_notebook_utils` — intended for on-cluster (JupyterHub CLI or
-notebook). Detects on-cluster vs off-cluster via the standard env check.
+notebook) only. Exits with an error if that package isn't importable; there
+is no off-cluster fallback path.
 
 Usage:
     python scripts/python/audit_database_metadata.py
@@ -22,14 +23,33 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
 
 DEFAULT_DBS = ["nmdc_metadata", "nmdc_results", "nmdc_ref_data"]
 
+# Database/table names are interpolated into SQL strings below (Spark's SQL
+# parser has no parameterized-identifier support for DESCRIBE/SHOW TABLES).
+# Restrict to what a Hive-metastore identifier can legally be so nothing
+# unexpected — spaces, backticks, semicolons — reaches the query string.
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# Catalog-internal property key prefixes that Delta/Spark set automatically
+# and that don't indicate a user has set any descriptive metadata.
+_INTERNAL_PROPERTY_PREFIXES = ("delta.", "spark.", "option.")
+
+
+def _validate_identifier(name: str, kind: str) -> str:
+    """Return ``name`` unchanged if it's a safe bare SQL identifier, else raise."""
+    if not _IDENTIFIER_RE.match(name):
+        raise ValueError(f"Refusing to interpolate unsafe {kind} name into SQL: {name!r}")
+    return name
+
 
 def get_spark():
+    """Return a Spark session for the ``nmdc`` tenant, or exit if off-cluster."""
     try:
         from berdl_notebook_utils.setup_spark_session import get_spark_session
     except ImportError as e:
@@ -43,12 +63,15 @@ def get_spark():
 
 def describe_database(spark, db: str) -> dict[str, str]:
     """Return {info_name: info_value} from DESCRIBE DATABASE EXTENDED."""
+    db = _validate_identifier(db, "database")
     rows = spark.sql(f"DESCRIBE DATABASE EXTENDED {db}").collect()
     return {(r["info_name"] or "").strip(): (r["info_value"] or "") for r in rows}
 
 
 def list_tables(spark, db: str) -> list[str]:
-    return [r["tableName"] for r in spark.sql(f"SHOW TABLES IN {db}").collect()]
+    """Return table names in ``db``, sorted for deterministic before/after diffs."""
+    db = _validate_identifier(db, "database")
+    return sorted(r["tableName"] for r in spark.sql(f"SHOW TABLES IN {db}").collect())
 
 
 def describe_table(spark, db: str, table: str) -> dict[str, Any]:
@@ -65,6 +88,8 @@ def describe_table(spark, db: str, table: str) -> dict[str, Any]:
         "owner": "",
         "provider": "",
     }
+    db = _validate_identifier(db, "database")
+    table = _validate_identifier(table, "table")
     rows = spark.sql(f"DESCRIBE EXTENDED {db}.{table}").collect()
     in_detail = False
     for r in rows:
@@ -92,18 +117,43 @@ def get_columns(db: str, table: str) -> list[dict[str, Any]]:
     """Access-aware column-level schema with descriptions (column COMMENTs)."""
     import berdl_notebook_utils
 
-    return berdl_notebook_utils.get_table_schema(
-        db, table, detailed=True, return_json=False
-    )
+    return berdl_notebook_utils.get_table_schema(db, table, detailed=True, return_json=False)
 
 
-def _has_props(props: str) -> bool:
-    """TBLPROPERTIES is rendered as a string like '[k=v, k=v]'. Empty looks like '' or '[]'."""
+def _parse_properties(props: str) -> dict[str, str]:
+    """Best-effort parse of Spark's ``[k=v, k=v]`` TBLPROPERTIES rendering.
+
+    Splits between tokens that look like the start of a new ``key=value``
+    pair. Can misparse a property value that itself contains ``", word="`` —
+    acceptable for a coverage estimate, not intended for exact extraction.
+    """
     s = (props or "").strip()
-    return bool(s) and s not in ("[]", "{}")
+    if (s.startswith("[") and s.endswith("]")) or (s.startswith("{") and s.endswith("}")):
+        s = s[1:-1]
+    if not s:
+        return {}
+    out: dict[str, str] = {}
+    for part in re.split(r",\s*(?=[\w.]+=)", s):
+        if "=" not in part:
+            continue
+        k, _, v = part.partition("=")
+        out[k.strip()] = v.strip()
+    return out
+
+
+def _has_user_properties(props: str) -> bool:
+    """True if TBLPROPERTIES has any key beyond catalog-internal Delta/Spark ones.
+
+    Delta tables always carry internal keys like ``delta.minReaderVersion``,
+    so "has TBLPROPERTIES at all" is nearly always true and not a useful
+    signal for whether anyone has set descriptive metadata.
+    """
+    parsed = _parse_properties(props)
+    return any(not k.startswith(_INTERNAL_PROPERTY_PREFIXES) for k in parsed)
 
 
 def audit(databases: list[str], with_columns: bool) -> dict[str, Any]:
+    """Snapshot DB/table/(optionally column) metadata for each of ``databases``."""
     spark = get_spark()
     out: dict[str, Any] = {"databases": {}}
 
@@ -138,9 +188,7 @@ def audit(databases: list[str], with_columns: bool) -> dict[str, Any]:
                     cols = get_columns(db, t)
                     t_entry["columns"] = cols
                     t_entry["n_columns"] = len(cols)
-                    t_entry["n_cols_with_description"] = sum(
-                        1 for c in cols if (c.get("description") or "").strip()
-                    )
+                    t_entry["n_cols_with_description"] = sum(1 for c in cols if (c.get("description") or "").strip())
                 except Exception as e:
                     t_entry["columns_error"] = str(e)
 
@@ -152,6 +200,7 @@ def audit(databases: list[str], with_columns: bool) -> dict[str, Any]:
 
 
 def render_summary(report: dict[str, Any], with_columns: bool, show_issues: bool) -> None:
+    """Print a human-readable coverage summary of an ``audit()`` report."""
     print()
     print("=" * 78)
     print("BERDL metadata audit")
@@ -175,23 +224,17 @@ def render_summary(report: dict[str, Any], with_columns: bool, show_issues: bool
 
         tables = entry.get("tables", {})
         n_tables = len(tables)
-        n_with_comment = sum(
-            1 for v in tables.values()
-            if (v.get("table_info", {}).get("comment") or "").strip()
-        )
+        n_with_comment = sum(1 for v in tables.values() if (v.get("table_info", {}).get("comment") or "").strip())
         n_with_props = sum(
-            1 for v in tables.values()
-            if _has_props(v.get("table_info", {}).get("properties", ""))
+            1 for v in tables.values() if _has_user_properties(v.get("table_info", {}).get("properties", ""))
         )
         print(f"  Tables:                  {n_tables}")
         print(f"    with comment:          {n_with_comment} / {n_tables}")
-        print(f"    with TBLPROPERTIES:    {n_with_props} / {n_tables}")
+        print(f"    with user TBLPROPERTIES: {n_with_props} / {n_tables} (excludes delta.*/spark.* internal keys)")
 
         if with_columns:
             total_cols = sum(v.get("n_columns", 0) for v in tables.values())
-            cols_with_desc = sum(
-                v.get("n_cols_with_description", 0) for v in tables.values()
-            )
+            cols_with_desc = sum(v.get("n_cols_with_description", 0) for v in tables.values())
             pct = (100.0 * cols_with_desc / total_cols) if total_cols else 0.0
             print(f"  Columns total:                {total_cols}")
             print(f"    with description (COMMENT): {cols_with_desc} ({pct:.1f}%)")
@@ -203,7 +246,7 @@ def render_summary(report: dict[str, Any], with_columns: bool, show_issues: bool
             if (v.get("table_info", {}).get("comment") or "").strip()
         ]
         if with_comment:
-            print(f"  Tables with comment:")
+            print("  Tables with comment:")
             for t, c in with_comment:
                 snippet = c if len(c) <= 70 else c[:67] + "..."
                 print(f"    - {t}: {snippet}")
@@ -215,30 +258,38 @@ def render_summary(report: dict[str, Any], with_columns: bool, show_issues: bool
                 if v.get("table_info_error") or v.get("columns_error")
             ]
             if problems:
-                print(f"  Tables with audit errors:")
+                print("  Tables with audit errors:")
                 for t, err in problems:
                     print(f"    - {t}: {err}")
 
 
 def main() -> int:
+    """CLI entry point: parse args, run the audit, print a summary, optionally write JSON."""
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ap.add_argument(
-        "databases", nargs="*", default=DEFAULT_DBS,
+        "databases",
+        nargs="*",
+        default=DEFAULT_DBS,
         help=f"Databases to audit (default: {' '.join(DEFAULT_DBS)})",
     )
     ap.add_argument(
-        "--columns", action="store_true",
+        "--columns",
+        action="store_true",
         help="Include column-level description coverage (uses berdl_notebook_utils.get_table_schema)",
     )
     ap.add_argument(
-        "--json", type=Path, default=None,
+        "--json",
+        type=Path,
+        default=None,
         help="Write full audit (incl. raw rows) as JSON to this path",
     )
     ap.add_argument(
-        "--tables-with-issues", dest="show_issues", action="store_true",
+        "--tables-with-issues",
+        dest="show_issues",
+        action="store_true",
         help="Also list tables whose DESCRIBE / schema lookup raised an error",
     )
     args = ap.parse_args()
