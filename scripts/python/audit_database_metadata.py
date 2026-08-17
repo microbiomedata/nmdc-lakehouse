@@ -117,6 +117,8 @@ def get_columns(db: str, table: str) -> list[dict[str, Any]]:
     """Access-aware column-level schema with descriptions (column COMMENTs)."""
     import berdl_notebook_utils
 
+    db = _validate_identifier(db, "database")
+    table = _validate_identifier(table, "table")
     return berdl_notebook_utils.get_table_schema(db, table, detailed=True, return_json=False)
 
 
@@ -133,7 +135,7 @@ def _parse_properties(props: str) -> dict[str, str]:
     if not s:
         return {}
     out: dict[str, str] = {}
-    for part in re.split(r",\s*(?=[\w.]+=)", s):
+    for part in re.split(r",\s*(?=[\w.-]+=)", s):
         if "=" not in part:
             continue
         k, _, v = part.partition("=")
