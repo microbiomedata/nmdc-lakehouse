@@ -46,7 +46,7 @@ def main() -> None:
     root_class = sys.argv[2] if len(sys.argv) == 3 else _infer_class(collection)
 
     mongo_uri = os.environ.get("MONGO_URI", "mongodb://localhost:27017/nmdc_lakehouse_prep")
-    client = MongoClient(mongo_uri)
+    client: MongoClient = MongoClient(mongo_uri)
     db = client.get_default_database()
 
     doc = db[collection].find_one()

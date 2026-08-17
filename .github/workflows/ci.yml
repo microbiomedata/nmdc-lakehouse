@@ -34,3 +34,26 @@ jobs:
 
       - name: Test
         run: just test
+
+  linkcheck:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Check links in docs
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: >-
+            --no-progress
+            --max-retries 3
+            README.md scripts/README.md docs notebooks
+          # Non-blocking for now: a first local run already found a live
+          # external 500 (sshproxy.nersc.gov) unrelated to any PR content.
+          # Report-only until that class of noise is dealt with (an
+          # exclude list, or accepting the flakiness); flip to true to
+          # make broken links a hard merge blocker.
+          fail: false
+        env:
+          # Authenticated requests to github.com avoid the unauthenticated
+          # rate limit that otherwise makes this job flaky on busy days.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
