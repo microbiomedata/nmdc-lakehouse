@@ -31,18 +31,20 @@ clean:
 # ---------- Quality ----------
 
 # Run all linters & formatters in check mode.
+# scripts/python is in scope (see .pre-commit-config.yaml); scripts/*.py
+# at the top level is EMA legacy and deliberately excluded.
 lint:
-    uv run ruff check src tests
-    uv run ruff format --check src tests
+    uv run ruff check src tests scripts/python
+    uv run ruff format --check src tests scripts/python
 
 # Auto-format the codebase.
 format:
-    uv run ruff format src tests
-    uv run ruff check --fix src tests
+    uv run ruff format src tests scripts/python
+    uv run ruff check --fix src tests scripts/python
 
 # Type-check with mypy.
 typecheck:
-    uv run mypy src
+    uv run mypy src scripts/python
 
 # ---------- Tests ----------
 

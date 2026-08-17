@@ -42,10 +42,7 @@ DB_PROPERTIES: dict[str, str] = {
     "role": "ref_data",
     "source": "nmdc-lakehouse",
     "representative": "turbomam",
-    "docs_url": (
-        "https://github.com/microbiomedata/nmdc-lakehouse/blob/main/"
-        "docs/architecture.md#namespace-policy"
-    ),
+    "docs_url": ("https://github.com/microbiomedata/nmdc-lakehouse/blob/main/docs/architecture.md#namespace-policy"),
 }
 
 TABLE_COMMENT = (
@@ -82,31 +79,23 @@ COLUMN_SCHEMA: list[dict[str, object]] = [
         "column": "clan_id",
         "type": "string",
         "nullable": True,
-        "comment": (
-            "Clan accession (e.g. CL0192). Nullable; null when the family is "
-            "not assigned to a clan."
-        ),
+        "comment": ("Clan accession (e.g. CL0192). Nullable; null when the family is not assigned to a clan."),
     },
     {
         "column": "clan_name",
         "type": "string",
         "nullable": True,
-        "comment": (
-            "Clan short name (e.g. GPCR_A). Nullable; null when the family "
-            "is not assigned to a clan."
-        ),
+        "comment": ("Clan short name (e.g. GPCR_A). Nullable; null when the family is not assigned to a clan."),
     },
 ]
 
 
 def get_spark():
+    """Return a Spark session for the ``nmdc`` tenant, or exit if off-cluster."""
     try:
         from berdl_notebook_utils.setup_spark_session import get_spark_session
     except ImportError as e:
-        sys.exit(
-            f"ERROR: berdl_notebook_utils not importable ({e}). "
-            "Run on-cluster (JupyterHub CLI / notebook)."
-        )
+        sys.exit(f"ERROR: berdl_notebook_utils not importable ({e}). Run on-cluster (JupyterHub CLI / notebook).")
     return get_spark_session(
         app_name="backfill_nmdc_ref_data_comments",
         tenant_name="nmdc",
@@ -124,10 +113,8 @@ def _quote_dbproperty_value(s: str) -> str:
 
 
 def set_db_properties(spark, dry_run: bool) -> None:
-    pairs = ", ".join(
-        f"'{k}' = '{_quote_dbproperty_value(v)}'"
-        for k, v in DB_PROPERTIES.items()
-    )
+    """Apply DB_PROPERTIES to the target schema via ALTER SCHEMA ... SET DBPROPERTIES."""
+    pairs = ", ".join(f"'{k}' = '{_quote_dbproperty_value(v)}'" for k, v in DB_PROPERTIES.items())
     sql = f"ALTER SCHEMA {DB} SET DBPROPERTIES ({pairs})"
     print(f"[db]  ALTER SCHEMA {DB} SET DBPROPERTIES ({len(DB_PROPERTIES)} keys)")
     for k, v in DB_PROPERTIES.items():
@@ -138,6 +125,7 @@ def set_db_properties(spark, dry_run: bool) -> None:
 
 
 def set_table_comment(spark, dry_run: bool, logger: logging.Logger) -> None:
+    """Apply TABLE_COMMENT to the target table via the BERDL delta_comments helper."""
     from data_lakehouse_ingest.utils.delta_comments import apply_table_comment
 
     full = f"{DB}.{TABLE}"
@@ -151,6 +139,7 @@ def set_table_comment(spark, dry_run: bool, logger: logging.Logger) -> None:
 
 
 def set_column_comments(spark, dry_run: bool, logger: logging.Logger) -> None:
+    """Apply COLUMN_SCHEMA's per-column comments via the BERDL delta_comments helper."""
     from data_lakehouse_ingest.utils.delta_comments import (
         apply_comments_from_table_schema,
     )
@@ -163,9 +152,7 @@ def set_column_comments(spark, dry_run: bool, logger: logging.Logger) -> None:
         print(f"        {c['column']}: {snippet}")
     if dry_run:
         return
-    report = apply_comments_from_table_schema(
-        spark, full, COLUMN_SCHEMA, logger=logger
-    )
+    report = apply_comments_from_table_schema(spark, full, COLUMN_SCHEMA, logger=logger)
     print(
         f"        → status={report.get('status')} "
         f"applied={report.get('applied')} "
@@ -175,6 +162,7 @@ def set_column_comments(spark, dry_run: bool, logger: logging.Logger) -> None:
 
 
 def verify(spark) -> None:
+    """Print the DB comment, table comment, and column descriptions now on record."""
     print()
     print("=" * 78)
     print("Verification")
@@ -201,15 +189,14 @@ def verify(spark) -> None:
     print(f"\n[cols] berdl_notebook_utils.get_table_schema({DB!r}, {TABLE!r}):")
     import berdl_notebook_utils
 
-    cols = berdl_notebook_utils.get_table_schema(
-        DB, TABLE, detailed=True, return_json=False
-    )
+    cols = berdl_notebook_utils.get_table_schema(DB, TABLE, detailed=True, return_json=False)
     for c in cols:
         desc = c.get("description") or "(none)"
         print(f"  - {c.get('name')}: {desc}")
 
 
 def main() -> int:
+    """CLI entry point: parse args, apply (or preview) the DB/table/column metadata, verify."""
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
