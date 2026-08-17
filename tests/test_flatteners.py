@@ -134,6 +134,27 @@ def test_inlined_object_expanded_one_level(sv):
     assert "description" not in out
 
 
+def test_inlined_object_type_not_expanded_for_primary_table(sv):
+    """A single-valued inlined slot's own `type` is NOT carried into flatten_record output.
+
+    Regression test from the #125 review discussion on microbiomedata/nmdc-lakehouse#122:
+    `_expand_inlined`'s `include_type` must default to (and be passed as) False here,
+    because `schema_generator._flatten_slot` skips `type` when expanding a single-valued
+    inlined slot nested inside another class — the generated schema declares no
+    `env_broad_scale_type` column, so runtime must not emit one either. `type` IS carried
+    through for side-table root objects (see test_side_table_inlined_class_multivalued_populates_type),
+    where the schema situation is the opposite: flatten_class_def's main loop does declare
+    that column.
+    """
+    out = flatten_record(
+        {"id": "r1", "env_broad_scale": {"type": "test:ChemicalAdministration", "has_raw_value": "x"}},
+        sv,
+        "Record",
+    )
+    assert "env_broad_scale_type" not in out
+    assert out["env_broad_scale_has_raw_value"] == "x"
+
+
 def test_inlined_object_multivalued_subslot_is_array(sv):
     """Multivalued scalar subslot inside a single-valued inlined object becomes a list."""
     out = flatten_record(
