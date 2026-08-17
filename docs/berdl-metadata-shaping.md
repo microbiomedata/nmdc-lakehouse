@@ -11,7 +11,7 @@ because the work is scattered across seven issues ([#114](https://github.com/mic
 | Tenant / org | Unconfirmed | `berdl_notebook_utils.governance`'s `list_tenants()` / `get_tenant_detail()` have readable `description`/`website`/`organization`/`display_name` fields per tenant; no known write path from NMDC-side code | Not investigated, see below |
 | Schema / database | Yes | `ALTER SCHEMA ... SET DBPROPERTIES (...)` | Piloted on `nmdc_ref_data` only ([#116](https://github.com/microbiomedata/nmdc-lakehouse/issues/116), closed). `nmdc_metadata`/`nmdc_results` not yet done ([#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114)) |
 | Dataset (Bronze/MinIO object path) | No known mechanism | S3 supports object metadata (`x-amz-meta-*`) via `mc`; nothing in this pipeline sets it | Open gap, not filed |
-| Table | Yes | `data_lakehouse_ingest.utils.delta_comments.apply_table_comment` | Piloted on `nmdc_ref_data.pfam_terms` only ([#117](https://github.com/microbiomedata/nmdc-lakehouse/pull/117)). Scaling to 49+9 tables is [#115](https://github.com/microbiomedata/nmdc-lakehouse/pull/115) |
+| Table | Yes | `data_lakehouse_ingest.utils.delta_comments.apply_table_comment` | Piloted on `nmdc_ref_data.pfam_terms` only ([#117](https://github.com/microbiomedata/nmdc-lakehouse/pull/117)). Scaling to 49+9 tables is [#115](https://github.com/microbiomedata/nmdc-lakehouse/issues/115) |
 | Column | Yes | `data_lakehouse_ingest.utils.delta_comments.apply_comments_from_table_schema` | Same as table: piloted, not scaled |
 
 ## Tenant / org: the level nobody has written to yet
@@ -67,7 +67,7 @@ the Silver-layer work above, since Silver is what users actually query.
 ## Table and column: proposed, piloted, not yet scaled
 
 BERDL already ships a supported convention for this
-(`data_lakehouse_ingest.utils.delta_comments`), documented in [#115](https://github.com/microbiomedata/nmdc-lakehouse/pull/115):
+(`data_lakehouse_ingest.utils.delta_comments`), documented in [#115](https://github.com/microbiomedata/nmdc-lakehouse/issues/115):
 `apply_table_comment()` (falls back from `COMMENT ON TABLE` to
 `ALTER TABLE ... SET TBLPROPERTIES` depending on catalog support) and
 `apply_comments_from_table_schema()` (per-column `ALTER TABLE ... ALTER COLUMN
@@ -79,7 +79,7 @@ For `nmdc_metadata`, the content already exists as data:
 per-column `description` strings (the `DISPATCH_NOTE` / `NESTED_NOTE` / `REF_NOTE`
 annotations from polymorphic dispatch and nested-slot flattening) and a
 class-level `description` explaining the polymorphic union. Wiring those into
-the ingest's structured-schema `comment` field is the unlock. [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114) and [#115](https://github.com/microbiomedata/nmdc-lakehouse/pull/115)
+the ingest's structured-schema `comment` field is the unlock. [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114) and [#115](https://github.com/microbiomedata/nmdc-lakehouse/issues/115)
 both propose this; [#120](https://github.com/microbiomedata/nmdc-lakehouse/issues/120) additionally argues for keeping the generator code
 separate from any hand-authored content (YAML/SQL under a `metadata/` directory)
 so domain experts can review descriptions without reading Python.
@@ -93,7 +93,7 @@ with a comment) so a partial backfill can be measured and re-run to completion.
 1. [#119](https://github.com/microbiomedata/nmdc-lakehouse/pull/119) first: merge the audit script so progress on everything below is measurable.
 2. [#118](https://github.com/microbiomedata/nmdc-lakehouse/issues/118): resolve or work around the `docs_url` redaction before standardizing that property across more schemas.
 3. [#120](https://github.com/microbiomedata/nmdc-lakehouse/issues/120)'s separation principle, applied as `metadata/nmdc_ref_data.yaml` ported from the [#117](https://github.com/microbiomedata/nmdc-lakehouse/pull/117) pilot, before scaling to two more schemas with 10x the content.
-4. [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114)/[#115](https://github.com/microbiomedata/nmdc-lakehouse/pull/115) for `nmdc_metadata` and `nmdc_results`: the LinkML-driven case, since the content is already generated data, not hand-authored.
+4. [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114)/[#115](https://github.com/microbiomedata/nmdc-lakehouse/issues/115) for `nmdc_metadata` and `nmdc_results`: the LinkML-driven case, since the content is already generated data, not hand-authored.
 5. Tenant/org level: ask BERDL platform owners whether it's writable at all before scoping any work here.
 6. Dataset/Bronze-object metadata: file an issue if this turns out to matter for discovery; no evidence yet that anyone's blocked on it.
 
@@ -101,4 +101,4 @@ with a comment) so a partial backfill can be measured and re-run to completion.
 
 - `docs/berdl-upload.md`: getting Parquet into BERDL in the first place; this doc is what to set once it's there.
 - `docs/architecture.md`: the three-namespace policy (`nmdc_metadata`/`nmdc_results`/`nmdc_ref_data`) these DBPROPERTIES attach to.
-- [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114), [#115](https://github.com/microbiomedata/nmdc-lakehouse/pull/115), [#116](https://github.com/microbiomedata/nmdc-lakehouse/issues/116), [#117](https://github.com/microbiomedata/nmdc-lakehouse/pull/117), [#118](https://github.com/microbiomedata/nmdc-lakehouse/issues/118), [#119](https://github.com/microbiomedata/nmdc-lakehouse/pull/119), [#120](https://github.com/microbiomedata/nmdc-lakehouse/issues/120)
+- [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114), [#115](https://github.com/microbiomedata/nmdc-lakehouse/issues/115), [#116](https://github.com/microbiomedata/nmdc-lakehouse/issues/116), [#117](https://github.com/microbiomedata/nmdc-lakehouse/pull/117), [#118](https://github.com/microbiomedata/nmdc-lakehouse/issues/118), [#119](https://github.com/microbiomedata/nmdc-lakehouse/pull/119), [#120](https://github.com/microbiomedata/nmdc-lakehouse/issues/120)
