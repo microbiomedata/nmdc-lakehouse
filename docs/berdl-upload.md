@@ -1,22 +1,22 @@
 # Uploading `lakehouse/` Parquet output to BERDL
 
 This is the off-cluster path: `etl-collections`/`etl-annotations` already produced
-local Parquet under `LAKEHOUSE_ROOT` (see `docs/mongodb-connection.md`). This
-document covers getting that output into BERDL Silver as `nmdc_nmdc_linkml_store`.
+local Parquet under `LAKEHOUSE_ROOT` (see the configuration table in `README.md`).
+This document covers getting that output into BERDL Silver as `nmdc_nmdc_linkml_store`.
 
-**Status:** verified working end-to-end 2026-04-25 (see #51), but as a manual
-workaround — SSH access to the tunnel host was blocked at the time, so the actual
+**Status:** verified working end-to-end 2026-04-25 (see [#51](https://github.com/microbiomedata/nmdc-lakehouse/issues/51)), but as a manual
+workaround: SSH access to the tunnel host was blocked at the time, so the actual
 run happened on-cluster via JupyterHub instead of following the steps below start
-to finish. The steps themselves (1–7) were validated; step 8 was substituted with
-an on-cluster notebook run. Re-verify steps 8–9 the next time this runs off-cluster.
+to finish. The steps themselves (1-7) were validated; step 8 was substituted with
+an on-cluster notebook run. Re-verify steps 8-9 the next time this runs off-cluster.
 
 ---
 
-## Prerequisites — obtain before doing anything else
+## Prerequisites, obtain before doing anything else
 
 ### 1. Python 3.13 environment
 
-`data-lakehouse-ingest` requires Python ≥ 3.13, which may not be your system default.
+`data-lakehouse-ingest` requires Python >= 3.13, which may not be your system default.
 
 ```bash
 uv python install 3.13
@@ -33,7 +33,7 @@ bash scripts/bootstrap_ingest.sh
 ```
 
 `bootstrap_ingest.sh` ends with a false-failure message ("data_lakehouse_ingest not
-found") because its check bypasses the activated environment — the package is
+found") because its check bypasses the activated environment. The package is
 installed correctly; ignore the error.
 
 ### 3. MinIO client (`mc`)
@@ -57,7 +57,7 @@ Token expires in ~1 week. Refresh from JupyterHub: `BERDLSettings().KBASE_AUTH_T
 ### 5. SSH access to `login1.berkeley.kbase.us`
 
 Required for the tunnels in the next section. This blocked the 2026-04-25 run
-entirely — if you don't have an account there yet, ask in `#ber_lakehouse` before
+entirely. If you don't have an account there yet, ask in `#ber_lakehouse` before
 starting anything else in this doc.
 
 ---
@@ -67,9 +67,18 @@ starting anything else in this doc.
 **Everything from this point through "Run the ingest notebook" runs from a
 [`kbaseincubator/BERIL-research-observatory`](https://github.com/kbaseincubator/BERIL-research-observatory)
 checkout, not this repo.** `.venv-berdl` and every `scripts/*.py`/`scripts/*.sh`
-path below is relative to that checkout's root — `cd` there first. The
-`--data-dir` argument in Preflight is the only place a path back into
-`nmdc-lakehouse` (its `LAKEHOUSE_ROOT`) is needed.
+path below is relative to that checkout's root. `cd` there first.
+
+Preflight and Upload metadata both need a path back into this repo's
+`LAKEHOUSE_ROOT`. Capture it as an absolute path **before** changing
+directories, since `LAKEHOUSE_ROOT`'s own default (`./lakehouse`) is relative
+and would resolve against the wrong checkout once you've `cd`'d into
+BERIL-research-observatory:
+
+```bash
+# From the nmdc-lakehouse checkout, before cd'ing anywhere else:
+export NMDC_LAKEHOUSE_DATA="$(realpath "${LAKEHOUSE_ROOT:-./lakehouse}")"
+```
 
 Two SOCKS tunnels reach BERDL's storage and compute from outside the cluster:
 
@@ -97,27 +106,27 @@ to `http://127.0.0.1:8123` and configures the `berdl-minio` `mc` alias.
 ```bash
 source .venv-berdl/bin/activate
 python scripts/ingest_preflight.py \
-    --data-dir "$(realpath "${LAKEHOUSE_ROOT:-./lakehouse}")" \
+    --data-dir "$NMDC_LAKEHOUSE_DATA" \
     --tenant nmdc --dataset nmdc_linkml_store \
     --mode overwrite --chunk-target-gb 20
 ```
 
-All 13 tables should show as single-batch. Use an absolute path for `--data-dir`.
+All 13 tables should show as single-batch.
 
 ## Upload metadata
 
 ```bash
 https_proxy=http://127.0.0.1:8123 ~/bin/mc cp --recursive \
-    "$(realpath "${LAKEHOUSE_ROOT:-./lakehouse}")/metadata/" \
+    "$NMDC_LAKEHOUSE_DATA/metadata/" \
     "berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/datasets/nmdc_linkml_store/metadata/"
 ```
 
-`mc` interprets relative paths as MinIO URLs — always use absolute local paths.
+`mc` interprets relative paths as MinIO URLs. Always use absolute local paths.
 
 ## Run the ingest notebook
 
-The notebook itself isn't checked into either repo — it's a
-[file attachment on #51](https://github.com/user-attachments/files/27073485/nmdc_linkml_store_ingest.ipynb),
+The notebook itself isn't checked into either repo. It's a
+[file attachment on issue #51](https://github.com/user-attachments/files/27073485/nmdc_linkml_store_ingest.ipynb),
 adapted on-cluster during the 2026-04-25 run. Download it into your BERIL-research-observatory
 checkout (or wherever you're running from) before executing:
 
@@ -147,12 +156,12 @@ SELECT COUNT(*) FROM nmdc_nmdc_linkml_store.functional_annotation_agg;
 
 ## Known gotchas
 
-- **`verify_ingest` reports MISMATCH for every table.** Not a real failure — it counts
+- **`verify_ingest` reports MISMATCH for every table.** Not a real failure. It counts
   line breaks in source files, which is meaningless for binary Parquet. Trust the
   Delta row counts from the SQL verification above instead.
-- **Namespace naming.** Tenant `nmdc`, dataset `nmdc_linkml_store` → registered
+- **Namespace naming.** Tenant `nmdc`, dataset `nmdc_linkml_store` -> registered
   namespace `nmdc_nmdc_linkml_store` (tenant prefix + dataset name).
-- **`MODE=overwrite`** makes repeated runs idempotent — safe to re-run after a fresh
+- **`MODE=overwrite`** makes repeated runs idempotent, safe to re-run after a fresh
   `etl-collections`.
 
 ## Paths
@@ -163,9 +172,10 @@ SELECT COUNT(*) FROM nmdc_nmdc_linkml_store.functional_annotation_agg;
 
 ## Related
 
-- #50 — consolidating ETL output to `LAKEHOUSE_ROOT` so this doc's paths are stable.
-- #51 — the original automation issue; this doc is the runbook half of it. A
+- [#50](https://github.com/microbiomedata/nmdc-lakehouse/issues/50): consolidating ETL output to `LAKEHOUSE_ROOT` so this doc's paths are stable.
+- [#51](https://github.com/microbiomedata/nmdc-lakehouse/issues/51): the original automation issue; this doc is the runbook half of it. A
   `just berdl-upload` recipe wrapping the tunnel/preflight/upload/ingest steps is
   still open there.
-- `docs/mongodb-connection.md` — the upstream half (MongoDB → local Parquet).
-- `docs/berdl-metadata-shaping.md` — what you can set beyond the raw data once it's here.
+- `README.md`: where `LAKEHOUSE_ROOT` and the other ETL configuration variables are documented.
+- `docs/mongodb-connection.md`: the upstream half (MongoDB to local Parquet).
+- `docs/berdl-metadata-shaping.md`: what you can set beyond the raw data once it's here.
