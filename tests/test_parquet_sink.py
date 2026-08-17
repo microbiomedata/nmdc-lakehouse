@@ -212,3 +212,45 @@ def test_drop_empty_cols_removes_all_empty_array_columns(array_class, tmp_path):
     assert "tags" in tbl.schema.names  # has data
     assert "scores" not in tbl.schema.names  # all null/empty
     assert "associated_studies" not in tbl.schema.names  # all null/empty
+
+
+@pytest.fixture
+def flat_class_with_designators() -> ClassDefinition:
+    """A flat ClassDefinition with an identifier slot and a designates_type slot."""
+    sv = SchemaView("""
+id: https://example.org/test
+name: test
+prefixes:
+  linkml: https://w3id.org/linkml/
+imports:
+  - linkml:types
+classes:
+  DesignatorRecord:
+    attributes:
+      id:
+        range: string
+        identifier: true
+      type:
+        range: string
+        designates_type: true
+      has_raw_value:
+        range: string
+""")
+    return sv.get_class("DesignatorRecord")
+
+
+def test_drop_empty_cols_keeps_identifier_and_designates_type_columns(flat_class_with_designators, tmp_path):
+    """drop_empty_cols=True never drops a column backed by identifier: true or
+    designates_type: true, even when it is null in every row of this run.
+
+    Regression test for microbiomedata/nmdc-lakehouse#123: these columns are
+    part of the schema's contract (e.g. the polymorphic dispatch key), not a
+    property of what happened to be populated in one dataset.
+    """
+    sink = ParquetSink(tmp_path, class_def=flat_class_with_designators)
+    rows = [{"has_raw_value": "x"}, {"has_raw_value": "y"}]  # id and type both entirely null
+    sink.write(iter(rows), table="designator_record", drop_empty_cols=True)
+    tbl = pq.read_table(tmp_path / "designator_record.parquet")
+    assert "id" in tbl.schema.names
+    assert "type" in tbl.schema.names
+    assert "has_raw_value" in tbl.schema.names
