@@ -154,7 +154,11 @@ class ParquetSink:
             drop_empty_cols: When True, rewrite the file after writing to
                 remove columns that are entirely null. Useful for wide sparse
                 schemas (e.g. BiosampleFlat with 1,398 columns) where most
-                columns are empty for a given dataset.
+                columns are empty for a given dataset. Columns backed by a
+                slot with `identifier: true` or `designates_type: true` are
+                never dropped, even when empty in this dataset — their
+                presence is part of the schema's contract, not a property
+                of this run. See microbiomedata/nmdc-lakehouse#123.
 
         Returns:
             Total number of rows written.
@@ -184,14 +188,34 @@ class ParquetSink:
 
         if drop_empty_cols and out_path.exists() and total > 0:
             tbl = pq.read_table(out_path)
-            non_empty = [name for name in tbl.schema.names if _col_has_data(tbl.column(name))]
-            if len(non_empty) < len(tbl.schema.names):
-                pq.write_table(tbl.select(non_empty), out_path)
+            protected = self._protected_columns()
+            keep = [
+                name
+                for name in tbl.schema.names
+                if name in protected or _col_has_data(tbl.column(name))
+            ]
+            if len(keep) < len(tbl.schema.names):
+                pq.write_table(tbl.select(keep), out_path)
 
         return total
 
     def _to_arrow_table(self, rows: list[dict]) -> pa.Table:
         return _rows_to_arrow_table(rows, self._arrow_schema)
+
+    def _protected_columns(self) -> set[str]:
+        """Column names that must survive `drop_empty_cols` even when entirely null.
+
+        A column backed by a slot with `identifier: true` or
+        `designates_type: true` is part of the schema's contract, not just
+        data that happened to be present in this run.
+        """
+        if self.class_def is None:
+            return set()
+        return {
+            name
+            for name, slot in self.class_def.attributes.items()
+            if slot.identifier or slot.designates_type
+        }
 
 
 def _rows_to_arrow_table(rows: list[dict], schema: pa.Schema | None) -> pa.Table:

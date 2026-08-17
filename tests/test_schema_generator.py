@@ -48,6 +48,7 @@ classes:
       id:
         required: true
       type:
+        designates_type: true
   Pooling:
     is_a: Process
     attributes:
@@ -143,6 +144,27 @@ def test_flat_class_expands_inlined_object(sv):
     assert "env_broad_scale_has_raw_value" in flat.attributes
     # Two-level expansion through controlled term's term.id
     assert "env_broad_scale_term_id" in flat.attributes
+
+
+def test_flat_class_carries_designates_type(sv):
+    """A slot's `designates_type: true` survives flattening onto the flat column.
+
+    Regression test for microbiomedata/nmdc-lakehouse#123: ParquetSink needs
+    this to know `type` is part of the schema contract and must not be
+    dropped by drop_empty_cols even when null for a given dataset.
+    """
+    flat = flatten_class_def(sv, "Process")
+    assert flat.attributes["type"].designates_type is True
+
+
+def test_flat_class_carries_identifier_through_nested_expansion(sv):
+    """A nested identifier slot (Term.id) survives two-level expansion.
+
+    `env_broad_scale_term_id` is derived from `Term.id`, which has
+    `identifier: true` — that flag should carry onto the flat column too.
+    """
+    flat = flatten_class_def(sv, "Record")
+    assert flat.attributes["env_broad_scale_term_id"].identifier is True
 
 
 def test_flat_class_unions_subclass_slots(sv):
