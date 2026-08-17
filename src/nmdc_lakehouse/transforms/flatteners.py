@@ -144,6 +144,12 @@ def _expand_inlined(value: dict, class_def: ClassDefinition, schema_view: Schema
     induced = schema_view.class_induced_slots(effective_class)
     for sub_slot in induced:
         if sub_slot.name == "type":
+            # This object's own type is the polymorphic dispatch key
+            # (already consumed above via _dispatch_class) and is declared
+            # as a normal top-level column by flatten_class_def, so carry
+            # the raw value through rather than dropping it.
+            if "type" in value and value["type"] is not None:
+                out["type"] = value["type"]
             continue
         if sub_slot.name not in value:
             continue

@@ -40,6 +40,7 @@ classes:
         multivalued: true
       term:
         range: Term
+      type:
 
   TextValue:
     attributes:
@@ -330,6 +331,32 @@ def test_side_table_inlined_class_multivalued(sv):
     child_rows = [r for _, r in rows]
     assert child_rows[0] == {"has_raw_value": "formaldehyde", "parent_id": "r1"}
     assert child_rows[1] == {"has_raw_value": "methanol", "parent_id": "r1"}
+
+
+def test_side_table_inlined_class_multivalued_populates_type(sv):
+    """A child object's own ``type`` value is carried into the side table row.
+
+    Regression test for the bug where ``_expand_inlined`` unconditionally
+    skipped ``type``, leaving it null even though ``side_table_class_defs``
+    declares a ``type`` column for this exact case (see
+    ``test_side_table_type_column_declared_and_populated`` in
+    test_schema_generator.py, and microbiomedata/nmdc-lakehouse#122).
+    """
+    rows = list(
+        side_table_rows(
+            {
+                "id": "r1",
+                "chem_admin": [
+                    {"type": "test:ChemicalAdministration", "has_raw_value": "formaldehyde"},
+                ],
+            },
+            sv,
+            "Record",
+            "record_set",
+        )
+    )
+    _, row = rows[0]
+    assert row["type"] == "test:ChemicalAdministration"
 
 
 def test_side_table_no_multivalued_slots(sv):
