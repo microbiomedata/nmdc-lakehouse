@@ -189,11 +189,7 @@ class ParquetSink:
         if drop_empty_cols and out_path.exists() and total > 0:
             tbl = pq.read_table(out_path)
             protected = self._protected_columns()
-            keep = [
-                name
-                for name in tbl.schema.names
-                if name in protected or _col_has_data(tbl.column(name))
-            ]
+            keep = [name for name in tbl.schema.names if name in protected or _col_has_data(tbl.column(name))]
             if len(keep) < len(tbl.schema.names):
                 pq.write_table(tbl.select(keep), out_path)
 
@@ -211,11 +207,7 @@ class ParquetSink:
         """
         if self.class_def is None:
             return set()
-        return {
-            name
-            for name, slot in self.class_def.attributes.items()
-            if slot.identifier or slot.designates_type
-        }
+        return {name for name, slot in self.class_def.attributes.items() if slot.identifier or slot.designates_type}
 
 
 def _rows_to_arrow_table(rows: list[dict], schema: pa.Schema | None) -> pa.Table:
