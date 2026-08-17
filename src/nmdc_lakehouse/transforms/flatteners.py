@@ -76,7 +76,7 @@ def flatten_record(record: dict, schema_view: SchemaView, root_class: str) -> di
 
         # Single-valued inlined object: expand to <slot>_<subslot>.
         if isinstance(value, dict):
-            for sub_key, sub_value in _expand_inlined(value, range_class, schema_view).items():
+            for sub_key, sub_value in _expand_inlined(value, range_class, schema_view, include_type=False).items():
                 out[f"{slot.name}_{sub_key}"] = sub_value
 
     return out
@@ -130,7 +130,9 @@ def _dispatch_class(record: dict, declared_class: str, schema_view: SchemaView) 
     return declared_class
 
 
-def _expand_inlined(value: dict, class_def: ClassDefinition, schema_view: SchemaView) -> dict[str, Any]:
+def _expand_inlined(
+    value: dict, class_def: ClassDefinition, schema_view: SchemaView, include_type: bool = False
+) -> dict[str, Any]:
     """Flatten a single-valued inlined object one level deep.
 
     Scalar subslots pass through; multivalued scalars become lists. Nested
@@ -138,12 +140,32 @@ def _expand_inlined(value: dict, class_def: ClassDefinition, schema_view: Schema
     ``env_broad_scale.term.id`` becomes ``env_broad_scale_term_id``), then
     anything deeper is dropped. This matches the common NMDC shape where
     controlled terms are exactly two levels deep (slot → term → id/name).
+
+    Args:
+        value: The embedded object's dict representation.
+        class_def: The declared range class of the slot being expanded.
+        schema_view: Loaded LinkML SchemaView.
+        include_type: When True, carry the object's own ``type`` value
+            through as an output key ``type``. Only correct for the
+            side-table root object, where ``flatten_class_def``'s main loop
+            declares a ``type`` column for the object's own top-level slot
+            (see ``side_table_rows``). For a single-valued inlined slot
+            nested inside another class (``flatten_record``'s call site),
+            ``schema_generator._flatten_slot`` skips ``type`` when
+            expanding that nesting level, so the generated schema declares
+            no such column there — leave this False to keep runtime output
+            matching the schema. See microbiomedata/nmdc-lakehouse#122 and
+            the review discussion on #125.
     """
     out: dict[str, Any] = {}
     effective_class = _dispatch_class(value, class_def.name, schema_view)
     induced = schema_view.class_induced_slots(effective_class)
     for sub_slot in induced:
         if sub_slot.name == "type":
+            # This object's own type is the polymorphic dispatch key
+            # (already consumed above via _dispatch_class).
+            if include_type and "type" in value and value["type"] is not None:
+                out["type"] = value["type"]
             continue
         if sub_slot.name not in value:
             continue
@@ -236,7 +258,7 @@ def side_table_rows(
             for child in value:
                 if not isinstance(child, dict):
                     continue
-                row = _expand_inlined(child, range_class, schema_view)
+                row = _expand_inlined(child, range_class, schema_view, include_type=True)
                 row["parent_id"] = parent_id
                 yield table_name, row
         elif range_class is not None:
