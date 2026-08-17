@@ -1,15 +1,32 @@
 # nmdc-lakehouse
 
-ETL pipeline that extracts [NMDC](https://microbiomedata.org/) data via
-[`linkml-store`](https://github.com/linkml/linkml-store) from the NMDC
-**MongoDB** (and optionally **PostgreSQL**) backends, flattens the nested
-object model described by [`nmdc-schema`](https://github.com/microbiomedata/nmdc-schema),
-and writes the results to **lakehouse-ready** formats
-(Parquet / Apache Iceberg), including references to the large genomic
-sequence and other bulk data files that accompany metadata records.
+ETL pipeline that reads [NMDC](https://microbiomedata.org/) metadata from
+**MongoDB**, uses [`nmdc-schema`](https://github.com/microbiomedata/nmdc-schema)
+to project the nested object model into tabular records, and writes local
+Parquet artifacts for downstream lakehouse publication.
 
-> Status: **active development** – core ETL pipeline is functional;
-> running against NMDC production MongoDB via GCP SSH tunnel.
+> Status: **active development** – the maintained MongoDB-to-Parquet pipeline
+> is functional against NMDC production MongoDB via a GCP SSH tunnel. Other
+> capabilities are classified below rather than implied by package structure.
+
+## Implementation status
+
+“Implemented” means exercised by package code and tests. “Prototype/manual”
+means operational work exists, but not as a supported package job. “Planned”
+means an interface or dependency may exist without executable support.
+
+| Layer | Capability | Status | Current contract |
+|---|---|---|---|
+| Source | NMDC MongoDB | **Implemented** | Read-only `linkml-store` iteration; `functional_annotation_agg` uses a read-only raw `pymongo` path for scale. |
+| Source | PostgreSQL | **Planned** | `PostgresSource.iter_records()` is a `NotImplementedError` stub. |
+| Transform | Schema-driven metadata flattening | **Implemented** | Uses LinkML definitions for projection and Arrow type construction. This is not full per-record LinkML validation. |
+| Sink | Parquet | **Implemented** | Local filesystem only; one `{table}.parquet` file per primary or side table, with streamed row groups. It is not a partitioned dataset. |
+| Sink | Remote/object-store Parquet | **Planned** | `s3://` and other remote roots are not accepted by `ParquetSink`. |
+| Sink | Apache Iceberg | **Planned** | `IcebergSink.write()` is a `NotImplementedError` stub; Iceberg remains the intended managed-table format, not a capability to remove. |
+| Workflow results | Fetch/cache/parse NERSC result files | **Prototype/manual** | File-type-specific notebooks and scripts produce Parquet; migration into registered package jobs is tracked in [#130](https://github.com/microbiomedata/nmdc-lakehouse/issues/130). |
+| BERDL publication | Promote Parquet and register managed tables | **Manual/external** | Maintained ETL stops at validated local Parquet. BERDL publication is a separate operation; its Silver layer uses Iceberg/Polaris. |
+| Upstream mutation | Write flattened data back to MongoDB | **Legacy only** | Maintained jobs never write to production MongoDB. A copied EMA script does write `flattened_*` collections and is tracked for retirement in [#27](https://github.com/microbiomedata/nmdc-lakehouse/issues/27). |
+| JGI/GOLD integration | Read or publish JGI/GOLD data | **Not implemented** | There is no JGI adapter or job. A copied, unregistered CSV utility retains “GOLD” in its filename and defaults, but is only a generic MongoDB collection exporter. |
 
 ## Layout
 
@@ -23,9 +40,9 @@ nmdc-lakehouse/
 │       ├── __init__.py
 │       ├── cli.py          # Click CLI entry point
 │       ├── config.py       # settings & environment loading
-│       ├── sources/        # linkml-store clients (Mongo, Postgres)
+│       ├── sources/        # Mongo source + planned Postgres interface
 │       ├── transforms/     # object-model flattening to tabular form
-│       ├── sinks/          # Parquet / Iceberg writers
+│       ├── sinks/          # local Parquet sink + planned Iceberg interface
 │       ├── io/             # large data-file handling
 │       └── jobs/           # ETL job definitions & registry
 └── tests/
@@ -35,9 +52,9 @@ nmdc-lakehouse/
 
 | Package                       | Purpose                                                                 |
 |-------------------------------|-------------------------------------------------------------------------|
-| `nmdc_lakehouse.sources`      | Retrieve NMDC records via `linkml-store` (Mongo / Postgres handles).    |
+| `nmdc_lakehouse.sources`      | Retrieve NMDC records from MongoDB; reserve an interface for PostgreSQL. |
 | `nmdc_lakehouse.transforms`   | Flatten the nested LinkML object model into tabular / relational form.  |
-| `nmdc_lakehouse.sinks`        | Serialize flattened records to Parquet and Iceberg tables.              |
+| `nmdc_lakehouse.sinks`        | Write local Parquet files; reserve an interface for Iceberg publication. |
 | `nmdc_lakehouse.io`           | Stage & reference large genomic / bulk data files alongside metadata.   |
 | `nmdc_lakehouse.jobs`         | Declarative ETL jobs composed from a source → transform → sink pipeline.|
 | `nmdc_lakehouse.cli`          | Click-based CLI that dispatches to registered jobs.                     |
@@ -47,8 +64,7 @@ nmdc-lakehouse/
 - Python ≥ 3.10
 - [`uv`](https://docs.astral.sh/uv/) for environment & dependency management
 - [`just`](https://just.systems/) for task running
-- Access to an NMDC MongoDB instance (and optionally PostgreSQL) for
-  anything beyond unit tests
+- Access to an NMDC MongoDB instance for production-data runs
 
 ## Getting started
 
@@ -81,7 +97,7 @@ Key variables (full list in `.env.example`):
 | `MONGO_AUTH_SOURCE` | `admin` | Authentication database |
 | `MONGO_REPLICA_SET` | | Optional replica set name |
 | `MONGO_DIRECT_CONNECTION` | `false` | Set `true` when using the SSH tunnel |
-| `LAKEHOUSE_ROOT` | `./lakehouse` | Local path or `s3://` URI |
+| `LAKEHOUSE_ROOT` | `./lakehouse` | Local directory; remote URIs are not implemented |
 
 For production access via the GCP SSH tunnel, see
 **[docs/mongodb-connection.md](docs/mongodb-connection.md)** for the full
@@ -109,6 +125,7 @@ Common tasks are exposed via `just`:
 | `just test`         | pytest                                           |
 | `just test-cov`     | pytest with coverage                             |
 | `just build`        | Build sdist + wheel via `uv build`               |
+| `just docs-build`   | Build the MkDocs site                            |
 | `just check`        | lint + typecheck + test                          |
 
 ## License

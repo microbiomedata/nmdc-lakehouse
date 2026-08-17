@@ -7,7 +7,8 @@
 ## Decision
 
 The `alldocs` MongoDB collection maintained by nmdc-runtime will **not** be
-ingested into BERDL Silver Delta tables. Graph traversal queries
+ingested into BERDL Silver managed tables (Delta at the time of this decision;
+Iceberg/Polaris now). Graph traversal queries
 (biosample → annotation, annotation → biosample, etc.) are served by a derived
 table built from the existing schema-driven Silver side tables —
 see [`biosample_to_workflow_run.md`](../biosample_to_workflow_run.md).
@@ -77,7 +78,7 @@ preserve the source class (each carries a `parent_id` typed to a known
 collection), and together cover every edge needed to walk from a Biosample
 to any WorkflowExecution and back.
 
-A precomputed Delta table — `nmdc_metadata.biosample_to_workflow_run` —
+A precomputed managed table — `nmdc_metadata.biosample_to_workflow_run` —
 collapses the variable-depth bipartite chain into one row per
 (biosample, workflow run) pair, with boolean flags recording which
 MaterialProcessing classes appeared in the path. This table works through

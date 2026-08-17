@@ -1,3 +1,3 @@
-"""nmdc-lakehouse: ETL from NMDC (Mongo / Postgres via linkml-store) to lakehouse formats."""
+"""Schema-directed ETL from NMDC MongoDB to local Parquet artifacts."""
 
 __version__ = "0.0.0"

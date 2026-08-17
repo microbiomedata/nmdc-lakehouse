@@ -1,7 +1,7 @@
 # `nmdc_metadata` Silver table reference
 
 `nmdc_metadata` in BERDL contains the 17 schema-defined NMDC MongoDB collections,
-flattened to Parquet and registered as Delta Lake tables. This document describes
+flattened to Parquet and registered as managed Iceberg tables. This document describes
 the naming conventions, the side-table pattern, and the key join chains.
 
 ## Naming conventions

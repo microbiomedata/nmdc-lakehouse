@@ -1,0 +1,22 @@
+site_name: NMDC Lakehouse
+site_description: Schema-directed NMDC metadata ETL and lakehouse publication notes
+repo_url: https://github.com/microbiomedata/nmdc-lakehouse
+theme:
+  name: material
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - Operations:
+      - MongoDB connection: mongodb-connection.md
+      - BERDL upload: berdl-upload.md
+      - BERDL metadata shaping: berdl-metadata-shaping.md
+  - Data products:
+      - NMDC metadata tables: nmdc_metadata_tables.md
+      - Biosample to workflow run: biosample_to_workflow_run.md
+      - Pfam annotation GFF: pfam_annotation_gff.md
+      - Pfam terms: pfam_terms.md
+      - Trino graph traversal: trino_recursive_graph_traversal.md
+  - Notes:
+      - BERDL execution notes: for_berdl_claude.md
+      - allDocs decision: decisions/alldocs-not-ingested.md
+strict: true

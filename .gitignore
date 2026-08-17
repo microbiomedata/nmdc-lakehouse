@@ -45,6 +45,7 @@ Thumbs.db
 *.parquet
 *.iceberg/
 reports/
+site/
 
 # Jupyter
 .ipynb_checkpoints/

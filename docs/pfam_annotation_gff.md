@@ -56,7 +56,7 @@ crash an in-kernel fetch):
    `pyarrow.ParquetWriter` (~500 MB raw text per RowGroup) → one Parquet at
    `loaded_pfam_gff/pfam_annotation_gff.parquet`.
 4. `notebooks/ingest_pfam_gff.ipynb` — uploads to MinIO Bronze and registers
-   `nmdc_results.pfam_annotation_gff` as a Delta table. Refuses to clobber an
+   `nmdc_results.pfam_annotation_gff` as a managed table. Refuses to clobber an
    existing copy unless `FORCE_OVERWRITE = True` (a re-load takes hours).
 
 ## Example queries
@@ -103,5 +103,5 @@ WHERE  a.pfam_accession = 'PF04183'
 Re-run the four-stage pipeline after each NMDC data load. The download script
 (`scripts/download_to_cache.py`) is resumable; the parse and ingest stages
 re-build their outputs from scratch on each run. The ingest notebook refuses
-to overwrite an existing Delta table by default, so set `FORCE_OVERWRITE = True`
+to overwrite an existing managed table by default, so set `FORCE_OVERWRITE = True`
 once you've decided to replace it.
