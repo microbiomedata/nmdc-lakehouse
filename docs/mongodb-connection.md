@@ -251,6 +251,33 @@ just clean-parquet --delete
 Both commands affect only local files under the repository. They never modify
 MongoDB, NERSC, BERDL, or object stores.
 
+Each non-dry-run collection job writes its primary table and any side tables to
+a unique `.staging/` directory under the output root. It closes every opened
+writer before promoting any file. A conversion or side-table flush error removes
+that run's staging directory and leaves the previously completed files unchanged.
+On success, promotion replaces the primary table and produced side tables,
+removes older schema-owned side tables that the new collection no longer
+produces, and preserves unrelated collections and user files. Empty primary
+collections still promote a typed, schema-only Parquet file.
+
+The transaction writes a small completion inventory inside staging before
+promotion. That internal record is a promotion guard, not another portable
+artifact; the snapshot-level `snapshot-manifest.json` remains the durable source
+of truth. Multi-file promotion provides rollback for errors raised by the running
+process, but the flat-file layout cannot give concurrent readers a single atomic
+namespace switch. Do not run two writers against the same output root, and
+publish only a separately validated, completed snapshot. A process termination
+that bypasses cleanup, or a machine termination, can leave an orphaned
+`.staging/` directory; inspect it before removal and rerun the collection into a
+new snapshot root.
+
+If promotion rollback itself fails, the command reports that secondary failure
+and retains the run-specific staging directory because it may contain the only
+remaining copy of an older file. Do not rerun into or delete that output root
+until its final paths and the reported
+`.staging/<collection>-<run>/.previous/` backup have been inspected and
+recovered.
+
 The direct CLI equivalent is:
 
 ```bash
@@ -301,9 +328,9 @@ full snapshot. Manifest format version 1 records:
 
 The manifest command rejects failed or dry-run metrics, metrics from another
 directory or software environment, incomplete collection disposition, stale or
-extra files, symlinks, and Parquet files without the current footer contract. It
-writes the manifest atomically and refuses to replace an existing completion
-marker. Validate a snapshot again before upload:
+extra files or directories, symlinks, and Parquet files without the current
+footer contract. It writes the manifest atomically and refuses to replace an
+existing completion marker. Validate a snapshot again before upload:
 
 ```bash
 uv run nmdc-lakehouse validate-snapshot "$LAKEHOUSE_ROOT"
