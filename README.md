@@ -64,6 +64,7 @@ nmdc-lakehouse/
 - Python ≥ 3.13 and < 3.14
 - [`uv`](https://docs.astral.sh/uv/) for environment & dependency management
 - [`just`](https://just.systems/) 1.58.0 for task running and canonical justfile formatting
+- [`Vale`](https://vale.sh/) 3.17.1 for maintained prose
 - Access to an NMDC MongoDB instance for production-data runs
 
 ## Getting started
@@ -121,6 +122,7 @@ Common tasks are exposed via `just`:
 | `just install-all`  | Install development and documentation extras     |
 | `just lock`         | Refresh `uv.lock`                                |
 | `just lint-just`    | Check canonical justfile syntax and formatting   |
+| `just prose-lint`   | Spell-check maintained Markdown with Vale        |
 | `just lint`         | ruff check + format check                        |
 | `just format`       | ruff format + auto-fix                           |
 | `just typecheck`    | `mypy src`                                       |
@@ -128,7 +130,7 @@ Common tasks are exposed via `just`:
 | `just test-cov`     | pytest with coverage                             |
 | `just build`        | Build sdist + wheel via `uv build`               |
 | `just docs-build`   | Build the MkDocs site (requires `install-all`)   |
-| `just check`        | justfile formatting + lint + typecheck + test    |
+| `just check`        | formatting + prose + code + types + tests        |
 
 ## License
 
