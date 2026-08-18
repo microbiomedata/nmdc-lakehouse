@@ -66,6 +66,7 @@ metabolomics
 metatranscriptomics
 MinIO
 MongoDB
+Moxon
 multivalued
 NERSC
 NMDC
@@ -95,6 +96,7 @@ SARIF
 sdist
 ShellCheck
 siderophore
+Sierra
 Silver
 snake_case
 Snakemake
