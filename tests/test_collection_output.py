@@ -96,12 +96,10 @@ def test_promotion_failure_rolls_back_previous_output(tmp_path: Path, monkeypatc
     primary.write_bytes(b"old-primary")
     side.write_bytes(b"old-side")
     real_replace = os.replace
-    calls = 0
+    staged_primary: Path | None = None
 
     def fail_first_new_file(source, destination):
-        nonlocal calls
-        calls += 1
-        if calls == 3:
+        if staged_primary is not None and Path(source) == staged_primary and Path(destination) == primary:
             raise OSError("injected promotion failure")
         real_replace(source, destination)
 
@@ -109,7 +107,8 @@ def test_promotion_failure_rolls_back_previous_output(tmp_path: Path, monkeypatc
 
     with pytest.raises(OSError, match="injected promotion failure"):
         with CollectionOutputTransaction(tmp_path, "sample_set", {"sample_set", "sample_set_tags"}) as transaction:
-            (transaction.stage / "sample_set.parquet").write_bytes(b"new-primary")
+            staged_primary = transaction.stage / "sample_set.parquet"
+            staged_primary.write_bytes(b"new-primary")
             transaction.commit(
                 (("sample_set", 2),),
                 source_schema_id="https://example.org/schema",
@@ -144,12 +143,9 @@ def test_failed_rollback_retains_staging_for_manual_recovery(tmp_path: Path, mon
     primary.write_bytes(b"old-primary")
     side.write_bytes(b"old-side")
     real_replace = os.replace
-    calls = 0
 
     def fail_promotion_and_primary_restore(source, destination):
-        nonlocal calls
-        calls += 1
-        if calls in {3, 5}:
+        if Path(destination) == primary and Path(source) != primary:
             raise OSError("injected replace failure")
         real_replace(source, destination)
 
