@@ -221,11 +221,15 @@ def build_publication_inventory(
                     f"Table {table!r} reports provider {discovered_format or '(blank)'!r}, "
                     f"not reviewed table format {table_format!r}."
                 )
-            frame = spark.sql(f"SELECT * FROM {quoted_database}.`{table}`")
-            rows = frame.count()
+            qualified_table = f"{quoted_database}.`{table}`"
+            schema_frame = spark.sql(f"SELECT * FROM {qualified_table} LIMIT 0")
+            count_result = spark.sql(f"SELECT COUNT(*) AS row_count FROM {qualified_table}").collect()
+            if len(count_result) != 1:
+                raise PublicationInventoryError(f"Table {table!r} returned an invalid count result.")
+            rows = count_result[0]["row_count"]
             if isinstance(rows, bool) or not isinstance(rows, int) or rows < 0:
                 raise PublicationInventoryError(f"Table {table!r} returned an invalid row count.")
-            schema_hash = _physical_schema_sha256(frame.schema)
+            schema_hash = _physical_schema_sha256(schema_frame.schema)
         except PublicationInventoryError:
             raise
         except Exception as error:
@@ -245,22 +249,29 @@ def build_publication_inventory(
 
 def write_publication_inventory(path: Path, inventory: dict[str, Any]) -> Path:
     """Write an inventory atomically without replacing non-files or symlinks."""
-    destination = path.expanduser()
-    if destination.is_symlink() or (destination.exists() and not destination.is_file()):
-        raise PublicationInventoryError("Publication inventory output must be an ordinary file path.")
-    destination = destination.resolve()
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent)
-    temporary = Path(temporary_name)
+    temporary: Path | None = None
     try:
+        destination = path.expanduser()
+        if destination.is_symlink() or (destination.exists() and not destination.is_file()):
+            raise PublicationInventoryError("Publication inventory output must be an ordinary file path.")
+        destination = destination.resolve()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent)
+        temporary = Path(temporary_name)
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             json.dump(inventory, stream, indent=2, sort_keys=True)
             stream.write("\n")
         temporary.replace(destination)
+    except PublicationInventoryError:
+        raise
     except OSError as error:
         raise PublicationInventoryError("Cannot write the publication inventory.") from error
     finally:
-        temporary.unlink(missing_ok=True)
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError as error:
+                raise PublicationInventoryError("Cannot finish writing the publication inventory.") from error
     return destination
 
 

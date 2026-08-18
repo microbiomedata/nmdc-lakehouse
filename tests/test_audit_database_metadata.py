@@ -15,8 +15,8 @@ class FakeFrame:
         self._rows = rows
         self.schema = schema
 
-    def count(self) -> int:
-        return self._rows
+    def collect(self) -> list[dict[str, int]]:
+        return [{"row_count": self._rows}]
 
 
 class FakeSpark:
@@ -26,7 +26,7 @@ class FakeSpark:
 
     def sql(self, query: str) -> FakeFrame:
         self.queries.append(query)
-        table = query.rsplit(".", 1)[-1].strip("`")
+        table = query.split(".")[-1].split("`")[1]
         return self.frames[table]
 
 
@@ -63,8 +63,10 @@ def test_build_publication_inventory_matches_planner_contract(monkeypatch: pytes
     assert [table.name for table in inventory.tables] == ["biosample_set", "study_set"]
     assert [table.rows for table in inventory.tables] == [10, 2]
     assert spark.queries == [
-        "SELECT * FROM `spark_catalog`.`nmdc_metadata`.`biosample_set`",
-        "SELECT * FROM `spark_catalog`.`nmdc_metadata`.`study_set`",
+        "SELECT * FROM `spark_catalog`.`nmdc_metadata`.`biosample_set` LIMIT 0",
+        "SELECT COUNT(*) AS row_count FROM `spark_catalog`.`nmdc_metadata`.`biosample_set`",
+        "SELECT * FROM `spark_catalog`.`nmdc_metadata`.`study_set` LIMIT 0",
+        "SELECT COUNT(*) AS row_count FROM `spark_catalog`.`nmdc_metadata`.`study_set`",
     ]
     assert "location" not in json.dumps(value).casefold()
 
@@ -140,6 +142,17 @@ def test_write_publication_inventory_is_canonical_and_rejects_symlink(tmp_path: 
     link.symlink_to(output)
     with pytest.raises(audit.PublicationInventoryError, match="ordinary file"):
         audit.write_publication_inventory(link, value)
+
+
+def test_write_publication_inventory_sanitizes_setup_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def reject_temporary_file(**_kwargs: Any) -> tuple[int, str]:
+        raise OSError("filesystem detail")
+
+    monkeypatch.setattr(audit.tempfile, "mkstemp", reject_temporary_file)
+
+    with pytest.raises(audit.PublicationInventoryError, match="Cannot write the publication inventory") as error:
+        audit.write_publication_inventory(tmp_path / "inventory.json", {})
+    assert "filesystem detail" not in str(error.value)
 
 
 @pytest.mark.parametrize("value", ["nmdc_metadata;DROP", "nmdc metadata", "nmdc..metadata"])
