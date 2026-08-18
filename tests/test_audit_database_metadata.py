@@ -94,7 +94,10 @@ def test_inventory_rejects_invalid_capabilities(
 def test_inventory_fails_closed_on_table_format_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_discovery(monkeypatch, {"biosample_set": "iceberg"})
 
-    with pytest.raises(audit.PublicationInventoryError, match="not reviewed table format 'delta'"):
+    with pytest.raises(
+        audit.PublicationInventoryError,
+        match="reports table format 'iceberg', not reviewed table format 'delta'",
+    ):
         audit.build_publication_inventory(
             FakeSpark({"biosample_set": FakeFrame(1, "a")}),
             "nmdc_metadata",

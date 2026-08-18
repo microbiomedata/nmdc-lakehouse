@@ -218,10 +218,10 @@ def build_publication_inventory(
             table_info = describe_table(spark, database, table)
             discovered_format = str(table_info.get("provider", "")).strip()
             if not _SAFE_LABEL_RE.fullmatch(discovered_format):
-                raise PublicationInventoryError(f"Table {table!r} reports an unsafe or blank provider label.")
+                raise PublicationInventoryError(f"Table {table!r} reports an unsafe or blank table format.")
             if discovered_format.casefold() != table_format.casefold():
                 raise PublicationInventoryError(
-                    f"Table {table!r} reports provider {discovered_format or '(blank)'!r}, "
+                    f"Table {table!r} reports table format {discovered_format or '(blank)'!r}, "
                     f"not reviewed table format {table_format!r}."
                 )
             qualified_table = f"{quoted_database}.`{table}`"
