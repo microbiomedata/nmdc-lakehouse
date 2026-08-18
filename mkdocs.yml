@@ -6,6 +6,7 @@ theme:
 nav:
   - Home: index.md
   - Development setup: development-setup.md
+  - Package versions and releases: releases.md
   - Architecture: architecture.md
   - Original design conformance: original-design-conformance.md
   - Operations:

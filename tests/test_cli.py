@@ -5,6 +5,7 @@ import sys
 
 from click.testing import CliRunner
 
+from nmdc_lakehouse import __version__
 from nmdc_lakehouse.cli import cli
 from nmdc_lakehouse.doctor import CheckStatus, DoctorCheck, DoctorReport
 
@@ -14,6 +15,13 @@ def test_cli_help_exits_zero():
     result = runner.invoke(cli, ["--help"])
     assert result.exit_code == 0
     assert "nmdc-lakehouse" in result.output.lower()
+
+
+def test_cli_version_matches_package_version():
+    result = CliRunner().invoke(cli, ["--version"])
+
+    assert result.exit_code == 0
+    assert __version__ in result.output
 
 
 def test_cli_and_doctor_load_without_importing_etl_jobs(monkeypatch):

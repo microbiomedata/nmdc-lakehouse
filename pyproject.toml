@@ -1,10 +1,11 @@
 [project]
 name = "nmdc-lakehouse"
-version = "0.0.0"
+version = "0.2.0.dev0"
 description = "Schema-directed ETL from NMDC MongoDB to local Parquet artifacts for lakehouse publication."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Sierra Moxon", email = "smoxon@lbl.gov" },
 ]
