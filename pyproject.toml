@@ -121,7 +121,7 @@ optional_dependencies_dev_groups = ["dev", "docs"]
 [tool.deptry.per_rule_ignores]
 # These modules are supplied by the authenticated BERDL environment rather
 # than PyPI. Their imports are guarded so local and CI checks remain usable.
-DEP001 = ["berdl_notebook_utils", "data_lakehouse_ingest"]
+DEP001 = ["berdl_notebook_utils", "data_lakehouse_ingest", "pyspark"]
 # These packages provide optional backends or constrain transitive LinkML APIs;
 # they are intentional even though this repository does not import them.
 DEP002 = ["linkml", "psycopg", "pyiceberg", "sqlalchemy"]

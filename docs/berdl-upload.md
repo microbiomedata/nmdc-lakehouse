@@ -89,6 +89,40 @@ The probe defaults to loopback port 8123. `BERDL_PROXY_HOST` and
 starts a proxy, opens a tunnel, refreshes a token, installs packages, changes
 the external checkout, uploads files, or changes a catalog.
 
+## Capture a fresh destination inventory without mutation
+
+The offline publication planner requires current evidence from the selected
+destination. Run the maintained audit script from a repository checkout in a
+BERDL JupyterHub terminal, where `berdl_notebook_utils` is available. Supply
+observed provider and table-format labels rather than copying the historical
+Delta values from this guide:
+
+```bash
+python scripts/python/audit_database_metadata.py CURRENT_NAMESPACE \
+  --publication-inventory /path/to/nmdc-metadata-destination-inventory.json \
+  --destination-id nmdc-production \
+  --provider CURRENT_PROVIDER \
+  --table-format CURRENT_TABLE_FORMAT \
+  --metadata-capability namespace \
+  --metadata-capability table \
+  --metadata-capability column
+```
+
+This mode performs only catalog descriptions, schema reads, and `COUNT(*)`
+queries. It returns no production rows and does not upload, create, alter, or
+drop anything. It checks the declared table format against every visible table
+and fails without writing an inventory if any table, count, schema, or provider
+cannot be observed completely. Counts can still require substantial read work
+when a provider cannot answer them from table metadata.
+
+The output contains only the logical destination identity, observation time,
+reviewed provider and format labels, metadata capabilities, table names, row
+counts, and metadata-free physical-schema fingerprints. It omits credentials,
+connection details, locations, owners, comments, and data rows. Copy the JSON
+back to the local candidate workspace, validate it through
+`publication-plan`, and retain it with that plan as time-specific evidence. Do
+not treat a previous inventory as the current live state.
+
 ---
 
 ## Prerequisites, obtain before doing anything else
