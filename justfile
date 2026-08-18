@@ -22,8 +22,8 @@ bootstrap: install-all
 _install-pre-commit-hook:
     #!/usr/bin/env bash
     set -euo pipefail
-    if hooks_path="$(git config --get core.hooksPath)"; then
-      echo "Git core.hooksPath is set to '$hooks_path'; leaving it unchanged."
+    if git config --get core.hooksPath >/dev/null; then
+      echo "Git core.hooksPath is configured; leaving it unchanged."
       echo "Run repository hooks with: uv run pre-commit run --all-files"
     else
       uv run pre-commit install
