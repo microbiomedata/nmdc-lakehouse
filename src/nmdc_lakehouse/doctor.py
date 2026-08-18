@@ -431,7 +431,17 @@ def run_doctor(
     if service_checks:
         from nmdc_lakehouse.service_doctor import run_service_checks
 
-        dotenv_values, _ = _read_dotenv(root / ".env")
-        configured = {**dotenv_values, **environment}
-        checks.extend(run_service_checks(service_checks, configured=configured))
+        dotenv_values, dotenv_problem = _read_dotenv(root / ".env")
+        if dotenv_problem is not None:
+            checks.append(
+                DoctorCheck(
+                    name="live-service-checks",
+                    status=CheckStatus.FAIL,
+                    summary="Requested live-service checks were not run because .env is invalid.",
+                    remediation="Repair or remove .env, then rerun the requested service checks.",
+                )
+            )
+        else:
+            configured = {**dotenv_values, **environment}
+            checks.extend(run_service_checks(service_checks, configured=configured))
     return DoctorReport(checks=tuple(checks))

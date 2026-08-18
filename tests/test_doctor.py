@@ -205,6 +205,28 @@ def test_malformed_dotenv_fails_without_source_text(tmp_path: Path) -> None:
     assert secret not in repr(report)
 
 
+def test_invalid_dotenv_prevents_requested_live_checks_from_using_partial_values(tmp_path: Path) -> None:
+    (tmp_path / ".env").write_text(
+        "MONGO_USERNAME=reader\nMONGO_PASSWORD=secret\nnot-an-assignment\n",
+        encoding="utf-8",
+    )
+
+    report = run_doctor(
+        project_root=tmp_path,
+        environ={},
+        runner=_healthy_runner(tmp_path / "pre-commit"),
+        finder=_all_commands,
+        python_version=(3, 13, 13),
+        service_checks=("mongo-config",),
+    )
+
+    check = next(check for check in report.checks if check.name == "live-service-checks")
+    assert check.status is CheckStatus.FAIL
+    assert "were not run" in check.summary
+    assert not any(check.name == "mongo-service-configuration" for check in report.checks)
+    assert "secret" not in repr(report)
+
+
 def test_unreadable_dotenv_has_targeted_sanitized_failure(tmp_path: Path) -> None:
     secret = "TOP-SECRET-SENTINEL"
     dotenv = tmp_path / ".env"

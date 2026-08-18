@@ -51,8 +51,8 @@ def _live_mongo_configuration(configured: Mapping[str, str]) -> tuple[LiveMongoC
         return None, DoctorCheck(
             name="mongo-service-configuration",
             status=CheckStatus.FAIL,
-            summary="Live MongoDB configuration is missing required variable names: " + ", ".join(missing) + ".",
-            remediation="Set the missing names in an untracked .env file; see docs/mongodb-connection.md.",
+            summary="Live MongoDB configuration has missing or blank required values: " + ", ".join(missing) + ".",
+            remediation="Set the listed variables in an untracked .env file; see docs/mongodb-connection.md.",
         )
 
     direct_value = configured.get("MONGO_DIRECT_CONNECTION", "false")
@@ -123,6 +123,13 @@ def _gcp_tunnel_check(configured: Mapping[str, str], probe: SocketProbe, timeout
             status=CheckStatus.FAIL,
             summary="The configured local MongoDB tunnel port is invalid.",
             remediation="Use a TCP port from 1 through 65535 for MONGO_PORT.",
+        )
+    if direct_connection is None:
+        return DoctorCheck(
+            name="gcp-tunnel",
+            status=CheckStatus.FAIL,
+            summary="MONGO_DIRECT_CONNECTION is not a recognized boolean.",
+            remediation="Use true for the local GCP SSH tunnel.",
         )
     if host not in {"localhost", "127.0.0.1", "::1"} or direct_connection is not True:
         return DoctorCheck(

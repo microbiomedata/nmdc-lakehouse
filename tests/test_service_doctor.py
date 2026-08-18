@@ -66,6 +66,7 @@ def test_missing_configuration_is_distinct_and_sanitized() -> None:
     assert len(checks) == 1
     assert checks[0].status is CheckStatus.FAIL
     assert "MONGO_USERNAME" in checks[0].summary
+    assert "missing or blank required values" in checks[0].summary
     assert "SECRET" not in repr(checks)
 
 
@@ -115,6 +116,26 @@ def test_tunnel_check_requires_coherent_local_settings(tmp_path: Path) -> None:
 
     assert checks[-1].name == "gcp-tunnel"
     assert checks[-1].status is CheckStatus.FAIL
+    assert not probe_called
+
+
+def test_tunnel_check_rejects_unrecognized_direct_connection_boolean(tmp_path: Path) -> None:
+    probe_called = False
+
+    def probe(_host: str, _port: int, _timeout: float) -> bool:
+        nonlocal probe_called
+        probe_called = True
+        return True
+
+    checks = run_service_checks(
+        ("gcp-tunnel",),
+        configured=_live_configuration(tmp_path / "jump-key", MONGO_DIRECT_CONNECTION="sometimes"),
+        socket_probe=probe,
+    )
+
+    assert checks[-1].name == "gcp-tunnel"
+    assert checks[-1].status is CheckStatus.FAIL
+    assert "not a recognized boolean" in checks[-1].summary
     assert not probe_called
 
 
