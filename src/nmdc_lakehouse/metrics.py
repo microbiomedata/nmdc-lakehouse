@@ -80,7 +80,7 @@ def result_record(result: JobResult) -> dict[str, Any]:
         "status": "success",
         "started_at": result.started_at,
         "finished_at": result.finished_at,
-        "elapsed_seconds": result.elapsed_seconds,
+        "elapsed_seconds": elapsed,
         "rows_read": result.rows_read,
         "rows_written": result.rows_written,
         "rows_per_second": rate,
