@@ -59,15 +59,25 @@ cli = subprocess.run(
 require(installed_version in cli.stdout, "The CLI does not report the installed distribution version.")
 
 with zipfile.ZipFile(wheel) as archive:
+    wheel_names = archive.namelist()
     require(
-        any(name.endswith(".dist-info/licenses/LICENSE") for name in archive.namelist()),
+        any(name.endswith(".dist-info/licenses/LICENSE") for name in wheel_names),
         "The wheel does not contain LICENSE.",
+    )
+    require(
+        "nmdc_lakehouse/schemas/nmdc_metadata.yaml" in wheel_names,
+        "The wheel does not contain the canonical NMDC metadata schema.",
     )
 
 with tarfile.open(sdist) as archive:
+    sdist_names = archive.getnames()
     require(
-        any(name.endswith("/LICENSE") for name in archive.getnames()),
+        any(name.endswith("/LICENSE") for name in sdist_names),
         "The source distribution does not contain LICENSE.",
+    )
+    require(
+        any(name.endswith("/src/nmdc_lakehouse/schemas/nmdc_metadata.yaml") for name in sdist_names),
+        "The source distribution does not contain the canonical NMDC metadata schema.",
     )
 
 print(f"Verified wheel and sdist for nmdc-lakehouse {installed_version}.")

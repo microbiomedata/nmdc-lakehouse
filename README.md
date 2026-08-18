@@ -20,6 +20,7 @@ means an interface or dependency may exist without executable support.
 | Source | NMDC MongoDB | **Implemented** | Read-only `linkml-store` iteration; `functional_annotation_agg` uses a read-only raw `pymongo` path for scale. |
 | Source | PostgreSQL | **Planned** | `PostgresSource.iter_records()` is a `NotImplementedError` stub. |
 | Transform | Schema-driven metadata flattening | **Implemented** | Uses LinkML definitions for projection and Arrow type construction. This is not full per-record LinkML validation. |
+| Transform | Publish the `nmdc_metadata` target schema | **Implemented** | Canonical generated LinkML YAML covers primary and side-table classes and is checked for drift. |
 | Sink | Parquet | **Implemented** | Local filesystem only; one `{table}.parquet` file per primary or side table, with streamed row groups. It is not a partitioned dataset. |
 | Sink | Remote/object-store Parquet | **Planned** | `ParquetSink` does not support remote roots; URI strings may be interpreted as malformed local paths rather than rejected. |
 | Sink | Apache Iceberg | **Planned** | `IcebergSink.write()` is a `NotImplementedError` stub. Iceberg is one possible destination adapter, not the required or preferred publication path. |

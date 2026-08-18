@@ -14,10 +14,12 @@ hold them sparsely.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Iterable
 
 from linkml_runtime import SchemaView
 from linkml_runtime.linkml_model import (
+    Annotation,
     ClassDefinition,
     Prefix,
     SchemaDefinition,
@@ -45,6 +47,9 @@ REF_NOTE = "Reference by identifier; original range was class '{range}'."
 NESTED_NOTE = "Flattened from nested slot '{parent}.{inner}'."
 DISPATCH_NOTE = "Polymorphic subclass-specific slot (from '{subclass}')."
 DEFAULT_FLATTENED_SCHEMA_ID = "https://w3id.org/nmdc/nmdc-schema-flattened"
+PRIMARY_MAPPING_ID = "nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener"
+SIDE_TABLE_MAPPING_ID = "nmdc_lakehouse.transforms.flatteners.side_table_rows"
+SCHEMA_GENERATOR_ID = "nmdc_lakehouse.transforms.schema_generator.flatten_database_schema"
 
 
 def flatten_class_def(
@@ -121,28 +126,42 @@ def flatten_database_schema(
     database_class: str = "Database",
     schema_id: str = DEFAULT_FLATTENED_SCHEMA_ID,
     schema_name: str = "nmdc_schema_flattened",
+    source_package_version: str | None = None,
 ) -> SchemaDefinition:
-    """Emit a full SchemaDefinition with one flat class per Database slot.
+    """Emit the complete primary and side-table schema for a database model.
 
-    Walks each multivalued slot on ``database_class`` (the 17 NMDC collections),
-    resolves its range, and calls :func:`flatten_class_def` to produce a flat
-    class for each.
+    Walks each multivalued slot on ``database_class``, resolves its range, and
+    emits the primary flat class plus every possible junction or inlined-child
+    class produced by :func:`side_table_class_defs`.
     """
+    source_schema_id = schema_view.schema.id or "unidentified"
+    source_schema_version = schema_view.schema.version or "unversioned"
     out = SchemaDefinition(
         id=schema_id,
         name=schema_name,
+        version=source_schema_version,
         description=(
-            "Flattened LinkML schema describing the tabular output of "
-            "`SchemaDrivenFlattener` applied to each schema-specified "
-            "collection. Generated — do not edit by hand."
+            "Flattened LinkML schema describing primary and side-table output "
+            "for every schema-specified collection. Generated; do not edit by hand."
         ),
-        prefixes={
+        annotations={
+            "source_schema_id": source_schema_id,
+            "source_schema_version": source_schema_version,
+            "source_package_version": source_package_version or source_schema_version,
+            "schema_generator": SCHEMA_GENERATOR_ID,
+            "primary_mapping": PRIMARY_MAPPING_ID,
+            "side_table_mapping": SIDE_TABLE_MAPPING_ID,
+        },
+        prefixes=deepcopy(schema_view.schema.prefixes)
+        or {
             "linkml": Prefix(
                 prefix_prefix="linkml",
                 prefix_reference="https://w3id.org/linkml/",
             ),
         },
-        imports=["linkml:types"],
+        imports=list(schema_view.schema.imports),
+        types=deepcopy(schema_view.schema.types),
+        enums=deepcopy(schema_view.schema.enums),
         default_range="string",
     )
 
@@ -154,9 +173,42 @@ def flatten_database_schema(
         if range_class is None:
             continue
         flat = flatten_class_def(schema_view, slot.range)
-        out.classes[flat.name] = flat
+        _annotate_target_class(flat, table_name=slot.name, source_class=slot.range, mapping=PRIMARY_MAPPING_ID)
+        _add_target_class(out, flat)
+        for table_name, side_class in side_table_class_defs(schema_view, slot.range, slot.name):
+            _annotate_target_class(
+                side_class,
+                table_name=table_name,
+                source_class=slot.range,
+                mapping=SIDE_TABLE_MAPPING_ID,
+            )
+            _add_target_class(out, side_class)
 
     return out
+
+
+def _annotate_target_class(
+    class_def: ClassDefinition,
+    *,
+    table_name: str,
+    source_class: str,
+    mapping: str,
+) -> None:
+    """Attach the table and mapping identity used by Parquet footers."""
+    class_def.annotations.update(
+        {
+            "table_name": Annotation(tag="table_name", value=table_name),
+            "source_class": Annotation(tag="source_class", value=source_class),
+            "mapping": Annotation(tag="mapping", value=mapping),
+        }
+    )
+
+
+def _add_target_class(schema: SchemaDefinition, class_def: ClassDefinition) -> None:
+    """Reject ambiguous target-class identities instead of overwriting them."""
+    if class_def.name in schema.classes:
+        raise ValueError(f"Duplicate generated target class: {class_def.name}")
+    schema.classes[class_def.name] = class_def
 
 
 def side_table_class_defs(
@@ -319,7 +371,7 @@ def _flatten_slot(
                 description=nested_desc or None,
                 required=False,
             )
-            _carry_designators(new_slot, inner_slot)
+            _carry_designators(new_slot, inner_slot, nested=True)
             _attach_notes(new_slot, notes)
             yield new_slot
             continue
@@ -344,7 +396,7 @@ def _flatten_slot(
                     description=nested_desc or None,
                     required=False,
                 )
-                _carry_designators(new_slot, deepest)
+                _carry_designators(new_slot, deepest, nested=True)
                 _attach_notes(new_slot, notes)
                 yield new_slot
 
@@ -356,7 +408,12 @@ def _range_class(slot: SlotDefinition, schema_view: SchemaView):
     return schema_view.get_class(slot.range)
 
 
-def _carry_designators(new_slot: SlotDefinition, source_slot: SlotDefinition) -> None:
+def _carry_designators(
+    new_slot: SlotDefinition,
+    source_slot: SlotDefinition,
+    *,
+    nested: bool = False,
+) -> None:
     """Propagate ``identifier`` / ``designates_type`` from the source slot onto a flat slot.
 
     These two metaslots mark columns whose presence is part of the contract
@@ -364,7 +421,13 @@ def _carry_designators(new_slot: SlotDefinition, source_slot: SlotDefinition) ->
     subclasses populate), so downstream consumers such as
     `ParquetSink.write(drop_empty_cols=True)` can protect them from being
     dropped. See microbiomedata/nmdc-lakehouse#123.
+
+    An identifier or type designator on an embedded class does not identify or
+    designate the flattened parent class. Nested expansions therefore retain
+    their value and description but not those class-level metaslots.
     """
+    if nested:
+        return
     if source_slot.identifier:
         new_slot.identifier = True
     if source_slot.designates_type:

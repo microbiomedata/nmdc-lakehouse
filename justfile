@@ -245,7 +245,7 @@ test-dist:
     bash scripts/check_distribution.sh
 
 # Run the deterministic local quality checks.
-check: lint-just prose-lint shellcheck actionlint lint deps-lint typecheck test-cov
+check: lint-just prose-lint shellcheck actionlint lint deps-lint typecheck check-flat-schema test-cov
 
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
 # See scripts/README.md for details. These recipes shell out to utilities under
@@ -321,10 +321,13 @@ export-nmdc-parquet: export-nmdc-duckdb
     uv run python scripts/export_duckdb_to_parquet.py "{{ nmdc_duckdb_file }}" --output-dir "{{ nmdc_parquet_dir }}"
 
 # Full pipeline: flatten in Mongo -> DuckDB -> Parquet -> biosample CSV.
-# Generate the flattened LinkML schema (one class per Database slot).
-# Output: ./local/nmdc_schema_flattened.yaml
-generate-flat-schema:
-    @uv run python scripts/python/generate_flattened_schema.py
+# Generate the canonical primary and side-table LinkML target schema.
+generate-flat-schema *ARGS:
+    @uv run python scripts/python/generate_flattened_schema.py {{ ARGS }}
+
+# Fail when the committed LinkML target schema differs from current generation.
+check-flat-schema:
+    @uv run python scripts/python/generate_flattened_schema.py --check
 
 flatten-and-export-nmdc: flatten-nmdc export-nmdc-parquet export-flattened-biosample-csv
     @echo ""

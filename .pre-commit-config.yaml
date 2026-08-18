@@ -13,6 +13,8 @@ repos:
       - id: check-yaml
         args: [--unsafe]  # mkdocs uses Python tags; included as a dep
       - id: check-added-large-files
+        # The generated complete LinkML target is intentionally reviewable YAML.
+        exclude: ^src/nmdc_lakehouse/schemas/nmdc_metadata\.yaml$
       - id: check-merge-conflict
       - id: end-of-file-fixer
         exclude: ^scripts/[^/]+\.py$

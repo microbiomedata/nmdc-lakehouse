@@ -51,6 +51,30 @@ Schema-directed flattening of the NMDC / LinkML object model. The LinkML
 projected into one or more tabular outputs and supplies output types. This is
 not full LinkML validation of every input record.
 
+The canonical logical target is
+[`src/nmdc_lakehouse/schemas/nmdc_metadata.yaml`](../src/nmdc_lakehouse/schemas/nmdc_metadata.yaml).
+It is generated from the locked NMDC `Database` model and contains every
+primary projection plus every possible junction and inlined-child side-table
+class. Schema and class annotations record source, table, and mapping
+identities. Regenerate it with `just generate-flat-schema`; `just
+check-flat-schema` fails when the committed artifact drifts from the installed
+locked source and generator.
+
+The target copies source enum, type, and prefix definitions needed by retained
+slot ranges, making it standalone rather than dependent on an undeclared NMDC
+import. It preserves upstream permissible values and prefixes exactly. LinkML
+may warn about their naming or canonical-prefix conventions; those warnings
+belong upstream and are not rewritten in this generated projection. Target
+classes reject undeclared ranges and multiple class identifiers in repository
+tests.
+
+Each snapshot manifest maps an emitted table to a `target_class` in this
+schema. The schema contains possible topology, while the manifest records the
+tables actually emitted for one snapshot. It is a logical LinkML contract, not
+an Arrow physical schema, Parquet integrity proof, metadata-description bundle,
+or evidence that rows have passed LinkML instance validation. Target-row
+validation remains [#224](https://github.com/microbiomedata/nmdc-lakehouse/issues/224).
+
 ## Sinks (`nmdc_lakehouse.sinks`)
 
 The package currently writes an interchange artifact and reserves its intended
