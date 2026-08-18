@@ -289,7 +289,7 @@ Table-level keys use the `nmdc_lakehouse.` prefix:
 
 | Key | Meaning |
 | --- | --- |
-| `table_description` | Generated target-table description, including the source class description when one exists. |
+| `table_description` | Generated target-table description. Primary tables include the root class description when one exists; inlined-child tables include the child class description; reference junction tables describe the source relationship. |
 | `source_schema_id` | LinkML identifier of the source NMDC schema. |
 | `source_schema_version` | Version declared by the source NMDC schema. |
 | `source_class` | Root NMDC class projected for the collection. For a side table, this remains the collection's root class. |
