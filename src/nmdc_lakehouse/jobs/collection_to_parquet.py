@@ -109,7 +109,11 @@ class CollectionToParquetJob(Job):
         from linkml_runtime import SchemaView
 
         from nmdc_lakehouse.transforms.flatteners import side_table_rows
-        from nmdc_lakehouse.transforms.schema_generator import flatten_class_def, side_table_class_defs
+        from nmdc_lakehouse.transforms.schema_generator import (
+            DEFAULT_FLATTENED_SCHEMA_ID,
+            flatten_class_def,
+            side_table_class_defs,
+        )
 
         spec = find_spec("nmdc_schema")
         if spec is None or not spec.submodule_search_locations:
@@ -123,7 +127,14 @@ class CollectionToParquetJob(Job):
         t_setup = time.monotonic()
         flattener = SchemaDrivenFlattener(schema_view, self.root_class)
         flat_class = flatten_class_def(schema_view, self.root_class)
-        sink = ParquetSink(self.out_root, class_def=flat_class)
+        sink = ParquetSink(
+            self.out_root,
+            class_def=flat_class,
+            source_schema=schema_view.schema,
+            source_class=self.root_class,
+            target_schema_id=DEFAULT_FLATTENED_SCHEMA_ID,
+            mapping="nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener",
+        )
         has_multivalued = any(s.multivalued for s in schema_view.class_induced_slots(self.root_class))
         logger.info(
             "%s: setup complete (%.2fs, multivalued=%s)",
@@ -148,7 +159,13 @@ class CollectionToParquetJob(Job):
                 return None
             w = StreamingWriter(
                 self.out_root / f"{table_name}.parquet",
-                class_def_to_arrow_schema(cd),
+                class_def_to_arrow_schema(
+                    cd,
+                    source_schema=schema_view.schema,
+                    source_class=self.root_class,
+                    target_schema_id=DEFAULT_FLATTENED_SCHEMA_ID,
+                    mapping="nmdc_lakehouse.transforms.flatteners.side_table_rows",
+                ),
             )
             side_writers[table_name] = w
             return w

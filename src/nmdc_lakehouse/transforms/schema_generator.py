@@ -44,6 +44,7 @@ def _is_inlined(slot: SlotDefinition, schema_view: SchemaView) -> bool:
 REF_NOTE = "Reference by identifier; original range was class '{range}'."
 NESTED_NOTE = "Flattened from nested slot '{parent}.{inner}'."
 DISPATCH_NOTE = "Polymorphic subclass-specific slot (from '{subclass}')."
+DEFAULT_FLATTENED_SCHEMA_ID = "https://w3id.org/nmdc/nmdc-schema-flattened"
 
 
 def flatten_class_def(
@@ -82,7 +83,9 @@ def flatten_class_def(
     """
     target_name = target_name or f"{root_class}Flat"
     cls = ClassDefinition(name=target_name)
-    cls.description = (
+    source_class = schema_view.get_class(root_class)
+    source_description = f"{source_class.description} " if source_class and source_class.description else ""
+    cls.description = source_description + (
         f"Flattened tabular form of '{root_class}' produced by "
         f"`SchemaDrivenFlattener`. Attributes are the union of base-class "
         f"slots and slots from concrete subclasses of '{root_class}' that "
@@ -116,7 +119,7 @@ def flatten_class_def(
 def flatten_database_schema(
     schema_view: SchemaView,
     database_class: str = "Database",
-    schema_id: str = "https://w3id.org/nmdc/nmdc-schema-flattened",
+    schema_id: str = DEFAULT_FLATTENED_SCHEMA_ID,
     schema_name: str = "nmdc_schema_flattened",
 ) -> SchemaDefinition:
     """Emit a full SchemaDefinition with one flat class per Database slot.
@@ -207,13 +210,31 @@ def side_table_class_defs(
                 child_flat = flatten_class_def(
                     schema_view, range_class.name, target_name=table_name, expand_embedded_refs=True
                 )
-                child_flat.attributes["parent_id"] = SlotDefinition(name="parent_id", range="string")
+                child_flat.attributes["parent_id"] = SlotDefinition(
+                    name="parent_id",
+                    range="string",
+                    description=f"Identifier of the parent '{root_class}' record.",
+                )
                 result.append((table_name, child_flat))
             elif range_class is not None:
                 # Ref-class multivalued → junction table (ARRAY also in primary)
                 cls = ClassDefinition(name=table_name)
-                cls.attributes["parent_id"] = SlotDefinition(name="parent_id", range="string")
-                cls.attributes[slot.name] = SlotDefinition(name=slot.name, range="string")
+                cls.description = (
+                    f"References from multivalued slot '{class_name}.{slot.name}'; "
+                    "one row per parent and referenced identifier."
+                )
+                cls.attributes["parent_id"] = SlotDefinition(
+                    name="parent_id",
+                    range="string",
+                    description=f"Identifier of the parent '{root_class}' record.",
+                )
+                cls.attributes[slot.name] = SlotDefinition(
+                    name=slot.name,
+                    range="string",
+                    description=(
+                        f"{slot.description + ' ' if slot.description else ''}{REF_NOTE.format(range=slot.range)}"
+                    ),
+                )
                 result.append((table_name, cls))
             # Scalar multivalued: ARRAY in primary table, no ClassDef
 

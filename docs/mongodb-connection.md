@@ -277,6 +277,50 @@ not current memory and does not include MongoDB, the SSH process, or other
 system services. Compare rates and memory only between records whose platform
 and environment are reasonably similar.
 
+### Portable Parquet schema metadata
+
+Each schema-directed Parquet file carries structural metadata in its Arrow
+schema, which Parquet stores in the file footer. This applies to primary
+tables, reference junction tables, inlined-child side tables, and schema-only
+files with no rows. Removing all-empty columns preserves the table metadata
+and the metadata of retained columns.
+
+Table-level keys use the `nmdc_lakehouse.` prefix:
+
+| Key | Meaning |
+| --- | --- |
+| `table_description` | Generated target-table description, including the source class description when one exists. |
+| `source_schema_id` | LinkML identifier of the source NMDC schema. |
+| `source_schema_version` | Version declared by the source NMDC schema. |
+| `source_class` | Root NMDC class projected for the collection. For a side table, this remains the collection's root class. |
+| `target_schema_id` | Stable identifier of the generated flattened LinkML projection. |
+| `target_class` | Generated LinkML class represented by the file. |
+| `mapping` | Fully qualified identity of the row mapping used for this table. |
+
+Field-level keys use the same prefix:
+
+| Key | Meaning |
+| --- | --- |
+| `description` | Source slot description plus any generated reference, nesting, or polymorphic-dispatch explanation. Omitted when no description is available. |
+| `linkml_range` | LinkML range used to construct the Arrow type. |
+| `identifier` | `true` only when the generated slot is an identifier. |
+| `designates_type` | `true` only when the generated slot is a type designator. |
+
+These footer values make an individual file interpretable before catalog
+registration. They are not a substitute for the complete target LinkML schema
+and table topology tracked in [#110](https://github.com/microbiomedata/nmdc-lakehouse/issues/110),
+the reviewable description and override content tracked in
+[#120](https://github.com/microbiomedata/nmdc-lakehouse/issues/120), or BERDL
+catalog comments tracked in
+[#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114). Run-level
+facts such as snapshot identity, source database identity, checksums, package
+versions, and Git revision belong in the snapshot manifest tracked in
+[#135](https://github.com/microbiomedata/nmdc-lakehouse/issues/135). The
+source-to-target contract for experimental-result converters remains separate
+under [#146](https://github.com/microbiomedata/nmdc-lakehouse/issues/146).
+Footer metadata is structural only. It never includes credentials, connection
+strings, source documents, or production values.
+
 ### Step 2 — functional annotation aggregate (~17 min)
 
 ```bash

@@ -8,7 +8,7 @@ from typing import Iterable, Iterator
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
-from linkml_runtime.linkml_model import ClassDefinition
+from linkml_runtime.linkml_model import ClassDefinition, SchemaDefinition
 
 DEFAULT_BATCH_SIZE = 10_000
 
@@ -30,8 +30,22 @@ _RANGE_TO_ARROW: dict[str, pa.DataType] = {
     "datetime": pa.string(),
 }
 
+_METADATA_PREFIX = "nmdc_lakehouse."
 
-def class_def_to_arrow_schema(class_def: ClassDefinition) -> pa.Schema:
+
+def _encoded_metadata(values: dict[str, str | None]) -> dict[bytes, bytes]:
+    """Encode non-empty metadata values for Arrow and Parquet schemas."""
+    return {f"{_METADATA_PREFIX}{key}".encode(): value.encode() for key, value in values.items() if value}
+
+
+def class_def_to_arrow_schema(
+    class_def: ClassDefinition,
+    *,
+    source_schema: SchemaDefinition | None = None,
+    source_class: str | None = None,
+    target_schema_id: str | None = None,
+    mapping: str | None = None,
+) -> pa.Schema:
     """Derive a PyArrow schema from a LinkML ClassDefinition.
 
     Each attribute becomes a nullable Arrow field. The range is mapped via
@@ -41,6 +55,10 @@ def class_def_to_arrow_schema(class_def: ClassDefinition) -> pa.Schema:
     Args:
         class_def: A ``ClassDefinition`` produced by
             :func:`nmdc_lakehouse.transforms.schema_generator.flatten_class_def`.
+        source_schema: LinkML schema from which the projection was generated.
+        source_class: Root LinkML class projected into this table.
+        target_schema_id: Stable identifier for the generated target schema.
+        mapping: Stable identity of the mapping used to produce table rows.
 
     Returns:
         A ``pa.Schema`` with ``id`` first (if present), then remaining fields
@@ -56,8 +74,27 @@ def class_def_to_arrow_schema(class_def: ClassDefinition) -> pa.Schema:
         range_name = slot.range or "string"
         element_type = _RANGE_TO_ARROW.get(range_name, pa.string())
         arrow_type = pa.list_(element_type) if slot.multivalued else element_type
-        fields.append(pa.field(name, arrow_type, nullable=True))
-    return pa.schema(fields)
+        field_metadata = _encoded_metadata(
+            {
+                "description": slot.description,
+                "linkml_range": range_name,
+                "identifier": "true" if slot.identifier else None,
+                "designates_type": "true" if slot.designates_type else None,
+            }
+        )
+        fields.append(pa.field(name, arrow_type, nullable=True, metadata=field_metadata))
+    schema_metadata = _encoded_metadata(
+        {
+            "table_description": class_def.description,
+            "source_schema_id": source_schema.id if source_schema else None,
+            "source_schema_version": source_schema.version if source_schema else None,
+            "source_class": source_class,
+            "target_schema_id": target_schema_id,
+            "target_class": class_def.name,
+            "mapping": mapping,
+        }
+    )
+    return pa.schema(fields, metadata=schema_metadata)
 
 
 class StreamingWriter:
@@ -123,6 +160,11 @@ class ParquetSink:
         root: str | Path,
         class_def: ClassDefinition | None = None,
         batch_size: int = DEFAULT_BATCH_SIZE,
+        *,
+        source_schema: SchemaDefinition | None = None,
+        source_class: str | None = None,
+        target_schema_id: str | None = None,
+        mapping: str | None = None,
     ) -> None:
         """Construct a ParquetSink.
 
@@ -135,11 +177,25 @@ class ParquetSink:
                 the schema is inferred from the first batch (simpler but types
                 may vary across collections).
             batch_size: Number of rows to buffer before flushing a row group.
+            source_schema: LinkML schema from which the projection was generated.
+            source_class: Root LinkML class projected into this table.
+            target_schema_id: Stable identifier for the generated target schema.
+            mapping: Stable identity of the mapping used to produce table rows.
         """
         self.root = Path(root)
         self.class_def = class_def
         self.batch_size = batch_size
-        self._arrow_schema: pa.Schema | None = class_def_to_arrow_schema(class_def) if class_def is not None else None
+        self._arrow_schema: pa.Schema | None = (
+            class_def_to_arrow_schema(
+                class_def,
+                source_schema=source_schema,
+                source_class=source_class,
+                target_schema_id=target_schema_id,
+                mapping=mapping,
+            )
+            if class_def is not None
+            else None
+        )
 
     def write(self, rows: Iterable[dict], *, table: str, drop_empty_cols: bool = False) -> int:
         """Write ``rows`` to ``{root}/{table}.parquet``.
