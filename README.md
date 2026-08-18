@@ -61,33 +61,34 @@ nmdc-lakehouse/
 
 ## Requirements
 
-- Python ≥ 3.13 and < 3.14
-- [`uv`](https://docs.astral.sh/uv/) for environment & dependency management
-- [`just`](https://just.systems/) 1.58.0 for task running and canonical justfile formatting
-- [`Vale`](https://vale.sh/) 3.17.1 for maintained prose; add intentional domain terms to the [NMDC vocabulary](.github/styles/config/vocabularies/NMDC/accept.txt)
-- [Go](https://go.dev/dl/) 1.26.5 for the pinned actionlint pre-commit hook
-- Access to an NMDC MongoDB instance for production-data runs
+Install Git, [`uv`](https://docs.astral.sh/uv/), and
+[`just`](https://just.systems/), then use the canonical bootstrap command below.
+The authoritative host-tool, operating-system, and optional-service matrix is
+the [development setup guide](docs/development-setup.md). Bootstrap uses the
+checked-in Python 3.13 policy and does not require credentials or live services.
 
 ## Getting started
 
 ```bash
-# Install uv, just, Vale, and Go first, then:
-just install        # uv sync --extra dev
-uv run pre-commit install
-just test           # run unit tests
-just lint           # ruff check + format --check
-just cli --help     # show the CLI
+# From a fresh checkout:
+just bootstrap
+
+# Then choose the relevant task:
+just test
+just check
+just cli --help
 ```
 
-`just install` installs the Python development tools, including the pinned
-ShellCheck binary. With Go available, pre-commit compiles the pinned actionlint
-hook into its isolated environment on the first run. CI provisions the same Go
-version explicitly.
+`just bootstrap` synchronizes the locked development and documentation
+dependencies, installs the pre-commit hook, and performs a credential-free CLI
+smoke test. It is safe to run repeatedly. It never installs host tools, copies
+credentials, opens tunnels, or starts services.
 
 ## Configuration
 
-Copy `.env.example` to `.env` and fill in your credentials — `just` and the
-CLI load it automatically:
+Unit development and the bootstrap command do not need an `.env` file. For live
+MongoDB work only, copy `.env.example` to `.env` and fill in the applicable
+credentials; `just` and the CLI load it automatically:
 
 ```bash
 cp .env.example .env
@@ -126,8 +127,9 @@ operational-command inventory.
 
 | Recipe              | What it does                                     |
 |---------------------|--------------------------------------------------|
-| `just install`      | `uv sync --extra dev`                            |
-| `just install-all`  | Install development and documentation extras     |
+| `just bootstrap`    | Create the locked environment and install hooks   |
+| `just install`      | Synchronize the locked development environment    |
+| `just install-all`  | Synchronize locked development and docs extras    |
 | `just lock`         | Refresh `uv.lock`                                |
 | `just lint-just`    | Check canonical justfile syntax and formatting   |
 | `just prose-lint`   | Spell-check maintained Markdown with Vale        |

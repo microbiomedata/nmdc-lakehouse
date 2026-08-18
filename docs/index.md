@@ -8,6 +8,7 @@ is implemented, while managed Iceberg publication remains a separate BERDL
 operation.
 
 - [Architecture](architecture.md)
+- [Development setup](development-setup.md)
 - [MongoDB connection](mongodb-connection.md)
 - [Uploading Parquet to BERDL](berdl-upload.md)
 - [BERDL metadata shaping](berdl-metadata-shaping.md)
