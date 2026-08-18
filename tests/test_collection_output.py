@@ -166,6 +166,7 @@ def test_failed_rollback_retains_staging_for_manual_recovery(tmp_path: Path, mon
             )
 
     assert "staging was retained" in " ".join(raised.value.__notes__)
+    assert str(stage) in " ".join(raised.value.__notes__)
     assert not primary.exists()
     assert side.read_bytes() == b"old-side"
     assert (stage / ".previous" / "sample_set.parquet").read_bytes() == b"old-primary"

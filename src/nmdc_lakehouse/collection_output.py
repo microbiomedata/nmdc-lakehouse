@@ -135,7 +135,7 @@ class CollectionOutputTransaction:
                 self._preserve_stage = True
                 original.add_note(
                     f"Collection promotion rollback also failed {len(rollback_errors)} time(s); "
-                    "staging was retained for manual recovery."
+                    f"staging was retained for manual recovery at {stage}."
                 )
             raise
 
