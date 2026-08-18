@@ -122,6 +122,37 @@ def test_missing_safe_root_has_empty_plan(tmp_path: Path) -> None:
     assert plan.targets == ()
 
 
+def test_plan_reports_directory_enumeration_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "lakehouse"
+    root.mkdir()
+
+    def fail_iterdir(_path: Path):
+        raise PermissionError
+
+    monkeypatch.setattr(Path, "iterdir", fail_iterdir)
+
+    with pytest.raises(UnsafeCleanupRoot, match="could not be enumerated safely"):
+        plan_metadata_parquet_cleanup(root, project_root=tmp_path, generated_names=GENERATED)
+
+
+def test_apply_reports_unlink_failure_without_traceback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "lakehouse"
+    root.mkdir()
+    generated = root / "biosample_set.parquet"
+    generated.write_text("generated", encoding="utf-8")
+    plan = plan_metadata_parquet_cleanup(root, project_root=tmp_path, generated_names=GENERATED)
+
+    def fail_unlink(_path: Path) -> None:
+        raise PermissionError
+
+    monkeypatch.setattr(Path, "unlink", fail_unlink)
+
+    with pytest.raises(UnsafeCleanupRoot, match="stopped after removing 0 of 1"):
+        apply_cleanup(plan)
+
+    assert generated.exists()
+
+
 def test_cli_previews_by_default_and_requires_delete(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _make_checkout(tmp_path)
     working_directory = tmp_path / "docs"

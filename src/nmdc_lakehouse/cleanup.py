@@ -103,19 +103,22 @@ def plan_metadata_parquet_cleanup(
     resolved_root = _resolve_cleanup_root(root, project_root)
     if not resolved_root.exists():
         return CleanupPlan(root=resolved_root, targets=())
-    targets = tuple(
-        sorted(
-            (
-                path
-                for path in resolved_root.iterdir()
-                if not path.is_symlink()
-                and path.is_file()
-                and path.suffix == ".parquet"
-                and path.stem in generated_names
-            ),
-            key=lambda path: path.name,
+    try:
+        targets = tuple(
+            sorted(
+                (
+                    path
+                    for path in resolved_root.iterdir()
+                    if not path.is_symlink()
+                    and path.is_file()
+                    and path.suffix == ".parquet"
+                    and path.stem in generated_names
+                ),
+                key=lambda path: path.name,
+            )
         )
-    )
+    except OSError as error:
+        raise UnsafeCleanupRoot("Cleanup root could not be enumerated safely.") from error
     return CleanupPlan(root=resolved_root, targets=targets)
 
 
@@ -130,6 +133,11 @@ def apply_cleanup(plan: CleanupPlan) -> int:
         if target.is_symlink() or not target.is_file() or target.parent != plan.root or resolved_parent != plan.root:
             raise UnsafeCleanupRoot("A cleanup target became unsafe after preview; no files were deleted.")
         validated.append(target)
-    for target in validated:
-        target.unlink()
+    for removed, target in enumerate(validated):
+        try:
+            target.unlink()
+        except OSError as error:
+            raise UnsafeCleanupRoot(
+                f"Cleanup stopped after removing {removed} of {len(validated)} validated files."
+            ) from error
     return len(validated)
