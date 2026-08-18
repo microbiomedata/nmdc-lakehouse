@@ -185,6 +185,22 @@ def test_manifest_write_does_not_clobber_competing_completion_marker(tmp_path: P
     assert not list(tmp_path.glob(f".{MANIFEST_NAME}.*.tmp"))
 
 
+def test_manifest_write_translates_atomic_publication_error(tmp_path: Path, monkeypatch) -> None:
+    metrics_path = _snapshot_fixture(tmp_path)
+    manifest = build_manifest(tmp_path, metrics_path, "nmdc-production")
+
+    def reject_hard_link(_temporary: Path, _destination: Path) -> None:
+        raise OSError("hard links unavailable")
+
+    monkeypatch.setattr(snapshot_manifest.os, "link", reject_hard_link)
+
+    with pytest.raises(SnapshotManifestError, match="Cannot publish.*atomically"):
+        write_manifest(tmp_path, manifest)
+
+    assert not (tmp_path / MANIFEST_NAME).exists()
+    assert not list(tmp_path.glob(f".{MANIFEST_NAME}.*.tmp"))
+
+
 @pytest.mark.parametrize(
     ("change", "message"),
     [
@@ -299,6 +315,17 @@ def test_validation_rejects_manifest_path_as_owned_content(tmp_path: Path) -> No
     write_manifest(tmp_path, manifest)
 
     with pytest.raises(SnapshotManifestError, match="one-to-one inventory"):
+        validate_snapshot(tmp_path)
+
+
+def test_validation_rejects_unsupported_footer_metadata_format(tmp_path: Path) -> None:
+    metrics_path = _snapshot_fixture(tmp_path)
+    manifest = build_manifest(tmp_path, metrics_path, "nmdc-production")
+    manifest.footer_metadata_format_version = "unsupported"
+    manifest.snapshot_id = snapshot_manifest._snapshot_identity(manifest)
+    write_manifest(tmp_path, manifest)
+
+    with pytest.raises(SnapshotManifestError, match="Unsupported Parquet footer metadata format version"):
         validate_snapshot(tmp_path)
 
 

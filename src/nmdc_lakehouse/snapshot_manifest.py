@@ -360,6 +360,8 @@ def write_manifest(root: Path, manifest: SnapshotManifest) -> Path:
             os.link(temporary, destination)
         except FileExistsError as error:
             raise SnapshotManifestError(f"Refusing to replace existing {MANIFEST_NAME}.") from error
+        except OSError as error:
+            raise SnapshotManifestError(f"Cannot publish {MANIFEST_NAME} atomically.") from error
     finally:
         temporary.unlink(missing_ok=True)
     return destination
@@ -380,6 +382,8 @@ def validate_snapshot(root: Path) -> SnapshotManifest:
         raise SnapshotManifestError(f"Cannot read a valid {MANIFEST_NAME}.") from error
     if manifest.manifest_format_version != MANIFEST_FORMAT_VERSION:
         raise SnapshotManifestError("Unsupported snapshot manifest format version.")
+    if manifest.footer_metadata_format_version != FOOTER_METADATA_FORMAT_VERSION:
+        raise SnapshotManifestError("Unsupported Parquet footer metadata format version.")
     artifact_paths = [item.path for item in manifest.artifacts]
     owned_paths = [manifest.performance_record.path, *artifact_paths]
     if (
