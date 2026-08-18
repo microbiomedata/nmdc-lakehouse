@@ -88,7 +88,10 @@ line-length = 120
 target-version = "py310"
 
 [tool.ruff.lint]
-extend-select = [
+# Ruff 0.16 expanded its defaults from 59 to 413 rules. Keep this repository's
+# existing, intentional rule families explicit instead of inheriting defaults
+# that change when the linter is upgraded.
+select = [
     "B",  # bugbear
     "D",  # pydocstyle
     "E",  # pycodestyle errors
