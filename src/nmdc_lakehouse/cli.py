@@ -205,8 +205,42 @@ def publication_plan_schema_command(document: str) -> None:
 
     selected = cast(Literal["inventory", "policy", "plan"], document)
     click.echo(json.dumps(publication_json_schema(selected), indent=2, sort_keys=True))
+@cli.command("berdl-doctor")
+@click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
+@click.option(
+    "--beril-checkout",
+    type=click.Path(path_type=Path, file_okay=False),
+    envvar="BERIL_CHECKOUT",
+    required=True,
+    help="Explicit BERIL-research-observatory checkout to inspect.",
+)
+@click.option(
+    "--service-check",
+    type=click.Choice(["berdl-proxy"]),
+    multiple=True,
+    help="Run an explicit bounded local proxy check.",
+)
+@click.pass_context
+def berdl_doctor(
+    context: click.Context,
+    snapshot_root: Path,
+    beril_checkout: Path,
+    service_check: tuple[str, ...],
+) -> None:
+    """Check BERDL publication readiness without changing it."""
+    from nmdc_lakehouse.berdl_doctor import run_berdl_doctor
 
-
+    report = run_berdl_doctor(
+        snapshot_root,
+        project_root=Path.cwd(),
+        checkout=beril_checkout,
+        service_checks=service_check,
+    )
+    for check in report.checks:
+        click.echo(f"[{check.status.value}] {check.name}: {check.summary}")
+        if check.remediation:
+            click.echo(f"       remedy: {check.remediation}")
+    context.exit(report.exit_code)
 @cli.command("run-job")
 @click.argument("job_name")
 @click.option("--dry-run", is_flag=True, help="Plan the job but do not write output.")

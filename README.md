@@ -101,9 +101,9 @@ Live checks require an explicit `--service-check` flag on the
 
 ## Configuration
 
-Unit development and the bootstrap command do not need an `.env` file. For live
-MongoDB work only, copy `.env.example` to `.env` and fill in the applicable
-credentials; `just` and the CLI load it automatically:
+Unit development and the bootstrap command do not need an `.env` file. For
+opt-in live MongoDB or BERDL readiness work, copy `.env.example` to `.env` and
+fill in only the applicable profile; `just` and the CLI load it automatically:
 
 ```bash
 cp .env.example .env
@@ -123,6 +123,11 @@ Key variables (full list in `.env.example`):
 | `MONGO_DIRECT_CONNECTION` | `false` | Set `true` when using the SSH tunnel |
 | `NMDC_JUMP_KEY` | `~/.ssh/jump-dev.microbiomedata.org.private_key` | Optional override for the GCP jump-host key |
 | `LAKEHOUSE_ROOT` | `./lakehouse` | Local directory; doctor rejects remote URIs |
+| `BERIL_CHECKOUT` | | Explicit external checkout inspected by `berdl-doctor` |
+| `KBASE_AUTH_TOKEN` | | Short-lived secret; presence only is reported |
+| `BERDL_DESTINATION_ID` | | Logical destination observed for the planned publication |
+| `BERDL_CATALOG` | | Catalog discovered from the current environment |
+| `BERDL_TABLE_FORMAT` | | Table format discovered from the current environment |
 
 For production access via the GCP SSH tunnel, see
 **[docs/mongodb-connection.md](docs/mongodb-connection.md)** for the full
@@ -148,6 +153,7 @@ operational-command inventory.
 |---------------------|--------------------------------------------------|
 | `just bootstrap`    | Create locked env; install hooks unless `core.hooksPath` is set |
 | `just doctor`       | Diagnose local readiness without changing it      |
+| `just berdl-doctor SNAPSHOT_ROOT` | Diagnose BERDL publication readiness without mutation |
 | `just install`      | Synchronize the locked development environment    |
 | `just install-all`  | Synchronize locked development and docs extras    |
 | `just lock`         | Refresh `uv.lock`                                |

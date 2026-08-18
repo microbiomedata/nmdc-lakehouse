@@ -20,6 +20,47 @@ an on-cluster notebook run. Re-verify steps 8-9 the next time this runs off-clus
 
 ---
 
+## Supported readiness check
+
+Before following any historical transport step, validate the completed snapshot
+and the external tooling without changing either repository or contacting BERDL:
+
+```bash
+export BERIL_CHECKOUT=/path/to/BERIL-research-observatory
+export BERDL_DESTINATION_ID=nmdc-production
+export BERDL_CATALOG=discovered-catalog
+export BERDL_TABLE_FORMAT=discovered-table-format
+just berdl-doctor /absolute/path/to/completed-snapshot
+```
+
+`BERIL_CHECKOUT` must be explicit; the command does not guess a user-specific
+checkout location. It validates the snapshot manifest offline, identifies the
+checkout revision, checks its supported ingest scripts, requires Python 3.13 in
+its `.venv-berdl`, checks the `data-lakehouse-ingest` and `berdl-remote`
+distributions, and checks `mc`. It also checks for `KBASE_AUTH_TOKEN` by name in
+the process, this repository's `.env`, or the configured BERIL checkout's
+`.env`. No value is printed or tested. Refresh the short-lived token through the
+supported KBase workflow immediately before a publication attempt.
+
+The destination, catalog, and table format are explicit observations. Do not
+copy the historical Delta examples below unless current discovery confirms
+them. A missing or blank value is a readiness failure.
+
+The default check is offline. To make one bounded TCP probe of the separately
+managed local BERDL proxy, opt in:
+
+```bash
+just berdl-doctor /absolute/path/to/completed-snapshot \
+  --service-check berdl-proxy
+```
+
+The probe defaults to loopback port 8123. `BERDL_PROXY_HOST` and
+`BERDL_PROXY_PORT` can describe a different local proxy. The doctor never
+starts a proxy, opens a tunnel, refreshes a token, installs packages, changes
+the external checkout, uploads files, or changes a catalog.
+
+---
+
 ## Prerequisites, obtain before doing anything else
 
 ### 1. Python 3.13 environment
@@ -40,9 +81,10 @@ bash scripts/bootstrap_client.sh
 bash scripts/bootstrap_ingest.sh
 ```
 
-`bootstrap_ingest.sh` ends with a false-failure message ("data_lakehouse_ingest not
-found") because its check bypasses the activated environment. The package is
-installed correctly; ignore the error.
+Both scripts belong to the external checkout and can change its dedicated
+environment. Run them only when provisioning that checkout. Do not ignore a
+failed verification; `just berdl-doctor` must subsequently find both required
+distributions in `.venv-berdl`.
 
 ### 3. MinIO client (`mc`)
 
@@ -54,13 +96,9 @@ chmod +x ~/bin/mc
 
 ### 4. KBase auth token
 
-`berdl-remote` reads `KBASE_AUTH_TOKEN`. If your `.env` only has `KBASE_TOKEN`, alias it:
-
-```bash
-grep "^KBASE_TOKEN=" .env | sed 's/^KBASE_TOKEN=/KBASE_AUTH_TOKEN=/' >> .env
-```
-
-Token expires in ~1 week. Refresh from JupyterHub: `BERDLSettings().KBASE_AUTH_TOKEN`.
+`berdl-remote` reads `KBASE_AUTH_TOKEN`. Obtain and refresh it through the
+supported KBase authentication workflow. Keep it in the process environment or
+an untracked `.env`; never copy it into documentation, logs, or tracked files.
 
 ### 5. SSH access to `login1.berkeley.kbase.us`
 
