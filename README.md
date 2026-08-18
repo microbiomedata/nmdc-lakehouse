@@ -134,6 +134,7 @@ operational-command inventory.
 | `just shellcheck`   | Lint safely rendered Bash recipes                 |
 | `just actionlint`   | Check GitHub Actions workflows and run blocks     |
 | `just lint`         | ruff check + format check                        |
+| `just deps-lint`    | Check missing, unused, and transitive dependencies|
 | `just format`       | ruff format + auto-fix                           |
 | `just typecheck`    | `mypy src`                                       |
 | `just test`         | pytest                                           |

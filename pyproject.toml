@@ -48,6 +48,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-cov>=5.0",
     "mongomock>=4.3",
+    "deptry>=0.25.1",
     "ruff>=0.16.2",
     "mypy>=1.10",
     "pre-commit>=4.6.2",
@@ -107,6 +108,18 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["D"]
+
+[tool.deptry]
+known_first_party = ["mongodb_connection", "nmdc_lakehouse"]
+optional_dependencies_dev_groups = ["dev", "docs"]
+
+[tool.deptry.per_rule_ignores]
+# These modules are supplied by the authenticated BERDL environment rather
+# than PyPI. Their imports are guarded so local and CI checks remain usable.
+DEP001 = ["berdl_notebook_utils", "data_lakehouse_ingest"]
+# These packages provide optional backends or constrain transitive LinkML APIs;
+# they are intentional even though this repository does not import them.
+DEP002 = ["linkml", "psycopg", "pyiceberg", "sqlalchemy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
