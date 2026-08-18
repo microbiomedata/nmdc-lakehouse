@@ -86,9 +86,9 @@ so domain experts can review descriptions without reading Python.
 
 Verification harness: [#119](https://github.com/microbiomedata/nmdc-lakehouse/pull/119) (`scripts/python/audit_database_metadata.py`, merged)
 reports per-database coverage stats (tables/columns with a comment) so a partial
-backfill (applying `DBPROPERTIES`/comments retroactively to tables that predate
-this convention, not a historical-data reload) can be measured and re-run to
-completion.
+backfill (applying schema-level `DBPROPERTIES` and table/column comments
+retroactively to objects that predate this convention, not a historical-data
+reload) can be measured and re-run to completion.
 
 ## Suggested order, if picking this up
 
