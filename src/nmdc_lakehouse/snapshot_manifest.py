@@ -23,6 +23,7 @@ MANIFEST_FORMAT_VERSION = 1
 MANIFEST_NAME = "snapshot-manifest.json"
 _PREFIX = b"nmdc_lakehouse."
 _SOURCE_LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
+_ARTIFACT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_]*\.parquet\Z")
 
 
 class SnapshotManifestError(ValueError):
@@ -236,7 +237,10 @@ def build_manifest(root: Path, metrics_path: Path, source_label: str) -> Snapsho
     root = root.resolve()
     metrics_path = metrics_path.resolve()
     if not _SOURCE_LABEL.fullmatch(source_label):
-        raise SnapshotManifestError("Source label must use only letters, digits, dot, underscore, or hyphen.")
+        raise SnapshotManifestError(
+            "Source label must be 1–64 characters, start with a letter or digit, and otherwise use only "
+            "letters, digits, dot, underscore, or hyphen."
+        )
     if metrics_path.parent != root or not metrics_path.is_file() or metrics_path.is_symlink():
         raise SnapshotManifestError("The metrics record must be an ordinary file directly inside the snapshot root.")
 
@@ -276,9 +280,12 @@ def build_manifest(root: Path, metrics_path: Path, source_label: str) -> Snapsho
         raise SnapshotManifestError(
             "Included and skipped collections do not cover the installed NMDC schema exactly once."
         )
-    expected = {str(item.get("path")): item for item in expected_outputs if isinstance(item, dict)}
-    if len(expected) != len(expected_outputs):
-        raise SnapshotManifestError("Metrics contain duplicate or malformed output paths.")
+    expected: dict[str, dict[str, Any]] = {}
+    for item in expected_outputs:
+        path = item.get("path") if isinstance(item, dict) else None
+        if not isinstance(path, str) or not _ARTIFACT_NAME.fullmatch(path) or path in expected:
+            raise SnapshotManifestError("Metrics contain duplicate or malformed output paths.")
+        expected[path] = item
 
     parquet_paths = sorted(root.glob("*.parquet"))
     if any(path.is_symlink() or not path.is_file() for path in parquet_paths):

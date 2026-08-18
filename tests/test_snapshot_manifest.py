@@ -189,12 +189,25 @@ def test_manifest_rejects_incomplete_metrics(tmp_path: Path, change, message: st
 def test_manifest_rejects_unsafe_source_label_and_external_metrics(tmp_path: Path) -> None:
     metrics_path = _snapshot_fixture(tmp_path)
 
-    with pytest.raises(SnapshotManifestError, match="Source label"):
+    with pytest.raises(SnapshotManifestError, match="start with a letter or digit"):
         build_manifest(tmp_path, metrics_path, "mongodb://user:secret@example.org/nmdc")
+    with pytest.raises(SnapshotManifestError, match="1–64 characters"):
+        build_manifest(tmp_path, metrics_path, "a" * 65)
     external = tmp_path.parent / "external-metrics.json"
     external.write_bytes(metrics_path.read_bytes())
     with pytest.raises(SnapshotManifestError, match="directly inside"):
         build_manifest(tmp_path, external, "nmdc-production")
+
+
+@pytest.mark.parametrize("bad_path", [None, 1, "../biosample_set.parquet", "biosample-set.parquet"])
+def test_manifest_rejects_malformed_metrics_output_path(tmp_path: Path, bad_path: object) -> None:
+    metrics_path = _snapshot_fixture(tmp_path)
+    record = json.loads(metrics_path.read_text(encoding="utf-8"))
+    record["outputs"][0]["path"] = bad_path
+    metrics_path.write_text(json.dumps(record), encoding="utf-8")
+
+    with pytest.raises(SnapshotManifestError, match="malformed output paths"):
+        build_manifest(tmp_path, metrics_path, "nmdc-production")
 
 
 def test_manifest_rejects_extra_parquet_before_creation(tmp_path: Path) -> None:
