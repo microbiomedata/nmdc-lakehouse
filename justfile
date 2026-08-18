@@ -37,6 +37,7 @@ lint-just:
 # Spell-check maintained prose with the repository-owned Vale configuration.
 # Isolate HOME so a contributor's global Vale configuration cannot affect it.
 prose-lint:
+    mkdir -p .vale-home
     HOME="$PWD/.vale-home" vale --config=.vale.ini README.md docs scripts/README.md notebooks/*.md
 
 # Run all linters & formatters in check mode.
