@@ -9,9 +9,13 @@ from linkml_runtime import SchemaView
 from linkml_runtime.linkml_model import ClassDefinition
 
 from nmdc_lakehouse.sinks.parquet_sink import ParquetSink, StreamingWriter, class_def_to_arrow_schema
-from nmdc_lakehouse.transforms.schema_generator import flatten_class_def, side_table_class_defs
+from nmdc_lakehouse.transforms.schema_generator import (
+    DEFAULT_FLATTENED_SCHEMA_ID,
+    flatten_class_def,
+    side_table_class_defs,
+)
 
-TARGET_SCHEMA_ID = "https://w3id.org/nmdc/nmdc-schema-flattened"
+TARGET_SCHEMA_ID = DEFAULT_FLATTENED_SCHEMA_ID
 PRIMARY_MAPPING = "nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener"
 
 
