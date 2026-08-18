@@ -98,6 +98,34 @@ uv run --no-sync nmdc-lakehouse doctor
 Doctor will inspect `.env` itself and report the problem without printing its
 contents.
 
+### Opt in to live-service checks
+
+The default doctor remains offline. Pass one or more explicit service checks
+only when you intend to inspect live-service readiness:
+
+```bash
+uv run --no-sync nmdc-lakehouse doctor --service-check mongo-config
+uv run --no-sync nmdc-lakehouse doctor --service-check gcp-tunnel
+uv run --no-sync nmdc-lakehouse doctor --service-check mongo-ping
+```
+
+If `.env` exists but has an invalid assignment or cannot be read, doctor fails
+closed: it reports the configuration problem and skips every requested live
+service check. Fix `.env` before retrying so no check uses a partially parsed
+set of connection values.
+
+`mongo-config` validates the decomposed `MONGO_*` settings and constructs the
+credential-bearing URI only in memory. `gcp-tunnel` also verifies the
+owner-only jump key (overridden with `NMDC_JUMP_KEY`), requires a local host
+with direct connection, and attempts a one-second TCP connection to the
+configured local port.
+`mongo-ping` attempts a one-second, read-only PyMongo `ping` and distinguishes
+configuration, network, and authentication failures.
+
+No profile prints a configured value or URI. These checks never open or close
+an SSH tunnel, change `.env`, or write to MongoDB. The tunnel itself remains a
+separately managed process; see [Connecting to MongoDB](mongodb-connection.md).
+
 ## Supported systems
 
 | Environment | Support status |
