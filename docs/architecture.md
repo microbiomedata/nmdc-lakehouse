@@ -74,8 +74,13 @@ Each snapshot manifest maps an emitted table to a `target_class` in this
 schema. The schema contains possible topology, while the manifest records the
 tables actually emitted for one snapshot. It is a logical LinkML contract, not
 an Arrow physical schema, Parquet integrity proof, metadata-description bundle,
-or evidence that rows have passed LinkML instance validation. Target-row
-validation remains [#224](https://github.com/microbiomedata/nmdc-lakehouse/issues/224).
+or by itself evidence that rows have passed LinkML instance validation.
+`validate-target-rows` first verifies the immutable snapshot and then validates
+each table against its exact manifested target class. Full mode checks every
+row. The default bounded mode checks every row in tables of at most 10,000 rows
+and a deterministic 100-row identity/content sample from each larger table.
+Its snapshot-bound report states the coverage explicitly and contains only
+sanitized rule, path, and count categories rather than source values.
 
 ## Sinks (`nmdc_lakehouse.sinks`)
 

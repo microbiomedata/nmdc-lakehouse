@@ -143,6 +143,72 @@ def validate_snapshot_command(root: Path) -> None:
     click.echo(f"Validated {manifest.snapshot_id}: {len(manifest.artifacts)} Parquet artifact(s).")
 
 
+@cli.command("validate-target-rows")
+@click.argument("root", type=click.Path(path_type=Path, file_okay=False))
+@click.option(
+    "--output",
+    type=click.Path(path_type=Path, dir_okay=False),
+    required=True,
+    help="New JSON evidence path outside the immutable snapshot.",
+)
+@click.option(
+    "--mode",
+    "requested_mode",
+    type=click.Choice(["bounded", "full"]),
+    default="bounded",
+    show_default=True,
+    help="Validate all rows, or all small tables plus deterministic samples.",
+)
+@click.option(
+    "--full-table-max-rows",
+    type=click.IntRange(min=0),
+    default=10_000,
+    show_default=True,
+    help="In bounded mode, validate every row in tables no larger than this.",
+)
+@click.option(
+    "--sample-rows",
+    type=click.IntRange(min=1),
+    default=100,
+    show_default=True,
+    help="In bounded mode, deterministically select this many rows from each larger table.",
+)
+def validate_target_rows_command(
+    root: Path,
+    output: Path,
+    requested_mode: str,
+    full_table_max_rows: int,
+    sample_rows: int,
+) -> None:
+    """Validate manifested Parquet rows against the published target schema."""
+    from typing import Literal, cast
+
+    from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError
+    from nmdc_lakehouse.target_validation import (
+        TargetValidationError,
+        validate_target_snapshot,
+        write_target_validation_report,
+    )
+
+    try:
+        report = validate_target_snapshot(
+            root,
+            requested_mode=cast(Literal["bounded", "full"], requested_mode),
+            full_table_max_rows=full_table_max_rows,
+            sample_rows=sample_rows,
+        )
+        destination = write_target_validation_report(output, report, snapshot_root=root)
+    except (SnapshotManifestError, TargetValidationError) as error:
+        raise click.ClickException(str(error)) from error
+    click.echo(f"status={report.status}")
+    click.echo(f"snapshot_id={report.snapshot_id}")
+    click.echo(f"selected_rows={report.selected_rows}/{report.eligible_rows}")
+    click.echo(f"invalid_rows={report.invalid_rows}")
+    click.echo(f"report={destination}")
+    if report.status != "success":
+        raise click.ClickException("Target LinkML validation found invalid rows; inspect the sanitized report.")
+
+
 @cli.command("snapshot-manifest-schema")
 def snapshot_manifest_schema_command() -> None:
     """Print the current snapshot-manifest JSON Schema."""

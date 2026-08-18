@@ -131,6 +131,7 @@ URIs
 URLs
 uv
 Vale
+validator
 varchar
 workflow_run
 Zizmor

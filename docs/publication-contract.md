@@ -49,6 +49,7 @@ identifiers.
 | Metadata content bundle | Reviewable namespace, table, and column descriptions and reviewed overrides | [#215](https://github.com/microbiomedata/nmdc-lakehouse/issues/215), split from [#120](https://github.com/microbiomedata/nmdc-lakehouse/issues/120) |
 | Metadata application plan | Supported and unsupported metadata operations for one explicit staging namespace | [#223](https://github.com/microbiomedata/nmdc-lakehouse/issues/223) |
 | Snapshot manifest | Completeness, checksums, row counts, schema and software provenance, and source identity | [#206](https://github.com/microbiomedata/nmdc-lakehouse/issues/206) |
+| Target validation report | Full or explicitly bounded LinkML instance-validation evidence for the exact snapshot and target classes | [#224](https://github.com/microbiomedata/nmdc-lakehouse/issues/224) |
 | Destination metadata | Namespace or dataset properties and table or column comments when supported | Applied idempotently through [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114) |
 | Registry record | Dataset ownership, access, update policy, keywords, and documentation links | Projection defined by [#52](https://github.com/microbiomedata/nmdc-lakehouse/issues/52) |
 
@@ -272,6 +273,8 @@ Record:
 
 - candidate snapshot path, manifest identity, files, checksums, Parquet footer row
   counts, and physical schemas;
+- target LinkML validation mode, selected and eligible rows, schema identity,
+  sanitized findings, and report checksum;
 - target capabilities and, when supported, catalog, namespace, provider, table
   locations, tables, row counts, schemas, comments, properties, and current owner;
 - source `nmdc-schema`, target schema, mapping, package, and Git identities;

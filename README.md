@@ -21,6 +21,7 @@ means an interface or dependency may exist without executable support.
 | Source | PostgreSQL | **Planned** | `PostgresSource.iter_records()` is a `NotImplementedError` stub. |
 | Transform | Schema-driven metadata flattening | **Implemented** | Uses LinkML definitions for projection and Arrow type construction. This is not full per-record LinkML validation. |
 | Transform | Publish the `nmdc_metadata` target schema | **Implemented** | Canonical generated LinkML YAML covers primary and side-table classes and is checked for drift. |
+| Transform | Validate flattened target rows | **Implemented** | Offline full or deterministic bounded validation consumes the manifested table/class identity and packaged target schema; reports contain sanitized categories, not row values. |
 | Sink | Parquet | **Implemented** | Local filesystem only; one `{table}.parquet` file per primary or side table, with streamed row groups. It is not a partitioned dataset. |
 | Sink | Remote/object-store Parquet | **Planned** | `ParquetSink` does not support remote roots; URI strings may be interpreted as malformed local paths rather than rejected. |
 | Sink | Apache Iceberg | **Planned** | `IcebergSink.write()` is a `NotImplementedError` stub. Iceberg is one possible destination adapter, not the required or preferred publication path. |
@@ -157,6 +158,7 @@ operational-command inventory.
 | `just bootstrap`    | Create locked env; install hooks unless `core.hooksPath` is set |
 | `just doctor`       | Diagnose local readiness without changing it      |
 | `just berdl-doctor SNAPSHOT_ROOT` | Diagnose BERDL publication readiness without mutation |
+| `just validate-target-rows SNAPSHOT_ROOT REPORT` | Validate manifested rows against the packaged target LinkML schema |
 | `just publication-preflight SNAPSHOT_ROOT BUNDLE INVENTORY PLAN` | Cross-check reviewed publication artifacts before staging |
 | `just metadata-application-plan BUNDLE INVENTORY STAGING_NAMESPACE` | Plan metadata operations for an explicit staging namespace |
 | `just install`      | Synchronize the locked development environment    |
