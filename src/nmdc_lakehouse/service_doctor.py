@@ -46,7 +46,7 @@ def _parse_boolean(value: str) -> bool | None:
 
 def _live_mongo_configuration(configured: Mapping[str, str]) -> tuple[LiveMongoConfiguration | None, DoctorCheck]:
     required = ("MONGO_USERNAME", "MONGO_PASSWORD")
-    missing = tuple(name for name in required if not configured.get(name))
+    missing = tuple(name for name in required if not configured.get(name, "").strip())
     if missing:
         return None, DoctorCheck(
             name="mongo-service-configuration",
@@ -110,16 +110,28 @@ def _default_socket_probe(host: str, port: int, timeout: float) -> bool:
         return False
 
 
-def _gcp_tunnel_check(configuration: LiveMongoConfiguration, probe: SocketProbe, timeout: float) -> DoctorCheck:
-    settings = configuration.settings
-    if settings.host not in {"localhost", "127.0.0.1", "::1"} or not settings.direct_connection:
+def _gcp_tunnel_check(configured: Mapping[str, str], probe: SocketProbe, timeout: float) -> DoctorCheck:
+    host = configured.get("MONGO_HOST", "localhost").strip()
+    direct_connection = _parse_boolean(configured.get("MONGO_DIRECT_CONNECTION", "false"))
+    try:
+        port = int(configured.get("MONGO_PORT", "27017"))
+        if not 1 <= port <= 65535:
+            raise ValueError
+    except ValueError:
+        return DoctorCheck(
+            name="gcp-tunnel",
+            status=CheckStatus.FAIL,
+            summary="The configured local MongoDB tunnel port is invalid.",
+            remediation="Use a TCP port from 1 through 65535 for MONGO_PORT.",
+        )
+    if host not in {"localhost", "127.0.0.1", "::1"} or direct_connection is not True:
         return DoctorCheck(
             name="gcp-tunnel",
             status=CheckStatus.FAIL,
             summary="MongoDB settings are not coherent with a local SSH tunnel.",
             remediation="Use a loopback MONGO_HOST and MONGO_DIRECT_CONNECTION=true for the GCP tunnel.",
         )
-    if not probe(settings.host, settings.port, timeout):
+    if not probe(host, port, timeout):
         return DoctorCheck(
             name="gcp-tunnel",
             status=CheckStatus.FAIL,
@@ -214,17 +226,20 @@ def run_service_checks(
         return []
     unknown = set(requested) - set(SERVICE_CHECKS)
     if unknown:
-        raise ValueError("Unknown service check requested")
+        unknown_names = ", ".join(sorted(unknown))
+        valid_names = ", ".join(SERVICE_CHECKS)
+        raise ValueError(f"Unknown service check(s): {unknown_names}. Valid choices: {valid_names}.")
 
-    configuration, config_check = _live_mongo_configuration(configured)
-    checks = [config_check]
-    if configuration is None:
-        return checks
+    checks: list[DoctorCheck] = []
+    configuration = None
+    if "mongo-config" in requested or "mongo-ping" in requested:
+        configuration, config_check = _live_mongo_configuration(configured)
+        checks.append(config_check)
     if "gcp-tunnel" in requested:
         key_check = _gcp_jump_key_check(configured)
         checks.append(key_check)
         if key_check.status is CheckStatus.PASS:
-            checks.append(_gcp_tunnel_check(configuration, socket_probe, timeout))
-    if "mongo-ping" in requested:
+            checks.append(_gcp_tunnel_check(configured, socket_probe, timeout))
+    if "mongo-ping" in requested and configuration is not None:
         checks.append(_mongo_ping_check(configuration, mongo_client_factory, timeout))
     return checks

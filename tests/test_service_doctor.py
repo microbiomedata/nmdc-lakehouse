@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
 from pymongo.errors import OperationFailure, ServerSelectionTimeoutError
 
 from nmdc_lakehouse.doctor import CheckStatus
@@ -51,6 +52,14 @@ def test_no_requested_service_checks_do_nothing() -> None:
     assert run_service_checks((), configured={}) == []
 
 
+def test_unknown_service_check_names_invalid_and_valid_choices() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"Unknown service check\(s\): typo. Valid choices: mongo-config, gcp-tunnel, mongo-ping\.",
+    ):
+        run_service_checks(("typo",), configured={})
+
+
 def test_missing_configuration_is_distinct_and_sanitized() -> None:
     checks = run_service_checks(("mongo-config",), configured={"MONGO_PASSWORD": "SECRET"})
 
@@ -58,6 +67,34 @@ def test_missing_configuration_is_distinct_and_sanitized() -> None:
     assert checks[0].status is CheckStatus.FAIL
     assert "MONGO_USERNAME" in checks[0].summary
     assert "SECRET" not in repr(checks)
+
+
+@pytest.mark.parametrize("variable", ["MONGO_USERNAME", "MONGO_PASSWORD"])
+def test_whitespace_only_credentials_are_missing(variable: str) -> None:
+    checks = run_service_checks(
+        ("mongo-config",),
+        configured=_live_configuration(**{variable: " \t "}),
+    )
+
+    assert len(checks) == 1
+    assert checks[0].status is CheckStatus.FAIL
+    assert variable in checks[0].summary
+
+
+def test_tunnel_check_does_not_require_mongo_credentials(tmp_path: Path) -> None:
+    key_path = tmp_path / "jump-key"
+    configuration = _live_configuration(key_path)
+    configuration.pop("MONGO_USERNAME")
+    configuration.pop("MONGO_PASSWORD")
+
+    checks = run_service_checks(
+        ("gcp-tunnel",),
+        configured=configuration,
+        socket_probe=lambda _host, _port, _timeout: True,
+    )
+
+    assert [check.name for check in checks] == ["gcp-jump-key", "gcp-tunnel"]
+    assert all(check.status is CheckStatus.PASS for check in checks)
 
 
 def test_tunnel_check_requires_coherent_local_settings(tmp_path: Path) -> None:
@@ -194,3 +231,22 @@ def test_combined_checks_validate_configuration_once(tmp_path: Path) -> None:
         "mongo-ping",
     ]
     assert all(check.status is CheckStatus.PASS for check in checks)
+
+
+def test_combined_checks_keep_tunnel_result_when_mongo_credentials_are_missing(tmp_path: Path) -> None:
+    configuration = _live_configuration(tmp_path / "jump-key")
+    configuration.pop("MONGO_PASSWORD")
+
+    checks = run_service_checks(
+        ("mongo-config", "gcp-tunnel", "mongo-ping"),
+        configured=configuration,
+        socket_probe=lambda _host, _port, _timeout: True,
+    )
+
+    assert [check.name for check in checks] == [
+        "mongo-service-configuration",
+        "gcp-jump-key",
+        "gcp-tunnel",
+    ]
+    assert checks[0].status is CheckStatus.FAIL
+    assert checks[-1].status is CheckStatus.PASS
