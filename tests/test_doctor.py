@@ -224,3 +224,21 @@ def test_unreadable_dotenv_has_targeted_sanitized_failure(tmp_path: Path) -> Non
     assert "could not be read" in check.summary
     assert "file type and read permissions" in (check.remediation or "")
     assert secret not in repr(report)
+
+
+def test_non_utf8_dotenv_has_targeted_sanitized_failure(tmp_path: Path) -> None:
+    secret = "TOP-SECRET-SENTINEL"
+    (tmp_path / ".env").write_bytes(b"MONGO_PASSWORD=\xff" + secret.encode())
+
+    report = run_doctor(
+        project_root=tmp_path,
+        environ={},
+        runner=_healthy_runner(tmp_path / "pre-commit"),
+        finder=_all_commands,
+        python_version=(3, 13, 13),
+    )
+
+    check = next(check for check in report.checks if check.name == "unit-configuration")
+    assert check.status is CheckStatus.FAIL
+    assert "could not be read" in check.summary
+    assert secret not in repr(report)

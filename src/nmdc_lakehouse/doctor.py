@@ -210,7 +210,7 @@ def _read_dotenv(path: Path) -> tuple[dict[str, str], DotenvProblem | None]:
     malformed = False
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return {}, DotenvProblem.UNREADABLE
     for line in lines:
         stripped = line.strip()
