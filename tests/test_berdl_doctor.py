@@ -18,10 +18,17 @@ from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError
 class FakeRunner:
     """Return sanitized deterministic command results."""
 
-    def __init__(self, checkout: Path, *, python_version: str = "Python 3.13.13") -> None:
+    def __init__(
+        self,
+        checkout: Path,
+        *,
+        python_version: str = "Python 3.13.13",
+        mc_version: str = "mc version RELEASE.TEST",
+    ) -> None:
         self.checkout = checkout
         self.python = checkout / ".venv-berdl" / "bin" / "python"
         self.python_version = python_version
+        self.mc_version = mc_version
         self.missing_distributions: set[str] = set()
 
     def __call__(self, args: Sequence[str]) -> subprocess.CompletedProcess[str]:
@@ -34,7 +41,7 @@ class FakeRunner:
             returncode = int(command[-1] in self.missing_distributions)
             return subprocess.CompletedProcess(args, returncode, "", "TOP-SECRET-RAW-OUTPUT")
         if command == ("/tools/mc", "--version"):
-            return subprocess.CompletedProcess(args, 0, "mc version RELEASE.TEST", "")
+            return subprocess.CompletedProcess(args, 0, self.mc_version, "")
         return subprocess.CompletedProcess(args, 127, "", "TOP-SECRET-RAW-OUTPUT")
 
 
@@ -115,6 +122,22 @@ def test_invalid_snapshot_fails_without_disclosing_error(tmp_path: Path, monkeyp
     assert "TOP-SECRET-SENTINEL" not in repr(report)
 
 
+def test_snapshot_filesystem_error_fails_without_disclosing_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout = _checkout(tmp_path)
+
+    def reject(_root: Path) -> None:
+        raise OSError("TOP-SECRET-SENTINEL")
+
+    monkeypatch.setattr(berdl_doctor, "validate_snapshot", reject)
+    report = _run(tmp_path, checkout)
+
+    check = next(check for check in report.checks if check.name == "candidate-snapshot")
+    assert check.status is CheckStatus.FAIL
+    assert "TOP-SECRET-SENTINEL" not in repr(report)
+
+
 def test_missing_checkout_has_actionable_failures(tmp_path: Path) -> None:
     report = _run(tmp_path, None)
 
@@ -176,6 +199,21 @@ def test_missing_mc_and_configuration_names_fail_safely(tmp_path: Path) -> None:
     assert "BERDL_TABLE_FORMAT" in destination.summary
 
 
+def test_midnight_commander_does_not_satisfy_minio_client_check(tmp_path: Path) -> None:
+    checkout = _checkout(tmp_path)
+    report = run_berdl_doctor(
+        tmp_path / "snapshot",
+        project_root=tmp_path,
+        checkout=checkout,
+        environ=_configuration(),
+        runner=FakeRunner(checkout, mc_version="GNU Midnight Commander 4.8.33"),
+        finder=lambda _name: "/tools/mc",
+    )
+
+    check = next(check for check in report.checks if check.name == "mc")
+    assert check.status is CheckStatus.FAIL
+
+
 def test_proxy_check_is_explicit_bounded_and_non_mutating(tmp_path: Path) -> None:
     checkout = _checkout(tmp_path)
     probes: list[tuple[str, int, float]] = []
@@ -215,3 +253,31 @@ def test_checkout_dotenv_values_are_used_but_never_reported(tmp_path: Path) -> N
 
     assert next(check for check in report.checks if check.name == "kbase-auth-token").status is CheckStatus.PASS
     assert secret not in repr(report)
+
+
+def test_malformed_dotenv_ignores_partial_values_but_checks_environment(tmp_path: Path) -> None:
+    checkout = _checkout(tmp_path)
+    (checkout / ".env").write_text("MALFORMED\nKBASE_AUTH_TOKEN=IGNORED-SECRET\n", encoding="utf-8")
+    probes: list[tuple[str, int, float]] = []
+
+    def available(host: str, port: int, timeout: float) -> bool:
+        probes.append((host, port, timeout))
+        return True
+
+    report = run_berdl_doctor(
+        tmp_path / "snapshot",
+        project_root=tmp_path,
+        checkout=checkout,
+        environ=_configuration(BERDL_PROXY_HOST="localhost", BERDL_PROXY_PORT="9000"),
+        runner=FakeRunner(checkout),
+        finder=lambda _name: "/tools/mc",
+        service_checks=("berdl-proxy",),
+        socket_probe=available,
+        timeout=0.25,
+    )
+
+    assert next(check for check in report.checks if check.name == "berdl-configuration").status is CheckStatus.FAIL
+    assert next(check for check in report.checks if check.name == "kbase-auth-token").status is CheckStatus.PASS
+    assert next(check for check in report.checks if check.name == "berdl-destination").status is CheckStatus.PASS
+    assert probes == [("localhost", 9000, 0.25)]
+    assert "IGNORED-SECRET" not in repr(report)

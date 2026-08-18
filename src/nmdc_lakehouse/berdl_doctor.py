@@ -39,7 +39,7 @@ def _run_command(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
 def _snapshot_check(root: Path) -> DoctorCheck:
     try:
         manifest = validate_snapshot(root)
-    except SnapshotManifestError:
+    except (OSError, SnapshotManifestError):
         return DoctorCheck(
             name="candidate-snapshot",
             status=CheckStatus.FAIL,
@@ -178,7 +178,7 @@ def _mc_check(finder: CommandFinder, runner: CommandRunner) -> DoctorCheck:
             ),
         )
     completed = runner((executable, "--version"))
-    if completed.returncode != 0:
+    if completed.returncode != 0 or re.search(r"\bmc version RELEASE\.", completed.stdout) is None:
         return DoctorCheck(
             name="mc",
             status=CheckStatus.FAIL,
@@ -189,16 +189,19 @@ def _mc_check(finder: CommandFinder, runner: CommandRunner) -> DoctorCheck:
 
 
 def _configuration_checks(configured: Mapping[str, str], dotenv_problem: DotenvProblem | None) -> list[DoctorCheck]:
+    checks: list[DoctorCheck] = []
     if dotenv_problem is not None:
-        return [
+        checks.append(
             DoctorCheck(
                 name="berdl-configuration",
                 status=CheckStatus.FAIL,
-                summary="A relevant .env file is unreadable or malformed; no partial configuration was used.",
+                summary=(
+                    "A relevant .env file is unreadable or malformed; its values were ignored and the process "
+                    "environment was checked."
+                ),
                 remediation="Repair the local .env syntax without sharing or committing its values.",
             )
-        ]
-    checks: list[DoctorCheck] = []
+        )
     token_present = bool(configured.get("KBASE_AUTH_TOKEN", "").strip())
     checks.append(
         DoctorCheck(
@@ -298,7 +301,7 @@ def run_berdl_doctor(
         checkout_values, checkout_problem = _read_dotenv(checkout.expanduser() / ".env")
     project_values, project_problem = _read_dotenv(project_root / ".env")
     dotenv_problem = checkout_problem or project_problem
-    configured = {**checkout_values, **project_values, **environment} if dotenv_problem is None else {}
+    configured = {**checkout_values, **project_values, **environment} if dotenv_problem is None else environment
 
     checks = [_snapshot_check(snapshot_root), _checkout_check(checkout, runner)]
     checks.extend(_ingest_environment_checks(checkout, runner))

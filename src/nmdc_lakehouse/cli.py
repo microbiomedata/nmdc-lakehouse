@@ -205,6 +205,8 @@ def publication_plan_schema_command(document: str) -> None:
 
     selected = cast(Literal["inventory", "policy", "plan"], document)
     click.echo(json.dumps(publication_json_schema(selected), indent=2, sort_keys=True))
+
+
 @cli.command("berdl-doctor")
 @click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
 @click.option(
@@ -241,6 +243,8 @@ def berdl_doctor(
         if check.remediation:
             click.echo(f"       remedy: {check.remediation}")
     context.exit(report.exit_code)
+
+
 @cli.command("run-job")
 @click.argument("job_name")
 @click.option("--dry-run", is_flag=True, help="Plan the job but do not write output.")
