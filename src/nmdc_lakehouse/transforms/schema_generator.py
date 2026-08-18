@@ -145,12 +145,14 @@ def flatten_database_schema(
             "for every schema-specified collection. Generated; do not edit by hand."
         ),
         annotations={
-            "source_schema_id": source_schema_id,
-            "source_schema_version": source_schema_version,
-            "source_package_version": source_package_version or source_schema_version,
-            "schema_generator": SCHEMA_GENERATOR_ID,
-            "primary_mapping": PRIMARY_MAPPING_ID,
-            "side_table_mapping": SIDE_TABLE_MAPPING_ID,
+            "source_schema_id": Annotation(tag="source_schema_id", value=source_schema_id),
+            "source_schema_version": Annotation(tag="source_schema_version", value=source_schema_version),
+            "source_package_version": Annotation(
+                tag="source_package_version", value=source_package_version or source_schema_version
+            ),
+            "schema_generator": Annotation(tag="schema_generator", value=SCHEMA_GENERATOR_ID),
+            "primary_mapping": Annotation(tag="primary_mapping", value=PRIMARY_MAPPING_ID),
+            "side_table_mapping": Annotation(tag="side_table_mapping", value=SIDE_TABLE_MAPPING_ID),
         },
         prefixes=deepcopy(schema_view.schema.prefixes)
         or {

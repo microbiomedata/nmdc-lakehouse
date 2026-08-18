@@ -56,9 +56,9 @@ The canonical logical target is
 It is generated from the locked NMDC `Database` model and contains every
 primary projection plus every possible junction and inlined-child side-table
 class. Schema and class annotations record source, table, and mapping
-identities. Regenerate it with `just generate-flat-schema`; `just
-check-flat-schema` fails when the committed artifact drifts from the installed
-locked source and generator.
+identities. Regenerate it with `just generate-flat-schema`;
+`just check-flat-schema` fails when the committed artifact drifts from the
+installed locked source and generator.
 
 The target copies source enum, type, and prefix definitions needed by retained
 slot ranges, making it standalone rather than dependent on an undeclared NMDC
