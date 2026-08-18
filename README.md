@@ -167,10 +167,11 @@ operational-command inventory.
 
 ### Coverage policy
 
-The initial package floor is 71.462%. On 2026-08-17, Python 3.13 at parent
-commit `ada7f3f` covered 606 of 848 statements (71.462%). The two live-MongoDB
-integration tests remained explicitly skipped. Raise `fail_under` in
-`pyproject.toml` as focused tests improve coverage; do not lower it to merge a
+The enforced package floor is 75%. It was raised on 2026-08-18 after the
+Python 3.13 suite exceeded 76% coverage. The initial ratchet was 71.462%:
+parent commit `ada7f3f` covered 606 of 848 statements on 2026-08-17. The two
+live-MongoDB integration tests remain explicitly skipped. Raise `fail_under`
+as focused tests improve coverage; do not lower it merely to merge a
 regression.
 
 ## License
