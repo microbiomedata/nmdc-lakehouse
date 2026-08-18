@@ -47,13 +47,19 @@ identifiers.
 | Target LinkML projection | Complete logical table topology, including side tables | Generated and published by [#110](https://github.com/microbiomedata/nmdc-lakehouse/issues/110) |
 | Portable Parquet metadata | Table and field descriptions plus stable schema identifiers in Parquet footers | [#202](https://github.com/microbiomedata/nmdc-lakehouse/issues/202) |
 | Metadata content bundle | Reviewable namespace, table, and column descriptions and reviewed overrides | [#120](https://github.com/microbiomedata/nmdc-lakehouse/issues/120) |
-| Snapshot manifest | Completeness, checksums, row counts, schema and software provenance, and source identity | [#133](https://github.com/microbiomedata/nmdc-lakehouse/issues/133) and [#135](https://github.com/microbiomedata/nmdc-lakehouse/issues/135) |
+| Snapshot manifest | Completeness, checksums, row counts, schema and software provenance, and source identity | [#206](https://github.com/microbiomedata/nmdc-lakehouse/issues/206) |
 | Destination metadata | Namespace or dataset properties and table or column comments when supported | Applied idempotently through [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114) |
 | Registry record | Dataset ownership, access, update policy, keywords, and documentation links | Projection defined by [#52](https://github.com/microbiomedata/nmdc-lakehouse/issues/52) |
 
 The structured ETL metrics JSON records performance and resource use. It is not a
 snapshot manifest because it does not currently contain file checksums, a complete
 logical schema artifact, or publication lineage.
+
+Code releases, schemas, snapshots, metadata content, and destination publications
+have separate linked identities. The package version and Git commit identify the
+producer; schema and mapping identifiers identify the contracts; `snapshot_id`
+identifies immutable portable content. Later metadata bundles and destination
+publication records reference that snapshot rather than changing its identity.
 
 ## Description precedence
 

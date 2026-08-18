@@ -101,6 +101,58 @@ def clean_parquet(root: Path | None, delete: bool) -> None:
             click.echo("Rerun with --delete to remove exactly these files.")
 
 
+@cli.command("create-snapshot-manifest")
+@click.argument("root", type=click.Path(path_type=Path, file_okay=False))
+@click.option(
+    "--metrics",
+    "metrics_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    required=True,
+    help="Successful all-collections metrics JSON inside ROOT.",
+)
+@click.option(
+    "--source-label",
+    required=True,
+    envvar="LAKEHOUSE_SOURCE_LABEL",
+    help="Sanitized logical source environment, such as nmdc-production.",
+)
+def create_snapshot_manifest(root: Path, metrics_path: Path, source_label: str) -> None:
+    """Create the completion manifest for one successful full snapshot."""
+    from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError, build_manifest, write_manifest
+
+    try:
+        manifest = build_manifest(root, metrics_path, source_label)
+        destination = write_manifest(root, manifest)
+    except SnapshotManifestError as error:
+        raise click.ClickException(str(error)) from error
+    click.echo(f"snapshot_id={manifest.snapshot_id}")
+    click.echo(f"artifacts={len(manifest.artifacts)}")
+    click.echo(f"manifest={destination}")
+
+
+@cli.command("validate-snapshot")
+@click.argument("root", type=click.Path(path_type=Path, file_okay=False))
+def validate_snapshot_command(root: Path) -> None:
+    """Validate a manifested snapshot entirely offline."""
+    from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError, validate_snapshot
+
+    try:
+        manifest = validate_snapshot(root)
+    except SnapshotManifestError as error:
+        raise click.ClickException(str(error)) from error
+    click.echo(f"Validated {manifest.snapshot_id}: {len(manifest.artifacts)} Parquet artifact(s).")
+
+
+@cli.command("snapshot-manifest-schema")
+def snapshot_manifest_schema_command() -> None:
+    """Print the current snapshot-manifest JSON Schema."""
+    import json
+
+    from nmdc_lakehouse.snapshot_manifest import manifest_json_schema
+
+    click.echo(json.dumps(manifest_json_schema(), indent=2, sort_keys=True))
+
+
 @cli.command("run-job")
 @click.argument("job_name")
 @click.option("--dry-run", is_flag=True, help="Plan the job but do not write output.")

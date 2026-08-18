@@ -31,6 +31,7 @@ _RANGE_TO_ARROW: dict[str, pa.DataType] = {
 }
 
 _METADATA_PREFIX = "nmdc_lakehouse."
+FOOTER_METADATA_FORMAT_VERSION = "1"
 
 
 def _encoded_metadata(values: dict[str, str | None]) -> dict[bytes, bytes]:
@@ -85,6 +86,7 @@ def class_def_to_arrow_schema(
         fields.append(pa.field(name, arrow_type, nullable=True, metadata=field_metadata))
     schema_metadata = _encoded_metadata(
         {
+            "footer_metadata_format_version": FOOTER_METADATA_FORMAT_VERSION,
             "table_description": class_def.description,
             "source_schema_id": source_schema.id if source_schema else None,
             "source_schema_version": source_schema.version if source_schema else None,

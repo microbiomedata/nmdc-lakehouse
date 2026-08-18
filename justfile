@@ -146,14 +146,13 @@ run-job JOB *ARGS:
 # Convert all schema collections except functional_annotation_agg to Parquet (~5 min).
 # Requires the GCP SSH tunnel to be open — see docs/mongodb-connection.md.
 # Defaults Parquet to local/mongodb-metadata-<timestamp> unless LAKEHOUSE_ROOT is set.
-# Writes a matching local/etl-collections-<timestamp>.log and .json metrics file.
+# Writes a matching local log plus metrics and a manifest inside the snapshot.
 etl-collections:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p local
     timestamp="$(date +%Y%m%d_%H%M%S)"
     log="local/etl-collections-${timestamp}.log"
-    metrics="local/etl-collections-${timestamp}.json"
     if [[ -z "${LAKEHOUSE_ROOT:-}" ]]; then
       LAKEHOUSE_ROOT="local/mongodb-metadata-${timestamp}"
       if [[ -e "$LAKEHOUSE_ROOT" ]]; then
@@ -162,11 +161,17 @@ etl-collections:
       fi
     fi
     export LAKEHOUSE_ROOT
+    metrics="$LAKEHOUSE_ROOT/etl-metrics.json"
+    source_label="${LAKEHOUSE_SOURCE_LABEL:-nmdc-production}"
     echo "Writing Parquet to $LAKEHOUSE_ROOT"
     echo "Logging to $log"
     echo "Writing metrics to $metrics"
+    echo "Recording validated source identity in the snapshot manifest"
     time uv run nmdc-lakehouse run-job all-collections \
       --skip functional_annotation_agg --metrics "$metrics" 2>&1 | tee "$log"
+    uv run nmdc-lakehouse create-snapshot-manifest "$LAKEHOUSE_ROOT" \
+      --metrics "$metrics" --source-label "$source_label"
+    uv run nmdc-lakehouse validate-snapshot "$LAKEHOUSE_ROOT"
 
 # Convert functional_annotation_agg to Parquet via direct pymongo (~17 min, 54.8M records).
 # Requires the GCP SSH tunnel to be open — see docs/mongodb-connection.md.

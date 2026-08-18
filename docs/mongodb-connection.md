@@ -226,10 +226,10 @@ just etl-collections
 
 One timestamp associates its default Parquet directory,
 `local/mongodb-metadata-<timestamp>`, with
-`local/etl-collections-<timestamp>.log` and
-`local/etl-collections-<timestamp>.json`. The recipe displays all three paths
-before extraction and refuses to reuse its default output path. `local/` is
-ignored by Git.
+`local/etl-collections-<timestamp>.log`. The snapshot directory contains
+`etl-metrics.json` and, only after successful extraction and offline validation,
+`snapshot-manifest.json`. The recipe displays the paths before extraction and
+refuses to reuse its default output path. `local/` is ignored by Git.
 
 Set `LAKEHOUSE_ROOT` to use an intentional alternative directory. An explicit
 value remains authoritative:
@@ -259,15 +259,20 @@ timestamp="$(date +%Y%m%d_%H%M%S)"
 export LAKEHOUSE_ROOT="./local/mongodb-metadata-${timestamp}"
 uv run nmdc-lakehouse run-job all-collections \
     --skip functional_annotation_agg \
-    --metrics "local/etl-collections-${timestamp}.json" \
+    --metrics "$LAKEHOUSE_ROOT/etl-metrics.json" \
     2>&1 | tee "local/etl-collections-${timestamp}.log"
+uv run nmdc-lakehouse create-snapshot-manifest "$LAKEHOUSE_ROOT" \
+    --metrics "$LAKEHOUSE_ROOT/etl-metrics.json" \
+    --source-label nmdc-production
+uv run nmdc-lakehouse validate-snapshot "$LAKEHOUSE_ROOT"
 ```
 
 The JSON contains whole-run and per-collection wall time, rows, effective
 rates, the resolved output root, and each generated file's row count and byte
-size. It also labels the record with the NMDC schema version, Python version,
-platform, skipped collections, and start and finish times. It distinguishes a
-dry run from a writing run. A failed run writes `status: failed` and the
+size. It also labels the record with the `nmdc-lakehouse` and NMDC schema
+versions, Python version, platform, skipped collections, and start and finish
+times. It distinguishes a dry run from a writing run. A failed run writes
+`status: failed` and the
 exception type without the exception message, so a partial output set is not
 reported as successful.
 
@@ -276,6 +281,46 @@ normalized to bytes from the operating system's `resource` interface. It is
 not current memory and does not include MongoDB, the SSH process, or other
 system services. Compare rates and memory only between records whose platform
 and environment are reasonably similar.
+
+### Snapshot manifest
+
+`snapshot-manifest.json` is the immutable completion marker for one portable
+full snapshot. Manifest format version 1 records:
+
+- a content-derived `snapshot_id`, full-snapshot scope, included and explicitly
+  skipped collections, source label, completion time, and a reserved null
+  `parent_snapshot_id`;
+- every owned Parquet path, table, footer row count, byte size, SHA-256 checksum,
+  physical-schema fingerprint, and footer-schema fingerprint;
+- source and target schema identifiers, source schema version, source and target
+  classes, mapping identities, and footer metadata contract version;
+- `nmdc-lakehouse`, `nmdc-schema`, Python, Git commit, and checkout-dirty
+  provenance when available; and
+- the relative path and checksum of `etl-metrics.json` without duplicating its
+  timing and resource measurements.
+
+The manifest command rejects failed or dry-run metrics, metrics from another
+directory or software environment, incomplete collection disposition, stale or
+extra files, symlinks, and Parquet files without the current footer contract. It
+writes the manifest atomically and refuses to replace an existing completion
+marker. Validate a snapshot again before upload:
+
+```bash
+uv run nmdc-lakehouse validate-snapshot "$LAKEHOUSE_ROOT"
+```
+
+Consumers can obtain the machine-readable JSON Schema for the current manifest
+format without connecting to a service:
+
+```bash
+uv run nmdc-lakehouse snapshot-manifest-schema
+```
+
+Validation requires no MongoDB, tunnel, object store, or destination catalog. It
+recomputes the snapshot identity, checksums, footer counts, schema fingerprints,
+and the exact owned file set. Parquet files and manifests remain immutable;
+`parent_snapshot_id` reserves a future lineage link but does not implement the
+patch semantics tracked in [#147](https://github.com/microbiomedata/nmdc-lakehouse/issues/147).
 
 ### Portable Parquet schema metadata
 
@@ -289,6 +334,7 @@ Table-level keys use the `nmdc_lakehouse.` prefix:
 
 | Key | Meaning |
 | --- | --- |
+| `footer_metadata_format_version` | Version of the `nmdc_lakehouse.*` footer-key contract. |
 | `table_description` | Generated target-table description. Primary tables include the root class description when one exists; inlined-child tables include the child class description; reference junction tables describe the source relationship. |
 | `source_schema_id` | LinkML identifier of the source NMDC schema. |
 | `source_schema_version` | Version declared by the source NMDC schema. |
@@ -314,8 +360,11 @@ the reviewable description and override content tracked in
 catalog comments tracked in
 [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114). Run-level
 facts such as snapshot identity, source database identity, checksums, package
-versions, and Git revision belong in the snapshot manifest tracked in
-[#135](https://github.com/microbiomedata/nmdc-lakehouse/issues/135). The
+versions, Git revision, and checkout-dirty state belong in
+`snapshot-manifest.json`. The manifest is
+the completion marker for a portable snapshot: it inventories every owned file,
+links `etl-metrics.json`, and can be checked without MongoDB or a destination.
+The
 source-to-target contract for experimental-result converters remains separate
 under [#146](https://github.com/microbiomedata/nmdc-lakehouse/issues/146).
 Footer metadata is structural only. It never includes credentials, connection

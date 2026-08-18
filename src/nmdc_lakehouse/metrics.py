@@ -64,6 +64,7 @@ def _environment_record() -> dict[str, Any]:
     return {
         "platform": platform.platform(),
         "python_version": platform.python_version(),
+        "nmdc_lakehouse_version": _package_version("nmdc-lakehouse"),
         "nmdc_schema_version": _package_version("nmdc-schema"),
         "peak_rss_bytes": peak,
         "peak_rss_unit": "bytes" if peak is not None else None,
