@@ -48,7 +48,7 @@ _shellcheck-recipe RECIPE:
 # Check the pinned ShellCheck and every maintained shell source.
 shellcheck:
     @version="$(uv run shellcheck --version | sed -n 's/^version: //p')"; test "$version" = "0.11.0" || { echo "Expected ShellCheck 0.11.0, found $version" >&2; exit 1; }
-    @! printf '#!/usr/bin/env bash\necho $unquoted\n' | uv run shellcheck --shell=bash - >/dev/null
+    @if output="$(printf '#!/usr/bin/env bash\necho $unquoted\n' | uv run shellcheck --shell=bash - 2>&1)"; then echo "ShellCheck negative control unexpectedly passed" >&2; exit 1; fi; printf '%s\n' "$output" | grep -q 'SC2086'
     @just _shellcheck-recipe etl-collections
     @just _shellcheck-recipe etl-annotations
     @just _shellcheck-recipe etl-annotations-linkml
