@@ -1,7 +1,7 @@
 # nmdc-lakehouse justfile
 # Run `just` (no args) for the list of available recipes.
 
-set dotenv-load := true
+set dotenv-load
 
 # ---------- Meta ----------
 
@@ -29,6 +29,10 @@ clean:
     find . -type d -name __pycache__ -exec rm -rf {} +
 
 # ---------- Quality ----------
+
+# Check the justfile with the canonical formatter used in CI.
+lint-just:
+    just --fmt --check
 
 # Run all linters & formatters in check mode.
 # scripts/python is in scope (see .pre-commit-config.yaml); scripts/*.py
@@ -67,7 +71,7 @@ nmdc_jump_key := env_var_or_default("NMDC_JUMP_KEY", "~/.ssh/jump-dev.microbiome
 # Open the GCP SSH tunnel — leave this terminal open while running ETL jobs.
 # Override the key path with NMDC_JUMP_KEY if needed.
 tunnel:
-    ssh -i {{nmdc_jump_key}} \
+    ssh -i {{ nmdc_jump_key }} \
         -o IdentitiesOnly=yes \
         -L 27124:runtime-api-mongodb-headless.nmdc-prod.svc.cluster.local:27017 \
         -o ServerAliveInterval=60 \
@@ -77,11 +81,11 @@ tunnel:
 
 # Show CLI help.
 cli *ARGS:
-    uv run nmdc-lakehouse {{ARGS}}
+    uv run nmdc-lakehouse {{ ARGS }}
 
 # Run a named ETL job.
 run-job JOB *ARGS:
-    uv run nmdc-lakehouse run-job {{JOB}} {{ARGS}}
+    uv run nmdc-lakehouse run-job {{ JOB }} {{ ARGS }}
 
 # Convert all schema collections except functional_annotation_agg to Parquet (~5 min).
 # Requires the GCP SSH tunnel to be open — see docs/mongodb-connection.md.
@@ -122,16 +126,16 @@ lakehouse_root := env_var_or_default("LAKEHOUSE_ROOT", "./lakehouse")
 
 # Delete zero-row Parquet files under LAKEHOUSE_ROOT (e.g. empty collections).
 drop-empty-parquet:
-    uv run python scripts/python/drop_empty_parquet.py "{{lakehouse_root}}"
+    uv run python scripts/python/drop_empty_parquet.py "{{ lakehouse_root }}"
 
 # Delete every generated Parquet file under LAKEHOUSE_ROOT.
 clean-parquet:
     #!/usr/bin/env bash
     set -euo pipefail
-    target="$(realpath -m "{{lakehouse_root}}")"
+    target="$(realpath -m "{{ lakehouse_root }}")"
     repo_root="$(pwd -P)"
     case "$target" in
-        ""|"/") echo "Refusing to delete unsafe LAKEHOUSE_ROOT: '{{lakehouse_root}}'" >&2; exit 1 ;;
+        ""|"/") echo "Refusing to delete unsafe LAKEHOUSE_ROOT: '{{ lakehouse_root }}'" >&2; exit 1 ;;
     esac
     case "$target" in
         "$repo_root"/*) ;;
@@ -155,26 +159,26 @@ docs-build:
 build:
     uv build
 
-# Run the full pre-commit gauntlet.
-check: lint typecheck test
+# Run the deterministic local quality checks.
+check: lint-just lint typecheck test
 
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
 # See scripts/README.md for details. These recipes shell out to utilities under
 # scripts/ and depend on a local MongoDB containing the NMDC collections.
 
-mongo_uri                   := env_var_or_default("MONGO_URI", "mongodb://localhost:27017/nmdc")
-nmdc_export_dir             := env_var_or_default("NMDC_EXPORT_DIR", "./local/nmdc_export")
-nmdc_parquet_dir            := env_var_or_default("NMDC_PARQUET_DIR", nmdc_export_dir + "/parquet")
-nmdc_csv_dir                := env_var_or_default("NMDC_CSV_DIR", nmdc_export_dir + "/csv")
-nmdc_duckdb_file            := env_var_or_default("NMDC_DUCKDB_FILE", nmdc_export_dir + "/nmdc_flattened.duckdb")
-nmdc_biosample_csv          := env_var_or_default("NMDC_BIOSAMPLE_CSV", nmdc_csv_dir + "/flattened_biosample.csv")
-nmdc_biosample_fields_file  := env_var_or_default("NMDC_BIOSAMPLE_FIELDS_FILE", nmdc_csv_dir + "/flattened_biosample.fields")
+mongo_uri := env_var_or_default("MONGO_URI", "mongodb://localhost:27017/nmdc")
+nmdc_export_dir := env_var_or_default("NMDC_EXPORT_DIR", "./local/nmdc_export")
+nmdc_parquet_dir := env_var_or_default("NMDC_PARQUET_DIR", nmdc_export_dir + "/parquet")
+nmdc_csv_dir := env_var_or_default("NMDC_CSV_DIR", nmdc_export_dir + "/csv")
+nmdc_duckdb_file := env_var_or_default("NMDC_DUCKDB_FILE", nmdc_export_dir + "/nmdc_flattened.duckdb")
+nmdc_biosample_csv := env_var_or_default("NMDC_BIOSAMPLE_CSV", nmdc_csv_dir + "/flattened_biosample.csv")
+nmdc_biosample_fields_file := env_var_or_default("NMDC_BIOSAMPLE_FIELDS_FILE", nmdc_csv_dir + "/flattened_biosample.fields")
 
 nmdc_flattened_collections := "flattened_biosample flattened_biosample_chem_administration flattened_biosample_field_counts flattened_study flattened_study_associated_dois flattened_study_has_credit_associations"
 
 # Flatten NMDC MongoDB collections (biosample, study + nested extractions) in place.
 flatten-nmdc:
-    uv run python scripts/flatten_nmdc_collections.py --mongo-uri "{{mongo_uri}}"
+    uv run python scripts/flatten_nmdc_collections.py --mongo-uri "{{ mongo_uri }}"
 
 # Flatten against an auth-required MongoDB; reads creds from local/.env.ncbi-loadbalancer.27778.
 flatten-nmdc-auth:
@@ -188,29 +192,29 @@ flatten-nmdc-auth:
 export-flattened-biosample-csv:
     #!/usr/bin/env bash
     set -euo pipefail
-    mkdir -p "{{nmdc_csv_dir}}"
+    mkdir -p "{{ nmdc_csv_dir }}"
     echo "Building full field list from flattened_biosample_field_counts..."
-    mongosh "{{mongo_uri}}" --quiet \
+    mongosh "{{ mongo_uri }}" --quiet \
       --eval 'db.flattened_biosample_field_counts.distinct("field").sort().join("\n")' \
-      > "{{nmdc_biosample_fields_file}}"
+      > "{{ nmdc_biosample_fields_file }}"
     echo "Exporting flattened_biosample to CSV..."
-    mongoexport --uri="{{mongo_uri}}" \
+    mongoexport --uri="{{ mongo_uri }}" \
       --collection="flattened_biosample" \
       --type=csv \
-      --fieldFile="{{nmdc_biosample_fields_file}}" \
-      --out="{{nmdc_biosample_csv}}"
-    echo "Exported to {{nmdc_biosample_csv}}"
+      --fieldFile="{{ nmdc_biosample_fields_file }}" \
+      --out="{{ nmdc_biosample_csv }}"
+    echo "Exported to {{ nmdc_biosample_csv }}"
 
 # Export all flattened_* collections to a single DuckDB file via mongoexport JSON + read_json.
 export-nmdc-duckdb:
     #!/usr/bin/env bash
     set -euo pipefail
-    mkdir -p "{{nmdc_export_dir}}"
+    mkdir -p "{{ nmdc_export_dir }}"
     echo "=== NMDC Flattened Collections to DuckDB ==="
-    for collection in {{nmdc_flattened_collections}}; do
+    for collection in {{ nmdc_flattened_collections }}; do
       echo "Processing $collection..."
-      json_file="{{nmdc_export_dir}}/$collection.json"
-      mongoexport --uri="{{mongo_uri}}" \
+      json_file="{{ nmdc_export_dir }}/$collection.json"
+      mongoexport --uri="{{ mongo_uri }}" \
         --collection="$collection" \
         --type=json \
         --out="$json_file" 2>&1 | grep -v "connected to" || true
@@ -218,16 +222,16 @@ export-nmdc-duckdb:
         echo "  FAILED: mongoexport produced no output for $collection"
         continue
       fi
-      duckdb "{{nmdc_duckdb_file}}" -c \
+      duckdb "{{ nmdc_duckdb_file }}" -c \
         "CREATE OR REPLACE TABLE $collection AS SELECT * EXCLUDE (_id) FROM read_json('$json_file', auto_detect=true, union_by_name=true, dateformat='DISABLED', timestampformat='DISABLED');"
       echo "  $collection loaded"
       rm -f "$json_file"
     done
-    echo "=== DuckDB export complete: {{nmdc_duckdb_file}} ==="
+    echo "=== DuckDB export complete: {{ nmdc_duckdb_file }} ==="
 
 # Export DuckDB tables to individual Parquet files for lakehouse ingestion.
 export-nmdc-parquet: export-nmdc-duckdb
-    uv run python scripts/export_duckdb_to_parquet.py "{{nmdc_duckdb_file}}" --output-dir "{{nmdc_parquet_dir}}"
+    uv run python scripts/export_duckdb_to_parquet.py "{{ nmdc_duckdb_file }}" --output-dir "{{ nmdc_parquet_dir }}"
 
 # Full pipeline: flatten in Mongo -> DuckDB -> Parquet -> biosample CSV.
 # Generate the flattened LinkML schema (one class per Database slot).
@@ -238,6 +242,6 @@ generate-flat-schema:
 flatten-and-export-nmdc: flatten-nmdc export-nmdc-parquet export-flattened-biosample-csv
     @echo ""
     @echo "=== NMDC flatten and export complete ==="
-    @echo "DuckDB:   {{nmdc_duckdb_file}}"
-    @echo "Parquet:  {{nmdc_parquet_dir}}"
-    @echo "CSV:      {{nmdc_biosample_csv}}"
+    @echo "DuckDB:   {{ nmdc_duckdb_file }}"
+    @echo "Parquet:  {{ nmdc_parquet_dir }}"
+    @echo "CSV:      {{ nmdc_biosample_csv }}"

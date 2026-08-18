@@ -47,3 +47,13 @@ repos:
           - types-PyYAML
         args: [src]
         pass_filenames: false
+
+  # `just` is a system prerequisite; CI and README pin the canonical formatter.
+  - repo: local
+    hooks:
+      - id: just-fmt
+        name: justfile canonical format
+        entry: just lint-just
+        language: system
+        files: ^justfile$
+        pass_filenames: false
