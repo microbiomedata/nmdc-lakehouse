@@ -137,10 +137,18 @@ operational-command inventory.
 | `just format`       | ruff format + auto-fix                           |
 | `just typecheck`    | `mypy src`                                       |
 | `just test`         | pytest                                           |
-| `just test-cov`     | pytest with coverage                             |
+| `just test-cov`     | pytest with the configured floor and coverage XML|
 | `just build`        | Build sdist + wheel via `uv build`               |
 | `just docs-build`   | Build the MkDocs site (requires `install-all`)   |
 | `just check`        | just, prose, shell, workflow, Python, type, tests  |
+
+### Coverage policy
+
+The initial package floor is 71.462%. On 2026-08-17, Python 3.13 at parent
+commit `ada7f3f` covered 606 of 848 statements (71.462%). The two live-MongoDB
+integration tests remained explicitly skipped. Raise `fail_under` in
+`pyproject.toml` as focused tests improve coverage; do not lower it to merge a
+regression.
 
 ## License
 

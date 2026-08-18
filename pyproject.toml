@@ -116,6 +116,11 @@ markers = [
     "slow: long running tests",
 ]
 
+[tool.coverage.report]
+fail_under = 71.462
+precision = 3
+show_missing = true
+
 [tool.mypy]
 python_version = "3.13"
 warn_unused_ignores = true
