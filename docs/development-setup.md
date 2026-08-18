@@ -69,7 +69,7 @@ Neither bootstrap nor unit tests require `.env`, credentials, a database, or a
 tunnel.
 
 If Git already has `core.hooksPath` configured, bootstrap preserves that
-host-wide policy rather than replacing its hooks. In that case it prints the
+hooks-path policy rather than replacing its hooks. In that case it prints the
 explicit repository-hook command, `uv run pre-commit run --all-files`. Without
 a custom hooks path, bootstrap installs the repository pre-commit hook normally.
 

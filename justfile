@@ -17,7 +17,7 @@ bootstrap: install-all
     uv run nmdc-lakehouse --help > /dev/null
     @echo "Bootstrap complete. Next: just test, just check, or just cli --help"
 
-# Preserve an existing host-wide Git hook policy instead of replacing it.
+# Preserve an existing configured Git hooks-path policy instead of replacing it.
 [private]
 _install-pre-commit-hook:
     #!/usr/bin/env bash

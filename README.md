@@ -82,7 +82,7 @@ just cli --help
 `just bootstrap` synchronizes the locked development and documentation
 dependencies, installs the repository pre-commit hook when Git uses its default
 hooks directory, and performs a credential-free CLI smoke test. If
-`core.hooksPath` is already set, bootstrap preserves that host-wide policy and
+`core.hooksPath` is already set, bootstrap preserves that configured hooks-path policy and
 prints the explicit repository-hook command instead. It is safe to run
 repeatedly. It never installs host tools, copies credentials, opens tunnels, or
 starts services.
