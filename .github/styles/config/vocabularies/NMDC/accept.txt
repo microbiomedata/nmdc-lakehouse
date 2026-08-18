@@ -135,4 +135,5 @@ varchar
 workflow_run
 Zizmor
 dotenv
+enum
 stdout

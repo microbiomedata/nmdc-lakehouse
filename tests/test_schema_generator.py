@@ -11,6 +11,8 @@ from linkml_runtime import SchemaView
 
 from nmdc_lakehouse.transforms.flatteners import side_table_rows
 from nmdc_lakehouse.transforms.schema_generator import (
+    PRIMARY_MAPPING_ID,
+    SIDE_TABLE_MAPPING_ID,
     flatten_class_def,
     flatten_database_schema,
     side_table_class_defs,
@@ -63,6 +65,7 @@ classes:
   Record:
     attributes:
       id:
+        identifier: true
         required: true
       name:
       depth:
@@ -158,14 +161,11 @@ def test_flat_class_carries_designates_type(sv):
     assert flat.attributes["type"].designates_type is True
 
 
-def test_flat_class_carries_identifier_through_nested_expansion(sv):
-    """A nested identifier slot (Term.id) survives two-level expansion.
-
-    `env_broad_scale_term_id` is derived from `Term.id`, which has
-    `identifier: true` — that flag should carry onto the flat column too.
-    """
+def test_flat_class_does_not_promote_nested_identifier(sv):
+    """An embedded object's identifier does not become the parent identifier."""
     flat = flatten_class_def(sv, "Record")
-    assert flat.attributes["env_broad_scale_term_id"].identifier is True
+    assert flat.attributes["id"].identifier is True
+    assert flat.attributes["env_broad_scale_term_id"].identifier is not True
 
 
 def test_flat_class_unions_subclass_slots(sv):
@@ -185,11 +185,18 @@ def test_flat_class_subclass_slots_carry_dispatch_note(sv):
     assert "Pooling" in desc
 
 
-def test_flatten_database_schema_yields_one_class_per_collection(sv):
-    """Walking Database produces one flat class per multivalued slot."""
-    out = flatten_database_schema(sv, database_class="Database")
+def test_flatten_database_schema_yields_primary_and_side_table_classes(sv):
+    """Walking Database produces complete primary and side-table topology."""
+    out = flatten_database_schema(sv, database_class="Database", source_package_version="1.2.3")
     assert "RecordFlat" in out.classes
     assert "ProcessFlat" in out.classes
+    assert "record_set_associated_studies" in out.classes
+    assert "record_set_chem_admin" in out.classes
+    assert out.annotations["source_schema_id"].value == "https://example.org/test"
+    assert out.annotations["source_package_version"].value == "1.2.3"
+    assert out.classes["RecordFlat"].annotations["table_name"].value == "record_set"
+    assert out.classes["RecordFlat"].annotations["mapping"].value == PRIMARY_MAPPING_ID
+    assert out.classes["record_set_chem_admin"].annotations["mapping"].value == SIDE_TABLE_MAPPING_ID
 
 
 # Note: a generator/runtime consistency test ("every column flatten_record
