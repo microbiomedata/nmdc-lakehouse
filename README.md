@@ -123,6 +123,7 @@ Common tasks are exposed via `just`:
 | `just lock`         | Refresh `uv.lock`                                |
 | `just lint-just`    | Check canonical justfile syntax and formatting   |
 | `just prose-lint`   | Spell-check maintained Markdown with Vale        |
+| `just shellcheck`   | Lint safely rendered Bash recipes                 |
 | `just lint`         | ruff check + format check                        |
 | `just format`       | ruff format + auto-fix                           |
 | `just typecheck`    | `mypy src`                                       |
@@ -130,7 +131,7 @@ Common tasks are exposed via `just`:
 | `just test-cov`     | pytest with coverage                             |
 | `just build`        | Build sdist + wheel via `uv build`               |
 | `just docs-build`   | Build the MkDocs site (requires `install-all`)   |
-| `just check`        | formatting + prose + code + types + tests        |
+| `just check`        | formatting + prose + shell + code + types + tests |
 
 ## License
 

@@ -63,3 +63,9 @@ repos:
         language: system
         files: ^(README\.md|docs/.*\.md|scripts/README\.md|notebooks/.*\.md)$
         pass_filenames: false
+      - id: shellcheck
+        name: lint rendered Bash recipes with ShellCheck
+        entry: just shellcheck
+        language: system
+        files: ^(justfile|.*\.sh)$
+        pass_filenames: false
