@@ -12,10 +12,12 @@ keywords = ["nmdc", "linkml", "linkml-store", "etl", "lakehouse", "parquet", "ic
 
 dependencies = [
     # Core LinkML data access
-    # [all] brings in LinkML transitively. Explicit matching floors for the
-    # generator and runtime keep their APIs aligned and avoid known
-    # version-skew breakage (see linkml/linkml#3241 and linkml/linkml#3183).
-    "linkml-store[all]>=0.3.2",
+    # The maintained adapter uses linkml-store's base MongoDB support; the
+    # `all` extra also installs unrelated analytics, graph, and LLM backends.
+    # Explicit matching floors for the generator and runtime keep their APIs
+    # aligned and avoid known version-skew breakage (see linkml/linkml#3241 and
+    # linkml/linkml#3183).
+    "linkml-store>=0.3.2",
     "linkml>=1.11.1",
     "linkml-runtime>=1.11.1",
     "nmdc-schema",
