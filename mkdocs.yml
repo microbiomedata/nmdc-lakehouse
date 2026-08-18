@@ -5,6 +5,7 @@ theme:
   name: material
 nav:
   - Home: index.md
+  - Development setup: development-setup.md
   - Architecture: architecture.md
   - Operations:
       - MongoDB connection: mongodb-connection.md

@@ -76,8 +76,10 @@ packages = ["src/nmdc_lakehouse"]
 # uv
 # ---------------------------------------------------------------------------
 [tool.uv]
-# Dev dependencies managed via the `dev` extra above so `uv sync --extra dev`
-# is sufficient. Keep this block for future uv-specific settings.
+# uv enforces this requirement itself at runtime and exits when it is unmet.
+required-version = ">=0.12.3"
+# Dev dependencies are managed through the `dev` extra above. Ordinary setup
+# uses `uv sync --locked --extra dev`; lock refreshes remain explicit.
 
 # ---------------------------------------------------------------------------
 # Tooling

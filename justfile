@@ -11,13 +11,31 @@ _default:
 
 # ---------- Environment ----------
 
+# Create the locked development environment, install hooks, and smoke-test it.
+bootstrap: install-all
+    @just _install-pre-commit-hook
+    uv run nmdc-lakehouse --help > /dev/null
+    @echo "Bootstrap complete. Next: just test, just check, or just cli --help"
+
+# Preserve an existing configured Git hooks-path policy instead of replacing it.
+[private]
+_install-pre-commit-hook:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if git config --get core.hooksPath >/dev/null; then
+      echo "Git core.hooksPath is configured; leaving it unchanged."
+      echo "Run repository hooks with: uv run pre-commit run --all-files"
+    else
+      uv run pre-commit install
+    fi
+
 # Create / update the uv-managed virtualenv with dev extras.
 install:
-    uv sync --extra dev
+    uv sync --locked --extra dev
 
 # Install dev + docs extras.
 install-all:
-    uv sync --extra dev --extra docs
+    uv sync --locked --extra dev --extra docs
 
 # Upgrade the lockfile.
 lock:
@@ -56,6 +74,7 @@ shellcheck:
     @just _shellcheck-recipe flatten-nmdc-auth
     @just _shellcheck-recipe export-flattened-biosample-csv
     @just _shellcheck-recipe export-nmdc-duckdb
+    @just _shellcheck-recipe _install-pre-commit-hook
     @find . \( -path './.git' -o -path './.venv' -o -path './build' -o -path './dist' \) -prune -o -type f -name '*.sh' -exec uv run shellcheck --shell=bash {} +
 
 # Lint every GitHub Actions workflow with the pre-commit-pinned actionlint.

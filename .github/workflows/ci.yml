@@ -51,8 +51,13 @@ jobs:
           fail_on_error: true
           level: error
 
-      - name: Install dependencies
-        run: uv sync --extra dev --extra docs
+      - name: Bootstrap development environment
+        run: just bootstrap
+
+      - name: Verify idempotent bootstrap
+        run: |
+          just bootstrap
+          git diff --exit-code
 
       - name: Lint rendered Bash recipes
         run: just shellcheck
