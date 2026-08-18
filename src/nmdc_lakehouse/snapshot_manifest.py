@@ -257,6 +257,11 @@ def build_manifest(root: Path, metrics_path: Path, source_label: str) -> Snapsho
         raise SnapshotManifestError("Metrics do not contain a completion timestamp.")
     if not isinstance(environment, dict):
         raise SnapshotManifestError("Metrics do not contain an environment record.")
+    required_environment_versions = ("nmdc_schema_version", "nmdc_lakehouse_version", "python_version")
+    if any(
+        not isinstance(environment.get(name), str) or not environment[name] for name in required_environment_versions
+    ):
+        raise SnapshotManifestError("Metrics do not contain complete producer version metadata.")
 
     expected_outputs = metrics.get("outputs")
     children = metrics.get("children")
@@ -271,6 +276,8 @@ def build_manifest(root: Path, metrics_path: Path, source_label: str) -> Snapsho
     from nmdc_lakehouse.jobs.collection_to_parquet import _db_collection_map
 
     schema_collections = set(_db_collection_map())
+    if not schema_collections:
+        raise SnapshotManifestError("The installed NMDC schema does not expose any MongoDB collections.")
     if (
         len(included) != len(set(included))
         or len(skipped) != len(set(skipped))

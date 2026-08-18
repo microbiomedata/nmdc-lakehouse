@@ -220,6 +220,25 @@ def test_manifest_rejects_incomplete_metrics(tmp_path: Path, change, message: st
         build_manifest(tmp_path, metrics_path, "nmdc-production")
 
 
+@pytest.mark.parametrize("version_name", ["nmdc_schema_version", "nmdc_lakehouse_version", "python_version"])
+def test_manifest_rejects_missing_producer_version(tmp_path: Path, version_name: str) -> None:
+    metrics_path = _snapshot_fixture(tmp_path)
+    record = json.loads(metrics_path.read_text(encoding="utf-8"))
+    record["environment"][version_name] = None
+    metrics_path.write_text(json.dumps(record), encoding="utf-8")
+
+    with pytest.raises(SnapshotManifestError, match="complete producer version metadata"):
+        build_manifest(tmp_path, metrics_path, "nmdc-production")
+
+
+def test_manifest_rejects_unavailable_schema_collection_inventory(tmp_path: Path, monkeypatch) -> None:
+    metrics_path = _snapshot_fixture(tmp_path)
+    monkeypatch.setattr("nmdc_lakehouse.jobs.collection_to_parquet._db_collection_map", lambda: {})
+
+    with pytest.raises(SnapshotManifestError, match="does not expose any MongoDB collections"):
+        build_manifest(tmp_path, metrics_path, "nmdc-production")
+
+
 def test_manifest_rejects_unsafe_source_label_and_external_metrics(tmp_path: Path) -> None:
     metrics_path = _snapshot_fixture(tmp_path)
 
