@@ -63,6 +63,9 @@ jobs:
       - name: Lint
         run: just lint
 
+      - name: Audit Python dependencies
+        run: just deps-lint
+
       - name: Typecheck
         run: just typecheck
 

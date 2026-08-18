@@ -69,6 +69,10 @@ lint:
     uv run ruff check src tests scripts/python
     uv run ruff format --check src tests scripts/python
 
+# Check for missing, unused, and transitive Python dependencies.
+deps-lint:
+    uv run deptry .
+
 # Auto-format the codebase.
 format:
     uv run ruff format src tests scripts/python
@@ -189,7 +193,7 @@ build:
     uv build
 
 # Run the deterministic local quality checks.
-check: lint-just prose-lint shellcheck actionlint lint typecheck test-cov
+check: lint-just prose-lint shellcheck actionlint lint deps-lint typecheck test-cov
 
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
 # See scripts/README.md for details. These recipes shell out to utilities under
