@@ -313,7 +313,7 @@ def write_publication_plan(path: Path, plan: PublicationPlan) -> Path:
     temporary = Path(temporary_name)
     try:
         with open(fd, "w", encoding="utf-8", closefd=True) as stream:
-            stream.write(plan.model_dump_json(indent=2))
+            stream.write(render_publication_plan(plan))
             stream.write("\n")
         temporary.replace(destination)
     except OSError as error:

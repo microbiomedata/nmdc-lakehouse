@@ -21,6 +21,7 @@ from nmdc_lakehouse.publication_plan import (
     load_destination_inventory,
     load_publication_policy,
     publication_json_schema,
+    render_publication_plan,
     write_publication_plan,
 )
 from nmdc_lakehouse.snapshot_manifest import (
@@ -227,6 +228,7 @@ def test_write_plan_is_atomic_and_rejects_symlink_output(tmp_path: Path) -> None
     destination = tmp_path / "plan.json"
 
     assert write_publication_plan(destination, plan) == destination
+    assert destination.read_text(encoding="utf-8") == render_publication_plan(plan) + "\n"
     assert json.loads(destination.read_text(encoding="utf-8"))["candidate_snapshot_id"] == plan.candidate_snapshot_id
     assert not list(tmp_path.glob(".plan.json.*.tmp"))
 
