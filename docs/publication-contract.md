@@ -46,7 +46,7 @@ identifiers.
 | Parquet files | Typed table data and portable physical schemas | One immutable local snapshot |
 | Target LinkML projection | Complete logical table topology, including side tables | Generated and published by [#110](https://github.com/microbiomedata/nmdc-lakehouse/issues/110) |
 | Portable Parquet metadata | Table and field descriptions plus stable schema identifiers in Parquet footers | [#202](https://github.com/microbiomedata/nmdc-lakehouse/issues/202) |
-| Metadata content bundle | Reviewable namespace, table, and column descriptions and reviewed overrides | [#120](https://github.com/microbiomedata/nmdc-lakehouse/issues/120) |
+| Metadata content bundle | Reviewable namespace, table, and column descriptions and reviewed overrides | [#215](https://github.com/microbiomedata/nmdc-lakehouse/issues/215), split from [#120](https://github.com/microbiomedata/nmdc-lakehouse/issues/120) |
 | Snapshot manifest | Completeness, checksums, row counts, schema and software provenance, and source identity | [#206](https://github.com/microbiomedata/nmdc-lakehouse/issues/206) |
 | Destination metadata | Namespace or dataset properties and table or column comments when supported | Applied idempotently through [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114) |
 | Registry record | Dataset ownership, access, update policy, keywords, and documentation links | Projection defined by [#52](https://github.com/microbiomedata/nmdc-lakehouse/issues/52) |
@@ -80,6 +80,66 @@ a newer schema:
 The same approved descriptions should reach the target LinkML artifact, portable
 Parquet metadata, and destination comments. A verification report identifies any
 intentional differences.
+
+## Metadata bundle
+
+Generate the review artifact from a validated snapshot and a version-controlled
+profile. The profile is bound to the immutable snapshot identity and supplies
+namespace content plus only the human overrides that reviewers have approved:
+
+```json
+{
+  "profile_format_version": 1,
+  "profile_id": "nmdc-metadata-2026-08-18",
+  "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "namespace": {
+    "name": "nmdc_metadata",
+    "title": "NMDC metadata",
+    "description": "Flattened NMDC metadata tables.",
+    "documentation_url": "https://github.com/microbiomedata/nmdc-lakehouse",
+    "properties": {
+      "collection": "nmdc",
+      "role": "metadata"
+    }
+  },
+  "overrides": [
+    {
+      "table": "biosample_set",
+      "column": null,
+      "description": "Reviewed description for the published biosample table.",
+      "rationale": "Clarify the table's publication role.",
+      "source": "NMDC metadata review 2026-08-18"
+    }
+  ]
+}
+```
+
+The command operates entirely offline:
+
+```bash
+uv run nmdc-lakehouse metadata-bundle ./completed-snapshot \
+  --profile ./metadata/nmdc-metadata-profile.json \
+  --output ./metadata/nmdc-metadata-bundle.json
+```
+
+It validates the snapshot before reading manifested Parquet footers. Every table
+and column records its physical type, schema lineage, final description, and
+whether that description came from the exact footer baseline, an approved
+profile override, or no available description. Duplicate or unknown overrides
+fail rather than being silently ignored. The output is canonical JSON; stdout
+and `--output` contain the same document.
+
+The profile and bundle contracts are available without a snapshot or service:
+
+```bash
+uv run nmdc-lakehouse metadata-bundle-schema profile
+uv run nmdc-lakehouse metadata-bundle-schema bundle
+```
+
+The bundle is content and evidence, not a destination mutation script. A
+destination adapter may translate supported fields into catalog metadata only
+after checking the bundle's snapshot identity and the destination's declared
+capabilities.
 
 ## Table disposition plan
 
