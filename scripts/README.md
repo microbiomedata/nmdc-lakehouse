@@ -1,5 +1,16 @@
 # scripts/
 
+## Maintained operational scripts
+
+`python/audit_database_metadata.py` is the on-cluster, read-only BERDL metadata
+audit. Its `--publication-inventory` mode emits the credential-free live-table
+evidence consumed by the offline publication planner. It performs catalog,
+schema, and count queries but no destination mutation. See
+[the BERDL upload guide](../docs/berdl-upload.md) for the required explicit
+destination labels and safety boundary.
+
+The remaining scripts described below are legacy EMA pipeline copies.
+
 Direct copies of the NMDC flatten/export pipeline from
 [microbiomedata/external-metadata-awareness](https://github.com/microbiomedata/external-metadata-awareness).
 Kept verbatim (apart from one import path fix) so we have a working baseline

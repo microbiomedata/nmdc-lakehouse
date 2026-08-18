@@ -17,14 +17,26 @@ Usage:
     python scripts/python/audit_database_metadata.py nmdc_metadata nmdc_results
     python scripts/python/audit_database_metadata.py --columns --json data/audit.json
     python scripts/python/audit_database_metadata.py --columns --tables-with-issues
+    python scripts/python/audit_database_metadata.py nmdc_metadata \
+        --publication-inventory data/nmdc-metadata-inventory.json \
+        --destination-id nmdc-production \
+        --provider spark_catalog \
+        --table-format delta \
+        --metadata-capability namespace \
+        --metadata-capability table \
+        --metadata-capability column
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import re
 import sys
+import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +47,8 @@ DEFAULT_DBS = ["nmdc_metadata", "nmdc_results", "nmdc_ref_data"]
 # Restrict to what a Hive-metastore identifier can legally be so nothing
 # unexpected — spaces, backticks, semicolons — reaches the query string.
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_SAFE_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_METADATA_CAPABILITIES = {"tenant", "dataset", "namespace", "table", "column", "snapshot", "file"}
 
 # Catalog-internal property key prefixes that Delta/Spark set automatically
 # and that don't indicate a user has set any descriptive metadata.
@@ -46,6 +60,26 @@ def _validate_identifier(name: str, kind: str) -> str:
     if not _IDENTIFIER_RE.match(name):
         raise ValueError(f"Refusing to interpolate unsafe {kind} name into SQL: {name!r}")
     return name
+
+
+def _validate_qualified_identifier(name: str, kind: str) -> str:
+    """Validate a dot-qualified SQL identifier without accepting SQL syntax."""
+    parts = name.split(".")
+    if not parts or any(not _IDENTIFIER_RE.fullmatch(part) for part in parts):
+        raise ValueError(f"Refusing to interpolate unsafe {kind} name into SQL: {name!r}")
+    return name
+
+
+def _quoted_identifier(name: str, kind: str) -> str:
+    """Return a validated qualified identifier with every segment quoted."""
+    return ".".join(f"`{part}`" for part in _validate_qualified_identifier(name, kind).split("."))
+
+
+def _validate_label(value: str, kind: str) -> str:
+    """Validate a credential-free logical label copied into an inventory."""
+    if not _SAFE_LABEL_RE.fullmatch(value):
+        raise ValueError(f"{kind} must be a sanitized logical label.")
+    return value
 
 
 def get_spark():
@@ -63,14 +97,14 @@ def get_spark():
 
 def describe_database(spark, db: str) -> dict[str, str]:
     """Return {info_name: info_value} from DESCRIBE DATABASE EXTENDED."""
-    db = _validate_identifier(db, "database")
+    db = _quoted_identifier(db, "database")
     rows = spark.sql(f"DESCRIBE DATABASE EXTENDED {db}").collect()
     return {(r["info_name"] or "").strip(): (r["info_value"] or "") for r in rows}
 
 
 def list_tables(spark, db: str) -> list[str]:
     """Return table names in ``db``, sorted for deterministic before/after diffs."""
-    db = _validate_identifier(db, "database")
+    db = _quoted_identifier(db, "database")
     return sorted(r["tableName"] for r in spark.sql(f"SHOW TABLES IN {db}").collect())
 
 
@@ -88,9 +122,9 @@ def describe_table(spark, db: str, table: str) -> dict[str, Any]:
         "owner": "",
         "provider": "",
     }
-    db = _validate_identifier(db, "database")
+    db = _quoted_identifier(db, "database")
     table = _validate_identifier(table, "table")
-    rows = spark.sql(f"DESCRIBE EXTENDED {db}.{table}").collect()
+    rows = spark.sql(f"DESCRIBE EXTENDED {db}.`{table}`").collect()
     in_detail = False
     for r in rows:
         col = (r["col_name"] or "").strip()
@@ -117,9 +151,117 @@ def get_columns(db: str, table: str) -> list[dict[str, Any]]:
     """Access-aware column-level schema with descriptions (column COMMENTs)."""
     import berdl_notebook_utils
 
-    db = _validate_identifier(db, "database")
+    db = _validate_qualified_identifier(db, "database")
     table = _validate_identifier(table, "table")
     return berdl_notebook_utils.get_table_schema(db, table, detailed=True, return_json=False)
+
+
+class PublicationInventoryError(ValueError):
+    """Raised when a complete credential-free inventory cannot be generated."""
+
+
+def _physical_schema_sha256(spark_schema: Any) -> str:
+    """Hash a Spark schema with the same metadata-free Arrow representation as snapshots."""
+    try:
+        from pyspark.sql.pandas.types import to_arrow_schema
+
+        return _arrow_physical_schema_sha256(to_arrow_schema(spark_schema))
+    except Exception as error:
+        raise PublicationInventoryError("Cannot convert a destination schema to canonical Arrow form.") from error
+
+
+def _arrow_physical_schema_sha256(arrow_schema: Any) -> str:
+    """Hash an Arrow schema after stripping schema and field metadata."""
+    import pyarrow as pa
+
+    fields = [pa.field(field.name, field.type, field.nullable) for field in arrow_schema]
+    return hashlib.sha256(pa.schema(fields).serialize().to_pybytes()).hexdigest()
+
+
+def build_publication_inventory(
+    spark: Any,
+    database: str,
+    *,
+    destination_id: str,
+    provider: str,
+    table_format: str,
+    metadata_capabilities: list[str],
+    observed_at: str | None = None,
+) -> dict[str, Any]:
+    """Build a complete planner inventory through read-only catalog queries."""
+    database = _validate_qualified_identifier(database, "database")
+    destination_id = _validate_label(destination_id, "Destination ID")
+    provider = _validate_label(provider, "Provider")
+    table_format = _validate_label(table_format, "Table format")
+    if not metadata_capabilities or len(metadata_capabilities) != len(set(metadata_capabilities)):
+        raise PublicationInventoryError("Metadata capabilities must be a nonempty list without duplicates.")
+    unknown_capabilities = set(metadata_capabilities).difference(_METADATA_CAPABILITIES)
+    if unknown_capabilities:
+        raise PublicationInventoryError(
+            "Unknown metadata capabilities: " + ", ".join(sorted(unknown_capabilities)) + "."
+        )
+
+    tables = list_tables(spark, database)
+    if not tables:
+        raise PublicationInventoryError("The selected destination namespace contains no visible tables.")
+    if len(tables) != len(set(tables)):
+        raise PublicationInventoryError("Destination discovery returned duplicate table names.")
+
+    entries: list[dict[str, Any]] = []
+    quoted_database = _quoted_identifier(database, "database")
+    for table in tables:
+        table = _validate_identifier(table, "table")
+        try:
+            table_info = describe_table(spark, database, table)
+            discovered_format = str(table_info.get("provider", "")).strip()
+            if not _SAFE_LABEL_RE.fullmatch(discovered_format):
+                raise PublicationInventoryError(f"Table {table!r} reports an unsafe or blank provider label.")
+            if discovered_format.casefold() != table_format.casefold():
+                raise PublicationInventoryError(
+                    f"Table {table!r} reports provider {discovered_format or '(blank)'!r}, "
+                    f"not reviewed table format {table_format!r}."
+                )
+            frame = spark.sql(f"SELECT * FROM {quoted_database}.`{table}`")
+            rows = frame.count()
+            if isinstance(rows, bool) or not isinstance(rows, int) or rows < 0:
+                raise PublicationInventoryError(f"Table {table!r} returned an invalid row count.")
+            schema_hash = _physical_schema_sha256(frame.schema)
+        except PublicationInventoryError:
+            raise
+        except Exception as error:
+            raise PublicationInventoryError(f"Cannot inventory destination table {table!r} completely.") from error
+        entries.append({"name": table, "rows": rows, "physical_schema_sha256": schema_hash})
+
+    return {
+        "inventory_format_version": 1,
+        "destination_id": destination_id,
+        "observed_at": observed_at or datetime.now(UTC).isoformat(),
+        "provider": provider,
+        "table_format": table_format,
+        "metadata_capabilities": metadata_capabilities,
+        "tables": entries,
+    }
+
+
+def write_publication_inventory(path: Path, inventory: dict[str, Any]) -> Path:
+    """Write an inventory atomically without replacing non-files or symlinks."""
+    destination = path.expanduser()
+    if destination.is_symlink() or (destination.exists() and not destination.is_file()):
+        raise PublicationInventoryError("Publication inventory output must be an ordinary file path.")
+    destination = destination.resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(inventory, stream, indent=2, sort_keys=True)
+            stream.write("\n")
+        temporary.replace(destination)
+    except OSError as error:
+        raise PublicationInventoryError("Cannot write the publication inventory.") from error
+    finally:
+        temporary.unlink(missing_ok=True)
+    return destination
 
 
 def _parse_properties(props: str) -> dict[str, str]:
@@ -294,7 +436,56 @@ def main() -> int:
         action="store_true",
         help="Also list tables whose DESCRIBE / schema lookup raised an error",
     )
+    ap.add_argument(
+        "--publication-inventory",
+        type=Path,
+        default=None,
+        help="Write a complete credential-free destination inventory for the publication planner",
+    )
+    ap.add_argument("--destination-id", help="Logical destination identity for publication inventory output")
+    ap.add_argument("--provider", help="Reviewed destination catalog/provider label")
+    ap.add_argument("--table-format", help="Reviewed table format; checked against every discovered table")
+    ap.add_argument(
+        "--metadata-capability",
+        action="append",
+        default=[],
+        choices=sorted(_METADATA_CAPABILITIES),
+        help="Destination metadata level supported by the selected target; repeat as needed",
+    )
     args = ap.parse_args()
+
+    if args.publication_inventory is not None:
+        if len(args.databases) != 1:
+            ap.error("--publication-inventory requires exactly one selected database or namespace")
+        if args.columns or args.json or args.show_issues:
+            ap.error("publication inventory output cannot be combined with audit report options")
+        missing = [
+            option
+            for option, value in (
+                ("--destination-id", args.destination_id),
+                ("--provider", args.provider),
+                ("--table-format", args.table_format),
+                ("--metadata-capability", args.metadata_capability),
+            )
+            if not value
+        ]
+        if missing:
+            ap.error("publication inventory output also requires " + ", ".join(missing))
+        try:
+            inventory = build_publication_inventory(
+                get_spark(),
+                args.databases[0],
+                destination_id=args.destination_id,
+                provider=args.provider,
+                table_format=args.table_format,
+                metadata_capabilities=args.metadata_capability,
+            )
+            output = write_publication_inventory(args.publication_inventory, inventory)
+        except (PublicationInventoryError, ValueError) as error:
+            print(f"ERROR: {error}", file=sys.stderr)
+            return 1
+        print(f"Publication inventory written to {output} ({len(inventory['tables'])} tables).")
+        return 0
 
     report = audit(args.databases, with_columns=args.columns)
     render_summary(report, with_columns=args.columns, show_issues=args.show_issues)
