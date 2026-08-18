@@ -128,7 +128,7 @@ Common tasks are exposed via `just`:
 | `just test-cov`     | pytest with coverage                             |
 | `just build`        | Build sdist + wheel via `uv build`               |
 | `just docs-build`   | Build the MkDocs site (requires `install-all`)   |
-| `just check`        | lint + typecheck + test                          |
+| `just check`        | justfile formatting + lint + typecheck + test    |
 
 ## License
 
