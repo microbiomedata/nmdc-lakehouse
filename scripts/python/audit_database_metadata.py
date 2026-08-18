@@ -58,7 +58,7 @@ _INTERNAL_PROPERTY_PREFIXES = ("delta.", "spark.", "option.")
 
 def _validate_identifier(name: str, kind: str) -> str:
     """Return ``name`` unchanged if it's a safe bare SQL identifier, else raise."""
-    if not _IDENTIFIER_RE.match(name):
+    if not _IDENTIFIER_RE.fullmatch(name):
         raise ValueError(f"Refusing to interpolate unsafe {kind} name into SQL: {name!r}")
     return name
 

@@ -122,6 +122,20 @@ def test_inventory_rejects_table_name_outside_planner_contract(monkeypatch: pyte
         )
 
 
+def test_inventory_rejects_trailing_newline_in_table_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_discovery(monkeypatch, {"biosample_set\n": "delta"})
+
+    with pytest.raises(ValueError, match="unsafe table"):
+        audit.build_publication_inventory(
+            FakeSpark({}),
+            "nmdc_metadata",
+            destination_id="nmdc-production",
+            provider="spark_catalog",
+            table_format="delta",
+            metadata_capabilities=["table"],
+        )
+
+
 def test_inventory_wraps_table_failure_without_exposing_exception(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_discovery(monkeypatch, {"biosample_set": "delta"})
 
