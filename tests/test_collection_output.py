@@ -63,6 +63,20 @@ def test_conversion_failure_leaves_previous_snapshot_and_no_staging(tmp_path: Pa
     assert not (tmp_path / ".staging").exists()
 
 
+def test_transaction_rejects_symlinked_staging_root(tmp_path: Path) -> None:
+    external = tmp_path / "external"
+    external.mkdir()
+    output = tmp_path / "output"
+    output.mkdir()
+    (output / ".staging").symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(CollectionPromotionError, match="staging root.*not a symlink"):
+        with CollectionOutputTransaction(output, "sample_set", {"sample_set"}):
+            pytest.fail("A symlinked staging root must not be entered.")
+
+    assert list(external.iterdir()) == []
+
+
 def test_promotion_failure_rolls_back_previous_output(tmp_path: Path, monkeypatch) -> None:
     primary = tmp_path / "sample_set.parquet"
     side = tmp_path / "sample_set_tags.parquet"

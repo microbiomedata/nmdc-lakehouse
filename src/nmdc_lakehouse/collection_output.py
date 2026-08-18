@@ -42,6 +42,8 @@ class CollectionOutputTransaction:
         self.root.mkdir(parents=True, exist_ok=True)
         staging_parent = self.root / ".staging"
         staging_parent.mkdir(exist_ok=True)
+        if staging_parent.is_symlink() or not staging_parent.is_dir():
+            raise CollectionPromotionError("Collection staging root must be an ordinary directory, not a symlink.")
         self.stage_root = Path(tempfile.mkdtemp(prefix=f"{self.collection}-", dir=staging_parent))
         return self
 
