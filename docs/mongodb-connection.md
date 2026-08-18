@@ -180,11 +180,25 @@ object, so this message is expected for every collection.
 
 ### Step 1 — all collections except the large annotation aggregate (~5 min)
 
-For a new snapshot, prefer a fresh timestamped directory so the preceding output
-remains available for comparison. `local/` is ignored by Git:
+For the measured metadata dump, use the recipe:
+
+```bash
+just etl-collections
+```
+
+One timestamp associates its default Parquet directory,
+`local/mongodb-metadata-<timestamp>`, with
+`local/etl-collections-<timestamp>.log` and
+`local/etl-collections-<timestamp>.json`. The recipe displays all three paths
+before extraction and refuses to reuse its default output path. `local/` is
+ignored by Git.
+
+Set `LAKEHOUSE_ROOT` to use an intentional alternative directory. An explicit
+value remains authoritative:
 
 ```bash
 export LAKEHOUSE_ROOT="./local/mongodb-metadata-$(date +%Y%m%d_%H%M%S)"
+just etl-collections
 ```
 
 If an existing output root must be reused, preview recognized schema-derived
@@ -199,20 +213,21 @@ just clean-parquet --delete
 Both commands affect only local files under the repository. They never modify
 MongoDB, NERSC, BERDL, or object stores.
 
+The direct CLI equivalent is:
+
 ```bash
 uv run nmdc-lakehouse run-job all-collections \
     --skip functional_annotation_agg \
     --metrics local/etl-collections.json
 ```
 
-The `just etl-collections` recipe gives its log and JSON metrics record the
-same timestamp automatically. The JSON contains whole-run and per-collection
-wall time, rows, effective rates, the resolved output root, and each generated
-file's row count and byte size. It also labels the record with the NMDC schema
-version, Python version, platform, skipped collections, and start and finish
-times. It also distinguishes a dry run from a writing run. A failed run writes
-`status: failed` and the exception type without the exception message, so a
-partial output set is not reported as successful.
+The JSON contains whole-run and per-collection wall time, rows, effective
+rates, the resolved output root, and each generated file's row count and byte
+size. It also labels the record with the NMDC schema version, Python version,
+platform, skipped collections, and start and finish times. It distinguishes a
+dry run from a writing run. A failed run writes `status: failed` and the
+exception type without the exception message, so a partial output set is not
+reported as successful.
 
 `peak_rss_bytes` is the Python process's peak resident-memory high-water mark,
 normalized to bytes from the operating system's `resource` interface. It is
