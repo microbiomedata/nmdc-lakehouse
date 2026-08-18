@@ -25,7 +25,7 @@ lock:
 
 # Remove the virtualenv and build artifacts.
 clean:
-    rm -rf .venv dist build .pytest_cache .ruff_cache .mypy_cache
+    rm -rf .venv dist build .pytest_cache .ruff_cache .mypy_cache .vale-home
     find . -type d -name __pycache__ -exec rm -rf {} +
 
 # ---------- Quality ----------

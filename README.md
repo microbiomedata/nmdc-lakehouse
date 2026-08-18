@@ -64,7 +64,7 @@ nmdc-lakehouse/
 - Python ≥ 3.13 and < 3.14
 - [`uv`](https://docs.astral.sh/uv/) for environment & dependency management
 - [`just`](https://just.systems/) 1.58.0 for task running and canonical justfile formatting
-- [`Vale`](https://vale.sh/) 3.17.1 for maintained prose
+- [`Vale`](https://vale.sh/) 3.17.1 for maintained prose; add intentional domain terms to the [NMDC vocabulary](.github/styles/config/vocabularies/NMDC/accept.txt)
 - Access to an NMDC MongoDB instance for production-data runs
 
 ## Getting started
