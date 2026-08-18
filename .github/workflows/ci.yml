@@ -33,6 +33,7 @@ jobs:
         with:
           version: 3.17.1
           files: '["README.md", "docs", "scripts/README.md", "notebooks"]'
+          vale_flags: "--glob=*.md"
           filter_mode: nofilter
           fail_on_error: true
           level: error
