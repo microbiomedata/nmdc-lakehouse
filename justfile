@@ -12,8 +12,7 @@ _default:
 # ---------- Environment ----------
 
 # Create the locked development environment, install hooks, and smoke-test it.
-bootstrap:
-    uv sync --locked --extra dev --extra docs
+bootstrap: install-all
     @just _install-pre-commit-hook
     uv run nmdc-lakehouse --help > /dev/null
     @echo "Bootstrap complete. Next: just test, just check, or just cli --help"
