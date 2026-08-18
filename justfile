@@ -38,7 +38,7 @@ lint-just:
 # Isolate HOME so a contributor's global Vale configuration cannot affect it.
 prose-lint:
     mkdir -p .vale-home
-    HOME="$PWD/.vale-home" vale --config=.vale.ini README.md docs scripts/README.md notebooks/*.md
+    HOME="$PWD/.vale-home" vale --config=.vale.ini --glob='**/*.md' README.md docs scripts/README.md notebooks
 
 # Run all linters & formatters in check mode.
 # scripts/python is in scope (see .pre-commit-config.yaml); scripts/*.py
