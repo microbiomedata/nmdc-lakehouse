@@ -47,6 +47,7 @@ DEFAULT_DBS = ["nmdc_metadata", "nmdc_results", "nmdc_ref_data"]
 # Restrict to what a Hive-metastore identifier can legally be so nothing
 # unexpected — spaces, backticks, semicolons — reaches the query string.
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_PUBLICATION_TABLE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_]*$")
 _SAFE_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _METADATA_CAPABILITIES = {"tenant", "dataset", "namespace", "table", "column", "snapshot", "file"}
 
@@ -211,6 +212,8 @@ def build_publication_inventory(
     quoted_database = _quoted_identifier(database, "database")
     for table in tables:
         table = _validate_identifier(table, "table")
+        if not _PUBLICATION_TABLE_RE.fullmatch(table):
+            raise PublicationInventoryError(f"Table {table!r} cannot be represented by the planner contract.")
         try:
             table_info = describe_table(spark, database, table)
             discovered_format = str(table_info.get("provider", "")).strip()
@@ -250,6 +253,8 @@ def build_publication_inventory(
 def write_publication_inventory(path: Path, inventory: dict[str, Any]) -> Path:
     """Write an inventory atomically without replacing non-files or symlinks."""
     temporary: Path | None = None
+    published = False
+    failure: BaseException | None = None
     try:
         destination = path.expanduser()
         if destination.is_symlink() or (destination.exists() and not destination.is_file()):
@@ -262,16 +267,25 @@ def write_publication_inventory(path: Path, inventory: dict[str, Any]) -> Path:
             json.dump(inventory, stream, indent=2, sort_keys=True)
             stream.write("\n")
         temporary.replace(destination)
-    except PublicationInventoryError:
+        published = True
+    except PublicationInventoryError as error:
+        failure = error
         raise
     except OSError as error:
-        raise PublicationInventoryError("Cannot write the publication inventory.") from error
+        failure = PublicationInventoryError("Cannot write the publication inventory.")
+        raise failure from error
+    except Exception as error:
+        failure = error
+        raise
     finally:
         if temporary is not None:
             try:
                 temporary.unlink(missing_ok=True)
             except OSError as error:
-                raise PublicationInventoryError("Cannot finish writing the publication inventory.") from error
+                if failure is not None:
+                    failure.add_note("Temporary publication-inventory cleanup also failed.")
+                elif not published:
+                    raise PublicationInventoryError("Cannot finish writing the publication inventory.") from error
     return destination
 
 

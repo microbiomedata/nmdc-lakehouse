@@ -105,6 +105,20 @@ def test_inventory_fails_closed_on_table_format_mismatch(monkeypatch: pytest.Mon
         )
 
 
+def test_inventory_rejects_table_name_outside_planner_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_discovery(monkeypatch, {"_temporary": "delta"})
+
+    with pytest.raises(audit.PublicationInventoryError, match="cannot be represented by the planner contract"):
+        audit.build_publication_inventory(
+            FakeSpark({"_temporary": FakeFrame(1, "a")}),
+            "nmdc_metadata",
+            destination_id="nmdc-production",
+            provider="spark_catalog",
+            table_format="delta",
+            metadata_capabilities=["table"],
+        )
+
+
 def test_inventory_wraps_table_failure_without_exposing_exception(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_discovery(monkeypatch, {"biosample_set": "delta"})
 
@@ -153,6 +167,34 @@ def test_write_publication_inventory_sanitizes_setup_failure(tmp_path: Path, mon
     with pytest.raises(audit.PublicationInventoryError, match="Cannot write the publication inventory") as error:
         audit.write_publication_inventory(tmp_path / "inventory.json", {})
     assert "filesystem detail" not in str(error.value)
+
+
+def test_cleanup_failure_does_not_mask_primary_write_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def reject_write(*_args: Any, **_kwargs: Any) -> None:
+        raise OSError("write detail")
+
+    def reject_cleanup(*_args: Any, **_kwargs: Any) -> None:
+        raise OSError("cleanup detail")
+
+    monkeypatch.setattr(audit.json, "dump", reject_write)
+    monkeypatch.setattr(Path, "unlink", reject_cleanup)
+
+    with pytest.raises(audit.PublicationInventoryError, match="Cannot write the publication inventory") as error:
+        audit.write_publication_inventory(tmp_path / "inventory.json", {})
+    assert "Cannot finish" not in str(error.value)
+    assert error.value.__notes__ == ["Temporary publication-inventory cleanup also failed."]
+
+
+def test_cleanup_failure_after_publish_does_not_report_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    output = tmp_path / "inventory.json"
+
+    def reject_cleanup(*_args: Any, **_kwargs: Any) -> None:
+        raise OSError("cleanup detail")
+
+    monkeypatch.setattr(Path, "unlink", reject_cleanup)
+
+    assert audit.write_publication_inventory(output, {}) == output
+    assert output.read_text() == "{}\n"
 
 
 @pytest.mark.parametrize("value", ["nmdc_metadata;DROP", "nmdc metadata", "nmdc..metadata"])
