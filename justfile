@@ -166,7 +166,7 @@ etl-collections:
     echo "Writing Parquet to $LAKEHOUSE_ROOT"
     echo "Logging to $log"
     echo "Writing metrics to $metrics"
-    echo "Recording source label $source_label"
+    echo "Recording validated source identity in the snapshot manifest"
     time uv run nmdc-lakehouse run-job all-collections \
       --skip functional_annotation_agg --metrics "$metrics" 2>&1 | tee "$log"
     uv run nmdc-lakehouse create-snapshot-manifest "$LAKEHOUSE_ROOT" \

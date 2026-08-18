@@ -167,6 +167,24 @@ def test_manifest_is_an_immutable_completion_marker(tmp_path: Path) -> None:
         write_manifest(tmp_path, manifest)
 
 
+def test_manifest_write_does_not_clobber_competing_completion_marker(tmp_path: Path, monkeypatch) -> None:
+    metrics_path = _snapshot_fixture(tmp_path)
+    manifest = build_manifest(tmp_path, metrics_path, "nmdc-production")
+    destination = tmp_path / MANIFEST_NAME
+
+    def competing_writer(_temporary: Path, link_destination: Path) -> None:
+        link_destination.write_text("competing manifest\n", encoding="utf-8")
+        raise FileExistsError
+
+    monkeypatch.setattr(snapshot_manifest.os, "link", competing_writer)
+
+    with pytest.raises(SnapshotManifestError, match="Refusing to replace"):
+        write_manifest(tmp_path, manifest)
+
+    assert destination.read_text(encoding="utf-8") == "competing manifest\n"
+    assert not list(tmp_path.glob(f".{MANIFEST_NAME}.*.tmp"))
+
+
 @pytest.mark.parametrize(
     ("change", "message"),
     [

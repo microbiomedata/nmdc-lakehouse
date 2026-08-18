@@ -356,10 +356,12 @@ def write_manifest(root: Path, manifest: SnapshotManifest) -> Path:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             stream.write(manifest.model_dump_json(indent=2))
             stream.write("\n")
-        temporary.replace(destination)
-    except Exception:
+        try:
+            os.link(temporary, destination)
+        except FileExistsError as error:
+            raise SnapshotManifestError(f"Refusing to replace existing {MANIFEST_NAME}.") from error
+    finally:
         temporary.unlink(missing_ok=True)
-        raise
     return destination
 
 
