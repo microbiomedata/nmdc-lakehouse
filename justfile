@@ -146,13 +146,18 @@ run-job JOB *ARGS:
 # Convert all schema collections except functional_annotation_agg to Parquet (~5 min).
 # Requires the GCP SSH tunnel to be open — see docs/mongodb-connection.md.
 # Logs to local/etl-collections-<timestamp>.log
+# Writes matching structured metrics to local/etl-collections-<timestamp>.json
 etl-collections:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p local
-    log="local/etl-collections-$(date +%Y%m%d_%H%M%S).log"
+    timestamp="$(date +%Y%m%d_%H%M%S)"
+    log="local/etl-collections-${timestamp}.log"
+    metrics="local/etl-collections-${timestamp}.json"
     echo "Logging to $log"
-    time uv run nmdc-lakehouse run-job all-collections --skip functional_annotation_agg 2>&1 | tee "$log"
+    echo "Writing metrics to $metrics"
+    time uv run nmdc-lakehouse run-job all-collections \
+      --skip functional_annotation_agg --metrics "$metrics" 2>&1 | tee "$log"
 
 # Convert functional_annotation_agg to Parquet via direct pymongo (~17 min, 54.8M records).
 # Requires the GCP SSH tunnel to be open — see docs/mongodb-connection.md.

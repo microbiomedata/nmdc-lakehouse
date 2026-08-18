@@ -186,8 +186,24 @@ MongoDB, NERSC, BERDL, or object stores.
 
 ```bash
 uv run nmdc-lakehouse run-job all-collections \
-    --skip functional_annotation_agg
+    --skip functional_annotation_agg \
+    --metrics local/etl-collections.json
 ```
+
+The `just etl-collections` recipe gives its log and JSON metrics record the
+same timestamp automatically. The JSON contains whole-run and per-collection
+wall time, rows, effective rates, the resolved output root, and each generated
+file's row count and byte size. It also labels the record with the NMDC schema
+version, Python version, platform, skipped collections, and start and finish
+times. It also distinguishes a dry run from a writing run. A failed run writes
+`status: failed` and the exception type without the exception message, so a
+partial output set is not reported as successful.
+
+`peak_rss_bytes` is the Python process's peak resident-memory high-water mark,
+normalized to bytes from the operating system's `resource` interface. It is
+not current memory and does not include MongoDB, the SSH process, or other
+system services. Compare rates and memory only between records whose platform
+and environment are reasonably similar.
 
 ### Step 2 — functional annotation aggregate (~17 min)
 
