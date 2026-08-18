@@ -21,7 +21,7 @@ means an interface or dependency may exist without executable support.
 | Source | PostgreSQL | **Planned** | `PostgresSource.iter_records()` is a `NotImplementedError` stub. |
 | Transform | Schema-driven metadata flattening | **Implemented** | Uses LinkML definitions for projection and Arrow type construction. This is not full per-record LinkML validation. |
 | Sink | Parquet | **Implemented** | Local filesystem only; one `{table}.parquet` file per primary or side table, with streamed row groups. It is not a partitioned dataset. |
-| Sink | Remote/object-store Parquet | **Planned** | `s3://` and other remote roots are not accepted by `ParquetSink`. |
+| Sink | Remote/object-store Parquet | **Planned** | `ParquetSink` does not support remote roots; URI strings may be interpreted as malformed local paths rather than rejected. |
 | Sink | Apache Iceberg | **Planned** | `IcebergSink.write()` is a `NotImplementedError` stub; Iceberg remains the intended managed-table format, not a capability to remove. |
 | Workflow results | Fetch/cache/parse NERSC result files | **Prototype/manual** | File-type-specific notebooks and scripts produce Parquet; migration into registered package jobs is tracked in [#130](https://github.com/microbiomedata/nmdc-lakehouse/issues/130). |
 | BERDL publication | Promote Parquet and register managed tables | **Manual/external** | Maintained ETL stops at schema-directed, typed local Parquet. BERDL publication is a separate operation; its Silver layer uses Iceberg/Polaris. |
@@ -97,7 +97,7 @@ Key variables (full list in `.env.example`):
 | `MONGO_AUTH_SOURCE` | `admin` | Authentication database |
 | `MONGO_REPLICA_SET` | | Optional replica set name |
 | `MONGO_DIRECT_CONNECTION` | `false` | Set `true` when using the SSH tunnel |
-| `LAKEHOUSE_ROOT` | `./lakehouse` | Local directory; remote URIs are not implemented |
+| `LAKEHOUSE_ROOT` | `./lakehouse` | Local directory; remote URIs are unsupported and are not currently rejected |
 
 For production access via the GCP SSH tunnel, see
 **[docs/mongodb-connection.md](docs/mongodb-connection.md)** for the full
