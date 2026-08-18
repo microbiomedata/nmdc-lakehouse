@@ -11,7 +11,7 @@ from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
 from pathlib import Path
 
-from nmdc_lakehouse.doctor import CheckStatus, DoctorCheck, DoctorReport, DotenvProblem, _read_dotenv
+from nmdc_lakehouse.doctor import CheckStatus, DoctorCheck, DoctorReport, _read_dotenv
 from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError, validate_snapshot
 
 BERDL_SERVICE_CHECKS = ("berdl-proxy",)
@@ -188,18 +188,19 @@ def _mc_check(finder: CommandFinder, runner: CommandRunner) -> DoctorCheck:
     return DoctorCheck(name="mc", status=CheckStatus.PASS, summary="The MinIO client command is available.")
 
 
-def _configuration_checks(configured: Mapping[str, str], dotenv_problem: DotenvProblem | None) -> list[DoctorCheck]:
+def _configuration_checks(configured: Mapping[str, str], dotenv_problem_sources: Sequence[str]) -> list[DoctorCheck]:
     checks: list[DoctorCheck] = []
-    if dotenv_problem is not None:
+    if dotenv_problem_sources:
+        sources = ", ".join(dotenv_problem_sources)
         checks.append(
             DoctorCheck(
                 name="berdl-configuration",
                 status=CheckStatus.FAIL,
                 summary=(
-                    "A relevant .env file is unreadable or malformed; its values were ignored and the process "
-                    "environment was checked."
+                    f"Unreadable or malformed dotenv source(s) were ignored ({sources}); "
+                    "the process environment was checked."
                 ),
-                remediation="Repair the local .env syntax without sharing or committing its values.",
+                remediation="Repair the named .env file without sharing or committing its values.",
             )
         )
     token_present = bool(configured.get("KBASE_AUTH_TOKEN", "").strip())
@@ -300,13 +301,17 @@ def run_berdl_doctor(
     if checkout is not None:
         checkout_values, checkout_problem = _read_dotenv(checkout.expanduser() / ".env")
     project_values, project_problem = _read_dotenv(project_root / ".env")
-    dotenv_problem = checkout_problem or project_problem
-    configured = {**checkout_values, **project_values, **environment} if dotenv_problem is None else environment
+    dotenv_problem_sources = []
+    if checkout_problem is not None:
+        dotenv_problem_sources.append("BERIL checkout .env")
+    if project_problem is not None:
+        dotenv_problem_sources.append("repository .env")
+    configured = {**checkout_values, **project_values, **environment} if not dotenv_problem_sources else environment
 
     checks = [_snapshot_check(snapshot_root), _checkout_check(checkout, runner)]
     checks.extend(_ingest_environment_checks(checkout, runner))
     checks.append(_mc_check(finder, runner))
-    checks.extend(_configuration_checks(configured, dotenv_problem))
+    checks.extend(_configuration_checks(configured, dotenv_problem_sources))
     if "berdl-proxy" in service_checks:
         checks.append(_proxy_check(configured, socket_probe, timeout))
     return DoctorReport(checks=tuple(checks))

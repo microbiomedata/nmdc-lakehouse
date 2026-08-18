@@ -33,6 +33,14 @@ export BERDL_TABLE_FORMAT=discovered-table-format
 just berdl-doctor /absolute/path/to/completed-snapshot
 ```
 
+If `just` stops while parsing a malformed repository `.env`, bypass its dotenv
+loading so the doctor can report the sanitized configuration failure itself:
+
+```bash
+uv run --no-sync nmdc-lakehouse berdl-doctor \
+  /absolute/path/to/completed-snapshot
+```
+
 `BERIL_CHECKOUT` must be explicit; the command does not guess a user-specific
 checkout location. It validates the snapshot manifest offline, identifies the
 checkout revision, checks for the required ingest resource paths, requires

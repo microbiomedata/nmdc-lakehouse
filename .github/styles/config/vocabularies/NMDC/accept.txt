@@ -133,3 +133,4 @@ Vale
 varchar
 workflow_run
 Zizmor
+dotenv

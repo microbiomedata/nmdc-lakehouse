@@ -276,7 +276,10 @@ def test_malformed_dotenv_ignores_partial_values_but_checks_environment(tmp_path
         timeout=0.25,
     )
 
-    assert next(check for check in report.checks if check.name == "berdl-configuration").status is CheckStatus.FAIL
+    configuration = next(check for check in report.checks if check.name == "berdl-configuration")
+    assert configuration.status is CheckStatus.FAIL
+    assert "BERIL checkout .env" in configuration.summary
+    assert "repository .env" not in configuration.summary
     assert next(check for check in report.checks if check.name == "kbase-auth-token").status is CheckStatus.PASS
     assert next(check for check in report.checks if check.name == "berdl-destination").status is CheckStatus.PASS
     assert probes == [("localhost", 9000, 0.25)]
