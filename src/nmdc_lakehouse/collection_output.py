@@ -69,8 +69,10 @@ class CollectionOutputTransaction:
         if any(not isinstance(rows, int) or rows < 0 for _table, rows in table_rows):
             raise CollectionPromotionError("Completed table row counts must be non-negative integers.")
         produced = {table for table, _rows in table_rows}
-        if not produced or not produced <= self.owned_tables or len(produced) != len(table_rows):
-            raise CollectionPromotionError("Produced tables must be a unique, non-empty subset of owned tables.")
+        if self.collection not in produced or not produced <= self.owned_tables or len(produced) != len(table_rows):
+            raise CollectionPromotionError(
+                "Produced tables must include the primary table and be a unique subset of owned tables."
+            )
         expected_stage = {f"{table}.parquet" for table in produced}
         staged_entries = list(stage.iterdir())
         actual_stage = {path.name for path in staged_entries}

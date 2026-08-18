@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from nmdc_lakehouse.collection_output import CollectionOutputTransaction
+from nmdc_lakehouse.collection_output import CollectionOutputTransaction, CollectionPromotionError
 from nmdc_lakehouse.jobs.collection_to_parquet import _close_side_writers
 
 
@@ -142,3 +142,20 @@ def test_failed_rollback_retains_staging_for_manual_recovery(tmp_path: Path, mon
     assert not primary.exists()
     assert side.read_bytes() == b"old-side"
     assert (stage / ".previous" / "sample_set.parquet").read_bytes() == b"old-primary"
+
+
+def test_promotion_requires_the_primary_table(tmp_path: Path) -> None:
+    previous = tmp_path / "sample_set.parquet"
+    previous.write_bytes(b"previous")
+
+    with pytest.raises(CollectionPromotionError, match="include the primary table"):
+        with CollectionOutputTransaction(tmp_path, "sample_set", {"sample_set", "sample_set_tags"}) as transaction:
+            (transaction.stage / "sample_set_tags.parquet").write_bytes(b"side")
+            transaction.commit(
+                (("sample_set_tags", 1),),
+                source_schema_id="https://example.org/schema",
+                source_schema_version="1.0.0",
+            )
+
+    assert previous.read_bytes() == b"previous"
+    assert not (tmp_path / ".staging").exists()
