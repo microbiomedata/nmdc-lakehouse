@@ -14,6 +14,7 @@ from nmdc_lakehouse.publication_plan import (
     Disposition,
     PlanEntry,
     PublicationPlan,
+    disposition_is_compatible,
     load_destination_inventory,
     load_publication_plan,
 )
@@ -69,16 +70,6 @@ def _destination_evidence_matches(entry: PlanEntry, table: DestinationTable | No
     else:
         expected = (table.rows, table.physical_schema_sha256)
     return (entry.destination_rows, entry.destination_physical_schema_sha256) == expected
-
-
-def _disposition_is_compatible(entry: PlanEntry, *, candidate: bool, destination: bool) -> bool:
-    return {
-        Disposition.ADD: candidate and not destination,
-        Disposition.REPLACE: candidate and destination,
-        Disposition.PRESERVE: destination,
-        Disposition.REBUILD: destination,
-        Disposition.RETIRE: destination and not candidate,
-    }[entry.disposition]
 
 
 def build_publication_preflight(
@@ -174,8 +165,8 @@ def build_publication_preflight(
             f"Publication plan destination evidence differs for '{name}'.",
         )
         _require(
-            _disposition_is_compatible(
-                entry,
+            disposition_is_compatible(
+                entry.disposition,
                 candidate=candidate_artifact is not None,
                 destination=destination_table is not None,
             ),

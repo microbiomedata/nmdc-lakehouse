@@ -200,15 +200,19 @@ def load_publication_plan(path: Path) -> PublicationPlan:
     return plan
 
 
-def _validate_disposition(disposition: Disposition, *, candidate: bool, destination: bool, table: str) -> None:
-    compatible = {
+def disposition_is_compatible(disposition: Disposition, *, candidate: bool, destination: bool) -> bool:
+    """Return whether a disposition is safe for the observed table presence."""
+    return {
         Disposition.ADD: candidate and not destination,
         Disposition.REPLACE: candidate and destination,
         Disposition.PRESERVE: destination,
         Disposition.REBUILD: destination,
         Disposition.RETIRE: destination and not candidate,
-    }
-    if not compatible[disposition]:
+    }[disposition]
+
+
+def _validate_disposition(disposition: Disposition, *, candidate: bool, destination: bool, table: str) -> None:
+    if not disposition_is_compatible(disposition, candidate=candidate, destination=destination):
         raise PublicationPlanError(
             f"Disposition '{disposition}' is unsafe for table '{table}' with its candidate/destination presence."
         )
