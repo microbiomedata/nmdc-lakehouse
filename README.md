@@ -74,6 +74,7 @@ checked-in Python 3.13 policy and does not require credentials or live services.
 just bootstrap
 
 # Then choose the relevant task:
+just doctor
 just test
 just check
 just cli --help
@@ -86,6 +87,14 @@ hooks directory, and performs a credential-free CLI smoke test. If
 prints the explicit repository-hook command instead. It is safe to run
 repeatedly. It never installs host tools, copies credentials, opens tunnels, or
 starts services.
+
+`just doctor` is the read-only counterpart: it verifies the installed tools,
+locked environment, Git hook, optional configuration names, and local paths
+without synchronizing packages or contacting a service. Warnings identify
+optional production capabilities; required failures return a nonzero status.
+If `just` exits while parsing a malformed `.env`, bypass its automatic `.env`
+loading with `uv run --no-sync nmdc-lakehouse doctor`. Doctor will inspect the
+file itself and report the problem without printing its contents.
 
 ## Configuration
 
@@ -109,7 +118,7 @@ Key variables (full list in `.env.example`):
 | `MONGO_AUTH_SOURCE` | `admin` | Authentication database |
 | `MONGO_REPLICA_SET` | | Optional replica set name |
 | `MONGO_DIRECT_CONNECTION` | `false` | Set `true` when using the SSH tunnel |
-| `LAKEHOUSE_ROOT` | `./lakehouse` | Local directory; remote URIs are unsupported and are not currently rejected |
+| `LAKEHOUSE_ROOT` | `./lakehouse` | Local directory; doctor rejects remote URIs |
 
 For production access via the GCP SSH tunnel, see
 **[docs/mongodb-connection.md](docs/mongodb-connection.md)** for the full
@@ -131,6 +140,7 @@ operational-command inventory.
 | Recipe              | What it does                                     |
 |---------------------|--------------------------------------------------|
 | `just bootstrap`    | Create locked env; install hooks unless `core.hooksPath` is set |
+| `just doctor`       | Diagnose local readiness without changing it      |
 | `just install`      | Synchronize the locked development environment    |
 | `just install-all`  | Synchronize locked development and docs extras    |
 | `just lock`         | Refresh `uv.lock`                                |

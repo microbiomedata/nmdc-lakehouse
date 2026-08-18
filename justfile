@@ -17,6 +17,10 @@ bootstrap: install-all
     uv run nmdc-lakehouse --help > /dev/null
     @echo "Bootstrap complete. Next: just test, just check, or just cli --help"
 
+# Diagnose the installed local environment without syncing or contacting services.
+doctor:
+    uv run --no-sync nmdc-lakehouse doctor
+
 # Preserve an existing configured Git hooks-path policy instead of replacing it.
 [private]
 _install-pre-commit-hook:

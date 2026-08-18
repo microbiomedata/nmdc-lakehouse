@@ -11,9 +11,6 @@ import logging
 
 import click
 
-import nmdc_lakehouse.jobs  # noqa: F401 — registers all built-in jobs
-from nmdc_lakehouse.jobs.registry import get, list_names
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -27,8 +24,25 @@ def cli() -> None:
 @cli.command("list-jobs")
 def list_jobs() -> None:
     """List all ETL jobs registered with the runner."""
+    import nmdc_lakehouse.jobs  # noqa: F401 -- register built-in jobs only when needed
+    from nmdc_lakehouse.jobs.registry import list_names
+
     for name in list_names():
         click.echo(name)
+
+
+@cli.command("doctor")
+@click.pass_context
+def doctor(context: click.Context) -> None:
+    """Check credential-free local development readiness."""
+    from nmdc_lakehouse.doctor import run_doctor
+
+    report = run_doctor()
+    for check in report.checks:
+        click.echo(f"[{check.status.value}] {check.name}: {check.summary}")
+        if check.remediation:
+            click.echo(f"       remedy: {check.remediation}")
+    context.exit(report.exit_code)
 
 
 @cli.command("run-job")
@@ -49,6 +63,9 @@ def list_jobs() -> None:
 def run_job(job_name: str, dry_run: bool, drop_empty_cols: bool, skip: tuple[str, ...]) -> None:
     """Run a named ETL job from the registry."""
     import os
+
+    import nmdc_lakehouse.jobs  # noqa: F401 -- register built-in jobs only when needed
+    from nmdc_lakehouse.jobs.registry import get
 
     if drop_empty_cols:
         os.environ["LAKEHOUSE_DROP_EMPTY_COLS"] = "true"
