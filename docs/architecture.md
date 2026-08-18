@@ -52,7 +52,7 @@ projected into one or more tabular outputs and supplies output types. This is
 not full LinkML validation of every input record.
 
 The canonical logical target is
-[`src/nmdc_lakehouse/schemas/nmdc_metadata.yaml`](../src/nmdc_lakehouse/schemas/nmdc_metadata.yaml).
+`src/nmdc_lakehouse/schemas/nmdc_metadata.yaml`.
 It is generated from the locked NMDC `Database` model and contains every
 primary projection plus every possible junction and inlined-child side-table
 class. Schema and class annotations record source, table, and mapping
