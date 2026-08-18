@@ -20,7 +20,8 @@ repository does not execute remote installers.
 Go is a development-tool prerequisite, not an application runtime dependency.
 The bootstrap command installs the pre-commit hook without compiling every hook;
 Go is needed when actionlint first runs. CI provisions the exact just, Vale, and
-Go versions above. The project metadata rejects uv releases older than 0.12.3.
+Go versions above. uv reads the project's `required-version` setting at runtime
+and exits with an error when the installed release is older than 0.12.3.
 
 ## Managed environment
 
@@ -50,7 +51,8 @@ The command:
 
 1. creates or updates `.venv` from the locked development and documentation
    extras;
-2. installs the repository's pre-commit hook safely for repeated runs;
+2. installs the repository's pre-commit hook, or preserves and reports an
+   existing custom Git hooks policy;
 3. smoke-tests the installed `nmdc-lakehouse` command; and
 4. prints useful next commands.
 
