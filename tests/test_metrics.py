@@ -7,7 +7,7 @@ from click.testing import CliRunner
 
 from nmdc_lakehouse.cli import cli
 from nmdc_lakehouse.jobs.base import JobResult
-from nmdc_lakehouse.metrics import failure_record, stamp_result, success_record, write_record
+from nmdc_lakehouse.metrics import failure_record, result_record, stamp_result, success_record, write_record
 
 
 def test_stamp_and_success_record_include_rows_rate_bytes_and_children(tmp_path: Path, monkeypatch) -> None:
@@ -82,6 +82,13 @@ def test_stamp_result_sorts_outputs_by_table(tmp_path: Path) -> None:
     )
 
     assert [output.table for output in result.outputs] == ["alpha", "zeta"]
+
+
+def test_unstamped_result_record_uses_numeric_zero_elapsed() -> None:
+    record = result_record(JobResult(job_name="fixture", rows_read=3))
+
+    assert record["elapsed_seconds"] == 0.0
+    assert record["rows_per_second"] == 0.0
 
 
 def test_failure_record_is_sanitized(monkeypatch) -> None:
