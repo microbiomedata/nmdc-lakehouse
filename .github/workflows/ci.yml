@@ -41,6 +41,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev --extra docs
 
+      - name: Lint rendered Bash recipes
+        run: just shellcheck
+
       - name: Lint
         run: just lint
 

@@ -40,6 +40,24 @@ prose-lint:
     mkdir -p .vale-home
     HOME="$PWD/.vale-home" vale --config=.vale.ini --glob='**/*.md' README.md docs scripts/README.md notebooks
 
+# Dry-render one recipe with explicitly safe values, then lint without executing it.
+[private]
+_shellcheck-recipe RECIPE:
+    @LAKEHOUSE_ROOT=./lakehouse MONGO_URI=mongodb://localhost:27017/nmdc NMDC_EXPORT_DIR=./local/nmdc_export NMDC_PARQUET_DIR=./local/nmdc_export/parquet NMDC_CSV_DIR=./local/nmdc_export/csv NMDC_DUCKDB_FILE=./local/nmdc_export/nmdc_flattened.duckdb NMDC_BIOSAMPLE_CSV=./local/nmdc_export/csv/flattened_biosample.csv NMDC_BIOSAMPLE_FIELDS_FILE=./local/nmdc_export/csv/flattened_biosample.fields just --dry-run "{{ RECIPE }}" 2>&1 | uv run shellcheck --shell=bash -
+
+# Check the pinned ShellCheck and every maintained shell source.
+shellcheck:
+    @version="$(uv run shellcheck --version | sed -n 's/^version: //p')"; test "$version" = "0.11.0" || { echo "Expected ShellCheck 0.11.0, found $version" >&2; exit 1; }
+    @! printf '#!/usr/bin/env bash\necho $unquoted\n' | uv run shellcheck --shell=bash - >/dev/null
+    @just _shellcheck-recipe etl-collections
+    @just _shellcheck-recipe etl-annotations
+    @just _shellcheck-recipe etl-annotations-linkml
+    @just _shellcheck-recipe clean-parquet
+    @just _shellcheck-recipe flatten-nmdc-auth
+    @just _shellcheck-recipe export-flattened-biosample-csv
+    @just _shellcheck-recipe export-nmdc-duckdb
+    @find . -type f -name '*.sh' -not -path './.git/*' -not -path './.venv/*' -not -path './build/*' -not -path './dist/*' -exec uv run shellcheck --shell=bash {} +
+
 # Run all linters & formatters in check mode.
 # scripts/python is in scope (see .pre-commit-config.yaml); scripts/*.py
 # at the top level is EMA legacy and deliberately excluded.
@@ -147,7 +165,7 @@ clean-parquet:
         "$repo_root"/*) ;;
         *) echo "Refusing to delete outside repository: '$target'" >&2; exit 1 ;;
     esac
-    rm -rf -- "$target"/*
+    rm -rf -- "${target:?}"/*
 
 # ---------- Docs ----------
 
@@ -166,7 +184,7 @@ build:
     uv build
 
 # Run the deterministic local quality checks.
-check: lint-just prose-lint lint typecheck test
+check: lint-just prose-lint shellcheck lint typecheck test
 
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
 # See scripts/README.md for details. These recipes shell out to utilities under
@@ -190,6 +208,8 @@ flatten-nmdc:
 flatten-nmdc-auth:
     #!/usr/bin/env bash
     set -euo pipefail
+    # The runtime-only credentials file is intentionally absent from CI.
+    # shellcheck disable=SC1091
     set -a && . local/.env.ncbi-loadbalancer.27778 && set +a
     uv run python scripts/flatten_nmdc_collections.py \
       --mongo-uri "mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@${MONGO_HOST}:${MONGO_PORT}/${DEST_MONGO_DB}?authSource=admin&authMechanism=SCRAM-SHA-256&directConnection=true"

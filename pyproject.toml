@@ -51,6 +51,7 @@ dev = [
     "ruff>=0.16.2",
     "mypy>=1.10",
     "pre-commit>=4.6.2",
+    "shellcheck-py==0.11.0.1",
     "types-PyYAML>=6.0.12.20260408",
 ]
 docs = [
