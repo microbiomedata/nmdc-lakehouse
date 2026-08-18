@@ -17,6 +17,7 @@ from nmdc_lakehouse.metadata_bundle import (
     MetadataProfile,
     NamespaceProfile,
     build_metadata_bundle,
+    load_metadata_bundle,
     load_metadata_profile,
     metadata_json_schema,
     render_metadata_bundle,
@@ -269,6 +270,37 @@ def test_profile_loader_rejects_symlink_and_sensitive_property(tmp_path: Path) -
     profile_path.write_text(json.dumps(document), encoding="utf-8")
     with pytest.raises(MetadataBundleError, match="valid metadata profile"):
         load_metadata_profile(profile_path)
+
+
+def test_bundle_loader_rejects_non_utf8_input(tmp_path: Path) -> None:
+    path = tmp_path / "bundle.json"
+    path.write_bytes(b"\xff\xfe")
+
+    with pytest.raises(MetadataBundleError, match="valid metadata bundle"):
+        load_metadata_bundle(path)
+
+
+@pytest.mark.parametrize("duplicate", ["table", "column"])
+def test_bundle_loader_rejects_duplicate_names(tmp_path: Path, duplicate: str) -> None:
+    _snapshot_files(tmp_path)
+    bundle = build_metadata_bundle(
+        tmp_path,
+        _manifest(),
+        _profile(),
+        generated_at="2026-08-18T18:00:00+00:00",
+    )
+    document = bundle.model_dump(mode="json")
+    if duplicate == "table":
+        document["tables"].append(document["tables"][0])
+        expected = "duplicate table names"
+    else:
+        document["tables"][0]["columns"].append(document["tables"][0]["columns"][0])
+        expected = "duplicate columns"
+    path = tmp_path / "bundle.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(MetadataBundleError, match=expected):
+        load_metadata_bundle(path)
 
 
 def test_render_and_atomic_write_use_the_same_canonical_json(tmp_path: Path) -> None:

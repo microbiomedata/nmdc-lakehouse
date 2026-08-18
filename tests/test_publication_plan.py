@@ -19,6 +19,7 @@ from nmdc_lakehouse.publication_plan import (
     PublicationPolicy,
     build_publication_plan,
     load_destination_inventory,
+    load_publication_plan,
     load_publication_policy,
     publication_json_schema,
     render_publication_plan,
@@ -258,3 +259,26 @@ def test_write_plan_is_atomic_and_rejects_symlink_output(tmp_path: Path) -> None
     linked.symlink_to(destination)
     with pytest.raises(PublicationPlanError, match="ordinary file path"):
         write_publication_plan(linked, plan)
+
+
+def test_plan_loader_sanitizes_encoding_failure_and_rejects_duplicate_capabilities(tmp_path: Path) -> None:
+    path = tmp_path / "plan.json"
+    path.write_bytes(b"\xff")
+    with pytest.raises(PublicationPlanError, match="Cannot read a valid publication plan"):
+        load_publication_plan(path)
+
+    plan = build_publication_plan(
+        _manifest(),
+        _inventory(),
+        _policy(
+            PolicyRule(
+                table="functional_annotation_agg",
+                disposition=Disposition.PRESERVE,
+                rationale="No candidate replacement.",
+            )
+        ),
+    )
+    plan.destination_metadata_capabilities.append(plan.destination_metadata_capabilities[0])
+    path.write_text(plan.model_dump_json(), encoding="utf-8")
+    with pytest.raises(PublicationPlanError, match="duplicate metadata capabilities"):
+        load_publication_plan(path)

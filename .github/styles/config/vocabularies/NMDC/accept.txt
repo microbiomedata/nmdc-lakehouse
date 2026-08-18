@@ -103,6 +103,7 @@ queryable
 redistributable
 repo
 repo's
+revalidates
 Ruff
 runbook
 runbooks

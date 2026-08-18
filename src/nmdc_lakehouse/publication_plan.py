@@ -164,7 +164,7 @@ def _load_document(path: Path, model: type[ModelType], label: str) -> ModelType:
         raise PublicationPlanError(f"The {label} must be an ordinary JSON file.")
     try:
         return model.model_validate_json(path.read_text(encoding="utf-8"))
-    except (OSError, ValidationError) as error:
+    except (OSError, UnicodeDecodeError, ValidationError) as error:
         raise PublicationPlanError(f"Cannot read a valid {label}.") from error
 
 
@@ -188,15 +188,31 @@ def load_publication_policy(path: Path) -> PublicationPolicy:
     return policy
 
 
-def _validate_disposition(disposition: Disposition, *, candidate: bool, destination: bool, table: str) -> None:
-    compatible = {
+def load_publication_plan(path: Path) -> PublicationPlan:
+    """Load a versioned approved publication plan without contacting its destination."""
+    plan = _load_document(path, PublicationPlan, "publication plan")
+    table_names = [entry.table for entry in plan.tables]
+    if len(table_names) != len(set(table_names)):
+        raise PublicationPlanError("Publication plan contains duplicate table names.")
+    capabilities = plan.destination_metadata_capabilities
+    if len(capabilities) != len(set(capabilities)):
+        raise PublicationPlanError("Publication plan contains duplicate metadata capabilities.")
+    return plan
+
+
+def disposition_is_compatible(disposition: Disposition, *, candidate: bool, destination: bool) -> bool:
+    """Return whether a disposition is safe for the observed table presence."""
+    return {
         Disposition.ADD: candidate and not destination,
         Disposition.REPLACE: candidate and destination,
         Disposition.PRESERVE: destination,
         Disposition.REBUILD: destination,
         Disposition.RETIRE: destination and not candidate,
-    }
-    if not compatible[disposition]:
+    }[disposition]
+
+
+def _validate_disposition(disposition: Disposition, *, candidate: bool, destination: bool, table: str) -> None:
+    if not disposition_is_compatible(disposition, candidate=candidate, destination=destination):
         raise PublicationPlanError(
             f"Disposition '{disposition}' is unsafe for table '{table}' with its candidate/destination presence."
         )

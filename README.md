@@ -155,6 +155,7 @@ operational-command inventory.
 | `just bootstrap`    | Create locked env; install hooks unless `core.hooksPath` is set |
 | `just doctor`       | Diagnose local readiness without changing it      |
 | `just berdl-doctor SNAPSHOT_ROOT` | Diagnose BERDL publication readiness without mutation |
+| `just publication-preflight SNAPSHOT_ROOT BUNDLE INVENTORY PLAN` | Cross-check reviewed publication artifacts before staging |
 | `just install`      | Synchronize the locked development environment    |
 | `just install-all`  | Synchronize locked development and docs extras    |
 | `just lock`         | Refresh `uv.lock`                                |
