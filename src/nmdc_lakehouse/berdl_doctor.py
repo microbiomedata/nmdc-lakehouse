@@ -61,9 +61,7 @@ def _checkout_check(checkout: Path | None, runner: CommandRunner) -> DoctorCheck
             name="beril-checkout",
             status=CheckStatus.FAIL,
             summary="No BERIL research-observatory checkout is configured.",
-            remediation=(
-                "Set BERIL_CHECKOUT to an existing compatible checkout; the doctor will not clone or change it."
-            ),
+            remediation=("Set BERIL_CHECKOUT to the selected checkout; the doctor will not clone or change it."),
         )
     try:
         resolved = checkout.expanduser().resolve(strict=True)
@@ -81,7 +79,7 @@ def _checkout_check(checkout: Path | None, runner: CommandRunner) -> DoctorCheck
         return DoctorCheck(
             name="beril-checkout",
             status=CheckStatus.FAIL,
-            summary="The configured checkout lacks required supported ingest resources: " + ", ".join(missing) + ".",
+            summary="The configured checkout lacks required ingest resource paths: " + ", ".join(missing) + ".",
             remediation="Use a current BERIL-research-observatory checkout containing the documented ingest scripts.",
         )
     completed = runner(("git", "-C", str(resolved), "rev-parse", "--verify", "HEAD"))
@@ -96,7 +94,7 @@ def _checkout_check(checkout: Path | None, runner: CommandRunner) -> DoctorCheck
     return DoctorCheck(
         name="beril-checkout",
         status=CheckStatus.PASS,
-        summary=f"The BERIL checkout has the supported ingest resources at revision {revision[:12]}.",
+        summary=f"The BERIL checkout has the required ingest resource paths at revision {revision[:12]}.",
     )
 
 

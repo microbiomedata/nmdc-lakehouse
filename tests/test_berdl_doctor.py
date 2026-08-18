@@ -89,7 +89,7 @@ def _run(
     )
 
 
-def test_valid_snapshot_and_compatible_environment_pass(tmp_path: Path) -> None:
+def test_valid_snapshot_and_configured_environment_pass(tmp_path: Path) -> None:
     checkout = _checkout(tmp_path)
     report = _run(tmp_path, checkout)
 

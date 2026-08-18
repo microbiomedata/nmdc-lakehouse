@@ -35,12 +35,18 @@ just berdl-doctor /absolute/path/to/completed-snapshot
 
 `BERIL_CHECKOUT` must be explicit; the command does not guess a user-specific
 checkout location. It validates the snapshot manifest offline, identifies the
-checkout revision, checks its supported ingest scripts, requires Python 3.13 in
-its `.venv-berdl`, checks the `data-lakehouse-ingest` and `berdl-remote`
-distributions, and checks `mc`. It also checks for `KBASE_AUTH_TOKEN` by name in
-the process, this repository's `.env`, or the configured BERIL checkout's
-`.env`. No value is printed or tested. Refresh the short-lived token through the
-supported KBase workflow immediately before a publication attempt.
+checkout revision, checks for the required ingest resource paths, requires
+Python 3.13 in its `.venv-berdl`, checks the `data-lakehouse-ingest` and
+`berdl-remote` distributions, and checks `mc`. It also checks for
+`KBASE_AUTH_TOKEN` by name in the process, this repository's `.env`, or the
+configured BERIL checkout's `.env`. No value is printed or tested. Refresh the
+short-lived token through the supported KBase workflow immediately before a
+publication attempt.
+
+These checks identify the selected external revision and its locally available
+interfaces; they do not certify live-ingest compatibility. Pin and test a BERIL
+revision containing the required source-verification and credential fixes
+before authorizing publication.
 
 The destination, catalog, and table format are explicit observations. Do not
 copy the historical Delta examples below unless current discovery confirms
