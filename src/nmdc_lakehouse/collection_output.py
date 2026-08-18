@@ -39,11 +39,19 @@ class CollectionOutputTransaction:
 
     def __enter__(self) -> CollectionOutputTransaction:
         """Create a same-filesystem staging directory."""
-        self.root.mkdir(parents=True, exist_ok=True)
+        try:
+            self.root.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise CollectionPromotionError("Collection output root must be an ordinary directory.") from error
+        if not self.root.is_dir():
+            raise CollectionPromotionError("Collection output root must be an ordinary directory.")
         staging_parent = self.root / ".staging"
-        staging_parent.mkdir(exist_ok=True)
+        try:
+            staging_parent.mkdir(exist_ok=True)
+        except OSError as error:
+            raise CollectionPromotionError("Collection staging root must be an ordinary directory.") from error
         if staging_parent.is_symlink() or not staging_parent.is_dir():
-            raise CollectionPromotionError("Collection staging root must be an ordinary directory, not a symlink.")
+            raise CollectionPromotionError("Collection staging root must be an ordinary directory.")
         self.stage_root = Path(tempfile.mkdtemp(prefix=f"{self.collection}-", dir=staging_parent))
         return self
 

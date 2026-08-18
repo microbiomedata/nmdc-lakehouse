@@ -70,11 +70,24 @@ def test_transaction_rejects_symlinked_staging_root(tmp_path: Path) -> None:
     output.mkdir()
     (output / ".staging").symlink_to(external, target_is_directory=True)
 
-    with pytest.raises(CollectionPromotionError, match="staging root.*not a symlink"):
+    with pytest.raises(CollectionPromotionError, match="staging root must be an ordinary directory"):
         with CollectionOutputTransaction(output, "sample_set", {"sample_set"}):
             pytest.fail("A symlinked staging root must not be entered.")
 
     assert list(external.iterdir()) == []
+
+
+@pytest.mark.parametrize("blocked_path", ["output", "output/.staging"])
+def test_transaction_translates_non_directory_roots(tmp_path: Path, blocked_path: str) -> None:
+    output = tmp_path / "output"
+    if blocked_path.endswith(".staging"):
+        output.mkdir()
+    (tmp_path / blocked_path).write_text("not a directory", encoding="utf-8")
+
+    expected = "staging root" if blocked_path.endswith(".staging") else "output root"
+    with pytest.raises(CollectionPromotionError, match=expected):
+        with CollectionOutputTransaction(output, "sample_set", {"sample_set"}):
+            pytest.fail("A non-directory root must not be entered.")
 
 
 def test_promotion_failure_rolls_back_previous_output(tmp_path: Path, monkeypatch) -> None:
