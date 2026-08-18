@@ -56,10 +56,11 @@ def test_healthy_unit_environment_exits_zero(tmp_path: Path) -> None:
 
 
 def test_missing_command_has_targeted_failure(tmp_path: Path) -> None:
+    runner = _healthy_runner(tmp_path / "pre-commit")
     report = run_doctor(
         project_root=tmp_path,
         environ={},
-        runner=_healthy_runner(tmp_path / "pre-commit"),
+        runner=runner,
         finder=lambda name: None if name == "uv" else "/usr/bin/tool",
         python_version=(3, 13, 13),
     )
@@ -68,6 +69,25 @@ def test_missing_command_has_targeted_failure(tmp_path: Path) -> None:
     assert report.exit_code == 1
     assert uv_check.status is CheckStatus.FAIL
     assert uv_check.remediation == "Install uv, then run just bootstrap."
+    assert not any(call[:3] == ("uv", "sync", "--check") for call in runner.calls)
+    locked_check = next(check for check in report.checks if check.name == "locked-environment")
+    assert "not evaluated" in locked_check.summary
+
+
+def test_missing_git_skips_hook_commands(tmp_path: Path) -> None:
+    runner = _healthy_runner(tmp_path / "pre-commit")
+    report = run_doctor(
+        project_root=tmp_path,
+        environ={},
+        runner=runner,
+        finder=lambda name: None if name == "git" else "/usr/bin/tool",
+        python_version=(3, 13, 13),
+    )
+
+    hook_check = next(check for check in report.checks if check.name == "pre-commit-hook")
+    assert hook_check.status is CheckStatus.FAIL
+    assert "not evaluated" in hook_check.summary
+    assert not any(call[:2] == ("git", "config") for call in runner.calls)
 
 
 def test_stale_environment_fails_offline_with_bootstrap_remedy(tmp_path: Path) -> None:
@@ -148,6 +168,23 @@ def test_unsafe_lakehouse_root_fails_without_echoing_value(tmp_path: Path) -> No
     check = next(check for check in report.checks if check.name == "lakehouse-root")
     assert check.status is CheckStatus.FAIL
     assert secret_path not in repr(report)
+
+
+def test_invalid_path_values_are_sanitized(tmp_path: Path) -> None:
+    invalid_path = "TOP-SECRET-SENTINEL\0invalid"
+    report = run_doctor(
+        project_root=tmp_path,
+        environ={"LAKEHOUSE_ROOT": invalid_path, "NMDC_JUMP_KEY": invalid_path},
+        runner=_healthy_runner(tmp_path / "pre-commit"),
+        finder=_all_commands,
+        python_version=(3, 13, 13),
+    )
+
+    lakehouse_check = next(check for check in report.checks if check.name == "lakehouse-root")
+    jump_check = next(check for check in report.checks if check.name == "jump-key-path")
+    assert lakehouse_check.status is CheckStatus.FAIL
+    assert jump_check.status is CheckStatus.WARN
+    assert invalid_path not in repr(report)
 
 
 def test_malformed_dotenv_fails_without_source_text(tmp_path: Path) -> None:

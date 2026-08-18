@@ -153,6 +153,15 @@ def _environment_sync_check(runner: CommandRunner) -> DoctorCheck:
     )
 
 
+def _prerequisite_failure_check(*, name: str, prerequisite: str) -> DoctorCheck:
+    return DoctorCheck(
+        name=name,
+        status=CheckStatus.FAIL,
+        summary=f"This check was not evaluated because the required {prerequisite} command failed its diagnostic.",
+        remediation=f"Resolve the {prerequisite} diagnostic above, then rerun just doctor.",
+    )
+
+
 def _pre_commit_check(runner: CommandRunner, *, project_root: Path) -> DoctorCheck:
     configured = runner(("git", "config", "--get", "core.hooksPath"))
     if configured.returncode == 0:
@@ -283,11 +292,19 @@ def _lakehouse_root_check(value: str, project_root: Path) -> DoctorCheck:
             summary="LAKEHOUSE_ROOT is not a supported local directory path.",
             remediation=remediation,
         )
-    candidate = Path(value).expanduser()
-    if not candidate.is_absolute():
-        candidate = project_root / candidate
-    candidate = candidate.resolve(strict=False)
-    project_root = project_root.resolve()
+    try:
+        candidate = Path(value).expanduser()
+        if not candidate.is_absolute():
+            candidate = project_root / candidate
+        candidate = candidate.resolve(strict=False)
+        project_root = project_root.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return DoctorCheck(
+            name="lakehouse-root",
+            status=CheckStatus.FAIL,
+            summary="LAKEHOUSE_ROOT is not a valid local directory path.",
+            remediation=remediation,
+        )
     git_path = project_root / ".git"
     unsafe = (
         candidate == Path(candidate.anchor)
@@ -322,8 +339,13 @@ def _jump_key_check(value: str | None) -> DoctorCheck:
             summary="NMDC_JUMP_KEY is not a local file path.",
             remediation="Set NMDC_JUMP_KEY to a private local key file before live-service checks.",
         )
-    key_path = Path(value).expanduser()
-    if not key_path.is_file():
+    try:
+        key_path = Path(value).expanduser()
+        key_is_file = key_path.is_file()
+    except (OSError, RuntimeError, ValueError):
+        key_is_file = False
+        key_path = None
+    if not key_is_file or key_path is None:
         return DoctorCheck(
             name="jump-key-path",
             status=CheckStatus.WARN,
@@ -332,7 +354,7 @@ def _jump_key_check(value: str | None) -> DoctorCheck:
         )
     try:
         permissions = stat.S_IMODE(key_path.stat().st_mode)
-    except OSError:
+    except (OSError, ValueError):
         permissions = 0o777
     if permissions & 0o077:
         return DoctorCheck(
@@ -362,25 +384,31 @@ def run_doctor(
     environment = dict(os.environ if environ is None else environ)
     version_info = python_version or (sys.version_info.major, sys.version_info.minor, sys.version_info.micro)
 
-    checks = [
-        _command_version_check(
-            name="uv",
-            args=("uv", "--version"),
-            finder=finder,
-            runner=command_runner,
-            minimum=MIN_UV_VERSION,
-        ),
-        _command_version_check(
-            name="just",
-            args=("just", "--version"),
-            finder=finder,
-            runner=command_runner,
-            exact=REQUIRED_JUST_VERSION,
-        ),
-        _command_version_check(name="git", args=("git", "--version"), finder=finder, runner=command_runner),
-        _python_check(version_info),
-        _environment_sync_check(command_runner),
-        _pre_commit_check(command_runner, project_root=root),
-    ]
+    uv_check = _command_version_check(
+        name="uv",
+        args=("uv", "--version"),
+        finder=finder,
+        runner=command_runner,
+        minimum=MIN_UV_VERSION,
+    )
+    just_check = _command_version_check(
+        name="just",
+        args=("just", "--version"),
+        finder=finder,
+        runner=command_runner,
+        exact=REQUIRED_JUST_VERSION,
+    )
+    git_check = _command_version_check(name="git", args=("git", "--version"), finder=finder, runner=command_runner)
+    environment_check = (
+        _environment_sync_check(command_runner)
+        if uv_check.status is CheckStatus.PASS
+        else _prerequisite_failure_check(name="locked-environment", prerequisite="uv")
+    )
+    hook_check = (
+        _pre_commit_check(command_runner, project_root=root)
+        if git_check.status is CheckStatus.PASS
+        else _prerequisite_failure_check(name="pre-commit-hook", prerequisite="git")
+    )
+    checks = [uv_check, just_check, git_check, _python_check(version_info), environment_check, hook_check]
     checks.extend(_configuration_checks(project_root=root, environ=environment))
     return DoctorReport(checks=tuple(checks))
