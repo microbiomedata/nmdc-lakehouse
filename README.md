@@ -130,7 +130,7 @@ operational-command inventory.
 
 | Recipe              | What it does                                     |
 |---------------------|--------------------------------------------------|
-| `just bootstrap`    | Create the locked environment and install hooks   |
+| `just bootstrap`    | Create locked env; install hooks unless `core.hooksPath` is set |
 | `just install`      | Synchronize the locked development environment    |
 | `just install-all`  | Synchronize locked development and docs extras    |
 | `just lock`         | Refresh `uv.lock`                                |
