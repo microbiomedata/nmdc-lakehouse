@@ -8,27 +8,39 @@ import pytest
 from linkml_runtime import SchemaView
 from linkml_runtime.linkml_model import ClassDefinition
 
-from nmdc_lakehouse.sinks.parquet_sink import ParquetSink, class_def_to_arrow_schema
+from nmdc_lakehouse.sinks.parquet_sink import ParquetSink, StreamingWriter, class_def_to_arrow_schema
+from nmdc_lakehouse.transforms.schema_generator import (
+    DEFAULT_FLATTENED_SCHEMA_ID,
+    flatten_class_def,
+    side_table_class_defs,
+)
+
+TARGET_SCHEMA_ID = DEFAULT_FLATTENED_SCHEMA_ID
+PRIMARY_MAPPING = "nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener"
 
 
 @pytest.fixture
-def flat_class() -> ClassDefinition:
-    """A minimal flat ClassDefinition with mixed ranges."""
-    sv = SchemaView("""
+def flat_schema_view() -> SchemaView:
+    """A minimal source schema with table and column descriptions."""
+    return SchemaView("""
 id: https://example.org/test
 name: test
+version: 1.2.3
 prefixes:
   linkml: https://w3id.org/linkml/
 imports:
   - linkml:types
 classes:
   FlatRecord:
+    description: A flattened test record.
     attributes:
       id:
         range: string
-        required: true
+        identifier: true
+        description: Stable record identifier.
       depth_has_numeric_value:
         range: float
+        description: Numeric depth value.
       depth_has_unit:
         range: string
       count:
@@ -36,7 +48,12 @@ classes:
       active:
         range: boolean
 """)
-    return sv.get_class("FlatRecord")
+
+
+@pytest.fixture
+def flat_class(flat_schema_view: SchemaView) -> ClassDefinition:
+    """A minimal flat ClassDefinition with mixed ranges."""
+    return flat_schema_view.get_class("FlatRecord")
 
 
 @pytest.fixture
@@ -110,6 +127,79 @@ def test_write_roundtrip(flat_class, tmp_path):
     assert tbl.column("depth_has_unit").to_pylist() == ["m", "cm"]
 
 
+def test_write_persists_schema_metadata_in_parquet_footer(flat_schema_view, flat_class, tmp_path):
+    """The file footer carries stable table, schema, mapping, and field metadata."""
+    sink = ParquetSink(
+        tmp_path,
+        class_def=flat_class,
+        source_schema=flat_schema_view.schema,
+        source_class="FlatRecord",
+        target_schema_id=TARGET_SCHEMA_ID,
+        mapping=PRIMARY_MAPPING,
+    )
+    sink.write(iter([{"id": "r1", "depth_has_numeric_value": 1.5}]), table="flat_record")
+
+    schema = pq.ParquetFile(tmp_path / "flat_record.parquet").schema_arrow
+    assert schema.metadata == {
+        b"nmdc_lakehouse.table_description": b"A flattened test record.",
+        b"nmdc_lakehouse.source_schema_id": b"https://example.org/test",
+        b"nmdc_lakehouse.source_schema_version": b"1.2.3",
+        b"nmdc_lakehouse.source_class": b"FlatRecord",
+        b"nmdc_lakehouse.target_schema_id": TARGET_SCHEMA_ID.encode(),
+        b"nmdc_lakehouse.target_class": b"FlatRecord",
+        b"nmdc_lakehouse.mapping": PRIMARY_MAPPING.encode(),
+    }
+    assert schema.field("depth_has_numeric_value").metadata == {
+        b"nmdc_lakehouse.description": b"Numeric depth value.",
+        b"nmdc_lakehouse.linkml_range": b"float",
+    }
+    assert schema.field("id").metadata[b"nmdc_lakehouse.identifier"] == b"true"
+
+
+def test_primary_footer_retains_generated_flattening_description(tmp_path):
+    """Generated nested-slot provenance reaches a primary Parquet footer."""
+    sv = SchemaView("""
+id: https://example.org/nested
+name: nested
+version: 2.0.0
+prefixes:
+  linkml: https://w3id.org/linkml/
+imports:
+  - linkml:types
+classes:
+  Record:
+    description: A source record.
+    attributes:
+      id:
+        identifier: true
+        range: string
+      depth:
+        range: Quantity
+        inlined: true
+  Quantity:
+    attributes:
+      has_raw_value:
+        range: float
+        description: Original numeric value.
+""")
+    flat_class = flatten_class_def(sv, "Record")
+    sink = ParquetSink(
+        tmp_path,
+        class_def=flat_class,
+        source_schema=sv.schema,
+        source_class="Record",
+        target_schema_id=TARGET_SCHEMA_ID,
+        mapping=PRIMARY_MAPPING,
+    )
+    sink.write(iter([{"id": "r1", "depth_has_raw_value": 3.5}]), table="record_set")
+
+    schema = pq.ParquetFile(tmp_path / "record_set.parquet").schema_arrow
+    assert schema.metadata[b"nmdc_lakehouse.table_description"].startswith(b"A source record.")
+    description = schema.field("depth_has_raw_value").metadata[b"nmdc_lakehouse.description"]
+    assert b"Original numeric value" in description
+    assert b"Flattened from nested slot 'depth.has_raw_value'" in description
+
+
 def test_missing_columns_written_as_null(flat_class, tmp_path):
     """Columns absent from a row are written as null when a schema is set."""
     sink = ParquetSink(tmp_path, class_def=flat_class)
@@ -151,6 +241,23 @@ def test_write_empty_input(flat_class, tmp_path):
     tbl = _pq.read_table(out)
     assert len(tbl) == 0
     assert "id" in tbl.schema.names
+
+
+def test_write_empty_input_preserves_footer_metadata(flat_schema_view, flat_class, tmp_path):
+    """A schema-only Parquet file retains table and column descriptions."""
+    sink = ParquetSink(
+        tmp_path,
+        class_def=flat_class,
+        source_schema=flat_schema_view.schema,
+        source_class="FlatRecord",
+        target_schema_id=TARGET_SCHEMA_ID,
+        mapping=PRIMARY_MAPPING,
+    )
+    sink.write(iter([]), table="flat_record")
+
+    schema = pq.ParquetFile(tmp_path / "flat_record.parquet").schema_arrow
+    assert schema.metadata[b"nmdc_lakehouse.source_schema_version"] == b"1.2.3"
+    assert schema.field("id").metadata[b"nmdc_lakehouse.description"] == b"Stable record identifier."
 
 
 def test_write_empty_input_no_schema(tmp_path):
@@ -200,6 +307,89 @@ def test_drop_empty_cols_removes_all_null_columns(flat_class, tmp_path):
     assert "depth_has_numeric_value" not in tbl.schema.names
     assert "count" not in tbl.schema.names
     assert "active" not in tbl.schema.names
+
+
+def test_drop_empty_cols_preserves_footer_metadata(flat_schema_view, flat_class, tmp_path):
+    """Column pruning retains metadata on the table and retained fields."""
+    sink = ParquetSink(
+        tmp_path,
+        class_def=flat_class,
+        source_schema=flat_schema_view.schema,
+        source_class="FlatRecord",
+        target_schema_id=TARGET_SCHEMA_ID,
+        mapping=PRIMARY_MAPPING,
+    )
+    sink.write(iter([{"id": "r1"}]), table="flat_record", drop_empty_cols=True)
+
+    schema = pq.ParquetFile(tmp_path / "flat_record.parquet").schema_arrow
+    assert schema.metadata[b"nmdc_lakehouse.target_schema_id"] == TARGET_SCHEMA_ID.encode()
+    assert schema.field("id").metadata[b"nmdc_lakehouse.description"] == b"Stable record identifier."
+
+
+def test_side_table_writers_persist_reference_and_child_metadata(tmp_path):
+    """Reference and inlined-child side-table footers retain generated descriptions."""
+    sv = SchemaView("""
+id: https://example.org/side-tables
+name: side_tables
+version: 4.5.6
+prefixes:
+  linkml: https://w3id.org/linkml/
+imports:
+  - linkml:types
+classes:
+  Record:
+    attributes:
+      id:
+        identifier: true
+        range: string
+      related:
+        range: Related
+        multivalued: true
+        description: Related record identifiers.
+      children:
+        range: Child
+        multivalued: true
+        inlined: true
+  Related:
+    attributes:
+      id:
+        identifier: true
+        range: string
+  Child:
+    description: A nested child record.
+    attributes:
+      label:
+        range: string
+        description: Child label.
+""")
+    defs = dict(side_table_class_defs(sv, "Record", "record_set"))
+    rows = {
+        "record_set_related": {"parent_id": "r1", "related": "r2"},
+        "record_set_children": {"parent_id": "r1", "label": "child"},
+    }
+
+    for table_name, row in rows.items():
+        schema = class_def_to_arrow_schema(
+            defs[table_name],
+            source_schema=sv.schema,
+            source_class="Record",
+            target_schema_id=TARGET_SCHEMA_ID,
+            mapping="nmdc_lakehouse.transforms.flatteners.side_table_rows",
+        )
+        writer = StreamingWriter(tmp_path / f"{table_name}.parquet", schema)
+        writer.append(row)
+        assert writer.close() == 1
+
+    reference_schema = pq.ParquetFile(tmp_path / "record_set_related.parquet").schema_arrow
+    assert reference_schema.metadata[b"nmdc_lakehouse.table_description"].startswith(b"References from")
+    assert b"Related record identifiers" in reference_schema.field("related").metadata[b"nmdc_lakehouse.description"]
+
+    child_schema = pq.ParquetFile(tmp_path / "record_set_children.parquet").schema_arrow
+    assert child_schema.metadata[b"nmdc_lakehouse.table_description"].startswith(b"A nested child record.")
+    assert child_schema.field("label").metadata[b"nmdc_lakehouse.description"] == b"Child label."
+    assert (
+        child_schema.field("parent_id").metadata[b"nmdc_lakehouse.description"].startswith(b"Identifier of the parent")
+    )
 
 
 def test_drop_empty_cols_removes_all_empty_array_columns(array_class, tmp_path):
