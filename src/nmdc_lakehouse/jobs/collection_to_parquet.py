@@ -29,6 +29,33 @@ from nmdc_lakehouse.transforms.flatteners import SchemaDrivenFlattener
 
 logger = logging.getLogger(__name__)
 
+# This reviewed snapshot does not drive collection selection. The installed,
+# locked nmdc-schema remains authoritative; tests compare its Database slots
+# with this set so dependency updates cannot change dump scope silently.
+REVIEWED_SCHEMA_COLLECTIONS: frozenset[str] = frozenset(
+    {
+        "biosample_set",
+        "calibration_set",
+        "collecting_biosamples_from_site_set",
+        "configuration_set",
+        "data_generation_set",
+        "data_object_set",
+        "field_research_site_set",
+        "functional_annotation_agg",
+        "functional_annotation_set",
+        "genome_feature_set",
+        "instrument_set",
+        "manifest_set",
+        "material_processing_set",
+        "organism_sample_set",
+        "organism_set",
+        "processed_sample_set",
+        "storage_process_set",
+        "study_set",
+        "workflow_execution_set",
+    }
+)
+
 
 def _db_collection_map() -> dict[str, str]:
     """Return {collection_name: root_class} from the installed nmdc-schema.
