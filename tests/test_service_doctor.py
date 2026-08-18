@@ -181,7 +181,26 @@ def test_missing_key_prevents_tunnel_probe(tmp_path: Path) -> None:
 
     assert checks[-1].name == "gcp-jump-key"
     assert checks[-1].status is CheckStatus.FAIL
+    assert "unavailable" in checks[-1].summary
+    assert "owner-only access" in (checks[-1].remediation or "")
     assert not probe_called
+
+
+def test_unsafe_key_permissions_have_specific_remediation(tmp_path: Path) -> None:
+    key_path = tmp_path / "jump-key"
+    configuration = _live_configuration(key_path)
+    key_path.chmod(0o644)
+
+    checks = run_service_checks(
+        ("gcp-tunnel",),
+        configured=configuration,
+        socket_probe=lambda _host, _port, _timeout: True,
+    )
+
+    assert checks[-1].name == "gcp-jump-key"
+    assert checks[-1].status is CheckStatus.FAIL
+    assert "permissions are broader" in checks[-1].summary
+    assert "Restrict the key" in (checks[-1].remediation or "")
 
 
 def test_absent_tunnel_and_reachable_tunnel_are_distinct(tmp_path: Path) -> None:

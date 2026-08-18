@@ -182,8 +182,8 @@ def _gcp_jump_key_check(configured: Mapping[str, str]) -> DoctorCheck:
     return DoctorCheck(
         name="gcp-jump-key",
         status=CheckStatus.FAIL,
-        summary="The GCP jump-host key is missing, invalid, or has unsafe permissions.",
-        remediation="Set NMDC_JUMP_KEY to the owner-only private key documented in docs/mongodb-connection.md.",
+        summary=base_check.summary,
+        remediation=base_check.remediation,
     )
 
 
