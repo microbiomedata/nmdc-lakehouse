@@ -75,6 +75,10 @@ authorizes the historical upload steps below.
 The destination, catalog, and table format are explicit observations. Do not
 copy the historical Delta examples below unless current discovery confirms
 them. A missing or blank value is a readiness failure.
+This is a BERDL destination-profile requirement enforced by `berdl-doctor` and
+the BERDL inventory producer. The portable publication preflight permits absent
+provider or table-format labels for destinations, such as file-only publication,
+where those concepts do not apply.
 
 The default check is offline. To make one bounded TCP probe of the separately
 managed local BERDL proxy, opt in:
