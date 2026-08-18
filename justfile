@@ -219,6 +219,10 @@ docs-build:
 build:
     uv build
 
+# Build and smoke-test the installable wheel and source distribution.
+test-dist:
+    bash scripts/check_distribution.sh
+
 # Run the deterministic local quality checks.
 check: lint-just prose-lint shellcheck actionlint lint deps-lint typecheck test-cov
 

@@ -162,6 +162,7 @@ operational-command inventory.
 | `just test`         | pytest                                           |
 | `just test-cov`     | pytest with the configured floor and coverage XML|
 | `just build`        | Build sdist + wheel via `uv build`               |
+| `just test-dist`    | Build and test archives in isolated Python 3.13  |
 | `just docs-build`   | Build the MkDocs site (requires `install-all`)   |
 | `just check`        | just, prose, shell, workflow, Python, type, tests  |
 
@@ -176,4 +177,4 @@ regression.
 
 ## License
 
-MIT
+[MIT](LICENSE)

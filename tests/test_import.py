@@ -1,10 +1,13 @@
 """Smoke tests: the package and its subpackages import cleanly."""
 
+from importlib.metadata import version
+
 
 def test_package_import():
     import nmdc_lakehouse
 
-    assert nmdc_lakehouse.__version__
+    assert nmdc_lakehouse.__version__ == version("nmdc-lakehouse")
+    assert nmdc_lakehouse.__version__ != "0.0.0"
 
 
 def test_subpackages_import():

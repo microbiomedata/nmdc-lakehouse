@@ -8,6 +8,7 @@ is implemented, while destination publication remains manual and external.
 
 - [Architecture](architecture.md)
 - [Development setup](development-setup.md)
+- [Package versions and releases](releases.md)
 - [MongoDB connection](mongodb-connection.md)
 - [Uploading Parquet to BERDL](berdl-upload.md)
 - [Portable publication and replacement contract](publication-contract.md)
