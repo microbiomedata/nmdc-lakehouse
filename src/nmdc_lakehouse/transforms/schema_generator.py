@@ -329,7 +329,7 @@ def _flatten_slot(
                 description=ref_desc or None,
                 required=(slot.required if not dispatch_subclass else False),
             )
-            _carry_designators(new_slot, slot)
+            _carry_identifier(new_slot, slot)
             _attach_notes(new_slot, notes)
             yield new_slot
             return
@@ -344,7 +344,7 @@ def _flatten_slot(
             description=slot.description or None,
             required=(slot.required if not dispatch_subclass else False),
         )
-        _carry_designators(new_slot, slot)
+        _carry_identifier(new_slot, slot)
         _attach_notes(new_slot, notes)
         yield new_slot
         return
@@ -373,7 +373,7 @@ def _flatten_slot(
                 description=nested_desc or None,
                 required=False,
             )
-            _carry_designators(new_slot, inner_slot, nested=True)
+            _carry_identifier(new_slot, inner_slot, nested=True)
             _attach_notes(new_slot, notes)
             yield new_slot
             continue
@@ -398,7 +398,7 @@ def _flatten_slot(
                     description=nested_desc or None,
                     required=False,
                 )
-                _carry_designators(new_slot, deepest, nested=True)
+                _carry_identifier(new_slot, deepest, nested=True)
                 _attach_notes(new_slot, notes)
                 yield new_slot
 
@@ -410,30 +410,27 @@ def _range_class(slot: SlotDefinition, schema_view: SchemaView):
     return schema_view.get_class(slot.range)
 
 
-def _carry_designators(
+def _carry_identifier(
     new_slot: SlotDefinition,
     source_slot: SlotDefinition,
     *,
     nested: bool = False,
 ) -> None:
-    """Propagate ``identifier`` / ``designates_type`` from the source slot onto a flat slot.
+    """Propagate a root identifier without changing target ``type`` semantics.
 
-    These two metaslots mark columns whose presence is part of the contract
-    even when empty for a given dataset (e.g. a `type` slot that only some
-    subclasses populate), so downstream consumers such as
-    `ParquetSink.write(drop_empty_cols=True)` can protect them from being
-    dropped. See microbiomedata/nmdc-lakehouse#123.
+    Required columns and identifiers are protected from empty-column pruning
+    by :class:`ParquetSink`. A source ``designates_type`` slot is retained as
+    data but cannot designate the generated target class: its values still
+    identify source NMDC classes rather than flattened target classes.
 
-    An identifier or type designator on an embedded class does not identify or
-    designate the flattened parent class. Nested expansions therefore retain
-    their value and description but not those class-level metaslots.
+    An identifier on an embedded class does not identify the flattened parent
+    class. Nested expansions therefore retain its value and description but
+    not that class-level metaslot.
     """
     if nested:
         return
     if source_slot.identifier:
         new_slot.identifier = True
-    if source_slot.designates_type:
-        new_slot.designates_type = True
 
 
 def _attach_notes(slot: SlotDefinition, notes: list[str]) -> None:

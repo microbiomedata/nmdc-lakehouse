@@ -52,6 +52,7 @@ classes:
         required: true
       type:
         designates_type: true
+        required: true
   Pooling:
     is_a: Process
     attributes:
@@ -150,15 +151,15 @@ def test_flat_class_expands_inlined_object(sv):
     assert "env_broad_scale_term_id" in flat.attributes
 
 
-def test_flat_class_carries_designates_type(sv):
-    """A slot's `designates_type: true` survives flattening onto the flat column.
+def test_flat_class_preserves_type_column_without_target_designation(sv):
+    """A source type remains required data but does not designate the target.
 
-    Regression test for microbiomedata/nmdc-lakehouse#123: ParquetSink needs
-    this to know `type` is part of the schema contract and must not be
-    dropped by drop_empty_cols even when null for a given dataset.
+    The value identifies a source class, not the generated flat class. Required
+    columns are independently protected from empty-column pruning.
     """
     flat = flatten_class_def(sv, "Process")
-    assert flat.attributes["type"].designates_type is True
+    assert flat.attributes["type"].required is True
+    assert flat.attributes["type"].designates_type is not True
 
 
 def test_flat_class_does_not_promote_nested_identifier(sv):

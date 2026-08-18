@@ -66,7 +66,9 @@ import. It preserves upstream permissible values and prefixes exactly. LinkML
 may warn about their naming or canonical-prefix conventions; those warnings
 belong upstream and are not rewritten in this generated projection. Target
 classes reject undeclared ranges and multiple class identifiers in repository
-tests.
+tests. A source `type` remains a required value column where the source model
+requires it, but it does not designate the generated flat class because its
+values continue to identify source NMDC classes.
 
 Each snapshot manifest maps an emitted table to a `target_class` in this
 schema. The schema contains possible topology, while the manifest records the

@@ -424,15 +424,17 @@ classes:
       type:
         range: string
         designates_type: true
+      required_value:
+        range: string
+        required: true
       has_raw_value:
         range: string
 """)
     return sv.get_class("DesignatorRecord")
 
 
-def test_drop_empty_cols_keeps_identifier_and_designates_type_columns(flat_class_with_designators, tmp_path):
-    """drop_empty_cols=True never drops a column backed by identifier: true or
-    designates_type: true, even when it is null in every row of this run.
+def test_drop_empty_cols_keeps_required_identifier_and_designates_type_columns(flat_class_with_designators, tmp_path):
+    """Contract columns survive even when null in every row of this run.
 
     Regression test for microbiomedata/nmdc-lakehouse#123: these columns are
     part of the schema's contract (e.g. the polymorphic dispatch key), not a
@@ -444,4 +446,5 @@ def test_drop_empty_cols_keeps_identifier_and_designates_type_columns(flat_class
     tbl = pq.read_table(tmp_path / "designator_record.parquet")
     assert "id" in tbl.schema.names
     assert "type" in tbl.schema.names
+    assert "required_value" in tbl.schema.names
     assert "has_raw_value" in tbl.schema.names

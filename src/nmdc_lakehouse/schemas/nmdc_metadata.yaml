@@ -14710,7 +14710,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -15375,7 +15374,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -15414,7 +15412,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -15453,7 +15450,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -15516,7 +15512,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -15555,7 +15550,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -15648,7 +15642,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -15687,7 +15680,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -15726,7 +15718,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -15765,7 +15756,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -15804,7 +15794,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -15843,7 +15832,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -15882,7 +15870,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -15921,7 +15908,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -15960,7 +15946,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -15999,7 +15984,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16038,7 +16022,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16077,7 +16060,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16116,7 +16098,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16155,7 +16136,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16194,7 +16174,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16233,7 +16212,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16272,7 +16250,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16363,7 +16340,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16402,7 +16378,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16441,7 +16416,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16498,7 +16472,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16537,7 +16510,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16576,7 +16548,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16615,7 +16586,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16654,7 +16624,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16693,7 +16662,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16732,7 +16700,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16771,7 +16738,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16810,7 +16776,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16849,7 +16814,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16888,7 +16852,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16927,7 +16890,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -16966,7 +16928,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -17005,7 +16966,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -17044,7 +17004,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -17083,7 +17042,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -17122,7 +17080,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -17161,7 +17118,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -17200,7 +17156,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -17275,7 +17230,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -17399,7 +17353,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -17435,7 +17388,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -17665,7 +17617,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -17723,7 +17674,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -18055,7 +18005,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -18115,7 +18064,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -18295,7 +18243,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -18469,7 +18416,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -18532,7 +18478,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -18641,7 +18586,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -18781,7 +18725,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -18834,7 +18777,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -18893,7 +18835,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -19495,7 +19436,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -19569,7 +19509,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -19703,7 +19642,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -19874,7 +19812,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -20147,7 +20084,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -20267,7 +20203,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -20341,7 +20276,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -20443,7 +20377,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -20604,7 +20537,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -20640,7 +20572,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -20826,7 +20757,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -21138,7 +21068,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -21186,7 +21115,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -21264,7 +21192,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -21335,7 +21262,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -21384,7 +21310,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -21949,7 +21874,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -22022,7 +21946,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -22089,7 +22012,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
@@ -22267,7 +22189,6 @@ classes:
       type:
         name: type
         description: the class_uri of the class that has been instantiated
-        designates_type: true
         range: uriorcurie
         required: true
         multivalued: false
