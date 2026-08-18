@@ -43,7 +43,7 @@ prose-lint:
 # Dry-render one recipe with explicitly safe values, then lint without executing it.
 [private]
 _shellcheck-recipe RECIPE:
-    @LAKEHOUSE_ROOT=./lakehouse MONGO_URI=mongodb://localhost:27017/nmdc NMDC_EXPORT_DIR=./local/nmdc_export NMDC_PARQUET_DIR=./local/nmdc_export/parquet NMDC_CSV_DIR=./local/nmdc_export/csv NMDC_DUCKDB_FILE=./local/nmdc_export/nmdc_flattened.duckdb NMDC_BIOSAMPLE_CSV=./local/nmdc_export/csv/flattened_biosample.csv NMDC_BIOSAMPLE_FIELDS_FILE=./local/nmdc_export/csv/flattened_biosample.fields bash -o pipefail -c 'just --dry-run "$1" 2>&1 | uv run shellcheck --shell=bash -' _ "{{ RECIPE }}"
+    @LAKEHOUSE_ROOT=./lakehouse MONGO_URI=mongodb://localhost:27017/nmdc NMDC_EXPORT_DIR=./local/nmdc_export NMDC_PARQUET_DIR=./local/nmdc_export/parquet NMDC_CSV_DIR=./local/nmdc_export/csv NMDC_DUCKDB_FILE=./local/nmdc_export/nmdc_flattened.duckdb NMDC_BIOSAMPLE_CSV=./local/nmdc_export/csv/flattened_biosample.csv NMDC_BIOSAMPLE_FIELDS_FILE=./local/nmdc_export/csv/flattened_biosample.fields bash -c 'rendered=$(just --dry-run "$1" 2>&1) || { printf "%s\n" "$rendered" >&2; exit 1; }; printf "%s\n" "$rendered" | uv run shellcheck --shell=bash -' _ "{{ RECIPE }}"
 
 # Check the pinned ShellCheck and every maintained shell source.
 shellcheck:
@@ -56,7 +56,7 @@ shellcheck:
     @just _shellcheck-recipe flatten-nmdc-auth
     @just _shellcheck-recipe export-flattened-biosample-csv
     @just _shellcheck-recipe export-nmdc-duckdb
-    @find . -type f -name '*.sh' -not -path './.git/*' -not -path './.venv/*' -not -path './build/*' -not -path './dist/*' -exec uv run shellcheck --shell=bash {} +
+    @find . \( -path './.git' -o -path './.venv' -o -path './build' -o -path './dist' \) -prune -o -type f -name '*.sh' -exec uv run shellcheck --shell=bash {} +
 
 # Run all linters & formatters in check mode.
 # scripts/python is in scope (see .pre-commit-config.yaml); scripts/*.py
