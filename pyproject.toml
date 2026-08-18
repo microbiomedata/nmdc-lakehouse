@@ -24,7 +24,7 @@ dependencies = [
     "nmdc-schema",
     # Database drivers (linkml-store routes through these)
     "pymongo>=4.9",
-    "psycopg[binary]>=3.1",
+    "psycopg[binary]>=3.3.4",
     "sqlalchemy>=2.0",
     # Lakehouse output formats
     "pyarrow>=16.0",
