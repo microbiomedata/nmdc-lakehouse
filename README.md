@@ -92,6 +92,9 @@ starts services.
 locked environment, Git hook, optional configuration names, and local paths
 without synchronizing packages or contacting a service. Warnings identify
 optional production capabilities; required failures return a nonzero status.
+If `just` exits while parsing a malformed `.env`, bypass its automatic `.env`
+loading with `uv run --no-sync nmdc-lakehouse doctor`. Doctor will inspect the
+file itself and report the problem without printing its contents.
 
 ## Configuration
 

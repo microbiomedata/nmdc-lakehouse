@@ -88,6 +88,16 @@ prints configured values, modifies the environment, or contacts remote services.
 Required failures return a nonzero status with a remediation. Warnings describe
 optional production-data readiness and do not make unit development fail.
 
+The justfile loads `.env` before starting a recipe. If `just doctor` exits while
+parsing a malformed `.env`, bypass that initial loading step:
+
+```bash
+uv run --no-sync nmdc-lakehouse doctor
+```
+
+Doctor will inspect `.env` itself and report the problem without printing its
+contents.
+
 ## Supported systems
 
 | Environment | Support status |
