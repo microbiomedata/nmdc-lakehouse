@@ -65,6 +65,25 @@ def test_stamp_and_success_record_include_rows_rate_bytes_and_children(tmp_path:
     assert record["environment"]["nmdc_schema_version"]
 
 
+def test_stamp_result_sorts_outputs_by_table(tmp_path: Path) -> None:
+    (tmp_path / "alpha.parquet").write_bytes(b"a")
+    (tmp_path / "zeta.parquet").write_bytes(b"z")
+    result = JobResult(
+        job_name="fixture",
+        table_rows=(("zeta", 2), ("alpha", 1)),
+    )
+
+    stamp_result(
+        result,
+        output_root=tmp_path,
+        started_at="start",
+        finished_at="finish",
+        elapsed_seconds=1.0,
+    )
+
+    assert [output.table for output in result.outputs] == ["alpha", "zeta"]
+
+
 def test_failure_record_is_sanitized(monkeypatch) -> None:
     monkeypatch.setattr("nmdc_lakehouse.metrics.peak_rss_bytes", lambda: None)
     secret = "TOP-SECRET-SENTINEL"
