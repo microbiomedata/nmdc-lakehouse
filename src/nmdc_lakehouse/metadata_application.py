@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import tempfile
 from datetime import datetime
@@ -410,16 +411,25 @@ def write_metadata_application_plan(path: Path, plan: MetadataApplicationPlan) -
     destination = destination.resolve()
     if destination.exists() and (destination.is_symlink() or not destination.is_file()):
         raise MetadataApplicationError("Metadata application plan output must be an ordinary file path.")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent)
-    temporary = Path(temporary_name)
+    temporary: Path | None = None
+    descriptor: int | None = None
     try:
-        with open(fd, "w", encoding="utf-8", closefd=True) as stream:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
+        )
+        temporary = Path(temporary_name)
+        stream = os.fdopen(descriptor, "w", encoding="utf-8")
+        descriptor = None
+        with stream:
             stream.write(render_metadata_application_plan(plan))
             stream.write("\n")
         temporary.replace(destination)
     except OSError as error:
         raise MetadataApplicationError("Cannot write the metadata application plan.") from error
     finally:
-        temporary.unlink(missing_ok=True)
+        if descriptor is not None:
+            os.close(descriptor)
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     return destination

@@ -258,6 +258,33 @@ def test_command_sanitizes_invalid_input(tmp_path: Path) -> None:
     assert "UnicodeDecodeError" not in result.output
 
 
+def test_command_sanitizes_output_directory_failure(tmp_path: Path) -> None:
+    bundle_path = tmp_path / "bundle.json"
+    inventory_path = tmp_path / "inventory.json"
+    bundle_path.write_text(_bundle().model_dump_json(), encoding="utf-8")
+    inventory_path.write_text(_inventory().model_dump_json(), encoding="utf-8")
+    blocked_parent = tmp_path / "not-a-directory"
+    blocked_parent.write_text("ordinary file", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "metadata-application-plan",
+            str(bundle_path),
+            "--inventory",
+            str(inventory_path),
+            "--staging-namespace",
+            "nmdc_metadata_staging",
+            "--output",
+            str(blocked_parent / "plan.json"),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Cannot write the metadata application plan" in result.output
+    assert "FileExistsError" not in result.output
+
+
 def test_schema_command_emits_plan_contract() -> None:
     result = CliRunner().invoke(cli, ["metadata-application-plan-schema"])
 
