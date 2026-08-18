@@ -271,6 +271,11 @@ that bypasses cleanup, or a machine termination, can leave an orphaned
 `.staging/` directory; inspect it before removal and rerun the collection into a
 new snapshot root.
 
+If promotion rollback itself fails, the command reports that secondary failure
+and retains the run-specific staging directory because it may contain the only
+remaining copy of an older file. Do not rerun into or delete that output root
+until its final paths and `.previous/` backup have been inspected and recovered.
+
 The direct CLI equivalent is:
 
 ```bash

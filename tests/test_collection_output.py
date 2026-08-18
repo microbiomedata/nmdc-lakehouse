@@ -109,3 +109,36 @@ def test_side_writer_failure_closes_all_writers_and_preserves_previous_output(tm
     assert remaining.closed
     assert previous.read_bytes() == b"previous"
     assert not (tmp_path / ".staging").exists()
+
+
+def test_failed_rollback_retains_staging_for_manual_recovery(tmp_path: Path, monkeypatch) -> None:
+    primary = tmp_path / "sample_set.parquet"
+    side = tmp_path / "sample_set_tags.parquet"
+    primary.write_bytes(b"old-primary")
+    side.write_bytes(b"old-side")
+    real_replace = os.replace
+    calls = 0
+
+    def fail_promotion_and_primary_restore(source, destination):
+        nonlocal calls
+        calls += 1
+        if calls in {3, 5}:
+            raise OSError("injected replace failure")
+        real_replace(source, destination)
+
+    monkeypatch.setattr("nmdc_lakehouse.collection_output.os.replace", fail_promotion_and_primary_restore)
+
+    with pytest.raises(OSError, match="injected replace failure") as raised:
+        with CollectionOutputTransaction(tmp_path, "sample_set", {"sample_set", "sample_set_tags"}) as transaction:
+            stage = transaction.stage
+            (stage / "sample_set.parquet").write_bytes(b"new-primary")
+            transaction.commit(
+                (("sample_set", 2),),
+                source_schema_id="https://example.org/schema",
+                source_schema_version="1.0.0",
+            )
+
+    assert "staging was retained" in " ".join(raised.value.__notes__)
+    assert not primary.exists()
+    assert side.read_bytes() == b"old-side"
+    assert (stage / ".previous" / "sample_set.parquet").read_bytes() == b"old-primary"

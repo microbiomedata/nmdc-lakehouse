@@ -35,6 +35,7 @@ class CollectionOutputTransaction:
         self.collection = collection
         self.owned_tables = frozenset(owned_tables)
         self.stage_root: Path | None = None
+        self._preserve_stage = False
 
     def __enter__(self) -> CollectionOutputTransaction:
         """Create a same-filesystem staging directory."""
@@ -119,12 +120,18 @@ class CollectionOutputTransaction:
                 except BaseException as error:
                     rollback_errors.append(error)
             if rollback_errors:
-                original.add_note(f"Collection promotion rollback also failed {len(rollback_errors)} time(s).")
+                self._preserve_stage = True
+                original.add_note(
+                    f"Collection promotion rollback also failed {len(rollback_errors)} time(s); "
+                    "staging was retained for manual recovery."
+                )
             raise
 
     def __exit__(self, _error_type, error, _traceback) -> None:
         """Remove staging content after success or failure."""
         if self.stage_root is None:
+            return
+        if self._preserve_stage:
             return
         staging_parent = self.stage_root.parent
         try:
