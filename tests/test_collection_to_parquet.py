@@ -14,7 +14,7 @@ from nmdc_lakehouse.jobs.registry import get, list_names
 
 def test_schema_collection_baseline_matches_reviewed_snapshot():
     """Schema scope changes require an explicit snapshot update."""
-    assert set(_db_collection_map()) == REVIEWED_SCHEMA_COLLECTIONS
+    assert set(_db_collection_map().keys()) == REVIEWED_SCHEMA_COLLECTIONS
 
 
 def test_all_schema_collections_registered():
