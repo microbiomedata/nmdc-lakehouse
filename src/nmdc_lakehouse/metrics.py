@@ -42,6 +42,7 @@ def stamp_result(
         path = output_root / f"{table}.parquet"
         if path.is_file() and not path.is_symlink():
             outputs.append(OutputResult(table=table, path=path.name, rows=rows, bytes=path.stat().st_size))
+    outputs.sort(key=lambda output: output.table)
     result.started_at = started_at
     result.finished_at = finished_at
     result.elapsed_seconds = max(0.0, elapsed_seconds)
