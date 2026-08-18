@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import platform
+import subprocess
 from importlib.metadata import version
 from pathlib import Path
 
@@ -12,6 +13,7 @@ import pyarrow.parquet as pq
 import pytest
 from click.testing import CliRunner
 
+from nmdc_lakehouse import snapshot_manifest
 from nmdc_lakehouse.cli import cli
 from nmdc_lakehouse.jobs.collection_to_parquet import REVIEWED_SCHEMA_COLLECTIONS
 from nmdc_lakehouse.snapshot_manifest import (
@@ -211,6 +213,14 @@ def test_manifest_rejects_any_extra_file_before_creation(tmp_path: Path) -> None
         build_manifest(tmp_path, metrics_path, "nmdc-production")
 
 
+def test_manifest_rejects_extra_directory_before_creation(tmp_path: Path) -> None:
+    metrics_path = _snapshot_fixture(tmp_path)
+    (tmp_path / "unmanifested").mkdir()
+
+    with pytest.raises(SnapshotManifestError, match="extra files"):
+        build_manifest(tmp_path, metrics_path, "nmdc-production")
+
+
 @pytest.mark.parametrize("changed_name", ["biosample_set.parquet", "etl-metrics.json"])
 def test_validation_detects_changed_owned_file(tmp_path: Path, changed_name: str) -> None:
     metrics_path = _snapshot_fixture(tmp_path)
@@ -229,3 +239,23 @@ def test_validation_detects_extra_file(tmp_path: Path) -> None:
 
     with pytest.raises(SnapshotManifestError, match="unmanifested"):
         validate_snapshot(tmp_path)
+
+
+def test_validation_detects_extra_directory(tmp_path: Path) -> None:
+    metrics_path = _snapshot_fixture(tmp_path)
+    write_manifest(tmp_path, build_manifest(tmp_path, metrics_path, "nmdc-production"))
+    (tmp_path / "unmanifested").mkdir()
+
+    with pytest.raises(SnapshotManifestError, match="unmanifested"):
+        validate_snapshot(tmp_path)
+
+
+@pytest.mark.parametrize("error", [FileNotFoundError(), subprocess.TimeoutExpired("git", 5)])
+def test_missing_or_unresponsive_git_does_not_block_manifest(monkeypatch, tmp_path: Path, error: Exception) -> None:
+    (tmp_path / "pyproject.toml").touch()
+    package_file = tmp_path / "src" / "nmdc_lakehouse" / "snapshot_manifest.py"
+    package_file.parent.mkdir(parents=True)
+    package_file.touch()
+    monkeypatch.setattr(snapshot_manifest.subprocess, "run", lambda *_args, **_kwargs: (_ for _ in ()).throw(error))
+
+    assert snapshot_manifest._git_state(tmp_path) == (None, None)

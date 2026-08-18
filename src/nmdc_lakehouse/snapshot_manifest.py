@@ -181,23 +181,29 @@ def _git_state(root: Path) -> tuple[str | None, bool | None]:
     package_file = root / "src" / "nmdc_lakehouse" / "snapshot_manifest.py"
     if not (root / "pyproject.toml").is_file() or not package_file.is_file():
         return None, None
-    commit = subprocess.run(
-        ["git", "-C", str(root), "rev-parse", "HEAD"],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=5,
-    )
+    try:
+        commit = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None, None
     value = commit.stdout.strip()
     if commit.returncode != 0 or re.fullmatch(r"[0-9a-f]{40}", value) is None:
         return None, None
-    status = subprocess.run(
-        ["git", "-C", str(root), "status", "--porcelain"],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=5,
-    )
+    try:
+        status = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return value, None
     return value, bool(status.stdout.strip()) if status.returncode == 0 else None
 
 
@@ -280,11 +286,12 @@ def build_manifest(root: Path, metrics_path: Path, source_label: str) -> Snapsho
     if set(expected) != {path.name for path in parquet_paths}:
         raise SnapshotManifestError("Metrics and snapshot Parquet file sets do not agree.")
     allowed_names = {metrics_path.name, *(path.name for path in parquet_paths)}
-    actual_names = {path.name for path in root.iterdir() if path.is_file() or path.is_symlink()}
+    root_entries = list(root.iterdir())
+    actual_names = {path.name for path in root_entries}
     if actual_names != allowed_names:
         raise SnapshotManifestError("Snapshot contains extra files before manifest creation.")
-    if any(path.is_symlink() for path in root.iterdir()):
-        raise SnapshotManifestError("Snapshot files must not be symlinks.")
+    if any(path.is_symlink() or not path.is_file() for path in root_entries):
+        raise SnapshotManifestError("Snapshot entries must be ordinary files, not symlinks or directories.")
 
     artifacts = [_artifact(path) for path in parquet_paths]
     for artifact in artifacts:
@@ -368,11 +375,12 @@ def validate_snapshot(root: Path) -> SnapshotManifest:
         raise SnapshotManifestError("Snapshot identity does not match the manifest content.")
 
     expected_names = {MANIFEST_NAME, manifest.performance_record.path, *(item.path for item in manifest.artifacts)}
-    actual_names = {path.name for path in root.iterdir() if path.is_file() or path.is_symlink()}
+    root_entries = list(root.iterdir())
+    actual_names = {path.name for path in root_entries}
     if actual_names != expected_names:
         raise SnapshotManifestError("Snapshot contains missing, extra, or unmanifested files.")
-    if any(path.is_symlink() for path in root.iterdir()):
-        raise SnapshotManifestError("Snapshot files must not be symlinks.")
+    if any(path.is_symlink() or not path.is_file() for path in root_entries):
+        raise SnapshotManifestError("Snapshot entries must be ordinary files, not symlinks or directories.")
 
     performance_path = root / manifest.performance_record.path
     if _sha256(performance_path) != manifest.performance_record.sha256:
