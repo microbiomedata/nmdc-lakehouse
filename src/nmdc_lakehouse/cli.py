@@ -153,6 +153,60 @@ def snapshot_manifest_schema_command() -> None:
     click.echo(json.dumps(manifest_json_schema(), indent=2, sort_keys=True))
 
 
+@cli.command("publication-plan")
+@click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
+@click.option(
+    "--inventory",
+    "inventory_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    required=True,
+    help="Credential-free destination inventory JSON.",
+)
+@click.option(
+    "--policy",
+    "policy_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    required=True,
+    help="Reviewed publication policy JSON.",
+)
+@click.option("--output", type=click.Path(path_type=Path, dir_okay=False), help="Also write the generated plan here.")
+def publication_plan_command(
+    snapshot_root: Path,
+    inventory_path: Path,
+    policy_path: Path,
+    output: Path | None,
+) -> None:
+    """Generate a complete destination-neutral table disposition plan offline."""
+    from nmdc_lakehouse.publication_plan import (
+        PublicationPlanError,
+        plan_snapshot_publication,
+        render_publication_plan,
+        write_publication_plan,
+    )
+    from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError
+
+    try:
+        plan = plan_snapshot_publication(snapshot_root, inventory_path, policy_path)
+        if output is not None:
+            write_publication_plan(output, plan)
+    except (PublicationPlanError, SnapshotManifestError) as error:
+        raise click.ClickException(str(error)) from error
+    click.echo(render_publication_plan(plan))
+
+
+@cli.command("publication-plan-schema")
+@click.argument("document", type=click.Choice(["inventory", "policy", "plan"]))
+def publication_plan_schema_command(document: str) -> None:
+    """Print a publication inventory, policy, or plan JSON Schema."""
+    import json
+    from typing import Literal, cast
+
+    from nmdc_lakehouse.publication_plan import publication_json_schema
+
+    selected = cast(Literal["inventory", "policy", "plan"], document)
+    click.echo(json.dumps(publication_json_schema(selected), indent=2, sort_keys=True))
+
+
 @cli.command("run-job")
 @click.argument("job_name")
 @click.option("--dry-run", is_flag=True, help="Plan the job but do not write output.")

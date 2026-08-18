@@ -102,6 +102,38 @@ The 2026-08-18 candidate/BERDL comparison is an example of why classification is
 necessary, not a permanent allowlist. The schema and deployed table sets will
 change.
 
+The maintained offline planner implements this checkpoint without contacting a
+destination:
+
+```bash
+uv run nmdc-lakehouse publication-plan ./completed-snapshot \
+  --inventory destination-inventory.json \
+  --policy publication-policy.json \
+  --output publication-plan.json
+```
+
+It validates the candidate snapshot manifest, a credential-free destination
+inventory, and reviewed policy JSON. Common tables default to `replace`, and
+candidate-only tables default to `add`. Every live-only table requires an explicit
+policy rule and rationale; no omission implies retirement. The command prints the
+complete versioned plan and optionally writes the same JSON atomically. It performs
+no discovery, upload, catalog change, metadata application, or promotion.
+
+The machine-readable input and output contracts are available without credentials:
+
+```bash
+uv run nmdc-lakehouse publication-plan-schema inventory
+uv run nmdc-lakehouse publication-plan-schema policy
+uv run nmdc-lakehouse publication-plan-schema plan
+```
+
+Destination profiles produce the inventory document. Its logical destination,
+provider, and table-format labels must be sanitized; its table entries contain row
+counts and physical-schema fingerprints, never connection strings or credentials.
+Policy may override generated defaults, but incompatible dispositions are rejected:
+for example, `retire` cannot apply when a candidate replacement exists, and
+`replace` requires both candidate and destination evidence.
+
 ## Staged workflow
 
 ### 1. Inventory without mutation
