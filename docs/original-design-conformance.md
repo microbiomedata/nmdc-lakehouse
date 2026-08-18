@@ -10,8 +10,8 @@ It is a status and decision record, not a substitute for the detailed
 Two primary sources define the historical baseline:
 
 - The [initial repository scaffold](https://github.com/microbiomedata/nmdc-lakehouse/commit/36dd8918c4ab67965ed1e8a4e0df5ac652d57068)
-  created by Sierra Moxon
-  introduced replaceable sources, transforms, sinks, jobs, and a thin runner.
+  was created by Sierra Moxon. It introduced replaceable sources, transforms,
+  sinks, jobs, and a thin runner.
   It described `linkml-store` access to MongoDB and optional PostgreSQL,
   `SchemaView`-directed flattening, Parquet and Iceberg targets, and external
   references for large payloads.
