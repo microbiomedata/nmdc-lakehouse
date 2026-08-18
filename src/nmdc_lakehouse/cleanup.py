@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import tomllib
 from dataclasses import dataclass
 from functools import cache
 from importlib.util import find_spec
@@ -20,6 +21,24 @@ class CleanupPlan:
 
     root: Path
     targets: tuple[Path, ...]
+
+
+def find_project_root(start: Path) -> Path:
+    """Find the enclosing nmdc-lakehouse checkout, or fail closed."""
+    current = start.expanduser().resolve()
+    if not current.is_dir():
+        current = current.parent
+    for candidate in (current, *current.parents):
+        pyproject = candidate / "pyproject.toml"
+        if not pyproject.is_file() or not (candidate / ".git").exists():
+            continue
+        try:
+            project = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("project", {})
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        if project.get("name") == "nmdc-lakehouse":
+            return candidate
+    raise UnsafeCleanupRoot("Run cleanup from inside an nmdc-lakehouse Git checkout.")
 
 
 @cache
@@ -52,7 +71,7 @@ def _resolve_cleanup_root(root: Path, project_root: Path) -> Path:
         relative = lexical_root.relative_to(project)
     except ValueError as error:
         raise UnsafeCleanupRoot("Cleanup root must be inside the repository.") from error
-    if not relative.parts:
+    if lexical_root == project:
         raise UnsafeCleanupRoot("Cleanup root must not be the repository root.")
     allowed = relative.parts[0] in {"lakehouse", "local"} or relative.parts[0].startswith("lakehouse_backup")
     if not allowed:

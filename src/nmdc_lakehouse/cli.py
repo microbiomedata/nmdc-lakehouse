@@ -59,6 +59,7 @@ def clean_parquet(root: Path | None, delete: bool) -> None:
     from nmdc_lakehouse.cleanup import (
         UnsafeCleanupRoot,
         apply_cleanup,
+        find_project_root,
         metadata_output_names,
         plan_metadata_parquet_cleanup,
     )
@@ -66,9 +67,10 @@ def clean_parquet(root: Path | None, delete: bool) -> None:
 
     output_root = root if root is not None else LakehouseSettings().root
     try:
+        project_root = find_project_root(Path.cwd())
         plan = plan_metadata_parquet_cleanup(
             output_root,
-            project_root=Path.cwd(),
+            project_root=project_root,
             generated_names=metadata_output_names(),
         )
     except UnsafeCleanupRoot as error:

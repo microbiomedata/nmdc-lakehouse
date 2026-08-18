@@ -5,10 +5,20 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from nmdc_lakehouse.cleanup import UnsafeCleanupRoot, apply_cleanup, plan_metadata_parquet_cleanup
+from nmdc_lakehouse.cleanup import (
+    UnsafeCleanupRoot,
+    apply_cleanup,
+    find_project_root,
+    plan_metadata_parquet_cleanup,
+)
 from nmdc_lakehouse.cli import cli
 
 GENERATED = {"biosample_set", "biosample_set_has_input"}
+
+
+def _make_checkout(root: Path) -> None:
+    (root / ".git").mkdir()
+    (root / "pyproject.toml").write_text('[project]\nname = "nmdc-lakehouse"\n', encoding="utf-8")
 
 
 def test_plan_selects_only_recognized_top_level_regular_files(tmp_path: Path) -> None:
@@ -66,10 +76,26 @@ def test_apply_rejects_target_replaced_by_symlink_after_preview(tmp_path: Path) 
     assert generated.is_symlink()
 
 
-@pytest.mark.parametrize("relative", [".", "src/output", "tests/output"])
+@pytest.mark.parametrize("relative", ["src/output", "tests/output"])
 def test_plan_rejects_non_output_roots(tmp_path: Path, relative: str) -> None:
     with pytest.raises(UnsafeCleanupRoot):
         plan_metadata_parquet_cleanup(Path(relative), project_root=tmp_path, generated_names=GENERATED)
+
+
+def test_plan_rejects_repository_root_with_specific_message(tmp_path: Path) -> None:
+    with pytest.raises(UnsafeCleanupRoot, match="must not be the repository root"):
+        plan_metadata_parquet_cleanup(Path("."), project_root=tmp_path, generated_names=GENERATED)
+
+
+def test_find_project_root_walks_up_and_fails_outside_checkout(tmp_path: Path) -> None:
+    checkout = tmp_path / "checkout"
+    nested = checkout / "src" / "package"
+    nested.mkdir(parents=True)
+    _make_checkout(checkout)
+
+    assert find_project_root(nested) == checkout
+    with pytest.raises(UnsafeCleanupRoot, match="inside an nmdc-lakehouse Git checkout"):
+        find_project_root(tmp_path / "elsewhere")
 
 
 def test_plan_rejects_outside_and_symlinked_roots(tmp_path: Path) -> None:
@@ -97,7 +123,10 @@ def test_missing_safe_root_has_empty_plan(tmp_path: Path) -> None:
 
 
 def test_cli_previews_by_default_and_requires_delete(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
+    _make_checkout(tmp_path)
+    working_directory = tmp_path / "docs"
+    working_directory.mkdir()
+    monkeypatch.chdir(working_directory)
     root = tmp_path / "lakehouse"
     root.mkdir()
     generated = root / "biosample_set.parquet"
@@ -106,16 +135,25 @@ def test_cli_previews_by_default_and_requires_delete(tmp_path: Path, monkeypatch
     unknown.write_text("unknown", encoding="utf-8")
     runner = CliRunner()
 
-    preview = runner.invoke(cli, ["clean-parquet", "--root", "lakehouse"])
+    preview = runner.invoke(cli, ["clean-parquet", "--root", str(root)])
 
     assert preview.exit_code == 0
     assert "Would remove: biosample_set.parquet" in preview.output
     assert "no files were deleted" in preview.output
     assert generated.exists() and unknown.exists()
 
-    deletion = runner.invoke(cli, ["clean-parquet", "--root", "lakehouse", "--delete"])
+    deletion = runner.invoke(cli, ["clean-parquet", "--root", str(root), "--delete"])
 
     assert deletion.exit_code == 0
     assert "Removed 1 recognized metadata Parquet file(s)." in deletion.output
     assert not generated.exists()
     assert unknown.exists()
+
+
+def test_cli_rejects_cleanup_outside_checkout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(cli, ["clean-parquet", "--root", "lakehouse"])
+
+    assert result.exit_code != 0
+    assert "Run cleanup from inside an nmdc-lakehouse Git checkout" in result.output
