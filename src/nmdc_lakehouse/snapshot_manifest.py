@@ -380,6 +380,15 @@ def validate_snapshot(root: Path) -> SnapshotManifest:
         raise SnapshotManifestError(f"Cannot read a valid {MANIFEST_NAME}.") from error
     if manifest.manifest_format_version != MANIFEST_FORMAT_VERSION:
         raise SnapshotManifestError("Unsupported snapshot manifest format version.")
+    artifact_paths = [item.path for item in manifest.artifacts]
+    owned_paths = [manifest.performance_record.path, *artifact_paths]
+    if (
+        len(owned_paths) != len(set(owned_paths))
+        or MANIFEST_NAME in owned_paths
+        or any("/" in path or "\\" in path or path in {"", ".", ".."} for path in owned_paths)
+        or any(not _ARTIFACT_NAME.fullmatch(path) for path in artifact_paths)
+    ):
+        raise SnapshotManifestError("Snapshot manifest must contain a one-to-one inventory of safe owned paths.")
     if manifest.snapshot_id != _snapshot_identity(manifest):
         raise SnapshotManifestError("Snapshot identity does not match the manifest content.")
 

@@ -281,6 +281,27 @@ def test_validation_detects_extra_directory(tmp_path: Path) -> None:
         validate_snapshot(tmp_path)
 
 
+def test_validation_rejects_duplicate_artifact_paths(tmp_path: Path) -> None:
+    metrics_path = _snapshot_fixture(tmp_path)
+    manifest = build_manifest(tmp_path, metrics_path, "nmdc-production")
+    manifest.artifacts.append(manifest.artifacts[0].model_copy(deep=True))
+    manifest.snapshot_id = snapshot_manifest._snapshot_identity(manifest)
+    write_manifest(tmp_path, manifest)
+
+    with pytest.raises(SnapshotManifestError, match="one-to-one inventory"):
+        validate_snapshot(tmp_path)
+
+
+def test_validation_rejects_manifest_path_as_owned_content(tmp_path: Path) -> None:
+    metrics_path = _snapshot_fixture(tmp_path)
+    manifest = build_manifest(tmp_path, metrics_path, "nmdc-production")
+    manifest.performance_record.path = MANIFEST_NAME
+    write_manifest(tmp_path, manifest)
+
+    with pytest.raises(SnapshotManifestError, match="one-to-one inventory"):
+        validate_snapshot(tmp_path)
+
+
 @pytest.mark.parametrize("error", [FileNotFoundError(), subprocess.TimeoutExpired("git", 5)])
 def test_missing_or_unresponsive_git_does_not_block_manifest(monkeypatch, tmp_path: Path, error: Exception) -> None:
     (tmp_path / "pyproject.toml").touch()
