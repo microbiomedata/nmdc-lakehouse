@@ -254,9 +254,13 @@ MongoDB, NERSC, BERDL, or object stores.
 The direct CLI equivalent is:
 
 ```bash
+mkdir -p local
+timestamp="$(date +%Y%m%d_%H%M%S)"
+export LAKEHOUSE_ROOT="./local/mongodb-metadata-${timestamp}"
 uv run nmdc-lakehouse run-job all-collections \
     --skip functional_annotation_agg \
-    --metrics local/etl-collections.json
+    --metrics "local/etl-collections-${timestamp}.json" \
+    2>&1 | tee "local/etl-collections-${timestamp}.log"
 ```
 
 The JSON contains whole-run and per-collection wall time, rows, effective
