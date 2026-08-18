@@ -84,13 +84,15 @@ both propose this; [#120](https://github.com/microbiomedata/nmdc-lakehouse/issue
 separate from any hand-authored content (YAML/SQL under a `metadata/` directory)
 so domain experts can review descriptions without reading Python.
 
-Verification harness: [#119](https://github.com/microbiomedata/nmdc-lakehouse/pull/119) (`scripts/python/audit_database_metadata.py`, open,
-not yet merged) reports per-database coverage stats (tables/columns
-with a comment) so a partial backfill can be measured and re-run to completion.
+Verification harness: [#119](https://github.com/microbiomedata/nmdc-lakehouse/pull/119) (`scripts/python/audit_database_metadata.py`, merged)
+reports per-database coverage stats (tables/columns with a comment) so a partial
+backfill (applying schema-level `DBPROPERTIES` and table/column comments
+retroactively to objects that predate this convention, not a historical-data
+reload) can be measured and re-run to completion.
 
 ## Suggested order, if picking this up
 
-1. [#119](https://github.com/microbiomedata/nmdc-lakehouse/pull/119) first: merge the audit script so progress on everything below is measurable.
+1. [#119](https://github.com/microbiomedata/nmdc-lakehouse/pull/119) is merged: run the audit script to see current coverage before scaling anything below.
 2. [#118](https://github.com/microbiomedata/nmdc-lakehouse/issues/118): resolve or work around the `docs_url` redaction before standardizing that property across more schemas.
 3. [#120](https://github.com/microbiomedata/nmdc-lakehouse/issues/120)'s separation principle, applied as `metadata/nmdc_ref_data.yaml` ported from the [#117](https://github.com/microbiomedata/nmdc-lakehouse/pull/117) pilot, before scaling to two more schemas with 10x the content.
 4. [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114)/[#115](https://github.com/microbiomedata/nmdc-lakehouse/issues/115) for `nmdc_metadata` and `nmdc_results`: the LinkML-driven case, since the content is already generated data, not hand-authored.
