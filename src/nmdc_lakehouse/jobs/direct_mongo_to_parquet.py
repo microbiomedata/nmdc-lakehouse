@@ -157,6 +157,7 @@ class DirectMongoToParquetJob(Job):
             rows_read=rows_read,
             rows_written=rows_written,
             tables_written=(self.collection,),
+            table_rows=((self.collection, rows_written),),
         )
 
 

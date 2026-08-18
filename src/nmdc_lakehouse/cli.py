@@ -8,6 +8,8 @@ changing the source / transform / sink modules.
 from __future__ import annotations
 
 import logging
+import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import click
@@ -114,19 +116,68 @@ def clean_parquet(root: Path | None, delete: bool) -> None:
     multiple=True,
     help="Collection to skip (repeatable). Only honored by 'all-collections'.",
 )
-def run_job(job_name: str, dry_run: bool, drop_empty_cols: bool, skip: tuple[str, ...]) -> None:
+@click.option(
+    "--metrics",
+    "metrics_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    envvar="LAKEHOUSE_METRICS_PATH",
+    help="Write an atomic JSON performance/resource record to this local path.",
+)
+def run_job(
+    job_name: str,
+    dry_run: bool,
+    drop_empty_cols: bool,
+    skip: tuple[str, ...],
+    metrics_path: Path | None,
+) -> None:
     """Run a named ETL job from the registry."""
     import os
 
     import nmdc_lakehouse.jobs  # noqa: F401 -- register built-in jobs only when needed
+    from nmdc_lakehouse.config import LakehouseSettings
     from nmdc_lakehouse.jobs.registry import get
+    from nmdc_lakehouse.metrics import failure_record, stamp_result, success_record, write_record
 
     if drop_empty_cols:
         os.environ["LAKEHOUSE_DROP_EMPTY_COLS"] = "true"
     if skip:
         os.environ["LAKEHOUSE_SKIP_COLLECTIONS"] = ",".join(skip)
-    job = get(job_name)
-    result = job.run(dry_run=dry_run)
+    applied_skips: tuple[str, ...] = ()
+    started_at = datetime.now(UTC).isoformat()
+    t0 = time.monotonic()
+    try:
+        job = get(job_name)
+        applied_skips = tuple(sorted(getattr(job, "skip", ())))
+        result = job.run(dry_run=dry_run)
+        configured_output_root = getattr(job, "out_root", None)
+        output_root = Path(configured_output_root) if configured_output_root is not None else LakehouseSettings().root
+        stamp_result(
+            result,
+            output_root=output_root,
+            started_at=started_at,
+            finished_at=datetime.now(UTC).isoformat(),
+            elapsed_seconds=time.monotonic() - t0,
+        )
+        if metrics_path is not None:
+            write_record(metrics_path, success_record(result, skipped_collections=applied_skips, dry_run=dry_run))
+    except (Exception, KeyboardInterrupt) as error:
+        if metrics_path is not None:
+            try:
+                write_record(
+                    metrics_path,
+                    failure_record(
+                        job_name=job_name,
+                        started_at=started_at,
+                        finished_at=datetime.now(UTC).isoformat(),
+                        elapsed_seconds=time.monotonic() - t0,
+                        error=error,
+                        skipped_collections=applied_skips,
+                        dry_run=dry_run,
+                    ),
+                )
+            except Exception:
+                logger.exception("The failed-run metrics record could not be written.")
+        raise
     click.echo(f"rows_read={result.rows_read}")
     click.echo(f"rows_written={result.rows_written}")
     if result.tables_written:

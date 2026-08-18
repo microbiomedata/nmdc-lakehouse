@@ -145,14 +145,28 @@ run-job JOB *ARGS:
 
 # Convert all schema collections except functional_annotation_agg to Parquet (~5 min).
 # Requires the GCP SSH tunnel to be open — see docs/mongodb-connection.md.
-# Logs to local/etl-collections-<timestamp>.log
+# Defaults Parquet to local/mongodb-metadata-<timestamp> unless LAKEHOUSE_ROOT is set.
+# Writes a matching local/etl-collections-<timestamp>.log and .json metrics file.
 etl-collections:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p local
-    log="local/etl-collections-$(date +%Y%m%d_%H%M%S).log"
+    timestamp="$(date +%Y%m%d_%H%M%S)"
+    log="local/etl-collections-${timestamp}.log"
+    metrics="local/etl-collections-${timestamp}.json"
+    if [[ -z "${LAKEHOUSE_ROOT:-}" ]]; then
+      LAKEHOUSE_ROOT="local/mongodb-metadata-${timestamp}"
+      if [[ -e "$LAKEHOUSE_ROOT" ]]; then
+        echo "Refusing to reuse default output path: $LAKEHOUSE_ROOT" >&2
+        exit 1
+      fi
+    fi
+    export LAKEHOUSE_ROOT
+    echo "Writing Parquet to $LAKEHOUSE_ROOT"
     echo "Logging to $log"
-    time uv run nmdc-lakehouse run-job all-collections --skip functional_annotation_agg 2>&1 | tee "$log"
+    echo "Writing metrics to $metrics"
+    time uv run nmdc-lakehouse run-job all-collections \
+      --skip functional_annotation_agg --metrics "$metrics" 2>&1 | tee "$log"
 
 # Convert functional_annotation_agg to Parquet via direct pymongo (~17 min, 54.8M records).
 # Requires the GCP SSH tunnel to be open — see docs/mongodb-connection.md.

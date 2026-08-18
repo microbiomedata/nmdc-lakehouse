@@ -18,11 +18,13 @@ from __future__ import annotations
 import logging
 import os
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 from nmdc_lakehouse.config import LakehouseSettings, MongoSettings
 from nmdc_lakehouse.jobs.base import Job, JobResult
 from nmdc_lakehouse.jobs.registry import register
+from nmdc_lakehouse.metrics import stamp_result
 from nmdc_lakehouse.sinks.parquet_sink import ParquetSink, StreamingWriter, class_def_to_arrow_schema
 from nmdc_lakehouse.sources.mongo_source import MongoSource
 from nmdc_lakehouse.transforms.flatteners import SchemaDrivenFlattener
@@ -214,19 +216,21 @@ class CollectionToParquetJob(Job):
         rows_written: int = sink.write(_counted(flat_rows), table=self.collection, drop_empty_cols=drop_empty) or 0
 
         # Finalise side-table writers (flush remaining batches and close files).
-        side_tables: list[str] = []
+        side_table_rows_written: list[tuple[str, int]] = []
         for table_name, writer in side_writers.items():
             n = writer.close()
             if n > 0:
                 logger.info("%s: wrote %d rows to side table %s", self.collection, n, table_name)
-                side_tables.append(table_name)
+                side_table_rows_written.append((table_name, n))
 
-        side_tables.sort()
+        side_table_rows_written.sort()
+        side_tables = tuple(table for table, _rows in side_table_rows_written)
         return JobResult(
             job_name=self.name,
             rows_read=rows_read,
             rows_written=rows_written,
             tables_written=(self.collection, *side_tables),
+            table_rows=((self.collection, rows_written), *side_table_rows_written),
         )
 
 
@@ -262,6 +266,8 @@ class AllCollectionsToParquetJob(Job):
         try:
             total_read = total_written = 0
             tables: list[str] = []
+            table_rows: list[tuple[str, int]] = []
+            child_results: list[JobResult] = []
             for name, root_class in _db_collection_map().items():
                 if name in self.skip:
                     logger.info("%s: skipped", name)
@@ -272,10 +278,21 @@ class AllCollectionsToParquetJob(Job):
                 else:
                     job = CollectionToParquetJob(name, root_class, self.mongo_uri, self.out_root)
                 logger.info("%s: running", name)
+                child_started_at = datetime.now(UTC).isoformat()
+                child_t0 = time.monotonic()
                 result = job.run(dry_run=dry_run)
+                stamp_result(
+                    result,
+                    output_root=self.out_root,
+                    started_at=child_started_at,
+                    finished_at=datetime.now(UTC).isoformat(),
+                    elapsed_seconds=time.monotonic() - child_t0,
+                )
+                child_results.append(result)
                 total_read += result.rows_read
                 total_written += result.rows_written
                 tables.extend(result.tables_written)
+                table_rows.extend(result.table_rows)
                 if dry_run:
                     logger.info("%s: %d records read (dry run)", name, result.rows_read)
                 else:
@@ -289,6 +306,8 @@ class AllCollectionsToParquetJob(Job):
             rows_read=total_read,
             rows_written=total_written,
             tables_written=tuple(tables),
+            table_rows=tuple(table_rows),
+            children=tuple(child_results),
         )
 
 
