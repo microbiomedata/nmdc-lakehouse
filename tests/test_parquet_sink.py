@@ -141,6 +141,7 @@ def test_write_persists_schema_metadata_in_parquet_footer(flat_schema_view, flat
 
     schema = pq.ParquetFile(tmp_path / "flat_record.parquet").schema_arrow
     assert schema.metadata == {
+        b"nmdc_lakehouse.footer_metadata_format_version": b"1",
         b"nmdc_lakehouse.table_description": b"A flattened test record.",
         b"nmdc_lakehouse.source_schema_id": b"https://example.org/test",
         b"nmdc_lakehouse.source_schema_version": b"1.2.3",

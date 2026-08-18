@@ -1,6 +1,7 @@
 """Tests for lightweight local ETL run measurements."""
 
 import json
+from importlib.metadata import version
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -62,6 +63,7 @@ def test_stamp_and_success_record_include_rows_rate_bytes_and_children(tmp_path:
     assert record["skipped_collections"] == ["functional_annotation_agg"]
     assert record["environment"]["peak_rss_bytes"] == 123456
     assert record["environment"]["peak_rss_unit"] == "bytes"
+    assert record["environment"]["nmdc_lakehouse_version"] == version("nmdc-lakehouse")
     assert record["environment"]["nmdc_schema_version"]
 
 
