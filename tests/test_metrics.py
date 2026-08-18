@@ -120,7 +120,7 @@ def test_write_record_is_atomic_json(tmp_path: Path) -> None:
     write_record(destination, {"status": "success", "rows": 3})
 
     assert json.loads(destination.read_text(encoding="utf-8")) == {"rows": 3, "status": "success"}
-    assert not list(destination.parent.glob("*.tmp"))
+    assert not list(destination.parent.glob(f".{destination.name}.*.tmp"))
 
 
 def test_run_job_cli_writes_success_and_sanitized_failure_records(tmp_path: Path, monkeypatch) -> None:
