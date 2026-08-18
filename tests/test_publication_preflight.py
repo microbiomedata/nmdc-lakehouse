@@ -156,6 +156,30 @@ def test_coherent_artifacts_produce_credential_free_summary() -> None:
     assert "path" not in report.model_dump_json()
 
 
+def test_semantic_identity_lists_are_order_independent() -> None:
+    manifest = _manifest()
+    second = manifest.artifacts[1]
+    second.source_schema_id = "https://w3id.org/nmdc/alternate"
+    second.target_schema_id = "https://w3id.org/nmdc/alternate-flattened"
+    second.mapping = "nmdc_lakehouse.transforms.flatteners.AlternateFlattener"
+    manifest.target_schema_ids.append(second.target_schema_id)
+    manifest.mapping_ids.append(second.mapping)
+    bundle = _bundle(manifest)
+    expected_sources = sorted(
+        {(artifact.source_schema_id, artifact.source_schema_version) for artifact in manifest.artifacts}
+    )
+    bundle.source_schemas = [
+        SchemaIdentity(schema_id=schema_id, version=version) for schema_id, version in reversed(expected_sources)
+    ]
+    bundle.target_schema_ids.reverse()
+    bundle.mapping_ids.reverse()
+    inventory = _inventory()
+    plan = build_publication_plan(manifest, inventory, PublicationPolicy(policy_format_version=1, rules=[]))
+    plan.destination_metadata_capabilities.reverse()
+
+    assert build_publication_preflight(manifest, bundle, inventory, plan).status == "ready"
+
+
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [

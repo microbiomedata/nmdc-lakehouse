@@ -100,8 +100,18 @@ def build_publication_preflight(
         plan.destination_table_format == inventory.table_format,
         "Publication plan destination table format does not match.",
     )
+    plan_capabilities = plan.destination_metadata_capabilities
+    inventory_capabilities = inventory.metadata_capabilities
     _require(
-        plan.destination_metadata_capabilities == inventory.metadata_capabilities,
+        len(plan_capabilities) == len(set(plan_capabilities)),
+        "Publication plan contains duplicate destination metadata capabilities.",
+    )
+    _require(
+        len(inventory_capabilities) == len(set(inventory_capabilities)),
+        "Destination inventory contains duplicate metadata capabilities.",
+    )
+    _require(
+        set(plan_capabilities) == set(inventory_capabilities),
         "Publication plan destination metadata capabilities do not match.",
     )
 
@@ -114,17 +124,24 @@ def build_publication_preflight(
     _require(len(metadata) == len(bundle.tables), "Metadata bundle contains duplicate table names.")
     _require(len(entries) == len(plan.tables), "Publication plan contains duplicate table names.")
     _require(set(metadata) == set(candidate), "Metadata bundle table coverage does not match the snapshot.")
-    _require(set(entries) == set(candidate).union(destination), "Publication plan table coverage is incomplete.")
+    _require(
+        set(entries) == set(candidate).union(destination),
+        "Publication plan table coverage does not match the exact candidate/destination union.",
+    )
 
     expected_source_schemas = sorted(
         {(artifact.source_schema_id, artifact.source_schema_version) for artifact in manifest.artifacts}
     )
-    actual_source_schemas = [(item.schema_id, item.version) for item in bundle.source_schemas]
+    actual_source_schemas = sorted((item.schema_id, item.version) for item in bundle.source_schemas)
     _require(actual_source_schemas == expected_source_schemas, "Metadata bundle source schema identities do not match.")
     _require(
-        bundle.target_schema_ids == sorted(manifest.target_schema_ids), "Metadata bundle target schemas do not match."
+        sorted(bundle.target_schema_ids) == sorted(manifest.target_schema_ids),
+        "Metadata bundle target schemas do not match.",
     )
-    _require(bundle.mapping_ids == sorted(manifest.mapping_ids), "Metadata bundle mappings do not match.")
+    _require(
+        sorted(bundle.mapping_ids) == sorted(manifest.mapping_ids),
+        "Metadata bundle mappings do not match.",
+    )
 
     for name, artifact in candidate.items():
         table = metadata[name]

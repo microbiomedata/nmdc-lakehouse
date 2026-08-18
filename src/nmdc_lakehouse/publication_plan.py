@@ -164,7 +164,7 @@ def _load_document(path: Path, model: type[ModelType], label: str) -> ModelType:
         raise PublicationPlanError(f"The {label} must be an ordinary JSON file.")
     try:
         return model.model_validate_json(path.read_text(encoding="utf-8"))
-    except (OSError, ValidationError) as error:
+    except (OSError, UnicodeDecodeError, ValidationError) as error:
         raise PublicationPlanError(f"Cannot read a valid {label}.") from error
 
 
@@ -194,6 +194,9 @@ def load_publication_plan(path: Path) -> PublicationPlan:
     table_names = [entry.table for entry in plan.tables]
     if len(table_names) != len(set(table_names)):
         raise PublicationPlanError("Publication plan contains duplicate table names.")
+    capabilities = plan.destination_metadata_capabilities
+    if len(capabilities) != len(set(capabilities)):
+        raise PublicationPlanError("Publication plan contains duplicate metadata capabilities.")
     return plan
 
 
