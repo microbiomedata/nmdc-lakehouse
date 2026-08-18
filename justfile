@@ -25,6 +25,10 @@ doctor:
 berdl-doctor SNAPSHOT_ROOT *ARGS:
     uv run --no-sync nmdc-lakehouse berdl-doctor "{{ SNAPSHOT_ROOT }}" {{ ARGS }}
 
+# Generate a reviewable metadata profile draft bound to a validated snapshot.
+metadata-profile SNAPSHOT_ROOT PROFILE_ID NAMESPACE TITLE DESCRIPTION *ARGS:
+    uv run --no-sync nmdc-lakehouse metadata-profile "{{ SNAPSHOT_ROOT }}" --profile-id "{{ PROFILE_ID }}" --namespace-name "{{ NAMESPACE }}" --title "{{ TITLE }}" --description "{{ DESCRIPTION }}" {{ ARGS }}
+
 # Cross-check all reviewed publication artifacts before provider-specific staging.
 publication-preflight SNAPSHOT_ROOT BUNDLE INVENTORY PLAN:
     uv run --no-sync nmdc-lakehouse publication-preflight "{{ SNAPSHOT_ROOT }}" --bundle "{{ BUNDLE }}" --inventory "{{ INVENTORY }}" --plan "{{ PLAN }}"
