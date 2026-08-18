@@ -245,6 +245,48 @@ def berdl_doctor(
     context.exit(report.exit_code)
 
 
+@cli.command("metadata-bundle")
+@click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
+@click.option(
+    "--profile",
+    "profile_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    required=True,
+    help="Reviewed provider-neutral metadata profile JSON.",
+)
+@click.option("--output", type=click.Path(path_type=Path, dir_okay=False), help="Also write the generated bundle here.")
+def metadata_bundle_command(snapshot_root: Path, profile_path: Path, output: Path | None) -> None:
+    """Generate a snapshot-linked metadata bundle entirely offline."""
+    from nmdc_lakehouse.metadata_bundle import (
+        MetadataBundleError,
+        generate_metadata_bundle,
+        render_metadata_bundle,
+        write_metadata_bundle,
+    )
+    from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError
+
+    try:
+        bundle = generate_metadata_bundle(snapshot_root, profile_path)
+        if output is not None:
+            write_metadata_bundle(output, bundle)
+    except (MetadataBundleError, SnapshotManifestError) as error:
+        raise click.ClickException(str(error)) from error
+    click.echo(render_metadata_bundle(bundle))
+
+
+@cli.command("metadata-bundle-schema")
+@click.argument("document", type=click.Choice(["profile", "bundle"]))
+def metadata_bundle_schema_command(document: str) -> None:
+    """Print a metadata profile or bundle JSON Schema."""
+    import json
+    from typing import Literal, cast
+
+    from nmdc_lakehouse.metadata_bundle import metadata_json_schema
+
+    selected = cast(Literal["profile", "bundle"], document)
+    click.echo(json.dumps(metadata_json_schema(selected), indent=2, sort_keys=True))
+
+
 @cli.command("run-job")
 @click.argument("job_name")
 @click.option("--dry-run", is_flag=True, help="Plan the job but do not write output.")
