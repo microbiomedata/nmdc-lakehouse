@@ -86,7 +86,8 @@ test:
 
 # Run tests with coverage report.
 test-cov:
-    uv run pytest --cov=nmdc_lakehouse --cov-report=term-missing
+    uv run pytest --cov=nmdc_lakehouse --cov-report=term-missing --cov-report=xml
+    uv run coverage report
 
 # Run only integration tests (require live DBs).
 test-integration:
@@ -188,7 +189,7 @@ build:
     uv build
 
 # Run the deterministic local quality checks.
-check: lint-just prose-lint shellcheck actionlint lint typecheck test
+check: lint-just prose-lint shellcheck actionlint lint typecheck test-cov
 
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
 # See scripts/README.md for details. These recipes shell out to utilities under
