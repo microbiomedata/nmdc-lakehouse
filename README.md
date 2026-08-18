@@ -95,6 +95,9 @@ optional production capabilities; required failures return a nonzero status.
 If `just` exits while parsing a malformed `.env`, bypass its automatic `.env`
 loading with `uv run --no-sync nmdc-lakehouse doctor`. Doctor will inspect the
 file itself and report the problem without printing its contents.
+Live checks require an explicit `--service-check` flag on the
+`nmdc-lakehouse doctor` command; see the
+[development setup guide](docs/development-setup.md#opt-in-to-live-service-checks).
 
 ## Configuration
 
@@ -118,6 +121,7 @@ Key variables (full list in `.env.example`):
 | `MONGO_AUTH_SOURCE` | `admin` | Authentication database |
 | `MONGO_REPLICA_SET` | | Optional replica set name |
 | `MONGO_DIRECT_CONNECTION` | `false` | Set `true` when using the SSH tunnel |
+| `NMDC_JUMP_KEY` | `~/.ssh/jump-dev.microbiomedata.org.private_key` | Optional override for the GCP jump-host key |
 | `LAKEHOUSE_ROOT` | `./lakehouse` | Local directory; doctor rejects remote URIs |
 
 For production access via the GCP SSH tunnel, see

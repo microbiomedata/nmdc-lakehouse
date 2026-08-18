@@ -393,8 +393,9 @@ def run_doctor(
     runner: CommandRunner | None = None,
     finder: CommandFinder = shutil.which,
     python_version: tuple[int, int, int] | None = None,
+    service_checks: Sequence[str] = (),
 ) -> DoctorReport:
-    """Run all offline, read-only development-environment diagnostics."""
+    """Run offline diagnostics plus any explicitly requested live-service checks."""
     root = (project_root or Path.cwd()).resolve()
     command_runner = runner or (lambda args: _run_command(args, cwd=root))
     environment = dict(os.environ if environ is None else environ)
@@ -427,4 +428,10 @@ def run_doctor(
     )
     checks = [uv_check, just_check, git_check, _python_check(version_info), environment_check, hook_check]
     checks.extend(_configuration_checks(project_root=root, environ=environment))
+    if service_checks:
+        from nmdc_lakehouse.service_doctor import run_service_checks
+
+        dotenv_values, _ = _read_dotenv(root / ".env")
+        configured = {**dotenv_values, **environment}
+        checks.extend(run_service_checks(service_checks, configured=configured))
     return DoctorReport(checks=tuple(checks))

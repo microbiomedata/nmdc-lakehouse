@@ -102,6 +102,7 @@ MONGO_DBNAME=nmdc
 MONGO_USERNAME=<your-mongodb-username>
 MONGO_PASSWORD=<your-mongodb-password>
 MONGO_DIRECT_CONNECTION=true  # required: skips replica-set discovery
+NMDC_JUMP_KEY=~/.ssh/jump-dev.microbiomedata.org.private_key
 ```
 
 `MONGO_DIRECT_CONNECTION=true` is required because NMDC's MongoDB is a
@@ -121,6 +122,20 @@ Both mechanisms read the same file; exported shell variables take precedence ove
 ## Verify the connection
 
 With the tunnel open and `.env` populated:
+
+```bash
+# Validate configuration, key permissions, and the local forwarded port.
+uv run --no-sync nmdc-lakehouse doctor --service-check gcp-tunnel
+
+# Then make one bounded, read-only MongoDB ping.
+uv run --no-sync nmdc-lakehouse doctor --service-check mongo-ping
+```
+
+Doctor never displays the credential-bearing URI and never starts or stops the
+tunnel. The checks fail separately for missing configuration, an unavailable
+local tunnel, authentication rejection, and network access.
+
+For an independent interactive check:
 
 ```bash
 mongosh "mongodb://localhost:27124/nmdc" \

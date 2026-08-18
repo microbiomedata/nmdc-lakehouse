@@ -36,10 +36,28 @@ def test_doctor_cli_renders_sanitized_failure_and_exit_code(monkeypatch):
             ),
         )
     )
-    monkeypatch.setattr("nmdc_lakehouse.doctor.run_doctor", lambda: report)
+    monkeypatch.setattr("nmdc_lakehouse.doctor.run_doctor", lambda **_kwargs: report)
 
     result = CliRunner().invoke(cli, ["doctor"])
 
     assert result.exit_code == 1
     assert "[FAIL] locked-environment: The installed environment is stale." in result.output
     assert "remedy: Run just bootstrap." in result.output
+
+
+def test_doctor_cli_forwards_explicit_service_checks(monkeypatch):
+    captured: dict[str, tuple[str, ...]] = {}
+
+    def fake_doctor(*, service_checks: tuple[str, ...]) -> DoctorReport:
+        captured["service_checks"] = service_checks
+        return DoctorReport(checks=())
+
+    monkeypatch.setattr("nmdc_lakehouse.doctor.run_doctor", fake_doctor)
+
+    result = CliRunner().invoke(
+        cli,
+        ["doctor", "--service-check", "gcp-tunnel", "--service-check", "mongo-ping"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["service_checks"] == ("gcp-tunnel", "mongo-ping")
