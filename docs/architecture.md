@@ -1,5 +1,9 @@
 # Architecture
 
+The [original design and current conformance](original-design-conformance.md)
+page distinguishes the initial scaffold created by Sierra Moxon and the squad commitments
+from later project decisions and tracks the remaining outcome gaps.
+
 `nmdc-lakehouse` follows a classic ETL shape with three replaceable layers:
 
 ```
