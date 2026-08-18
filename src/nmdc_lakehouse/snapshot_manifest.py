@@ -221,10 +221,14 @@ def _load_metrics(path: Path) -> dict[str, Any]:
 
 def build_manifest(root: Path, metrics_path: Path, source_label: str) -> SnapshotManifest:
     """Build a manifest from one successful full-snapshot metrics record."""
-    root = root.expanduser().resolve()
-    metrics_path = metrics_path.expanduser().resolve()
+    root = root.expanduser()
+    metrics_path = metrics_path.expanduser()
     if not root.is_dir() or root.is_symlink():
         raise SnapshotManifestError("Snapshot root must be an existing ordinary directory.")
+    if not metrics_path.is_file() or metrics_path.is_symlink():
+        raise SnapshotManifestError("The metrics record must be an ordinary file directly inside the snapshot root.")
+    root = root.resolve()
+    metrics_path = metrics_path.resolve()
     if not _SOURCE_LABEL.fullmatch(source_label):
         raise SnapshotManifestError("Source label must use only letters, digits, dot, underscore, or hyphen.")
     if metrics_path.parent != root or not metrics_path.is_file() or metrics_path.is_symlink():
@@ -326,7 +330,10 @@ def build_manifest(root: Path, metrics_path: Path, source_label: str) -> Snapsho
 
 def write_manifest(root: Path, manifest: SnapshotManifest) -> Path:
     """Atomically write the snapshot completion marker inside ``root``."""
-    destination = root.expanduser().resolve() / MANIFEST_NAME
+    root = root.expanduser()
+    if not root.is_dir() or root.is_symlink():
+        raise SnapshotManifestError("Snapshot root must be an existing ordinary directory.")
+    destination = root.resolve() / MANIFEST_NAME
     if destination.exists() or destination.is_symlink():
         raise SnapshotManifestError(f"Refusing to replace existing {MANIFEST_NAME}.")
     fd, temporary_name = tempfile.mkstemp(prefix=f".{MANIFEST_NAME}.", suffix=".tmp", dir=destination.parent)
@@ -344,8 +351,13 @@ def write_manifest(root: Path, manifest: SnapshotManifest) -> Path:
 
 def validate_snapshot(root: Path) -> SnapshotManifest:
     """Validate a manifested snapshot without network or destination access."""
-    root = root.expanduser().resolve()
+    root = root.expanduser()
+    if not root.is_dir() or root.is_symlink():
+        raise SnapshotManifestError("Snapshot root must be an existing ordinary directory.")
+    root = root.resolve()
     manifest_path = root / MANIFEST_NAME
+    if not manifest_path.is_file() or manifest_path.is_symlink():
+        raise SnapshotManifestError(f"Cannot read a valid {MANIFEST_NAME}.")
     try:
         manifest = SnapshotManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
     except Exception as error:

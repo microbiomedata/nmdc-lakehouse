@@ -88,6 +88,31 @@ def test_build_write_and_validate_snapshot(tmp_path: Path) -> None:
     assert not list(tmp_path.glob(f".{MANIFEST_NAME}.*.tmp"))
 
 
+def test_manifest_operations_reject_symlinked_snapshot_root(tmp_path: Path) -> None:
+    snapshot = tmp_path / "snapshot"
+    snapshot.mkdir()
+    metrics_path = _snapshot_fixture(snapshot)
+    manifest = build_manifest(snapshot, metrics_path, "nmdc-production")
+    linked_snapshot = tmp_path / "linked-snapshot"
+    linked_snapshot.symlink_to(snapshot, target_is_directory=True)
+
+    with pytest.raises(SnapshotManifestError, match="ordinary directory"):
+        build_manifest(linked_snapshot, linked_snapshot / metrics_path.name, "nmdc-production")
+    with pytest.raises(SnapshotManifestError, match="ordinary directory"):
+        write_manifest(linked_snapshot, manifest)
+    with pytest.raises(SnapshotManifestError, match="ordinary directory"):
+        validate_snapshot(linked_snapshot)
+
+
+def test_build_manifest_rejects_symlinked_metrics_record(tmp_path: Path) -> None:
+    metrics_path = _snapshot_fixture(tmp_path)
+    linked_metrics = tmp_path / "linked-metrics.json"
+    linked_metrics.symlink_to(metrics_path)
+
+    with pytest.raises(SnapshotManifestError, match="ordinary file"):
+        build_manifest(tmp_path, linked_metrics, "nmdc-production")
+
+
 def test_manifest_cli_creates_and_validates_snapshot(tmp_path: Path) -> None:
     metrics_path = _snapshot_fixture(tmp_path)
     runner = CliRunner()
