@@ -58,6 +58,10 @@ shellcheck:
     @just _shellcheck-recipe export-nmdc-duckdb
     @find . \( -path './.git' -o -path './.venv' -o -path './build' -o -path './dist' \) -prune -o -type f -name '*.sh' -exec uv run shellcheck --shell=bash {} +
 
+# Lint every GitHub Actions workflow with the pre-commit-pinned actionlint.
+actionlint:
+    uv run pre-commit run actionlint --all-files
+
 # Run all linters & formatters in check mode.
 # scripts/python is in scope (see .pre-commit-config.yaml); scripts/*.py
 # at the top level is EMA legacy and deliberately excluded.
@@ -184,7 +188,7 @@ build:
     uv build
 
 # Run the deterministic local quality checks.
-check: lint-just prose-lint shellcheck lint typecheck test
+check: lint-just prose-lint shellcheck actionlint lint typecheck test
 
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
 # See scripts/README.md for details. These recipes shell out to utilities under
