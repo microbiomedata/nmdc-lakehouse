@@ -1,4 +1,4 @@
-"""Parquet sink — write flat row dicts to partitioned Parquet files."""
+"""Parquet sink — write flat row dictionaries to local Parquet files."""
 
 from __future__ import annotations
 

@@ -159,8 +159,8 @@ build:
 check: lint typecheck test
 
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
-# See scripts/README.md for details. These recipes shell out to the scripts in
-# scripts/python/ and depend on a local MongoDB containing the NMDC collections.
+# See scripts/README.md for details. These recipes shell out to utilities under
+# scripts/ and depend on a local MongoDB containing the NMDC collections.
 
 mongo_uri                   := env_var_or_default("MONGO_URI", "mongodb://localhost:27017/nmdc")
 nmdc_export_dir             := env_var_or_default("NMDC_EXPORT_DIR", "./local/nmdc_export")
@@ -174,14 +174,14 @@ nmdc_flattened_collections := "flattened_biosample flattened_biosample_chem_admi
 
 # Flatten NMDC MongoDB collections (biosample, study + nested extractions) in place.
 flatten-nmdc:
-    uv run python scripts/python/flatten_nmdc_collections.py --mongo-uri "{{mongo_uri}}"
+    uv run python scripts/flatten_nmdc_collections.py --mongo-uri "{{mongo_uri}}"
 
 # Flatten against an auth-required MongoDB; reads creds from local/.env.ncbi-loadbalancer.27778.
 flatten-nmdc-auth:
     #!/usr/bin/env bash
     set -euo pipefail
     set -a && . local/.env.ncbi-loadbalancer.27778 && set +a
-    uv run python scripts/python/flatten_nmdc_collections.py \
+    uv run python scripts/flatten_nmdc_collections.py \
       --mongo-uri "mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@${MONGO_HOST}:${MONGO_PORT}/${DEST_MONGO_DB}?authSource=admin&authMechanism=SCRAM-SHA-256&directConnection=true"
 
 # Export flattened_biosample to CSV using the distinct field list from flattened_biosample_field_counts.
@@ -227,7 +227,7 @@ export-nmdc-duckdb:
 
 # Export DuckDB tables to individual Parquet files for lakehouse ingestion.
 export-nmdc-parquet: export-nmdc-duckdb
-    uv run python scripts/python/export_duckdb_to_parquet.py "{{nmdc_duckdb_file}}" --output-dir "{{nmdc_parquet_dir}}"
+    uv run python scripts/export_duckdb_to_parquet.py "{{nmdc_duckdb_file}}" --output-dir "{{nmdc_parquet_dir}}"
 
 # Full pipeline: flatten in Mongo -> DuckDB -> Parquet -> biosample CSV.
 # Generate the flattened LinkML schema (one class per Database slot).

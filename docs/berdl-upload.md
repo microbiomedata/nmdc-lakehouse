@@ -158,7 +158,7 @@ SELECT COUNT(*) FROM nmdc_nmdc_linkml_store.functional_annotation_agg;
 
 - **`verify_ingest` reports MISMATCH for every table.** Not a real failure. It counts
   line breaks in source files, which is meaningless for binary Parquet. Trust the
-  Delta row counts from the SQL verification above instead.
+  managed-table row counts from the SQL verification above instead.
 - **Namespace naming.** Tenant `nmdc`, dataset `nmdc_linkml_store` -> registered
   namespace `nmdc_nmdc_linkml_store` (tenant prefix + dataset name).
 - **`MODE=overwrite`** makes repeated runs idempotent, safe to re-run after a fresh

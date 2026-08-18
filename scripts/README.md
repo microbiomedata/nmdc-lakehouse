@@ -7,16 +7,19 @@ before re-architecting into `src/nmdc_lakehouse/{sources,transforms,sinks,jobs}/
 
 ## Contents
 
-`scripts/python/`
+These four copied scripts live directly under `scripts/` (not
+`scripts/python/`):
+
 - `flatten_nmdc_collections.py` — reads NMDC MongoDB collections (`biosample_set`,
   `study_set`), flattens nested structures (underscore-joined field names,
   pipe-joined arrays), enriches environmental triad CURIEs via `oaklib`
   (envo/pato/uberon), and writes `flattened_*` collections back into MongoDB.
 - `export_duckdb_to_parquet.py` — exports every table in a DuckDB file to
   an individual Parquet file (ZSTD).
-- `export_flattened_gold_to_csv.py` — generic `flattened_*`-prefix collection
-  → CSV exporter. Name mentions GOLD for historical reasons; works for any
-  database whose flattened collections follow the `flattened_` prefix.
+- `export_flattened_gold_to_csv.py` — legacy GOLD-oriented utility copied from
+  EMA. It defaults to a `gold_metadata` MongoDB database, but its implementation
+  generically exports collections selected by a prefix. It is not registered as
+  an `nmdc-lakehouse` job and is not evidence of a supported GOLD integration.
 - `mongodb_connection.py` — `get_mongo_client()` helper used by the CSV
   exporter. Supports merging credentials from an env file into a URI.
 
@@ -55,6 +58,11 @@ External CLI tools required by the justfile recipes (not Python deps):
 
 ## Usage (via justfile)
 
+> These recipes are the legacy EMA pipeline. Unlike the maintained package
+> jobs, `just flatten-nmdc` writes `flattened_*` collections into its target
+> MongoDB. Do not point it at production. Retirement or isolation is tracked in
+> [#27](https://github.com/microbiomedata/nmdc-lakehouse/issues/27).
+
 ```bash
 # Flatten NMDC collections inside MongoDB
 just flatten-nmdc
@@ -79,9 +87,10 @@ Override via `NMDC_EXPORT_DIR`, `NMDC_PARQUET_DIR`, `NMDC_CSV_DIR`,
   Parquet — DuckDB/Parquet export is a separate step.
 - `mongodb_connection.py` expects `MONGO_USER` (not `MONGO_USERNAME`) in the
   env file when merging credentials into a URI.
-- Scripts are invoked as standalone files (`uv run python scripts/python/...`)
+- Scripts are invoked as standalone files (`uv run python scripts/...`)
   rather than registered entry points.
 
 Phase 2 will split these into `sources/`, `transforms/`, `sinks/`, and
-`jobs/` modules under `src/nmdc_lakehouse/`, replacing the mongo->mongo
-intermediate with direct Parquet/Iceberg writes.
+`jobs/` modules under `src/nmdc_lakehouse/`. The maintained jobs now replace
+the MongoDB write-back intermediate with direct local Parquet output; Iceberg
+publication remains planned.

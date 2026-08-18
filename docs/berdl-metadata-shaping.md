@@ -54,7 +54,7 @@ That's the remaining scope of [#114](https://github.com/microbiomedata/nmdc-lake
 
 The Bronze layer is plain Parquet objects in MinIO under
 `cdm-lake/tenant-general-warehouse/nmdc/datasets/{metadata,results,ref_data,...}/`.
-This is a distinct concept from the Silver Delta tables above it: "dataset" in
+This is a distinct concept from the managed Silver Iceberg tables above it: "dataset" in
 BERDL's own path convention refers to this raw-object layer, not a table.
 
 S3-compatible object stores support per-object user metadata

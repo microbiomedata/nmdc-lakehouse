@@ -6,8 +6,8 @@ Spark 4.0.1 cannot execute `WITH RECURSIVE` in either Spark Connect or classic
 standalone mode — both fail with `No plan for UnionLoop` (a Spark planner bug).
 
 Trino, which is available in every BERDL notebook via `get_trino_connection()`,
-supports `WITH RECURSIVE` natively and reads the same Delta tables from the Hive
-metastore. The annotation → biosample walk can be done in a single Trino query
+supports `WITH RECURSIVE` natively and reads the same managed Iceberg tables
+through the BERDL catalog. The annotation → biosample walk can be done in a single Trino query
 using four Silver side tables that are already loaded.
 
 ## The four edge tables

@@ -24,7 +24,7 @@ jobs:
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra docs
 
       - name: Lint
         run: just lint
@@ -34,6 +34,16 @@ jobs:
 
       - name: Test
         run: just test
+
+      - name: Smoke-test documented commands
+        run: |
+          just --summary
+          just cli --help
+          uv run python scripts/flatten_nmdc_collections.py --help
+          uv run python scripts/export_duckdb_to_parquet.py --help
+
+      - name: Build documentation
+        run: just docs-build
 
   linkcheck:
     runs-on: ubuntu-24.04
@@ -46,13 +56,12 @@ jobs:
           args: >-
             --no-progress
             --max-retries 3
+            --exclude '^https://(iris|sshproxy)\.nersc\.gov/'
             README.md scripts/README.md docs notebooks/*.md
-          # Non-blocking for now: a first local run already found a live
-          # external 500 (sshproxy.nersc.gov) unrelated to any PR content.
-          # Report-only until that class of noise is dealt with (an
-          # exclude list, or accepting the flakiness); flip to true to
-          # make broken links a hard merge blocker.
-          fail: false
+          # NERSC's IRIS and sshproxy services time out or return errors to
+          # unauthenticated CI requests. Keep those exceptions explicit; every
+          # other internal or external failure blocks the PR.
+          fail: true
         env:
           # Authenticated requests to github.com avoid the unauthenticated
           # rate limit that otherwise makes this job flaky on busy days.

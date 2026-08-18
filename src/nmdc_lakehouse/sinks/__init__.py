@@ -1,5 +1,6 @@
 """Output sinks.
 
-Writers that persist flattened rows as lakehouse-native formats
-(Parquet files, Apache Iceberg tables, ...).
+The implemented sink writes one local Parquet file per logical table. The
+Apache Iceberg module reserves the intended managed-table interface but is not
+implemented yet.
 """

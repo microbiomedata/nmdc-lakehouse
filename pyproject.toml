@@ -1,7 +1,7 @@
 [project]
 name = "nmdc-lakehouse"
 version = "0.0.0"
-description = "ETL pipeline that extracts NMDC data via linkml-store (MongoDB / PostgreSQL), flattens the object model, and writes lakehouse-ready formats (Parquet / Iceberg)."
+description = "Schema-directed ETL from NMDC MongoDB to local Parquet artifacts for lakehouse publication."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

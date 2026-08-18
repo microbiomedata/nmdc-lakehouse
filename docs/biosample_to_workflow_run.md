@@ -87,7 +87,7 @@ AND  b2wr.workflow_type = 'nmdc:ReadBasedTaxonomyAnalysis'
 table. Run it once after each NMDC data load. The notebook uses an iterative
 BFS walk over `nmdc_metadata.graph_edges` — one flat JOIN per hop level,
 avoiding Trino's 150-stage `WITH RECURSIVE` limit. `graph_edges` is created
-or replaced as a Delta table in Step 0 and persists in `nmdc_metadata` after
+or replaced as a managed table in Step 0 and persists in `nmdc_metadata` after
 the notebook completes; refresh it whenever the underlying Silver provenance
 side tables are reloaded.
 
