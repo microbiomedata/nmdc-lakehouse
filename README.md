@@ -61,7 +61,7 @@ nmdc-lakehouse/
 
 ## Requirements
 
-- Python ≥ 3.10
+- Python ≥ 3.13 and < 3.14
 - [`uv`](https://docs.astral.sh/uv/) for environment & dependency management
 - [`just`](https://just.systems/) for task running
 - Access to an NMDC MongoDB instance for production-data runs

@@ -3,7 +3,7 @@ name = "nmdc-lakehouse"
 version = "0.0.0"
 description = "Schema-directed ETL from NMDC MongoDB to local Parquet artifacts for lakehouse publication."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.13,<3.14"
 license = { text = "MIT" }
 authors = [
     { name = "Sierra Moxon", email = "smoxon@lbl.gov" },
@@ -82,7 +82,7 @@ packages = ["src/nmdc_lakehouse"]
 # ---------------------------------------------------------------------------
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py313"
 
 [tool.ruff.lint]
 # Ruff 0.16 expanded its defaults from 59 to 413 rules. Keep this repository's
@@ -116,6 +116,6 @@ markers = [
 ]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.13"
 warn_unused_ignores = true
 ignore_missing_imports = true
