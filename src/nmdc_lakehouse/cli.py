@@ -253,6 +253,56 @@ def publication_preflight_command(
     click.echo(render_publication_preflight(report))
 
 
+@cli.command("metadata-application-plan")
+@click.argument("bundle", type=click.Path(path_type=Path, dir_okay=False))
+@click.option(
+    "--inventory",
+    "inventory_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    required=True,
+    help="Credential-free destination inventory JSON.",
+)
+@click.option(
+    "--staging-namespace",
+    required=True,
+    help="Explicit provider-qualified namespace that will receive staged tables.",
+)
+@click.option("--output", type=click.Path(path_type=Path, dir_okay=False), help="Also write the generated plan here.")
+def metadata_application_plan_command(
+    bundle: Path,
+    inventory_path: Path,
+    staging_namespace: str,
+    output: Path | None,
+) -> None:
+    """Plan provider-neutral metadata operations without mutation."""
+    from nmdc_lakehouse.metadata_application import (
+        MetadataApplicationError,
+        plan_metadata_application,
+        render_metadata_application_plan,
+        write_metadata_application_plan,
+    )
+    from nmdc_lakehouse.metadata_bundle import MetadataBundleError
+    from nmdc_lakehouse.publication_plan import PublicationPlanError
+
+    try:
+        plan = plan_metadata_application(bundle, inventory_path, staging_namespace)
+        if output is not None:
+            write_metadata_application_plan(output, plan)
+    except (MetadataApplicationError, MetadataBundleError, PublicationPlanError) as error:
+        raise click.ClickException(str(error)) from error
+    click.echo(render_metadata_application_plan(plan))
+
+
+@cli.command("metadata-application-plan-schema")
+def metadata_application_plan_schema_command() -> None:
+    """Print the metadata application plan JSON Schema."""
+    import json
+
+    from nmdc_lakehouse.metadata_application import metadata_application_json_schema
+
+    click.echo(json.dumps(metadata_application_json_schema(), indent=2, sort_keys=True))
+
+
 @cli.command("berdl-doctor")
 @click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
 @click.option(

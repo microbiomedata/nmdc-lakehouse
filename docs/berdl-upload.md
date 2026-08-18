@@ -57,8 +57,26 @@ revision containing the required source-verification and credential fixes
 before authorizing publication.
 
 After generating and reviewing the snapshot-bound metadata bundle, fresh live
-inventory, and disposition plan, run the destination-neutral artifact gate from
-the `nmdc-lakehouse` checkout:
+inventory, and disposition plan, generate the provider-neutral metadata
+application plan for the explicitly selected staging namespace:
+
+```bash
+just metadata-application-plan \
+  /absolute/path/to/metadata-bundle.json \
+  /absolute/path/to/destination-inventory.json \
+  discovered_catalog.nmdc_metadata_staging \
+  --output /absolute/path/to/metadata-application-plan.json
+```
+
+Use the namespace discovered and approved for the current run; the example is
+not a permanent BERDL default. Review supported operations, unsupported
+operations, and missing descriptions. This offline command emits JSON data, not
+Spark SQL, and does not contact or change BERDL. The later adapter tracked in
+[#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114) must recheck
+the bundle and inventory identities before applying the plan.
+
+Then run the destination-neutral artifact gate from the `nmdc-lakehouse`
+checkout:
 
 ```bash
 just publication-preflight /absolute/path/to/completed-snapshot \
