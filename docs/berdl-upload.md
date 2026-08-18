@@ -1,5 +1,13 @@
 # Uploading `lakehouse/` Parquet output to BERDL
 
+> **Historical mechanics only:** this guide records the April 2026 transport and
+> ingest path. Do not use it by itself to overwrite or replace live tables. Its
+> fixed dataset name, table count, and Delta verification examples are not the
+> current replacement contract. Any replacement must follow the reviewed plan
+> and approval checkpoints in the
+> [portable publication contract](publication-contract.md), discover the live
+> catalog/provider, and classify every candidate and live table.
+
 This is the off-cluster path: `etl-collections`/`etl-annotations` already produced
 local Parquet under `LAKEHOUSE_ROOT` (see the configuration table in `README.md`).
 This document covers getting that output into BERDL Silver as `nmdc_nmdc_linkml_store`.
@@ -172,6 +180,8 @@ SELECT COUNT(*) FROM nmdc_nmdc_linkml_store.functional_annotation_agg;
 
 ## Related
 
+- `docs/publication-contract.md`: destination-neutral safety, metadata, staging, validation,
+  promotion, and rollback requirements for a current replacement.
 - [#50](https://github.com/microbiomedata/nmdc-lakehouse/issues/50): consolidating ETL output to `LAKEHOUSE_ROOT` so this doc's paths are stable.
 - [#51](https://github.com/microbiomedata/nmdc-lakehouse/issues/51): the original automation issue; this doc is the runbook half of it. A
   `just berdl-upload` recipe wrapping the tunnel/preflight/upload/ingest steps is

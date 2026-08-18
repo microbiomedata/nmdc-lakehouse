@@ -11,6 +11,7 @@ nav:
   - Operations:
       - MongoDB connection: mongodb-connection.md
       - BERDL upload: berdl-upload.md
+      - Portable publication and replacement contract: publication-contract.md
       - BERDL metadata shaping: berdl-metadata-shaping.md
   - Data products:
       - NMDC metadata tables: nmdc_metadata_tables.md
