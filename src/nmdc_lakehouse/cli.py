@@ -142,11 +142,12 @@ def run_job(
         os.environ["LAKEHOUSE_DROP_EMPTY_COLS"] = "true"
     if skip:
         os.environ["LAKEHOUSE_SKIP_COLLECTIONS"] = ",".join(skip)
-    job = get(job_name)
-    applied_skips = tuple(sorted(getattr(job, "skip", ())))
+    applied_skips: tuple[str, ...] = ()
     started_at = datetime.now(UTC).isoformat()
     t0 = time.monotonic()
     try:
+        job = get(job_name)
+        applied_skips = tuple(sorted(getattr(job, "skip", ())))
         result = job.run(dry_run=dry_run)
         configured_output_root = getattr(job, "out_root", None)
         output_root = Path(configured_output_root) if configured_output_root is not None else LakehouseSettings().root

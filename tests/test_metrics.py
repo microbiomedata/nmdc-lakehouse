@@ -171,3 +171,19 @@ def test_run_job_cli_rejects_metrics_directory(tmp_path: Path) -> None:
 
     assert result.exit_code == 2
     assert "is a directory" in result.output
+
+
+def test_run_job_cli_records_dispatch_failure(tmp_path: Path, monkeypatch) -> None:
+    def missing_job(_name: str):
+        raise KeyError("TOP-SECRET-SENTINEL")
+
+    metrics_path = tmp_path / "run.json"
+    monkeypatch.setattr("nmdc_lakehouse.jobs.registry.get", missing_job)
+
+    result = CliRunner().invoke(cli, ["run-job", "missing", "--metrics", str(metrics_path)])
+    record = json.loads(metrics_path.read_text(encoding="utf-8"))
+
+    assert result.exit_code != 0
+    assert record["status"] == "failed"
+    assert record["error_type"] == "KeyError"
+    assert "TOP-SECRET-SENTINEL" not in repr(record)
