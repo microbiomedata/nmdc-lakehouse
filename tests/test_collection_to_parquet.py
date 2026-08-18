@@ -4,36 +4,22 @@ from __future__ import annotations
 
 import nmdc_lakehouse.jobs  # noqa: F401 — registers all built-in jobs including direct ones
 from nmdc_lakehouse.jobs.collection_to_parquet import (
+    REVIEWED_SCHEMA_COLLECTIONS,
     AllCollectionsToParquetJob,
     CollectionToParquetJob,
+    _db_collection_map,
 )
 from nmdc_lakehouse.jobs.registry import get, list_names
 
 
-def test_all_17_collections_registered():
-    """One job is registered per Database slot (17 total)."""
-    names = list_names()
-    # The 17 schema-specified collections
-    expected = {
-        "biosample_set",
-        "calibration_set",
-        "collecting_biosamples_from_site_set",
-        "configuration_set",
-        "data_generation_set",
-        "data_object_set",
-        "field_research_site_set",
-        "functional_annotation_agg",
-        "functional_annotation_set",
-        "genome_feature_set",
-        "instrument_set",
-        "manifest_set",
-        "material_processing_set",
-        "processed_sample_set",
-        "storage_process_set",
-        "study_set",
-        "workflow_execution_set",
-    }
-    assert expected.issubset(set(names))
+def test_schema_collection_baseline_matches_reviewed_snapshot():
+    """Schema scope changes require an explicit snapshot update."""
+    assert set(_db_collection_map().keys()) == REVIEWED_SCHEMA_COLLECTIONS
+
+
+def test_all_schema_collections_registered():
+    """One job is registered per reviewed Database slot (19 total)."""
+    assert REVIEWED_SCHEMA_COLLECTIONS <= set(list_names())
 
 
 def test_all_collections_job_registered():

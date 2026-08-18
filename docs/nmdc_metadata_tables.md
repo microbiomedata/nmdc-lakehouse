@@ -1,8 +1,10 @@
 # `nmdc_metadata` Silver table reference
 
-`nmdc_metadata` in BERDL contains the 17 schema-defined NMDC MongoDB collections,
+`nmdc_metadata` in BERDL contains the 19 schema-defined NMDC MongoDB collections,
 flattened to Parquet and registered as managed Iceberg tables. This document describes
-the naming conventions, the side-table pattern, and the key join chains.
+the naming conventions, the side-table pattern, and the key join chains. The
+[MongoDB connection guide](mongodb-connection.md#maintained-collection-baseline)
+records the exact reviewed collection snapshot and selection policy.
 
 ## Naming conventions
 

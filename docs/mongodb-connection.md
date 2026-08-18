@@ -154,7 +154,45 @@ uv run nmdc-lakehouse run-job biosample_set --dry-run
 
 ## Running ETL jobs
 
-All collections except `functional_annotation_agg` go through the linkml-store path.
+### Maintained collection baseline
+
+The installed, locked `nmdc-schema` is authoritative for maintained metadata
+dump scope. The pipeline reads the slots of its `Database` class rather than
+maintaining an independent inclusion list. For `nmdc-schema` 11.23.0, the
+reviewed snapshot is these 19 MongoDB collections:
+
+- `biosample_set`
+- `calibration_set`
+- `collecting_biosamples_from_site_set`
+- `configuration_set`
+- `data_generation_set`
+- `data_object_set`
+- `field_research_site_set`
+- `functional_annotation_agg`
+- `functional_annotation_set`
+- `genome_feature_set`
+- `instrument_set`
+- `manifest_set`
+- `material_processing_set`
+- `organism_sample_set`
+- `organism_set`
+- `processed_sample_set`
+- `storage_process_set`
+- `study_set`
+- `workflow_execution_set`
+
+CI compares the schema-derived names with this reviewed snapshot. Updating
+`nmdc-schema` therefore requires an explicit review when a collection is added
+or removed. Runtime-only collections that are not `Database` slots, including
+`flattened_*` and `alldocs`, are outside this maintained dump. Other live
+MongoDB collections are not discovered or included automatically.
+
+Repeatable `--skip` options and `LAKEHOUSE_SKIP_COLLECTIONS` are temporary
+per-run exclusions; they do not change the permanent schema-derived policy.
+`functional_annotation_agg` is part of the baseline, but its size and dedicated
+reader make running it separately the normal operational practice.
+
+All other baseline collections go through the linkml-store path.
 Throughput is approximately **1,500–2,000 records/sec** for flat collections
 (observed: 364,957 rows in ~3.5 minutes on 2026-04-24). Polymorphic collections
 (e.g. `workflow_execution_set`) degrade to ~200–300 rows/s after the first 10K records
