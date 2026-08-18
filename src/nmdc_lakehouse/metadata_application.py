@@ -350,23 +350,26 @@ def build_metadata_application_plan(
                     MetadataCapability.COLUMN,
                 )
 
-    return MetadataApplicationPlan(
-        plan_format_version=PLAN_FORMAT_VERSION,
-        snapshot_id=bundle.snapshot_id,
-        profile_id=bundle.profile_id,
-        bundle_generated_at=bundle.generated_at,
-        source_namespace=bundle.namespace.name,
-        destination_id=inventory.destination_id,
-        destination_observed_at=inventory.observed_at,
-        destination_provider=inventory.provider,
-        destination_table_format=inventory.table_format,
-        destination_metadata_capabilities=sorted(inventory.metadata_capabilities),
-        staging_namespace=staging_namespace,
-        tables=sorted(table_names),
-        supported_operations=supported,
-        unsupported_operations=unsupported,
-        missing_descriptions=missing,
-    )
+    try:
+        return MetadataApplicationPlan(
+            plan_format_version=PLAN_FORMAT_VERSION,
+            snapshot_id=bundle.snapshot_id,
+            profile_id=bundle.profile_id,
+            bundle_generated_at=bundle.generated_at,
+            source_namespace=bundle.namespace.name,
+            destination_id=inventory.destination_id,
+            destination_observed_at=inventory.observed_at,
+            destination_provider=inventory.provider,
+            destination_table_format=inventory.table_format,
+            destination_metadata_capabilities=sorted(inventory.metadata_capabilities),
+            staging_namespace=staging_namespace,
+            tables=sorted(table_names),
+            supported_operations=supported,
+            unsupported_operations=unsupported,
+            missing_descriptions=missing,
+        )
+    except ValidationError as error:
+        raise MetadataApplicationError("Cannot build a valid metadata application plan.") from error
 
 
 def render_metadata_application_plan(plan: MetadataApplicationPlan) -> str:

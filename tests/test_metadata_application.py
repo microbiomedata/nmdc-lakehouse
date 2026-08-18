@@ -176,6 +176,14 @@ def test_duplicate_inputs_are_rejected() -> None:
         build_metadata_application_plan(_bundle(table), duplicate_capabilities, "nmdc_metadata_staging")
 
 
+def test_copied_inventory_evidence_validation_is_sanitized() -> None:
+    inventory = _inventory()
+    inventory.observed_at = "not-a-timestamp"
+
+    with pytest.raises(MetadataApplicationError, match="Cannot build a valid metadata application plan"):
+        build_metadata_application_plan(_bundle(), inventory, "nmdc_metadata_staging")
+
+
 def test_plan_loader_rejects_incomplete_table_coverage(tmp_path: Path) -> None:
     plan = build_metadata_application_plan(
         _bundle(_table("biosample_set", "Sample.", "Identifier.")),
