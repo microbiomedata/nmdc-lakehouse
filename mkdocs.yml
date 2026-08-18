@@ -7,6 +7,7 @@ nav:
   - Home: index.md
   - Development setup: development-setup.md
   - Architecture: architecture.md
+  - Original design conformance: original-design-conformance.md
   - Operations:
       - MongoDB connection: mongodb-connection.md
       - BERDL upload: berdl-upload.md
