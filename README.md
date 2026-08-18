@@ -115,7 +115,7 @@ Key variables (full list in `.env.example`):
 | `MONGO_AUTH_SOURCE` | `admin` | Authentication database |
 | `MONGO_REPLICA_SET` | | Optional replica set name |
 | `MONGO_DIRECT_CONNECTION` | `false` | Set `true` when using the SSH tunnel |
-| `LAKEHOUSE_ROOT` | `./lakehouse` | Local directory; remote URIs are unsupported and are not currently rejected |
+| `LAKEHOUSE_ROOT` | `./lakehouse` | Local directory; doctor rejects remote URIs |
 
 For production access via the GCP SSH tunnel, see
 **[docs/mongodb-connection.md](docs/mongodb-connection.md)** for the full
