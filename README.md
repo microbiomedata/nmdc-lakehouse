@@ -156,6 +156,7 @@ operational-command inventory.
 | `just doctor`       | Diagnose local readiness without changing it      |
 | `just berdl-doctor SNAPSHOT_ROOT` | Diagnose BERDL publication readiness without mutation |
 | `just publication-preflight SNAPSHOT_ROOT BUNDLE INVENTORY PLAN` | Cross-check reviewed publication artifacts before staging |
+| `just metadata-application-plan BUNDLE INVENTORY STAGING_NAMESPACE` | Plan metadata operations for an explicit staging namespace |
 | `just install`      | Synchronize the locked development environment    |
 | `just install-all`  | Synchronize locked development and docs extras    |
 | `just lock`         | Refresh `uv.lock`                                |

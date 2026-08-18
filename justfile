@@ -29,6 +29,10 @@ berdl-doctor SNAPSHOT_ROOT *ARGS:
 publication-preflight SNAPSHOT_ROOT BUNDLE INVENTORY PLAN:
     uv run --no-sync nmdc-lakehouse publication-preflight "{{ SNAPSHOT_ROOT }}" --bundle "{{ BUNDLE }}" --inventory "{{ INVENTORY }}" --plan "{{ PLAN }}"
 
+# Map approved metadata to one explicit staging namespace without mutation.
+metadata-application-plan BUNDLE INVENTORY STAGING_NAMESPACE *ARGS:
+    uv run --no-sync nmdc-lakehouse metadata-application-plan "{{ BUNDLE }}" --inventory "{{ INVENTORY }}" --staging-namespace "{{ STAGING_NAMESPACE }}" {{ ARGS }}
+
 # Preserve an existing configured Git hooks-path policy instead of replacing it.
 [private]
 _install-pre-commit-hook:

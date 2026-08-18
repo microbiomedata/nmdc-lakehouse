@@ -47,6 +47,7 @@ identifiers.
 | Target LinkML projection | Complete logical table topology, including side tables | Generated and published by [#110](https://github.com/microbiomedata/nmdc-lakehouse/issues/110) |
 | Portable Parquet metadata | Table and field descriptions plus stable schema identifiers in Parquet footers | [#202](https://github.com/microbiomedata/nmdc-lakehouse/issues/202) |
 | Metadata content bundle | Reviewable namespace, table, and column descriptions and reviewed overrides | [#215](https://github.com/microbiomedata/nmdc-lakehouse/issues/215), split from [#120](https://github.com/microbiomedata/nmdc-lakehouse/issues/120) |
+| Metadata application plan | Supported and unsupported metadata operations for one explicit staging namespace | [#223](https://github.com/microbiomedata/nmdc-lakehouse/issues/223) |
 | Snapshot manifest | Completeness, checksums, row counts, schema and software provenance, and source identity | [#206](https://github.com/microbiomedata/nmdc-lakehouse/issues/206) |
 | Destination metadata | Namespace or dataset properties and table or column comments when supported | Applied idempotently through [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114) |
 | Registry record | Dataset ownership, access, update policy, keywords, and documentation links | Projection defined by [#52](https://github.com/microbiomedata/nmdc-lakehouse/issues/52) |
@@ -212,6 +213,38 @@ agreement. Its JSON summary contains identities, counts, and dispositions, not
 paths, credentials, connection details, or records. A successful preflight is a
 required input to staging; it does not authorize or perform staging.
 
+## Metadata application plan
+
+Map the approved bundle to the capabilities declared by the same fresh
+destination inventory before a provider adapter renders any commands:
+
+```bash
+just metadata-application-plan ./metadata/nmdc-metadata-bundle.json \
+  destination-inventory.json \
+  example_catalog.nmdc_metadata_staging \
+  --output metadata-application-plan.json
+```
+
+The staging namespace is explicit and may differ by destination. The plan
+preserves the snapshot, profile, bundle-generation, destination-observation,
+provider, table-format, and capability evidence. It covers the exact bundle
+table set and classifies every approved namespace property, table description,
+and column description as supported or unsupported. Missing descriptions remain
+explicit. Description text is JSON data, never SQL or another provider command.
+
+The output is a strict, versioned review artifact. Its contract is available
+offline:
+
+```bash
+uv run nmdc-lakehouse metadata-application-plan-schema
+```
+
+This step does not contact a catalog, create a namespace, apply metadata, or
+authorize staging. A later destination adapter must load this artifact through
+the maintained model and recheck its bundle and inventory identities immediately
+before rendering or applying provider-specific operations. The adapter must
+report unsupported metadata levels rather than silently omitting them.
+
 ## Staged workflow
 
 ### 1. Inventory without mutation
@@ -229,16 +262,18 @@ Record:
 Do not print credentials, connection strings, or production records. Discover
 provider and catalog behavior instead of inferring it from a historical runbook.
 
-### 2. Produce and approve the disposition plan
+### 2. Produce and approve the disposition and metadata plans
 
 Join the candidate and live inventories, assign one disposition to every table,
-and print all additions, replacements, preserves, rebuilds, and retirements. The
-plan also states the staging destination, promotion mechanism, validation queries,
-and rollback procedure.
+and print all additions, replacements, preserves, rebuilds, and retirements.
+Generate the metadata application plan for the explicit staging namespace from
+the approved bundle and same destination inventory. The provider profile also
+states the promotion mechanism, validation queries, and rollback procedure.
 
 This is the first mandatory no-mutation checkpoint. Upload does not begin until a
-human has reviewed the complete plan and `publication-preflight` has confirmed
-that the plan, inventory, metadata bundle, and snapshot still agree.
+human has reviewed both plans and `publication-preflight` has confirmed that the
+disposition plan, inventory, metadata bundle, and snapshot still agree. The later
+adapter independently rechecks the metadata plan's copied identities before use.
 
 ### 3. Establish rollback evidence
 
@@ -260,8 +295,9 @@ isolated staging location. When the destination supports managed tables, load th
 into a staging namespace or equivalent. Do not overwrite the canonical target
 during this phase.
 
-Apply the approved metadata bundle to staging and rebuild staging copies of every
-table classified as **rebuild**.
+Apply only the supported operations in the reviewed metadata application plan to
+staging, report unsupported operations, and rebuild staging copies of every table
+classified as **rebuild**.
 
 ### 5. Validate staging
 
