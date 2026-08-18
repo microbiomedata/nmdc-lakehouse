@@ -65,18 +65,37 @@ def _live_mongo_configuration(configured: Mapping[str, str]) -> tuple[LiveMongoC
             remediation="Use true for an SSH tunnel or false for a directly reachable replica set.",
         )
 
+    text_settings = {
+        "MONGO_HOST": configured.get("MONGO_HOST", "localhost"),
+        "MONGO_DBNAME": configured.get("MONGO_DBNAME", "nmdc"),
+        "MONGO_USERNAME": configured["MONGO_USERNAME"],
+        "MONGO_PASSWORD": configured["MONGO_PASSWORD"],
+        "MONGO_AUTH_SOURCE": configured.get("MONGO_AUTH_SOURCE", "admin"),
+        "MONGO_REPLICA_SET": configured.get("MONGO_REPLICA_SET", ""),
+    }
+    padded = tuple(name for name, value in text_settings.items() if value != value.strip())
+    if padded:
+        return None, DoctorCheck(
+            name="mongo-service-configuration",
+            status=CheckStatus.FAIL,
+            summary="Live MongoDB configuration has leading or trailing whitespace in: " + ", ".join(padded) + ".",
+            remediation=(
+                "Remove surrounding whitespace from the listed variables; values were not displayed or changed."
+            ),
+        )
+
     try:
         port = int(configured.get("MONGO_PORT", "27017"))
         if not 1 <= port <= 65535:
             raise ValueError
         settings = MongoSettings(
-            host=configured.get("MONGO_HOST", "localhost"),
+            host=text_settings["MONGO_HOST"],
             port=port,
-            dbname=configured.get("MONGO_DBNAME", "nmdc"),
-            username=configured["MONGO_USERNAME"],
-            password=configured["MONGO_PASSWORD"],
-            auth_source=configured.get("MONGO_AUTH_SOURCE", "admin"),
-            replica_set=configured.get("MONGO_REPLICA_SET") or None,
+            dbname=text_settings["MONGO_DBNAME"],
+            username=text_settings["MONGO_USERNAME"],
+            password=text_settings["MONGO_PASSWORD"],
+            auth_source=text_settings["MONGO_AUTH_SOURCE"],
+            replica_set=text_settings["MONGO_REPLICA_SET"] or None,
             direct_connection=direct_connection,
         )
     except (KeyError, ValueError):

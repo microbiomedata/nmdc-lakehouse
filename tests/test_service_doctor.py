@@ -82,6 +82,32 @@ def test_whitespace_only_credentials_are_missing(variable: str) -> None:
     assert variable in checks[0].summary
 
 
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "MONGO_HOST",
+        "MONGO_DBNAME",
+        "MONGO_USERNAME",
+        "MONGO_PASSWORD",
+        "MONGO_AUTH_SOURCE",
+        "MONGO_REPLICA_SET",
+    ],
+)
+def test_surrounding_whitespace_is_rejected_without_changing_values(variable: str) -> None:
+    secret = " TOP-SECRET-SENTINEL "
+    checks = run_service_checks(
+        ("mongo-config",),
+        configured=_live_configuration(**{variable: secret}),
+    )
+
+    assert len(checks) == 1
+    assert checks[0].status is CheckStatus.FAIL
+    assert variable in checks[0].summary
+    assert "leading or trailing whitespace" in checks[0].summary
+    assert secret not in repr(checks)
+    assert "values were not displayed or changed" in (checks[0].remediation or "")
+
+
 def test_tunnel_check_does_not_require_mongo_credentials(tmp_path: Path) -> None:
     key_path = tmp_path / "jump-key"
     configuration = _live_configuration(key_path)
