@@ -106,7 +106,7 @@ def failure_record(
     started_at: str,
     finished_at: str,
     elapsed_seconds: float,
-    error: Exception,
+    error: BaseException,
     skipped_collections: tuple[str, ...],
     dry_run: bool,
 ) -> dict[str, Any]:

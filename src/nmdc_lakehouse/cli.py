@@ -119,7 +119,7 @@ def clean_parquet(root: Path | None, delete: bool) -> None:
 @click.option(
     "--metrics",
     "metrics_path",
-    type=click.Path(path_type=Path),
+    type=click.Path(path_type=Path, dir_okay=False),
     envvar="LAKEHOUSE_METRICS_PATH",
     help="Write an atomic JSON performance/resource record to this local path.",
 )
@@ -159,7 +159,7 @@ def run_job(
         )
         if metrics_path is not None:
             write_record(metrics_path, success_record(result, skipped_collections=applied_skips, dry_run=dry_run))
-    except Exception as error:
+    except (Exception, KeyboardInterrupt) as error:
         if metrics_path is not None:
             try:
                 write_record(

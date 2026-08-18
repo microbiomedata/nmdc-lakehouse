@@ -189,16 +189,15 @@ class CollectionToParquetJob(Job):
         rows_written: int = sink.write(_counted(flat_rows), table=self.collection, drop_empty_cols=drop_empty) or 0
 
         # Finalise side-table writers (flush remaining batches and close files).
-        side_tables: list[str] = []
         side_table_rows_written: list[tuple[str, int]] = []
         for table_name, writer in side_writers.items():
             n = writer.close()
             if n > 0:
                 logger.info("%s: wrote %d rows to side table %s", self.collection, n, table_name)
-                side_tables.append(table_name)
                 side_table_rows_written.append((table_name, n))
 
-        side_tables.sort()
+        side_table_rows_written.sort()
+        side_tables = tuple(table for table, _rows in side_table_rows_written)
         return JobResult(
             job_name=self.name,
             rows_read=rows_read,

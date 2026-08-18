@@ -109,6 +109,10 @@ def test_run_job_cli_writes_success_and_sanitized_failure_records(tmp_path: Path
         def run(self, *, dry_run: bool = False) -> JobResult:
             raise RuntimeError("TOP-SECRET-SENTINEL")
 
+    class InterruptingJob:
+        def run(self, *, dry_run: bool = False) -> JobResult:
+            raise KeyboardInterrupt
+
     metrics_path = tmp_path / "run.json"
     monkeypatch.setattr("nmdc_lakehouse.jobs.registry.get", lambda _name: SuccessfulJob())
     success = CliRunner().invoke(cli, ["run-job", "fixture", "--metrics", str(metrics_path)])
@@ -126,3 +130,18 @@ def test_run_job_cli_writes_success_and_sanitized_failure_records(tmp_path: Path
     assert failure_record_data["status"] == "failed"
     assert failure_record_data["error_type"] == "RuntimeError"
     assert "TOP-SECRET-SENTINEL" not in repr(failure_record_data)
+
+    monkeypatch.setattr("nmdc_lakehouse.jobs.registry.get", lambda _name: InterruptingJob())
+    interrupted = CliRunner().invoke(cli, ["run-job", "fixture", "--metrics", str(metrics_path)])
+    interrupted_record_data = json.loads(metrics_path.read_text(encoding="utf-8"))
+
+    assert interrupted.exit_code != 0
+    assert interrupted_record_data["status"] == "failed"
+    assert interrupted_record_data["error_type"] == "KeyboardInterrupt"
+
+
+def test_run_job_cli_rejects_metrics_directory(tmp_path: Path) -> None:
+    result = CliRunner().invoke(cli, ["run-job", "fixture", "--metrics", str(tmp_path)])
+
+    assert result.exit_code == 2
+    assert "is a directory" in result.output
