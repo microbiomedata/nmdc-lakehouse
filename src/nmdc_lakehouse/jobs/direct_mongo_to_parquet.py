@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 
 import pymongo
 
+from nmdc_lakehouse.collection_output import CollectionOutputTransaction
 from nmdc_lakehouse.config import LakehouseSettings, MongoSettings
 from nmdc_lakehouse.jobs.base import Job, JobResult
 from nmdc_lakehouse.jobs.registry import register
@@ -147,16 +148,23 @@ class DirectMongoToParquetJob(Job):
                     tables_written=(),
                 )
 
-            sink = ParquetSink(
-                self.out_root,
-                class_def=flat_class,
-                batch_size=self.batch_size,
-                source_schema=schema_view.schema,
-                source_class=self.root_class,
-                target_schema_id=DEFAULT_FLATTENED_SCHEMA_ID,
-                mapping="nmdc_lakehouse.jobs.direct_mongo_to_parquet.DirectMongoToParquetJob",
-            )
-            rows_written = sink.write(_stream(), table=self.collection)
+            with CollectionOutputTransaction(self.out_root, self.collection, {self.collection}) as transaction:
+                sink = ParquetSink(
+                    transaction.stage,
+                    class_def=flat_class,
+                    batch_size=self.batch_size,
+                    source_schema=schema_view.schema,
+                    source_class=self.root_class,
+                    target_schema_id=DEFAULT_FLATTENED_SCHEMA_ID,
+                    mapping="nmdc_lakehouse.jobs.direct_mongo_to_parquet.DirectMongoToParquetJob",
+                )
+                rows_written = sink.write(_stream(), table=self.collection)
+                table_rows = ((self.collection, rows_written),)
+                transaction.commit(
+                    table_rows,
+                    source_schema_id=str(schema_view.schema.id or ""),
+                    source_schema_version=str(schema_view.schema.version or ""),
+                )
         finally:
             client.close()
 
@@ -165,7 +173,7 @@ class DirectMongoToParquetJob(Job):
             rows_read=rows_read,
             rows_written=rows_written,
             tables_written=(self.collection,),
-            table_rows=((self.collection, rows_written),),
+            table_rows=table_rows,
         )
 
 

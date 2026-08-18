@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pyarrow.parquet as pq
+import pytest
 
 from nmdc_lakehouse.jobs.direct_mongo_to_parquet import DirectMongoToParquetJob
 
@@ -94,3 +95,51 @@ def test_dry_run_counts_rows_but_writes_nothing(tmp_path):
     assert result.rows_read == 2
     assert result.rows_written == 0
     assert not (tmp_path / "functional_annotation_agg.parquet").exists()
+
+
+def test_conversion_failure_preserves_previous_parquet(tmp_path):
+    """A failed direct conversion never replaces the completed output."""
+    output = tmp_path / "functional_annotation_agg.parquet"
+    output.write_bytes(b"previous")
+
+    def fail_after_partial_write(sink, _rows, *, table, **_kwargs):
+        (sink.root / f"{table}.parquet").write_bytes(b"partial")
+        raise RuntimeError("injected conversion failure")
+
+    with (
+        patch(
+            "nmdc_lakehouse.jobs.direct_mongo_to_parquet.pymongo.MongoClient",
+            return_value=_make_mock_client(_DOCS),
+        ),
+        patch("nmdc_lakehouse.jobs.direct_mongo_to_parquet.ParquetSink.write", fail_after_partial_write),
+        pytest.raises(RuntimeError, match="injected conversion failure"),
+    ):
+        DirectMongoToParquetJob(
+            collection="functional_annotation_agg",
+            root_class="FunctionalAnnotationAggMember",
+            mongo_uri="mongodb://localhost/nmdc",
+            out_root=tmp_path,
+        ).run()
+
+    assert output.read_bytes() == b"previous"
+    assert not (tmp_path / ".staging").exists()
+
+
+def test_empty_collection_promotes_schema_only_parquet(tmp_path):
+    """An empty collection still replaces prior output with a typed empty file."""
+    output = tmp_path / "functional_annotation_agg.parquet"
+    output.write_bytes(b"previous")
+    with patch(
+        "nmdc_lakehouse.jobs.direct_mongo_to_parquet.pymongo.MongoClient",
+        return_value=_make_mock_client([]),
+    ):
+        result = DirectMongoToParquetJob(
+            collection="functional_annotation_agg",
+            root_class="FunctionalAnnotationAggMember",
+            mongo_uri="mongodb://localhost/nmdc",
+            out_root=tmp_path,
+        ).run()
+
+    assert result.table_rows == (("functional_annotation_agg", 0),)
+    assert pq.read_metadata(output).num_rows == 0
+    assert not (tmp_path / ".staging").exists()

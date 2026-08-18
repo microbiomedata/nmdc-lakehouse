@@ -21,6 +21,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from nmdc_lakehouse.collection_output import CollectionOutputTransaction
 from nmdc_lakehouse.config import LakehouseSettings, MongoSettings
 from nmdc_lakehouse.jobs.base import Job, JobResult
 from nmdc_lakehouse.jobs.registry import register
@@ -57,6 +58,25 @@ REVIEWED_SCHEMA_COLLECTIONS: frozenset[str] = frozenset(
         "workflow_execution_set",
     }
 )
+
+
+def _close_side_writers(writers: dict[str, StreamingWriter]) -> list[tuple[str, int]]:
+    """Close every side-table writer, then raise the first close error, if any."""
+    completed: list[tuple[str, int]] = []
+    first_error: BaseException | None = None
+    for table_name, writer in writers.items():
+        try:
+            rows = writer.close()
+        except BaseException as error:
+            if first_error is None:
+                first_error = error
+        else:
+            if rows > 0:
+                completed.append((table_name, rows))
+    if first_error is not None:
+        raise first_error
+    completed.sort()
+    return completed
 
 
 def _db_collection_map() -> dict[str, str]:
@@ -127,14 +147,6 @@ class CollectionToParquetJob(Job):
         t_setup = time.monotonic()
         flattener = SchemaDrivenFlattener(schema_view, self.root_class)
         flat_class = flatten_class_def(schema_view, self.root_class)
-        sink = ParquetSink(
-            self.out_root,
-            class_def=flat_class,
-            source_schema=schema_view.schema,
-            source_class=self.root_class,
-            target_schema_id=DEFAULT_FLATTENED_SCHEMA_ID,
-            mapping="nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener",
-        )
         has_multivalued = any(s.multivalued for s in schema_view.class_induced_slots(self.root_class))
         logger.info(
             "%s: setup complete (%.2fs, multivalued=%s)",
@@ -143,47 +155,14 @@ class CollectionToParquetJob(Job):
             has_multivalued,
         )
 
-        # Side-table writers opened lazily on the first row for each table.
-        # Rows are written in rolling batches so the live set stays small.
         side_defs = (
             dict(side_table_class_defs(schema_view, self.root_class, self.collection)) if has_multivalued else {}
         )
-        side_writers: dict[str, StreamingWriter] = {}
-
-        def _get_side_writer(table_name: str) -> StreamingWriter | None:
-            if table_name in side_writers:
-                return side_writers[table_name]
-            cd = side_defs.get(table_name)
-            if cd is None:
-                logger.warning("%s: no ClassDef for side table %s — skipping", self.collection, table_name)
-                return None
-            w = StreamingWriter(
-                self.out_root / f"{table_name}.parquet",
-                class_def_to_arrow_schema(
-                    cd,
-                    source_schema=schema_view.schema,
-                    source_class=self.root_class,
-                    target_schema_id=DEFAULT_FLATTENED_SCHEMA_ID,
-                    mapping="nmdc_lakehouse.transforms.flatteners.side_table_rows",
-                ),
-            )
-            side_writers[table_name] = w
-            return w
-
-        def _tee_side_tables(raw_records):
-            for record in raw_records:
-                for table_name, row in side_table_rows(record, schema_view, self.root_class, self.collection):
-                    if not dry_run:
-                        w = _get_side_writer(table_name)
-                        if w is not None:
-                            w.append(row)
-                yield record
 
         raw = source.iter_records(self.collection, page_size=self.page_size)
-        records = _tee_side_tables(raw) if has_multivalued else raw
-        flat_rows = flattener.apply(records)
 
         if dry_run:
+            flat_rows = flattener.apply(raw)
             rows_read = sum(1 for _ in flat_rows)
             return JobResult(job_name=self.name, rows_read=rows_read, rows_written=0, tables_written=())
 
@@ -230,24 +209,78 @@ class CollectionToParquetJob(Job):
                     last_log_t = now
                 yield row
 
-        rows_written: int = sink.write(_counted(flat_rows), table=self.collection, drop_empty_cols=drop_empty) or 0
+        owned_tables = {self.collection, *side_defs}
+        with CollectionOutputTransaction(self.out_root, self.collection, owned_tables) as transaction:
+            sink = ParquetSink(
+                transaction.stage,
+                class_def=flat_class,
+                source_schema=schema_view.schema,
+                source_class=self.root_class,
+                target_schema_id=DEFAULT_FLATTENED_SCHEMA_ID,
+                mapping="nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener",
+            )
+            side_writers: dict[str, StreamingWriter] = {}
 
-        # Finalise side-table writers (flush remaining batches and close files).
-        side_table_rows_written: list[tuple[str, int]] = []
-        for table_name, writer in side_writers.items():
-            n = writer.close()
-            if n > 0:
-                logger.info("%s: wrote %d rows to side table %s", self.collection, n, table_name)
-                side_table_rows_written.append((table_name, n))
+            def _get_side_writer(table_name: str) -> StreamingWriter | None:
+                if table_name in side_writers:
+                    return side_writers[table_name]
+                class_def = side_defs.get(table_name)
+                if class_def is None:
+                    logger.warning("%s: no ClassDef for side table %s — skipping", self.collection, table_name)
+                    return None
+                writer = StreamingWriter(
+                    transaction.stage / f"{table_name}.parquet",
+                    class_def_to_arrow_schema(
+                        class_def,
+                        source_schema=schema_view.schema,
+                        source_class=self.root_class,
+                        target_schema_id=DEFAULT_FLATTENED_SCHEMA_ID,
+                        mapping="nmdc_lakehouse.transforms.flatteners.side_table_rows",
+                    ),
+                )
+                side_writers[table_name] = writer
+                return writer
 
-        side_table_rows_written.sort()
+            def _tee_side_tables(raw_records):
+                for record in raw_records:
+                    for table_name, row in side_table_rows(record, schema_view, self.root_class, self.collection):
+                        writer = _get_side_writer(table_name)
+                        if writer is not None:
+                            writer.append(row)
+                    yield record
+
+            records = _tee_side_tables(raw) if has_multivalued else raw
+            flat_rows = flattener.apply(records)
+            conversion_error: BaseException | None = None
+            try:
+                rows_written = sink.write(_counted(flat_rows), table=self.collection, drop_empty_cols=drop_empty) or 0
+            except BaseException as error:
+                conversion_error = error
+                raise
+            finally:
+                try:
+                    side_table_rows_written = _close_side_writers(side_writers)
+                except BaseException as close_error:
+                    if conversion_error is None:
+                        raise
+                    conversion_error.add_note(f"Closing a side-table writer also failed: {close_error}")
+
+            for table_name, rows in side_table_rows_written:
+                logger.info("%s: wrote %d rows to side table %s", self.collection, rows, table_name)
+            table_rows = ((self.collection, rows_written), *side_table_rows_written)
+            transaction.commit(
+                table_rows,
+                source_schema_id=str(schema_view.schema.id or ""),
+                source_schema_version=str(schema_view.schema.version or ""),
+            )
+
         side_tables = tuple(table for table, _rows in side_table_rows_written)
         return JobResult(
             job_name=self.name,
             rows_read=rows_read,
             rows_written=rows_written,
             tables_written=(self.collection, *side_tables),
-            table_rows=((self.collection, rows_written), *side_table_rows_written),
+            table_rows=table_rows,
         )
 
 

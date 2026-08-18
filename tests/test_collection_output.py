@@ -1,0 +1,111 @@
+"""Tests for atomic per-collection output staging and promotion."""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+import pytest
+
+from nmdc_lakehouse.collection_output import CollectionOutputTransaction
+from nmdc_lakehouse.jobs.collection_to_parquet import _close_side_writers
+
+
+class _TestWriter:
+    def __init__(self, rows: int = 0, error: BaseException | None = None) -> None:
+        self.rows = rows
+        self.error = error
+        self.closed = False
+
+    def close(self) -> int:
+        self.closed = True
+        if self.error is not None:
+            raise self.error
+        return self.rows
+
+
+def test_successful_promotion_replaces_primary_removes_stale_side_and_preserves_unrelated(tmp_path: Path) -> None:
+    primary = tmp_path / "sample_set.parquet"
+    stale = tmp_path / "sample_set_tags.parquet"
+    unrelated = tmp_path / "study_set.parquet"
+    primary.write_bytes(b"old-primary")
+    stale.write_bytes(b"old-side")
+    unrelated.write_bytes(b"unrelated")
+
+    with CollectionOutputTransaction(tmp_path, "sample_set", {"sample_set", "sample_set_tags"}) as transaction:
+        (transaction.stage / "sample_set.parquet").write_bytes(b"new-primary")
+        transaction.commit(
+            (("sample_set", 2),),
+            source_schema_id="https://example.org/schema",
+            source_schema_version="1.0.0",
+        )
+        completion = json.loads((transaction.stage / "collection-manifest.json").read_text())
+        assert completion["status"] == "complete"
+        assert completion["tables"] == [{"rows": 2, "table": "sample_set"}]
+
+    assert primary.read_bytes() == b"new-primary"
+    assert not stale.exists()
+    assert unrelated.read_bytes() == b"unrelated"
+    assert not (tmp_path / ".staging").exists()
+
+
+def test_conversion_failure_leaves_previous_snapshot_and_no_staging(tmp_path: Path) -> None:
+    previous = tmp_path / "sample_set.parquet"
+    previous.write_bytes(b"previous")
+
+    with pytest.raises(RuntimeError, match="injected conversion failure"):
+        with CollectionOutputTransaction(tmp_path, "sample_set", {"sample_set"}) as transaction:
+            (transaction.stage / "sample_set.parquet").write_bytes(b"partial")
+            raise RuntimeError("injected conversion failure")
+
+    assert previous.read_bytes() == b"previous"
+    assert not (tmp_path / ".staging").exists()
+
+
+def test_promotion_failure_rolls_back_previous_output(tmp_path: Path, monkeypatch) -> None:
+    primary = tmp_path / "sample_set.parquet"
+    side = tmp_path / "sample_set_tags.parquet"
+    primary.write_bytes(b"old-primary")
+    side.write_bytes(b"old-side")
+    real_replace = os.replace
+    calls = 0
+
+    def fail_first_new_file(source, destination):
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise OSError("injected promotion failure")
+        real_replace(source, destination)
+
+    monkeypatch.setattr("nmdc_lakehouse.collection_output.os.replace", fail_first_new_file)
+
+    with pytest.raises(OSError, match="injected promotion failure"):
+        with CollectionOutputTransaction(tmp_path, "sample_set", {"sample_set", "sample_set_tags"}) as transaction:
+            (transaction.stage / "sample_set.parquet").write_bytes(b"new-primary")
+            transaction.commit(
+                (("sample_set", 2),),
+                source_schema_id="https://example.org/schema",
+                source_schema_version="1.0.0",
+            )
+
+    assert primary.read_bytes() == b"old-primary"
+    assert side.read_bytes() == b"old-side"
+    assert not (tmp_path / ".staging").exists()
+
+
+def test_side_writer_failure_closes_all_writers_and_preserves_previous_output(tmp_path: Path) -> None:
+    previous = tmp_path / "sample_set.parquet"
+    previous.write_bytes(b"previous")
+    failing = _TestWriter(error=OSError("injected side flush failure"))
+    remaining = _TestWriter(rows=3)
+
+    with pytest.raises(OSError, match="injected side flush failure"):
+        with CollectionOutputTransaction(tmp_path, "sample_set", {"sample_set", "sample_set_tags"}) as transaction:
+            (transaction.stage / "sample_set.parquet").write_bytes(b"new-primary")
+            _close_side_writers({"sample_set_tags": failing, "sample_set_other": remaining})
+
+    assert failing.closed
+    assert remaining.closed
+    assert previous.read_bytes() == b"previous"
+    assert not (tmp_path / ".staging").exists()
