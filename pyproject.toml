@@ -134,7 +134,7 @@ markers = [
 ]
 
 [tool.coverage.report]
-fail_under = 71.462
+fail_under = 75
 precision = 3
 show_missing = true
 
