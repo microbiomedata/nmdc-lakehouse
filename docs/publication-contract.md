@@ -88,6 +88,25 @@ Generate the review artifact from a validated snapshot and a version-controlled
 profile. The profile is bound to the immutable snapshot identity and supplies
 namespace content plus only the human overrides that reviewers have approved:
 
+Start the review from a strict draft whose snapshot identity is read from the
+validated manifest rather than copied by hand:
+
+```bash
+just metadata-profile ./completed-snapshot \
+  nmdc-metadata-2026-08-18 nmdc_metadata \
+  "NMDC metadata" "Flattened NMDC metadata tables." \
+  --documentation-url https://github.com/microbiomedata/nmdc-lakehouse \
+  --property collection=nmdc --property role=metadata \
+  --output ./metadata/nmdc-metadata-profile.json
+```
+
+The command validates the snapshot offline, fills the exact `snapshot_id`, and
+emits an empty `overrides` list. The namespace title, description, URL, and
+properties are operator-supplied review content, not generated facts. Review
+them and add only evidence-backed table or column overrides before producing the
+bundle. The command does not invent descriptions, contact a destination, or
+orchestrate later publication steps.
+
 ```json
 {
   "profile_format_version": 1,

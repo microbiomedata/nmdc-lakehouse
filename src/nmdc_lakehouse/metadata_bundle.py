@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import tempfile
 from datetime import UTC, datetime
@@ -284,6 +285,58 @@ def load_metadata_bundle(path: Path) -> MetadataBundle:
     return bundle
 
 
+def build_metadata_profile(
+    manifest: SnapshotManifest,
+    *,
+    profile_id: str,
+    namespace_name: str,
+    title: str,
+    description: str,
+    documentation_url: str | None = None,
+    properties: dict[str, str] | None = None,
+) -> MetadataProfile:
+    """Build a strict review draft bound to an already validated snapshot."""
+    try:
+        return MetadataProfile(
+            profile_format_version=PROFILE_FORMAT_VERSION,
+            profile_id=profile_id,
+            snapshot_id=manifest.snapshot_id,
+            namespace=NamespaceProfile(
+                name=namespace_name,
+                title=title,
+                description=description,
+                documentation_url=documentation_url,
+                properties=properties or {},
+            ),
+            overrides=[],
+        )
+    except ValidationError as error:
+        raise MetadataBundleError("Cannot generate a valid metadata profile from the supplied content.") from error
+
+
+def generate_metadata_profile(
+    snapshot_root: Path,
+    *,
+    profile_id: str,
+    namespace_name: str,
+    title: str,
+    description: str,
+    documentation_url: str | None = None,
+    properties: dict[str, str] | None = None,
+) -> MetadataProfile:
+    """Validate a snapshot and build a review draft with its exact identity."""
+    manifest = validate_snapshot(snapshot_root.expanduser())
+    return build_metadata_profile(
+        manifest,
+        profile_id=profile_id,
+        namespace_name=namespace_name,
+        title=title,
+        description=description,
+        documentation_url=documentation_url,
+        properties=properties,
+    )
+
+
 def _metadata_value(metadata: dict[bytes, bytes] | None, key: str, *, table: str) -> str | None:
     value = (metadata or {}).get(_PREFIX + key.encode())
     if value is None:
@@ -433,24 +486,47 @@ def render_metadata_bundle(bundle: MetadataBundle) -> str:
     return json.dumps(bundle.model_dump(mode="json"), indent=2, sort_keys=True)
 
 
-def write_metadata_bundle(path: Path, bundle: MetadataBundle) -> Path:
-    """Atomically write a generated bundle to an ordinary local path."""
+def render_metadata_profile(profile: MetadataProfile) -> str:
+    """Render canonical reviewable profile JSON for stdout or a file."""
+    return json.dumps(profile.model_dump(mode="json"), indent=2, sort_keys=True)
+
+
+def _write_metadata_document(path: Path, rendered: str, *, label: str) -> Path:
     destination = path.expanduser()
     if destination.is_symlink():
-        raise MetadataBundleError("Metadata bundle output must be an ordinary file path.")
+        raise MetadataBundleError(f"{label} output must be an ordinary file path.")
     destination = destination.resolve()
     if destination.exists() and (destination.is_symlink() or not destination.is_file()):
-        raise MetadataBundleError("Metadata bundle output must be an ordinary file path.")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent)
-    temporary = Path(temporary_name)
+        raise MetadataBundleError(f"{label} output must be an ordinary file path.")
+    temporary: Path | None = None
+    descriptor: int | None = None
     try:
-        with open(fd, "w", encoding="utf-8", closefd=True) as stream:
-            stream.write(render_metadata_bundle(bundle))
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
+        )
+        temporary = Path(temporary_name)
+        stream = os.fdopen(descriptor, "w", encoding="utf-8")
+        descriptor = None
+        with stream:
+            stream.write(rendered)
             stream.write("\n")
         temporary.replace(destination)
     except OSError as error:
-        raise MetadataBundleError("Cannot write the metadata bundle.") from error
+        raise MetadataBundleError(f"Cannot write the {label.lower()}.") from error
     finally:
-        temporary.unlink(missing_ok=True)
+        if descriptor is not None:
+            os.close(descriptor)
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     return destination
+
+
+def write_metadata_bundle(path: Path, bundle: MetadataBundle) -> Path:
+    """Atomically write a generated bundle to an ordinary local path."""
+    return _write_metadata_document(path, render_metadata_bundle(bundle), label="Metadata bundle")
+
+
+def write_metadata_profile(path: Path, profile: MetadataProfile) -> Path:
+    """Atomically write a generated profile draft to an ordinary local path."""
+    return _write_metadata_document(path, render_metadata_profile(profile), label="Metadata profile")

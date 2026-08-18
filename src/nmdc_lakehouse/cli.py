@@ -341,6 +341,63 @@ def berdl_doctor(
     context.exit(report.exit_code)
 
 
+@cli.command("metadata-profile")
+@click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
+@click.option("--profile-id", required=True, help="Stable credential-free identity for this reviewed profile.")
+@click.option("--namespace-name", required=True, help="Logical destination-neutral namespace name.")
+@click.option("--title", required=True, help="Human-readable namespace title.")
+@click.option("--description", required=True, help="Reviewed namespace description.")
+@click.option("--documentation-url", help="Optional HTTPS documentation URL.")
+@click.option(
+    "--property",
+    "properties",
+    multiple=True,
+    metavar="KEY=VALUE",
+    help="Repeatable credential-free namespace property.",
+)
+@click.option("--output", type=click.Path(path_type=Path, dir_okay=False), help="Also write the profile draft here.")
+def metadata_profile_command(
+    snapshot_root: Path,
+    profile_id: str,
+    namespace_name: str,
+    title: str,
+    description: str,
+    documentation_url: str | None,
+    properties: tuple[str, ...],
+    output: Path | None,
+) -> None:
+    """Generate a strict profile draft bound to a validated snapshot."""
+    from nmdc_lakehouse.metadata_bundle import (
+        MetadataBundleError,
+        generate_metadata_profile,
+        render_metadata_profile,
+        write_metadata_profile,
+    )
+    from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError
+
+    parsed_properties: dict[str, str] = {}
+    for item in properties:
+        key, separator, value = item.partition("=")
+        if not separator or not key or key in parsed_properties:
+            raise click.ClickException("Each namespace property must be a unique KEY=VALUE pair.")
+        parsed_properties[key] = value
+    try:
+        profile = generate_metadata_profile(
+            snapshot_root,
+            profile_id=profile_id,
+            namespace_name=namespace_name,
+            title=title,
+            description=description,
+            documentation_url=documentation_url,
+            properties=parsed_properties,
+        )
+        if output is not None:
+            write_metadata_profile(output, profile)
+    except (MetadataBundleError, SnapshotManifestError) as error:
+        raise click.ClickException(str(error)) from error
+    click.echo(render_metadata_profile(profile))
+
+
 @cli.command("metadata-bundle")
 @click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
 @click.option(
