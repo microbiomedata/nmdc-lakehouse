@@ -208,6 +208,15 @@ def build_publication_plan(
     policy: PublicationPolicy,
 ) -> PublicationPlan:
     """Join validated candidate and destination evidence into one total plan."""
+    named_inputs = (
+        ("Candidate manifest", [artifact.table for artifact in manifest.artifacts]),
+        ("Destination inventory", [table.name for table in inventory.tables]),
+        ("Publication policy", [rule.table for rule in policy.rules]),
+    )
+    for label, names in named_inputs:
+        if len(names) != len(set(names)):
+            raise PublicationPlanError(f"{label} contains duplicate table names.")
+
     candidate = {artifact.table: artifact for artifact in manifest.artifacts}
     destination = {table.name: table for table in inventory.tables}
     union = set(candidate).union(destination)

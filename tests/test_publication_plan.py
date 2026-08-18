@@ -175,6 +175,28 @@ def test_loaders_reject_duplicate_inventory_and_policy_entries(tmp_path: Path) -
         load_publication_policy(policy_path)
 
 
+@pytest.mark.parametrize("source", ["manifest", "inventory", "policy"])
+def test_builder_rejects_programmatic_duplicate_table_entries(source: str) -> None:
+    manifest = _manifest()
+    inventory = _inventory()
+    policy = _policy(
+        PolicyRule(
+            table="functional_annotation_agg",
+            disposition=Disposition.PRESERVE,
+            rationale="Preserve the live-only table.",
+        )
+    )
+    if source == "manifest":
+        manifest.artifacts.append(manifest.artifacts[0].model_copy(deep=True))
+    elif source == "inventory":
+        inventory.tables.append(inventory.tables[0].model_copy(deep=True))
+    else:
+        policy.rules.append(policy.rules[0].model_copy(deep=True))
+
+    with pytest.raises(PublicationPlanError, match="duplicate table names"):
+        build_publication_plan(manifest, inventory, policy)
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [("rows", -1), ("rows", "10"), ("physical_schema_sha256", "not-a-sha256")],
