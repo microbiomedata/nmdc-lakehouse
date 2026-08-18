@@ -56,6 +56,22 @@ interfaces; they do not certify live-ingest compatibility. Pin and test a BERIL
 revision containing the required source-verification and credential fixes
 before authorizing publication.
 
+After generating and reviewing the snapshot-bound metadata bundle, fresh live
+inventory, and disposition plan, run the destination-neutral artifact gate from
+the `nmdc-lakehouse` checkout:
+
+```bash
+just publication-preflight /absolute/path/to/completed-snapshot \
+  /absolute/path/to/metadata-bundle.json \
+  /absolute/path/to/destination-inventory.json \
+  /absolute/path/to/publication-plan.json
+```
+
+This command is offline and non-mutating. It proves that the independently
+reviewed artifacts still identify the same snapshot and destination observation
+and that their table evidence and coverage agree. It neither contacts BERDL nor
+authorizes the historical upload steps below.
+
 The destination, catalog, and table format are explicit observations. Do not
 copy the historical Delta examples below unless current discovery confirms
 them. A missing or blank value is a readiness failure.

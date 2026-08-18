@@ -271,6 +271,19 @@ def load_metadata_profile(path: Path) -> MetadataProfile:
     return profile
 
 
+def load_metadata_bundle(path: Path) -> MetadataBundle:
+    """Load a versioned generated metadata bundle without contacting a destination."""
+    bundle = _load_document(path, MetadataBundle, "metadata bundle")
+    table_names = [table.name for table in bundle.tables]
+    if len(table_names) != len(set(table_names)):
+        raise MetadataBundleError("Metadata bundle contains duplicate table names.")
+    for table in bundle.tables:
+        column_names = [column.name for column in table.columns]
+        if len(column_names) != len(set(column_names)):
+            raise MetadataBundleError(f"Metadata bundle table '{table.name}' contains duplicate columns.")
+    return bundle
+
+
 def _metadata_value(metadata: dict[bytes, bytes] | None, key: str, *, table: str) -> str | None:
     value = (metadata or {}).get(_PREFIX + key.encode())
     if value is None:

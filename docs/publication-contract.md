@@ -194,6 +194,24 @@ Policy may override generated defaults, but incompatible dispositions are reject
 for example, `retire` cannot apply when a candidate replacement exists, and
 `replace` requires both candidate and destination evidence.
 
+Before any provider-specific staging, cross-check the independently reviewed
+snapshot, metadata bundle, destination inventory, and publication plan as one
+operation:
+
+```bash
+just publication-preflight ./completed-snapshot \
+  ./metadata/nmdc-metadata-bundle.json \
+  destination-inventory.json \
+  publication-plan.json
+```
+
+This offline command revalidates the snapshot and all three versioned JSON
+documents. It requires exact snapshot identity, destination observation,
+candidate and destination evidence, metadata coverage, and table-union
+agreement. Its JSON summary contains identities, counts, and dispositions, not
+paths, credentials, connection details, or records. A successful preflight is a
+required input to staging; it does not authorize or perform staging.
+
 ## Staged workflow
 
 ### 1. Inventory without mutation
@@ -219,7 +237,8 @@ plan also states the staging destination, promotion mechanism, validation querie
 and rollback procedure.
 
 This is the first mandatory no-mutation checkpoint. Upload does not begin until a
-human has reviewed the complete plan.
+human has reviewed the complete plan and `publication-preflight` has confirmed
+that the plan, inventory, metadata bundle, and snapshot still agree.
 
 ### 3. Establish rollback evidence
 

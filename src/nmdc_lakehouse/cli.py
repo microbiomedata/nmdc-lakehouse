@@ -207,6 +207,52 @@ def publication_plan_schema_command(document: str) -> None:
     click.echo(json.dumps(publication_json_schema(selected), indent=2, sort_keys=True))
 
 
+@cli.command("publication-preflight")
+@click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
+@click.option(
+    "--bundle",
+    "bundle_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    required=True,
+    help="Approved snapshot-bound metadata bundle JSON.",
+)
+@click.option(
+    "--inventory",
+    "inventory_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    required=True,
+    help="Credential-free destination inventory JSON.",
+)
+@click.option(
+    "--plan",
+    "plan_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    required=True,
+    help="Approved publication disposition plan JSON.",
+)
+def publication_preflight_command(
+    snapshot_root: Path,
+    bundle_path: Path,
+    inventory_path: Path,
+    plan_path: Path,
+) -> None:
+    """Validate all reviewed publication artifacts before staging."""
+    from nmdc_lakehouse.metadata_bundle import MetadataBundleError
+    from nmdc_lakehouse.publication_plan import PublicationPlanError
+    from nmdc_lakehouse.publication_preflight import (
+        PublicationPreflightError,
+        render_publication_preflight,
+        validate_publication_artifacts,
+    )
+    from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError
+
+    try:
+        report = validate_publication_artifacts(snapshot_root, bundle_path, inventory_path, plan_path)
+    except (MetadataBundleError, PublicationPlanError, PublicationPreflightError, SnapshotManifestError) as error:
+        raise click.ClickException(str(error)) from error
+    click.echo(render_publication_preflight(report))
+
+
 @cli.command("berdl-doctor")
 @click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
 @click.option(

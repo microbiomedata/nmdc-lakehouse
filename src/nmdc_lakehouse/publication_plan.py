@@ -188,6 +188,15 @@ def load_publication_policy(path: Path) -> PublicationPolicy:
     return policy
 
 
+def load_publication_plan(path: Path) -> PublicationPlan:
+    """Load a versioned approved publication plan without contacting its destination."""
+    plan = _load_document(path, PublicationPlan, "publication plan")
+    table_names = [entry.table for entry in plan.tables]
+    if len(table_names) != len(set(table_names)):
+        raise PublicationPlanError("Publication plan contains duplicate table names.")
+    return plan
+
+
 def _validate_disposition(disposition: Disposition, *, candidate: bool, destination: bool, table: str) -> None:
     compatible = {
         Disposition.ADD: candidate and not destination,
