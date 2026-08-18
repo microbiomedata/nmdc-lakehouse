@@ -48,6 +48,14 @@ repos:
         args: [src]
         pass_filenames: false
 
+  # actionlint delegates workflow run blocks to the pinned ShellCheck provided
+  # by the development environment.
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+        args: [-shellcheck=.venv/bin/shellcheck]
+
   # `just` is a system prerequisite; CI and README pin the canonical formatter.
   - repo: local
     hooks:

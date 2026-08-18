@@ -65,17 +65,24 @@ nmdc-lakehouse/
 - [`uv`](https://docs.astral.sh/uv/) for environment & dependency management
 - [`just`](https://just.systems/) 1.58.0 for task running and canonical justfile formatting
 - [`Vale`](https://vale.sh/) 3.17.1 for maintained prose; add intentional domain terms to the [NMDC vocabulary](.github/styles/config/vocabularies/NMDC/accept.txt)
+- [Go](https://go.dev/dl/) 1.26.5 for the pinned actionlint pre-commit hook
 - Access to an NMDC MongoDB instance for production-data runs
 
 ## Getting started
 
 ```bash
-# Install uv and just first, then:
+# Install uv, just, Vale, and Go first, then:
 just install        # uv sync --extra dev
+uv run pre-commit install
 just test           # run unit tests
 just lint           # ruff check + format --check
 just cli --help     # show the CLI
 ```
+
+`just install` installs the Python development tools, including the pinned
+ShellCheck binary. With Go available, pre-commit compiles the pinned actionlint
+hook into its isolated environment on the first run. CI provisions the same Go
+version explicitly.
 
 ## Configuration
 
@@ -114,7 +121,8 @@ and sink modules.
 
 ## Development
 
-Common tasks are exposed via `just`:
+Selected tasks are shown below; run `just --list` for the complete task and
+operational-command inventory.
 
 | Recipe              | What it does                                     |
 |---------------------|--------------------------------------------------|
@@ -124,6 +132,7 @@ Common tasks are exposed via `just`:
 | `just lint-just`    | Check canonical justfile syntax and formatting   |
 | `just prose-lint`   | Spell-check maintained Markdown with Vale        |
 | `just shellcheck`   | Lint safely rendered Bash recipes                 |
+| `just actionlint`   | Check GitHub Actions workflows and run blocks     |
 | `just lint`         | ruff check + format check                        |
 | `just format`       | ruff format + auto-fix                           |
 | `just typecheck`    | `mypy src`                                       |
@@ -131,7 +140,7 @@ Common tasks are exposed via `just`:
 | `just test-cov`     | pytest with coverage                             |
 | `just build`        | Build sdist + wheel via `uv build`               |
 | `just docs-build`   | Build the MkDocs site (requires `install-all`)   |
-| `just check`        | formatting + prose + shell + code + types + tests |
+| `just check`        | just, prose, shell, workflow, Python, type, tests  |
 
 ## License
 
