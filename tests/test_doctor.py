@@ -201,4 +201,26 @@ def test_malformed_dotenv_fails_without_source_text(tmp_path: Path) -> None:
 
     check = next(check for check in report.checks if check.name == "unit-configuration")
     assert check.status is CheckStatus.FAIL
+    assert "invalid assignment" in check.summary
+    assert secret not in repr(report)
+
+
+def test_unreadable_dotenv_has_targeted_sanitized_failure(tmp_path: Path) -> None:
+    secret = "TOP-SECRET-SENTINEL"
+    dotenv = tmp_path / ".env"
+    dotenv.mkdir()
+    (dotenv / "value").write_text(secret, encoding="utf-8")
+
+    report = run_doctor(
+        project_root=tmp_path,
+        environ={},
+        runner=_healthy_runner(tmp_path / "pre-commit"),
+        finder=_all_commands,
+        python_version=(3, 13, 13),
+    )
+
+    check = next(check for check in report.checks if check.name == "unit-configuration")
+    assert check.status is CheckStatus.FAIL
+    assert "could not be read" in check.summary
+    assert "file type and read permissions" in (check.remediation or "")
     assert secret not in repr(report)

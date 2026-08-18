@@ -30,6 +30,13 @@ class CheckStatus(str, Enum):
     FAIL = "FAIL"
 
 
+class DotenvProblem(str, Enum):
+    """Sanitized reason an optional dotenv file could not be used."""
+
+    SYNTAX = "syntax"
+    UNREADABLE = "unreadable"
+
+
 @dataclass(frozen=True)
 class DoctorCheck:
     """One sanitized diagnostic result."""
@@ -195,16 +202,16 @@ def _pre_commit_check(runner: CommandRunner, *, project_root: Path) -> DoctorChe
     )
 
 
-def _read_dotenv(path: Path) -> tuple[dict[str, str], bool]:
+def _read_dotenv(path: Path) -> tuple[dict[str, str], DotenvProblem | None]:
     """Read dotenv names and internal values without returning source text."""
     if not path.exists():
-        return {}, False
+        return {}, None
     values: dict[str, str] = {}
     malformed = False
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
-        return {}, True
+        return {}, DotenvProblem.UNREADABLE
     for line in lines:
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
@@ -223,20 +230,29 @@ def _read_dotenv(path: Path) -> tuple[dict[str, str], bool]:
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
             value = value[1:-1]
         values[key] = value
-    return values, malformed
+    return values, DotenvProblem.SYNTAX if malformed else None
 
 
 def _configuration_checks(*, project_root: Path, environ: Mapping[str, str]) -> list[DoctorCheck]:
-    dotenv_values, malformed = _read_dotenv(project_root / ".env")
+    dotenv_values, problem = _read_dotenv(project_root / ".env")
     configured = {**dotenv_values, **environ}
     checks: list[DoctorCheck] = []
 
-    if malformed:
+    if problem is DotenvProblem.UNREADABLE:
         checks.append(
             DoctorCheck(
                 name="unit-configuration",
                 status=CheckStatus.FAIL,
-                summary="The optional .env file contains an unreadable assignment.",
+                summary="The optional .env file exists but could not be read.",
+                remediation="Check the .env file type and read permissions without committing or sharing its values.",
+            )
+        )
+    elif problem is DotenvProblem.SYNTAX:
+        checks.append(
+            DoctorCheck(
+                name="unit-configuration",
+                status=CheckStatus.FAIL,
+                summary="The optional .env file contains an invalid assignment.",
                 remediation="Fix the .env syntax without committing the file or its values.",
             )
         )
