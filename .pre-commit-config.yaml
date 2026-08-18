@@ -69,7 +69,7 @@ repos:
         name: lint maintained prose with Vale
         entry: just prose-lint
         language: system
-        files: ^(README\.md|docs/.*\.md|scripts/README\.md|notebooks/.*\.md)$
+        files: ^(README\.md|CONTRIBUTING\.md|AGENTS\.md|\.github/pull_request_template\.md|docs/.*\.md|scripts/README\.md|notebooks/.*\.md)$
         pass_filenames: false
       - id: shellcheck
         name: lint rendered Bash recipes with ShellCheck

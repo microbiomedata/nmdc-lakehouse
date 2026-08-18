@@ -134,6 +134,9 @@ and sink modules.
 
 ## Development
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for change-scope, documentation, review,
+and pull request expectations.
+
 Selected tasks are shown below; run `just --list` for the complete task and
 operational-command inventory.
 
