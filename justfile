@@ -159,8 +159,8 @@ build:
 check: lint typecheck test
 
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
-# See scripts/README.md for details. These recipes shell out to the scripts in
-# scripts/python/ and depend on a local MongoDB containing the NMDC collections.
+# See scripts/README.md for details. These recipes shell out to utilities under
+# scripts/ and depend on a local MongoDB containing the NMDC collections.
 
 mongo_uri                   := env_var_or_default("MONGO_URI", "mongodb://localhost:27017/nmdc")
 nmdc_export_dir             := env_var_or_default("NMDC_EXPORT_DIR", "./local/nmdc_export")
