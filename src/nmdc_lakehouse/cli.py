@@ -31,6 +31,20 @@ def list_jobs() -> None:
         click.echo(name)
 
 
+@cli.command("doctor")
+@click.pass_context
+def doctor(context: click.Context) -> None:
+    """Check credential-free local development readiness."""
+    from nmdc_lakehouse.doctor import run_doctor
+
+    report = run_doctor()
+    for check in report.checks:
+        click.echo(f"[{check.status.value}] {check.name}: {check.summary}")
+        if check.remediation:
+            click.echo(f"       remedy: {check.remediation}")
+    context.exit(report.exit_code)
+
+
 @cli.command("run-job")
 @click.argument("job_name")
 @click.option("--dry-run", is_flag=True, help="Plan the job but do not write output.")

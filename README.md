@@ -74,6 +74,7 @@ checked-in Python 3.13 policy and does not require credentials or live services.
 just bootstrap
 
 # Then choose the relevant task:
+just doctor
 just test
 just check
 just cli --help
@@ -86,6 +87,11 @@ hooks directory, and performs a credential-free CLI smoke test. If
 prints the explicit repository-hook command instead. It is safe to run
 repeatedly. It never installs host tools, copies credentials, opens tunnels, or
 starts services.
+
+`just doctor` is the read-only counterpart: it verifies the installed tools,
+locked environment, Git hook, optional configuration names, and local paths
+without synchronizing packages or contacting a service. Warnings identify
+optional production capabilities; required failures return a nonzero status.
 
 ## Configuration
 
@@ -131,6 +137,7 @@ operational-command inventory.
 | Recipe              | What it does                                     |
 |---------------------|--------------------------------------------------|
 | `just bootstrap`    | Create locked env; install hooks unless `core.hooksPath` is set |
+| `just doctor`       | Diagnose local readiness without changing it      |
 | `just install`      | Synchronize the locked development environment    |
 | `just install-all`  | Synchronize locked development and docs extras    |
 | `just lock`         | Refresh `uv.lock`                                |

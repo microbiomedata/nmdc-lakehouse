@@ -60,6 +60,7 @@ Running it again is safe and must not change tracked files. Common next steps
 are:
 
 ```bash
+just doctor
 just test
 just check
 just cli --help
@@ -72,6 +73,20 @@ If Git already has `core.hooksPath` configured, bootstrap preserves that
 hooks-path policy rather than replacing its hooks. In that case it prints the
 explicit repository-hook command, `uv run pre-commit run --all-files`. Without
 a custom hooks path, bootstrap installs the repository pre-commit hook normally.
+
+## Diagnose an installed checkout
+
+Run the read-only, offline diagnostic after bootstrap:
+
+```bash
+just doctor
+```
+
+Doctor checks the required command versions, Python minor, lock synchronization,
+pre-commit hook, optional configuration names, and local path safety. It never
+prints configured values, modifies the environment, or contacts remote services.
+Required failures return a nonzero status with a remediation. Warnings describe
+optional production-data readiness and do not make unit development fail.
 
 ## Supported systems
 
