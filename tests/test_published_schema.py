@@ -4,6 +4,7 @@ from importlib.metadata import version
 from importlib.util import find_spec
 from pathlib import Path
 
+from linkml.validator import validate
 from linkml_runtime import SchemaView
 
 from nmdc_lakehouse.transforms.schema_generator import flatten_database_schema
@@ -44,3 +45,17 @@ def test_published_schema_has_declared_ranges_and_unambiguous_identifiers() -> N
             if slot.identifier:
                 identifiers.append(slot.name)
         assert len(identifiers) <= 1, f"{class_name} has multiple identifiers: {identifiers}"
+
+
+def test_published_schema_accepts_source_type_values() -> None:
+    report = validate(
+        {
+            "id": "nmdc:sty-1",
+            "study_category": "research_study",
+            "type": "nmdc:Study",
+        },
+        str(PUBLISHED_SCHEMA),
+        target_class="StudyFlat",
+    )
+
+    assert report.results == []

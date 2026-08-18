@@ -213,7 +213,7 @@ class ParquetSink:
                 remove columns that are entirely null. Useful for wide sparse
                 schemas (e.g. BiosampleFlat with 1,398 columns) where most
                 columns are empty for a given dataset. Columns backed by a
-                slot with `identifier: true` or `designates_type: true` are
+                required slot, `identifier: true`, or `designates_type: true` are
                 never dropped, even when empty in this dataset — their
                 presence is part of the schema's contract, not a property
                 of this run. See microbiomedata/nmdc-lakehouse#123.
@@ -259,13 +259,17 @@ class ParquetSink:
     def _protected_columns(self) -> set[str]:
         """Column names that must survive `drop_empty_cols` even when entirely null.
 
-        A column backed by a slot with `identifier: true` or
-        `designates_type: true` is part of the schema's contract, not just
-        data that happened to be present in this run.
+        A column backed by a required slot, `identifier: true`, or
+        `designates_type: true` is part of the schema's contract, not just data
+        that happened to be present in this run.
         """
         if self.class_def is None:
             return set()
-        return {name for name, slot in self.class_def.attributes.items() if slot.identifier or slot.designates_type}
+        return {
+            name
+            for name, slot in self.class_def.attributes.items()
+            if slot.required or slot.identifier or slot.designates_type
+        }
 
 
 def _rows_to_arrow_table(rows: list[dict], schema: pa.Schema | None) -> pa.Table:
