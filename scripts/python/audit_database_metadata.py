@@ -238,7 +238,7 @@ def build_publication_inventory(
         "observed_at": observed_at or datetime.now(UTC).isoformat(),
         "provider": provider,
         "table_format": table_format,
-        "metadata_capabilities": metadata_capabilities,
+        "metadata_capabilities": sorted(metadata_capabilities),
         "tables": entries,
     }
 
