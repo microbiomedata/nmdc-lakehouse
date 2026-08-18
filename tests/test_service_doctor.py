@@ -204,11 +204,14 @@ def test_unsafe_key_permissions_have_specific_remediation(tmp_path: Path) -> Non
     assert "Restrict the key" in (checks[-1].remediation or "")
 
 
-def test_blank_jump_key_override_uses_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("override", ["", " \t "])
+def test_blank_jump_key_override_uses_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, override: str
+) -> None:
     default_key = tmp_path / "default-jump-key"
     configuration = _live_configuration(default_key)
     jump_key_variable = "NMDC_JUMP_" + "KEY"
-    configuration[jump_key_variable] = ""
+    configuration[jump_key_variable] = override
     monkeypatch.setattr(service_doctor, "DEFAULT_JUMP_KEY", str(default_key))
 
     checks = run_service_checks(

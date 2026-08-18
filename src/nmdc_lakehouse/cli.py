@@ -11,6 +11,8 @@ import logging
 
 import click
 
+from nmdc_lakehouse.service_doctor import SERVICE_CHECKS
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -34,7 +36,7 @@ def list_jobs() -> None:
 @cli.command("doctor")
 @click.option(
     "--service-check",
-    type=click.Choice(("mongo-config", "gcp-tunnel", "mongo-ping")),
+    type=click.Choice(SERVICE_CHECKS),
     multiple=True,
     help="Run an explicit optional-service check; repeat to combine checks.",
 )
