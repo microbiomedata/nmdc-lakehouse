@@ -33,15 +33,22 @@ from pathlib import Path
 
 import nmdc_lakehouse
 
+
+def require(condition: bool, message: str) -> None:
+    """Fail distribution validation even when Python optimization is enabled."""
+    if not condition:
+        raise SystemExit(message)
+
+
 wheel = Path(sys.argv[1])
 sdist = Path(sys.argv[2])
 installed_version = version("nmdc-lakehouse")
 project_metadata = metadata("nmdc-lakehouse")
 
-assert installed_version == nmdc_lakehouse.__version__
-assert installed_version != "0.0.0"
-assert project_metadata["License-Expression"] == "MIT"
-assert "LICENSE" in project_metadata.get_all("License-File", [])
+require(installed_version == nmdc_lakehouse.__version__, "Import and distribution versions differ.")
+require(installed_version != "0.0.0", "The distribution still uses the placeholder version.")
+require(project_metadata["License-Expression"] == "MIT", "The distribution license expression is not MIT.")
+require("LICENSE" in project_metadata.get_all("License-File", []), "The distribution does not declare LICENSE.")
 
 cli = subprocess.run(
     ["nmdc-lakehouse", "--version"],
@@ -49,13 +56,19 @@ cli = subprocess.run(
     capture_output=True,
     text=True,
 )
-assert installed_version in cli.stdout
+require(installed_version in cli.stdout, "The CLI does not report the installed distribution version.")
 
 with zipfile.ZipFile(wheel) as archive:
-    assert any(name.endswith(".dist-info/licenses/LICENSE") for name in archive.namelist())
+    require(
+        any(name.endswith(".dist-info/licenses/LICENSE") for name in archive.namelist()),
+        "The wheel does not contain LICENSE.",
+    )
 
 with tarfile.open(sdist) as archive:
-    assert any(name.endswith("/LICENSE") for name in archive.getnames())
+    require(
+        any(name.endswith("/LICENSE") for name in archive.getnames()),
+        "The source distribution does not contain LICENSE.",
+    )
 
 print(f"Verified wheel and sdist for nmdc-lakehouse {installed_version}.")
 PY
