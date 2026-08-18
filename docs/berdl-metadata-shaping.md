@@ -101,7 +101,7 @@ reload) can be measured and re-run to completion.
 
 ## Related
 
-- `docs/berdl-publication-contract.md`: how the metadata content bundle,
+- `docs/publication-contract.md`: how the metadata content bundle,
   portable Parquet metadata, catalog comments, snapshot manifest, and registry
   record fit into a staged replacement.
 - `docs/berdl-upload.md`: getting Parquet into BERDL in the first place; this doc is what to set once it's there.

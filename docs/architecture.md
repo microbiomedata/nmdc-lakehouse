@@ -39,9 +39,10 @@ write transformed records back to NMDC MongoDB. The BERDL dataset name
 publication implementation.
 
 Long term, keep the `Source` protocol backend-neutral and use `linkml-store`
-where its backend semantics and performance fit. Keep the `Sink` and BERDL
-publication interfaces independent so a future Iceberg/Polaris implementation
-does not depend on how source records were read.
+where its backend semantics and performance fit. Keep snapshot production and
+destination publication independent so BERDL, another managed lakehouse, an
+object store, or a local query environment can consume the same portable
+artifacts without depending on how source records were read.
 
 ## Transforms (`nmdc_lakehouse.transforms`)
 
@@ -59,8 +60,16 @@ managed-table interface:
   table becomes one `{table}.parquet` file containing streamed row groups; it
   is neither a partitioned dataset nor an object-store writer.
 - `IcebergSink` — planned. Its `write()` method currently raises
-  `NotImplementedError`. BERDL publication may register the Parquet artifacts
-  as managed Iceberg tables, but that publication step is external today.
+  `NotImplementedError`. Iceberg is one possible destination adapter, not the
+  required or preferred publication path.
+
+The portable publication product is a validated Parquet snapshot accompanied
+by its target logical schema, footer metadata, reviewable description content,
+and snapshot manifest. The
+[publication contract](publication-contract.md) defines destination-neutral
+staging, validation, metadata granularity, promotion, and rollback principles.
+Destination profiles map that contract to platform-specific transport, catalog,
+registry, and authorization operations.
 
 ## I/O for big data files (`nmdc_lakehouse.io`)
 
@@ -72,23 +81,25 @@ that live alongside the flattened metadata rows.
 
 The target architecture covers four NMDC data categories. The maintained
 package job currently implements MongoDB metadata extraction; result-file and
-reference-data loaders remain notebooks or operational scripts. In BERDL,
-published data belongs to three managed Silver namespaces. BERDL migrated its
-managed table layer from Delta/Hive to Iceberg/Polaris on 2026-05-20. Parquet
-remains the file/interchange layer beneath that table-management layer.
+reference-data loaders remain notebooks or operational scripts. Parquet is the
+portable file and interchange layer. A destination may expose the same logical
+groups as directories, datasets, namespaces, schemas, databases, or catalogs.
+The current provider and its capabilities must be discovered rather than
+inferred from an earlier deployment.
 
-### Namespace policy
+### Logical data-group policy
 
-| Namespace | Contents | Source |
+| Logical group | Contents | Source |
 |---|---|---|
-| `nmdc_metadata` | Schema-driven Silver tables from the 19 NMDC MongoDB collections in the reviewed `Database.slots` snapshot. | NMDC MongoDB → `linkml-store` source adapter → `nmdc_lakehouse.transforms` schema-driven flattening (with `functional_annotation_agg` as a special-case raw-`pymongo` loader for performance — see #48). |
+| `nmdc_metadata` | Schema-driven tables from the 19 NMDC MongoDB collections in the reviewed `Database.slots` snapshot. | NMDC MongoDB → `linkml-store` source adapter → `nmdc_lakehouse.transforms` schema-driven flattening (with `functional_annotation_agg` as a special-case raw-`pymongo` loader for performance — see #48). |
 | `nmdc_results` | Tables derived from workflow output files (per-gene annotations, taxonomy summaries). | NERSC files referenced by `data_object_set` URLs |
 | `nmdc_ref_data` | Reference / ontology tables loaded from external sources. | Pfam terms, GO/EC where redistributable, etc. KEGG term names are excluded — see #103 (KEGG redistribution license). |
 
+In the BERDL destination profile, these groups are managed Silver namespaces.
 `nmdc_arkin` (Gazi's tenant) and other non-NMDC tenants are **read-only** for
-this pipeline: we may query them via `spark.sql()` to understand what already
-exists, but we never write to them, and they are not used in user-facing
-query examples produced by this pipeline.
+this pipeline: we may query them to understand what already exists, but we
+never write to them, and they are not used in user-facing query examples
+produced by this pipeline.
 
 ### Categories
 
@@ -96,8 +107,8 @@ query examples produced by this pipeline.
 The 19 schema-specified collections listed in the
 [MongoDB connection guide](mongodb-connection.md#maintained-collection-baseline).
 They are schema-directed, authoritative, and bounded in size
-(largest is `functional_annotation_agg` at ~54M rows). MongoDB → Parquet →
-BERDL Silver via the schema-driven flattener.
+(largest is `functional_annotation_agg` at ~54M rows). MongoDB → schema-driven
+flattening → portable Parquet snapshot → destination publication.
 
 **Derived aggregates** → `nmdc_metadata` (gray zone — loaded, but not ground truth)
 `functional_annotation_agg` lives in MongoDB but is a pre-aggregated summary of
@@ -167,14 +178,14 @@ tables are silently skipped at runtime.
 
 ### Query engine compatibility
 
-The Parquet ARRAY representation is known to work with the engines used in
-the implemented or documented BERDL workflow. This is a format-compatibility
+The Parquet ARRAY representation is known to work with the tested query
+engines. This is a format-compatibility
 statement, not evidence that this repository connects to every engine:
 
 | System | ARRAY support | Unnest syntax |
 |---|---|---|
 | DuckDB | ✅ native | `UNNEST()`, `array_contains()` |
-| Spark / Iceberg (BERDL) | ✅ native | `EXPLODE()`, `array_contains()` |
+| Spark with a compatible managed-table format | ✅ native | `EXPLODE()`, `array_contains()` |
 | Parquet (file format) | ✅ `pa.list_()` | — |
 
 ## Jobs and the runner (`nmdc_lakehouse.jobs`, `nmdc_lakehouse.cli`)

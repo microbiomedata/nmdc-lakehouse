@@ -22,9 +22,9 @@ means an interface or dependency may exist without executable support.
 | Transform | Schema-driven metadata flattening | **Implemented** | Uses LinkML definitions for projection and Arrow type construction. This is not full per-record LinkML validation. |
 | Sink | Parquet | **Implemented** | Local filesystem only; one `{table}.parquet` file per primary or side table, with streamed row groups. It is not a partitioned dataset. |
 | Sink | Remote/object-store Parquet | **Planned** | `ParquetSink` does not support remote roots; URI strings may be interpreted as malformed local paths rather than rejected. |
-| Sink | Apache Iceberg | **Planned** | `IcebergSink.write()` is a `NotImplementedError` stub; Iceberg remains the intended managed-table format, not a capability to remove. |
+| Sink | Apache Iceberg | **Planned** | `IcebergSink.write()` is a `NotImplementedError` stub. Iceberg is one possible destination adapter, not the required or preferred publication path. |
 | Workflow results | Fetch/cache/parse NERSC result files | **Prototype/manual** | File-type-specific notebooks and scripts produce Parquet; migration into registered package jobs is tracked in [#130](https://github.com/microbiomedata/nmdc-lakehouse/issues/130). |
-| BERDL publication | Promote Parquet and register managed tables | **Manual/external** | Maintained ETL stops at schema-directed, typed local Parquet. BERDL publication is a separate operation; its Silver layer uses Iceberg/Polaris. |
+| Publication | Stage snapshots and register destination assets | **Manual/external** | Maintained ETL stops at schema-directed local Parquet. The portable publication contract is destination-neutral; BERDL is one documented profile. |
 | Upstream mutation | Write flattened data back to MongoDB | **Legacy only** | Maintained jobs never write to production MongoDB. A copied EMA script does write `flattened_*` collections and is tracked for retirement in [#27](https://github.com/microbiomedata/nmdc-lakehouse/issues/27). |
 | JGI/GOLD integration | Read or publish JGI/GOLD data | **Not implemented** | There is no JGI adapter or job. A copied, unregistered CSV utility retains “GOLD” in its filename and defaults, but is only a generic MongoDB collection exporter. |
 
@@ -54,7 +54,7 @@ nmdc-lakehouse/
 |-------------------------------|-------------------------------------------------------------------------|
 | `nmdc_lakehouse.sources`      | Retrieve NMDC records from MongoDB; reserve an interface for PostgreSQL. |
 | `nmdc_lakehouse.transforms`   | Flatten the nested LinkML object model into tabular / relational form.  |
-| `nmdc_lakehouse.sinks`        | Write local Parquet files; reserve an interface for Iceberg publication. |
+| `nmdc_lakehouse.sinks`        | Write local Parquet files; reserve optional managed-table adapters.      |
 | `nmdc_lakehouse.io`           | Stage & reference large genomic / bulk data files alongside metadata.   |
 | `nmdc_lakehouse.jobs`         | Declarative ETL jobs composed from a source → transform → sink pipeline.|
 | `nmdc_lakehouse.cli`          | Click-based CLI that dispatches to registered jobs.                     |
