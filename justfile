@@ -43,7 +43,7 @@ prose-lint:
 # Dry-render one recipe with explicitly safe values, then lint without executing it.
 [private]
 _shellcheck-recipe RECIPE:
-    @LAKEHOUSE_ROOT=./lakehouse MONGO_URI=mongodb://localhost:27017/nmdc NMDC_EXPORT_DIR=./local/nmdc_export NMDC_PARQUET_DIR=./local/nmdc_export/parquet NMDC_CSV_DIR=./local/nmdc_export/csv NMDC_DUCKDB_FILE=./local/nmdc_export/nmdc_flattened.duckdb NMDC_BIOSAMPLE_CSV=./local/nmdc_export/csv/flattened_biosample.csv NMDC_BIOSAMPLE_FIELDS_FILE=./local/nmdc_export/csv/flattened_biosample.fields just --dry-run "{{ RECIPE }}" 2>&1 | uv run shellcheck --shell=bash -
+    @LAKEHOUSE_ROOT=./lakehouse MONGO_URI=mongodb://localhost:27017/nmdc NMDC_EXPORT_DIR=./local/nmdc_export NMDC_PARQUET_DIR=./local/nmdc_export/parquet NMDC_CSV_DIR=./local/nmdc_export/csv NMDC_DUCKDB_FILE=./local/nmdc_export/nmdc_flattened.duckdb NMDC_BIOSAMPLE_CSV=./local/nmdc_export/csv/flattened_biosample.csv NMDC_BIOSAMPLE_FIELDS_FILE=./local/nmdc_export/csv/flattened_biosample.fields bash -o pipefail -c 'just --dry-run "$1" 2>&1 | uv run shellcheck --shell=bash -' _ "{{ RECIPE }}"
 
 # Check the pinned ShellCheck and every maintained shell source.
 shellcheck:
