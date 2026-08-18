@@ -205,9 +205,7 @@ def test_unsafe_key_permissions_have_specific_remediation(tmp_path: Path) -> Non
 
 
 @pytest.mark.parametrize("override", ["", " \t "])
-def test_blank_jump_key_override_uses_default(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, override: str
-) -> None:
+def test_blank_jump_key_override_uses_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, override: str) -> None:
     default_key = tmp_path / "default-jump-key"
     configuration = _live_configuration(default_key)
     jump_key_variable = "NMDC_JUMP_" + "KEY"
