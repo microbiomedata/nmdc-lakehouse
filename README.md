@@ -24,7 +24,7 @@ means an interface or dependency may exist without executable support.
 | Sink | Remote/object-store Parquet | **Planned** | `s3://` and other remote roots are not accepted by `ParquetSink`. |
 | Sink | Apache Iceberg | **Planned** | `IcebergSink.write()` is a `NotImplementedError` stub; Iceberg remains the intended managed-table format, not a capability to remove. |
 | Workflow results | Fetch/cache/parse NERSC result files | **Prototype/manual** | File-type-specific notebooks and scripts produce Parquet; migration into registered package jobs is tracked in [#130](https://github.com/microbiomedata/nmdc-lakehouse/issues/130). |
-| BERDL publication | Promote Parquet and register managed tables | **Manual/external** | Maintained ETL stops at validated local Parquet. BERDL publication is a separate operation; its Silver layer uses Iceberg/Polaris. |
+| BERDL publication | Promote Parquet and register managed tables | **Manual/external** | Maintained ETL stops at schema-directed, typed local Parquet. BERDL publication is a separate operation; its Silver layer uses Iceberg/Polaris. |
 | Upstream mutation | Write flattened data back to MongoDB | **Legacy only** | Maintained jobs never write to production MongoDB. A copied EMA script does write `flattened_*` collections and is tracked for retirement in [#27](https://github.com/microbiomedata/nmdc-lakehouse/issues/27). |
 | JGI/GOLD integration | Read or publish JGI/GOLD data | **Not implemented** | There is no JGI adapter or job. A copied, unregistered CSV utility retains “GOLD” in its filename and defaults, but is only a generic MongoDB collection exporter. |
 
@@ -118,6 +118,7 @@ Common tasks are exposed via `just`:
 | Recipe              | What it does                                     |
 |---------------------|--------------------------------------------------|
 | `just install`      | `uv sync --extra dev`                            |
+| `just install-all`  | Install development and documentation extras     |
 | `just lock`         | Refresh `uv.lock`                                |
 | `just lint`         | ruff check + format check                        |
 | `just format`       | ruff format + auto-fix                           |
@@ -125,7 +126,7 @@ Common tasks are exposed via `just`:
 | `just test`         | pytest                                           |
 | `just test-cov`     | pytest with coverage                             |
 | `just build`        | Build sdist + wheel via `uv build`               |
-| `just docs-build`   | Build the MkDocs site                            |
+| `just docs-build`   | Build the MkDocs site (requires `install-all`)   |
 | `just check`        | lint + typecheck + test                          |
 
 ## License
