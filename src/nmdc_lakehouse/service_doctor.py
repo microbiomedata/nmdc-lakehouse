@@ -172,7 +172,8 @@ def _gcp_tunnel_check(configured: Mapping[str, str], probe: SocketProbe, timeout
 
 
 def _gcp_jump_key_check(configured: Mapping[str, str]) -> DoctorCheck:
-    base_check = _jump_key_check(configured.get("NMDC_JUMP_KEY", DEFAULT_JUMP_KEY))
+    key_path = configured.get("NMDC_JUMP_KEY") or DEFAULT_JUMP_KEY
+    base_check = _jump_key_check(key_path)
     if base_check.status is CheckStatus.PASS:
         return DoctorCheck(
             name="gcp-jump-key",

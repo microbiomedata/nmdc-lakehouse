@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 from pymongo.errors import OperationFailure, ServerSelectionTimeoutError
 
+from nmdc_lakehouse import service_doctor
 from nmdc_lakehouse.doctor import CheckStatus
 from nmdc_lakehouse.service_doctor import run_service_checks
 
@@ -201,6 +202,23 @@ def test_unsafe_key_permissions_have_specific_remediation(tmp_path: Path) -> Non
     assert checks[-1].status is CheckStatus.FAIL
     assert "permissions are broader" in checks[-1].summary
     assert "Restrict the key" in (checks[-1].remediation or "")
+
+
+def test_blank_jump_key_override_uses_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    default_key = tmp_path / "default-jump-key"
+    configuration = _live_configuration(default_key)
+    jump_key_variable = "NMDC_JUMP_" + "KEY"
+    configuration[jump_key_variable] = ""
+    monkeypatch.setattr(service_doctor, "DEFAULT_JUMP_KEY", str(default_key))
+
+    checks = run_service_checks(
+        ("gcp-tunnel",),
+        configured=configuration,
+        socket_probe=lambda _host, _port, _timeout: True,
+    )
+
+    assert [check.name for check in checks] == ["gcp-jump-key", "gcp-tunnel"]
+    assert all(check.status is CheckStatus.PASS for check in checks)
 
 
 def test_absent_tunnel_and_reachable_tunnel_are_distinct(tmp_path: Path) -> None:
