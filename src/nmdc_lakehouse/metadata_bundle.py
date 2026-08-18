@@ -276,9 +276,12 @@ def _metadata_value(metadata: dict[bytes, bytes] | None, key: str, *, table: str
     if value is None:
         return None
     try:
-        return value.decode()
+        decoded = value.decode()
     except UnicodeDecodeError as error:
         raise MetadataBundleError(f"Table '{table}' contains invalid portable metadata.") from error
+    if not decoded.strip():
+        raise MetadataBundleError(f"Table '{table}' contains blank portable metadata.")
+    return decoded
 
 
 def _metadata_bool(metadata: dict[bytes, bytes] | None, key: str, *, table: str) -> bool:

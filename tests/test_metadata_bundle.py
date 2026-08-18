@@ -189,6 +189,29 @@ def test_missing_description_is_explicit(tmp_path: Path) -> None:
     assert description.origin == "none"
 
 
+def test_blank_footer_metadata_is_rejected(tmp_path: Path) -> None:
+    _write_table(
+        tmp_path,
+        "biosample_set",
+        table_description="   ",
+        column_description="Stable biosample identifier.",
+    )
+    _write_table(
+        tmp_path,
+        "biosample_set_associated_studies",
+        table_description="Generated relationship table.",
+        column_description=None,
+    )
+
+    with pytest.raises(MetadataBundleError, match="blank portable metadata"):
+        build_metadata_bundle(
+            tmp_path,
+            _manifest(),
+            _profile(),
+            generated_at="2026-08-18T18:00:00+00:00",
+        )
+
+
 def test_profile_rejects_duplicate_and_unknown_overrides(tmp_path: Path) -> None:
     _snapshot_files(tmp_path)
     duplicate = DescriptionOverride(
