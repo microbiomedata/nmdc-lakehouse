@@ -8,6 +8,7 @@ changing the source / transform / sink modules.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import click
 
@@ -51,6 +52,51 @@ def doctor(context: click.Context, service_check: tuple[str, ...]) -> None:
         if check.remediation:
             click.echo(f"       remedy: {check.remediation}")
     context.exit(report.exit_code)
+
+
+@cli.command("clean-parquet")
+@click.option(
+    "--root",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Output root to inspect; defaults to LAKEHOUSE_ROOT.",
+)
+@click.option("--delete", is_flag=True, help="Delete the previewed files; preview is the default.")
+def clean_parquet(root: Path | None, delete: bool) -> None:
+    """Preview or delete recognized local metadata Parquet products."""
+    from nmdc_lakehouse.cleanup import (
+        UnsafeCleanupRoot,
+        apply_cleanup,
+        find_project_root,
+        metadata_output_names,
+        plan_metadata_parquet_cleanup,
+    )
+    from nmdc_lakehouse.config import LakehouseSettings
+
+    output_root = root if root is not None else LakehouseSettings().root
+    try:
+        project_root = find_project_root(Path.cwd())
+        plan = plan_metadata_parquet_cleanup(
+            output_root,
+            project_root=project_root,
+            generated_names=metadata_output_names(),
+        )
+    except UnsafeCleanupRoot as error:
+        raise click.ClickException(str(error)) from error
+
+    action = "Removing" if delete else "Would remove"
+    for target in plan.targets:
+        click.echo(f"{action}: {target.relative_to(plan.root)}")
+    if delete:
+        try:
+            removed = apply_cleanup(plan)
+        except UnsafeCleanupRoot as error:
+            raise click.ClickException(str(error)) from error
+        click.echo(f"Removed {removed} recognized metadata Parquet file(s).")
+    else:
+        click.echo(f"Previewed {len(plan.targets)} recognized metadata Parquet file(s); no files were deleted.")
+        if plan.targets:
+            click.echo("Rerun with --delete to remove exactly these files.")
 
 
 @cli.command("run-job")

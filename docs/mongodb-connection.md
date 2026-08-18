@@ -180,6 +180,25 @@ object, so this message is expected for every collection.
 
 ### Step 1 — all collections except the large annotation aggregate (~5 min)
 
+For a new snapshot, prefer a fresh timestamped directory so the preceding output
+remains available for comparison. `local/` is ignored by Git:
+
+```bash
+export LAKEHOUSE_ROOT="./local/mongodb-metadata-$(date +%Y%m%d_%H%M%S)"
+```
+
+If an existing output root must be reused, preview recognized schema-derived
+metadata Parquet files before deleting them. Unknown files, directories,
+manifests, logs, and symlinks are preserved:
+
+```bash
+just clean-parquet
+just clean-parquet --delete
+```
+
+Both commands affect only local files under the repository. They never modify
+MongoDB, NERSC, BERDL, or object stores.
+
 ```bash
 uv run nmdc-lakehouse run-job all-collections \
     --skip functional_annotation_agg
