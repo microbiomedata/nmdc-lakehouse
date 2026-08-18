@@ -11,4 +11,5 @@ operation.
 - [Development setup](development-setup.md)
 - [MongoDB connection](mongodb-connection.md)
 - [Uploading Parquet to BERDL](berdl-upload.md)
+- [BERDL publication and replacement contract](berdl-publication-contract.md)
 - [BERDL metadata shaping](berdl-metadata-shaping.md)

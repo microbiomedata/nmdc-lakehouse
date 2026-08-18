@@ -101,6 +101,9 @@ reload) can be measured and re-run to completion.
 
 ## Related
 
+- `docs/berdl-publication-contract.md`: how the metadata content bundle,
+  portable Parquet metadata, catalog comments, snapshot manifest, and registry
+  record fit into a staged replacement.
 - `docs/berdl-upload.md`: getting Parquet into BERDL in the first place; this doc is what to set once it's there.
 - `docs/architecture.md`: the three-namespace policy (`nmdc_metadata`/`nmdc_results`/`nmdc_ref_data`) these DBPROPERTIES attach to.
 - [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114), [#115](https://github.com/microbiomedata/nmdc-lakehouse/issues/115), [#116](https://github.com/microbiomedata/nmdc-lakehouse/issues/116), [#117](https://github.com/microbiomedata/nmdc-lakehouse/pull/117), [#118](https://github.com/microbiomedata/nmdc-lakehouse/issues/118), [#119](https://github.com/microbiomedata/nmdc-lakehouse/pull/119), [#120](https://github.com/microbiomedata/nmdc-lakehouse/issues/120)

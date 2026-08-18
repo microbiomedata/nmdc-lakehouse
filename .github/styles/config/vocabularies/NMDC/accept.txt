@@ -49,6 +49,7 @@ Hive
 hostnames
 Iceberg
 Idempotency
+idempotently
 ingest's
 inlined
 JGI
@@ -74,6 +75,7 @@ nmdc_results
 namespace
 namespaces
 nullable
+nullability
 omics
 Parquet
 Pfam
@@ -87,6 +89,7 @@ PyPI
 pymongo
 queryable
 redistributable
+serializable
 repo
 repo's
 Ruff
@@ -115,6 +118,7 @@ Vale
 varchar
 workflow_run
 Zizmor
+allowlist
 actionlint
 linkml-map
 mongosh
