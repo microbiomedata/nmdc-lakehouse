@@ -12,6 +12,8 @@ from pathlib import Path
 
 import click
 
+from nmdc_lakehouse.service_doctor import SERVICE_CHECKS
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -33,12 +35,18 @@ def list_jobs() -> None:
 
 
 @cli.command("doctor")
+@click.option(
+    "--service-check",
+    type=click.Choice(SERVICE_CHECKS),
+    multiple=True,
+    help="Run an explicit optional-service check; repeat to combine checks.",
+)
 @click.pass_context
-def doctor(context: click.Context) -> None:
-    """Check credential-free local development readiness."""
+def doctor(context: click.Context, service_check: tuple[str, ...]) -> None:
+    """Check local readiness; service checks are explicit opt-ins."""
     from nmdc_lakehouse.doctor import run_doctor
 
-    report = run_doctor()
+    report = run_doctor(service_checks=service_check)
     for check in report.checks:
         click.echo(f"[{check.status.value}] {check.name}: {check.summary}")
         if check.remediation:
