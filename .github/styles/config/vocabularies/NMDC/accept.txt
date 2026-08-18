@@ -69,6 +69,7 @@ linkml-map
 LinkML-Store
 lipidomics
 lookups
+loopback
 metabolomics
 metatranscriptomics
 MinIO
@@ -123,6 +124,7 @@ TSV
 TSVs
 typecheck
 Unnest
+untracked
 URI
 URIs
 URLs
@@ -131,3 +133,4 @@ Vale
 varchar
 workflow_run
 Zizmor
+dotenv

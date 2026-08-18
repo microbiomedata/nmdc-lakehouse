@@ -21,6 +21,10 @@ bootstrap: install-all
 doctor:
     uv run --no-sync nmdc-lakehouse doctor
 
+# Inspect a completed snapshot and explicitly configured BERDL tooling without mutation.
+berdl-doctor SNAPSHOT_ROOT *ARGS:
+    uv run --no-sync nmdc-lakehouse berdl-doctor "{{ SNAPSHOT_ROOT }}" {{ ARGS }}
+
 # Preserve an existing configured Git hooks-path policy instead of replacing it.
 [private]
 _install-pre-commit-hook:

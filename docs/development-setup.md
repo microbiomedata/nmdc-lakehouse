@@ -148,7 +148,7 @@ These are not bootstrap requirements:
 | Unit development, linting, docs, and builds | None | This page |
 | Live NMDC metadata ETL | GCP jump-host key and MongoDB credentials | [MongoDB connection](mongodb-connection.md) and [#155](https://github.com/microbiomedata/nmdc-lakehouse/issues/155) |
 | NERSC workflow-result access | NERSC account, filesystem access, and relevant network setup | Result-specific runbooks; package migration is [#130](https://github.com/microbiomedata/nmdc-lakehouse/issues/130) |
-| BERDL publication | BERDL account, tokens, object-store access, and cluster tooling | [BERDL upload](berdl-upload.md) and [#51](https://github.com/microbiomedata/nmdc-lakehouse/issues/51) |
+| BERDL publication | BERDL account, tokens, object-store access, and cluster tooling | `just berdl-doctor SNAPSHOT_ROOT`, [BERDL upload](berdl-upload.md), and [#51](https://github.com/microbiomedata/nmdc-lakehouse/issues/51) |
 | Local MongoDB integration tests | A reachable test MongoDB and explicit opt-in | [#155](https://github.com/microbiomedata/nmdc-lakehouse/issues/155) |
 
 Never commit credentials or copy them as part of repository bootstrap.

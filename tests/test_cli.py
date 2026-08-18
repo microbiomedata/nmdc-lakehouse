@@ -31,6 +31,7 @@ def test_cli_and_doctor_load_without_importing_etl_jobs(monkeypatch):
     lightweight_cli = importlib.import_module("nmdc_lakehouse.cli")
 
     assert "doctor" in lightweight_cli.cli.commands
+    assert "berdl-doctor" in lightweight_cli.cli.commands
 
 
 def test_doctor_cli_renders_sanitized_failure_and_exit_code(monkeypatch):
@@ -69,3 +70,35 @@ def test_doctor_cli_forwards_explicit_service_checks(monkeypatch):
 
     assert result.exit_code == 0
     assert captured["service_checks"] == ("gcp-tunnel", "mongo-ping")
+
+
+def test_berdl_doctor_cli_forwards_paths_and_service_checks(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_doctor(snapshot_root, *, project_root, checkout, service_checks):
+        captured.update(
+            snapshot_root=snapshot_root,
+            project_root=project_root,
+            checkout=checkout,
+            service_checks=service_checks,
+        )
+        return DoctorReport(checks=())
+
+    monkeypatch.setattr("nmdc_lakehouse.berdl_doctor.run_berdl_doctor", fake_doctor)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "berdl-doctor",
+            "snapshot",
+            "--beril-checkout",
+            "beril",
+            "--service-check",
+            "berdl-proxy",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert str(captured["snapshot_root"]) == "snapshot"
+    assert str(captured["checkout"]) == "beril"
+    assert captured["service_checks"] == ("berdl-proxy",)
