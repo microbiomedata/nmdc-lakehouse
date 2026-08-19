@@ -425,6 +425,15 @@ def test_plan_output_is_immutable(tmp_path: Path) -> None:
     assert output.read_text(encoding="utf-8") == original
 
 
+def test_plan_output_cannot_be_written_inside_snapshot(tmp_path: Path) -> None:
+    plan = _build(tmp_path)
+    snapshot = tmp_path / "snapshot"
+    snapshot.mkdir()
+
+    with pytest.raises(BerdlStagingPlanError, match="outside the immutable snapshot"):
+        write_berdl_staging_plan(snapshot / "staging-plan.json", plan)
+
+
 def test_loaded_plan_hashes_every_reviewed_artifact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     manifest, bundle, inventory, publication_plan, metadata_plan, target_validation, checkout = _inputs(tmp_path)
     snapshot = tmp_path / "snapshot"

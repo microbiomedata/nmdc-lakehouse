@@ -492,7 +492,13 @@ def write_berdl_staging_plan(path: Path, plan: BerdlStagingPlan) -> Path:
     parent = destination.parent
     if not parent.is_dir() or parent.is_symlink():
         raise BerdlStagingPlanError("The BERDL staging plan parent must be an ordinary directory.")
-    destination = destination.resolve()
+    destination = parent.resolve() / destination.name
+    manifest_evidence = [item for item in plan.evidence if item.name == "snapshot-manifest.json"]
+    if len(manifest_evidence) != 1:
+        raise BerdlStagingPlanError("The BERDL staging plan must identify one snapshot manifest.")
+    snapshot_root = Path(manifest_evidence[0].path).expanduser().resolve().parent
+    if destination.is_relative_to(snapshot_root):
+        raise BerdlStagingPlanError("The BERDL staging plan must be written outside the immutable snapshot.")
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=parent)
     temporary = Path(temporary_name)
     try:
