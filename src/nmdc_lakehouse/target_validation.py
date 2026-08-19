@@ -109,6 +109,13 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def packaged_target_schema_sha256() -> str:
+    """Return the digest of the target schema shipped with this installation."""
+    schema_resource = resources.files("nmdc_lakehouse").joinpath("schemas/nmdc_metadata.yaml")
+    with resources.as_file(schema_resource) as schema_path:
+        return _sha256(schema_path)
+
+
 def _canonical_default(value: Any) -> str:
     if isinstance(value, datetime | date):
         return value.isoformat()

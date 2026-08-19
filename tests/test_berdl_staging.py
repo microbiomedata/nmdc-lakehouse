@@ -39,7 +39,11 @@ from nmdc_lakehouse.snapshot_manifest import (
     SnapshotManifest,
     SoftwareRecord,
 )
-from nmdc_lakehouse.target_validation import TableValidationRecord, TargetValidationReport
+from nmdc_lakehouse.target_validation import (
+    TableValidationRecord,
+    TargetValidationReport,
+    packaged_target_schema_sha256,
+)
 
 REVISION = "a" * 40
 SNAPSHOT_ID = "sha256:" + "1" * 64
@@ -146,6 +150,7 @@ def _checkout(tmp_path: Path) -> Path:
     if not windows_python.is_file():
         python.parent.mkdir(parents=True, exist_ok=True)
         python.write_text("test interpreter\n", encoding="utf-8")
+        python.chmod(0o755)
     return checkout
 
 
@@ -170,7 +175,7 @@ def _target_validation(manifest: SnapshotManifest) -> TargetValidationReport:
         generated_at="2026-08-19T12:20:00+00:00",
         snapshot_id=manifest.snapshot_id,
         target_schema_id=artifact.target_schema_id,
-        target_schema_sha256="9" * 64,
+        target_schema_sha256=packaged_target_schema_sha256(),
         target_schema_source_id=artifact.source_schema_id,
         target_schema_source_version=artifact.source_schema_version,
         target_schema_source_package_version=artifact.source_schema_version,
@@ -189,11 +194,12 @@ def _target_validation(manifest: SnapshotManifest) -> TargetValidationReport:
 
 
 class GitRunner:
-    """Provide only the two local Git observations used by the planner."""
+    """Provide only the local Git observations used by the planner."""
 
-    def __init__(self, *, revision: str = REVISION, dirty: str = "") -> None:
+    def __init__(self, *, revision: str = REVISION, dirty: str = "", tracked: bool = True) -> None:
         self.revision = revision
         self.dirty = dirty
+        self.tracked = tracked
         self.commands: list[tuple[str, ...]] = []
 
     def __call__(self, args):
@@ -203,6 +209,9 @@ class GitRunner:
             return subprocess.CompletedProcess(args, 0, self.revision + "\n", "")
         if "status" in command:
             return subprocess.CompletedProcess(args, 0, self.dirty, "")
+        if "ls-files" in command:
+            output = "scripts/ingest_dataset.py\nscripts/ingest_lib.py\n" if self.tracked else ""
+            return subprocess.CompletedProcess(args, 0 if self.tracked else 1, output, "")
         raise AssertionError(f"Unexpected external command: {command}")
 
 
@@ -276,7 +285,7 @@ def test_plan_binds_candidate_and_exact_plan_only_command(tmp_path: Path) -> Non
     assert plan.command[-2:] == ["--config-key", plan.config_key]
     assert "--execute-staging" not in plan.command
     assert "--outcome" not in plan.command
-    assert len(runner.commands) == 2
+    assert len(runner.commands) == 3
     assert all(command[0] == "git" for command in runner.commands)
 
 
@@ -335,6 +344,8 @@ def test_checkout_revision_and_cleanliness_are_required(tmp_path: Path) -> None:
         _build(tmp_path, runner=GitRunner(revision="b" * 40))
     with pytest.raises(BerdlStagingPlanError, match="tracked changes"):
         _build(tmp_path, runner=GitRunner(dirty=" M scripts/ingest_lib.py\n"))
+    with pytest.raises(BerdlStagingPlanError, match="sources must be tracked"):
+        _build(tmp_path, runner=GitRunner(tracked=False))
 
 
 def test_windows_beril_interpreter_layout_is_supported(tmp_path: Path) -> None:
@@ -343,20 +354,38 @@ def test_windows_beril_interpreter_layout_is_supported(tmp_path: Path) -> None:
     python = checkout / ".venv-berdl" / "Scripts" / "python.exe"
     python.parent.mkdir(parents=True)
     python.write_text("test interpreter\n", encoding="utf-8")
+    python.chmod(0o755)
 
     plan = _build(tmp_path, beril_checkout=checkout)
 
     assert plan.command[0] == str(python)
 
 
-def test_symlinked_beril_interpreter_is_rejected(tmp_path: Path) -> None:
+def test_broken_symlinked_beril_interpreter_is_rejected(tmp_path: Path) -> None:
     _manifest_value, _bundle_value, _inventory_value, _publication, _metadata, _target, checkout = _inputs(tmp_path)
     python = checkout / ".venv-berdl" / "bin" / "python"
     python.unlink()
     python.symlink_to(tmp_path / "unreviewed-python")
+    windows_python = checkout / ".venv-berdl" / "Scripts" / "python.exe"
+    windows_python.parent.mkdir(parents=True)
+    windows_python.write_text("not executable\n", encoding="utf-8")
 
     with pytest.raises(BerdlStagingPlanError, match="no .venv-berdl Python interpreter"):
         _build(tmp_path, beril_checkout=checkout)
+
+
+def test_symlinked_beril_interpreter_with_executable_target_is_supported(tmp_path: Path) -> None:
+    _manifest_value, _bundle_value, _inventory_value, _publication, _metadata, _target, checkout = _inputs(tmp_path)
+    python = checkout / ".venv-berdl" / "bin" / "python"
+    target = tmp_path / "python3.13"
+    target.write_text("test interpreter\n", encoding="utf-8")
+    target.chmod(0o755)
+    python.unlink()
+    python.symlink_to(target)
+
+    plan = _build(tmp_path, beril_checkout=checkout)
+
+    assert plan.command[0] == str(python)
 
 
 def test_failed_or_incomplete_target_validation_is_rejected(tmp_path: Path) -> None:
@@ -377,6 +406,11 @@ def test_failed_or_incomplete_target_validation_is_rejected(tmp_path: Path) -> N
     target_validation.selected_rows = 0
     target_validation.valid_rows = 0
     with pytest.raises(BerdlStagingPlanError, match="does not match table"):
+        _build(tmp_path, target_validation=target_validation)
+
+    target_validation = _target_validation(_manifest())
+    target_validation.target_schema_sha256 = "0" * 64
+    with pytest.raises(BerdlStagingPlanError, match="packaged target schema"):
         _build(tmp_path, target_validation=target_validation)
 
 

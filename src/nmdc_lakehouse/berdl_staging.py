@@ -33,6 +33,7 @@ from nmdc_lakehouse.target_validation import (
     SAMPLING_ALGORITHM,
     TargetValidationReport,
     load_target_validation_report,
+    packaged_target_schema_sha256,
 )
 
 PLAN_FORMAT_VERSION: Literal[1] = 1
@@ -139,6 +140,14 @@ def _sha256(path: Path, label: str) -> str:
     return digest.hexdigest()
 
 
+def _is_executable_file(path: Path) -> bool:
+    try:
+        resolved = path.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return False
+    return resolved.is_file() and not resolved.is_symlink() and os.access(resolved, os.X_OK)
+
+
 def _validate_object_key(value: str, label: str) -> None:
     path = PurePosixPath(value)
     if path.is_absolute() or not value or value.endswith("/") or str(path) != value:
@@ -204,6 +213,8 @@ def _require_target_validation(manifest: SnapshotManifest, report: TargetValidat
         raise BerdlStagingPlanError("The target validation report table coverage does not match the snapshot.")
     if set(manifest.target_schema_ids) != {report.target_schema_id}:
         raise BerdlStagingPlanError("The target validation report schema does not match the snapshot.")
+    if report.target_schema_sha256 != packaged_target_schema_sha256():
+        raise BerdlStagingPlanError("The target validation report does not match the packaged target schema.")
     if (
         {artifact.source_schema_id for artifact in manifest.artifacts} != {report.target_schema_source_id}
         or {artifact.source_schema_version for artifact in manifest.artifacts} != {report.target_schema_source_version}
@@ -277,7 +288,7 @@ def _inspect_beril_checkout(
         checkout / ".venv-berdl" / "Scripts" / "python.exe",
     )
     python = next(
-        (candidate for candidate in python_candidates if candidate.is_file() and not candidate.is_symlink()),
+        (candidate for candidate in python_candidates if _is_executable_file(candidate)),
         None,
     )
     for path, label in ((script, "BERIL staging command"), (library, "BERIL ingest library")):
@@ -288,12 +299,29 @@ def _inspect_beril_checkout(
     try:
         revision = runner(("git", "-C", str(checkout), "rev-parse", "--verify", "HEAD"))
         dirty = runner(("git", "-C", str(checkout), "status", "--porcelain", "--untracked-files=no"))
+        tracked = runner(
+            (
+                "git",
+                "-C",
+                str(checkout),
+                "ls-files",
+                "--error-unmatch",
+                "--",
+                "scripts/ingest_dataset.py",
+                "scripts/ingest_lib.py",
+            )
+        )
     except (OSError, subprocess.TimeoutExpired) as error:
         raise BerdlStagingPlanError("Cannot inspect the BERIL checkout revision.") from error
     if revision.returncode != 0 or revision.stdout.strip() != expected_revision:
         raise BerdlStagingPlanError("The BERIL checkout does not match the requested revision.")
     if dirty.returncode != 0 or dirty.stdout.strip():
         raise BerdlStagingPlanError("The BERIL checkout must have no tracked changes.")
+    if tracked.returncode != 0 or set(tracked.stdout.splitlines()) != {
+        "scripts/ingest_dataset.py",
+        "scripts/ingest_lib.py",
+    }:
+        raise BerdlStagingPlanError("The BERIL staging sources must be tracked by the selected revision.")
     evidence = BerilRevision(
         revision=expected_revision,
         ingest_script_sha256=_sha256(script, "BERIL staging command"),
