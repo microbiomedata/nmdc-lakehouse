@@ -289,6 +289,14 @@ def build_target_validation_report(
     schema_id = schema_view.schema.id
     if not isinstance(schema_id, str) or not schema_id:
         raise TargetValidationError("Published target schema has no stable identifier.")
+    artifact_target_schema_ids = {artifact.target_schema_id for artifact in manifest.artifacts}
+    if set(manifest.target_schema_ids) != artifact_target_schema_ids:
+        raise TargetValidationError(
+            "Snapshot target schema identities do not match the manifested artifact identities."
+        )
+    artifact_mapping_ids = {artifact.mapping for artifact in manifest.artifacts}
+    if set(manifest.mapping_ids) != artifact_mapping_ids:
+        raise TargetValidationError("Snapshot mapping identities do not match the manifested artifact identities.")
     if set(manifest.target_schema_ids) != {schema_id}:
         raise TargetValidationError("Snapshot and published target schema identities do not match exactly.")
     source_version = _annotation(schema_view.schema, "source_schema_version")
@@ -344,8 +352,9 @@ def validate_target_snapshot(
     sample_rows: int = DEFAULT_SAMPLE_ROWS,
 ) -> TargetValidationReport:
     """Integrity-check a snapshot, then validate rows with the packaged schema."""
-    root = root.expanduser().resolve()
+    root = root.expanduser()
     manifest = validate_snapshot(root)
+    root = root.resolve()
     schema_resource = resources.files("nmdc_lakehouse").joinpath("schemas/nmdc_metadata.yaml")
     with resources.as_file(schema_resource) as schema_path:
         return build_target_validation_report(

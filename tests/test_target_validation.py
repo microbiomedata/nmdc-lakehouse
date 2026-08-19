@@ -7,11 +7,18 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from nmdc_lakehouse.snapshot_manifest import ArtifactRecord, PerformanceRecord, SnapshotManifest, SoftwareRecord
+from nmdc_lakehouse.snapshot_manifest import (
+    ArtifactRecord,
+    PerformanceRecord,
+    SnapshotManifest,
+    SnapshotManifestError,
+    SoftwareRecord,
+)
 from nmdc_lakehouse.target_validation import (
     TargetValidationError,
     _sample_rows,
     build_target_validation_report,
+    validate_target_snapshot,
     write_target_validation_report,
 )
 from nmdc_lakehouse.transforms.schema_generator import (
@@ -172,8 +179,44 @@ def test_schema_and_class_contract_mismatches_fail_closed(tmp_path: Path) -> Non
 
     manifest.target_schema_ids = [DEFAULT_FLATTENED_SCHEMA_ID]
     manifest.artifacts[0].mapping = SIDE_TABLE_MAPPING_ID
+    manifest.mapping_ids = [SIDE_TABLE_MAPPING_ID]
     with pytest.raises(TargetValidationError, match="mapping metadata"):
         build_target_validation_report(tmp_path, manifest, PUBLISHED_SCHEMA)
+
+
+@pytest.mark.parametrize(
+    ("aggregate", "value", "message"),
+    [
+        ("target_schema_ids", ["https://example.org/wrong"], "target schema identities"),
+        ("mapping_ids", ["https://example.org/wrong"], "mapping identities"),
+    ],
+)
+def test_aggregate_identities_must_match_artifact_identities(
+    tmp_path: Path,
+    aggregate: str,
+    value: list[str],
+    message: str,
+) -> None:
+    path = tmp_path / "study_set.parquet"
+    pq.write_table(
+        pa.Table.from_pylist([{"id": "nmdc:sty-1", "study_category": "research_study", "type": "nmdc:Study"}]),
+        path,
+    )
+    manifest = _manifest([_artifact(path, target_class="StudyFlat", source_class="Study", mapping=PRIMARY_MAPPING_ID)])
+    setattr(manifest, aggregate, value)
+
+    with pytest.raises(TargetValidationError, match=message):
+        build_target_validation_report(tmp_path, manifest, PUBLISHED_SCHEMA)
+
+
+def test_snapshot_root_symlink_is_rejected_before_resolution(tmp_path: Path) -> None:
+    snapshot = tmp_path / "snapshot"
+    snapshot.mkdir()
+    symlink = tmp_path / "snapshot-link"
+    symlink.symlink_to(snapshot, target_is_directory=True)
+
+    with pytest.raises(SnapshotManifestError, match="ordinary directory"):
+        validate_target_snapshot(symlink)
 
 
 def test_report_writer_preserves_the_snapshot_and_refuses_replacement(tmp_path: Path) -> None:
@@ -181,9 +224,14 @@ def test_report_writer_preserves_the_snapshot_and_refuses_replacement(tmp_path: 
     evidence = tmp_path / "evidence"
     snapshot.mkdir()
     evidence.mkdir()
+    parquet = snapshot / "study_set.parquet"
+    pq.write_table(
+        pa.Table.from_pylist([{"id": "nmdc:sty-1", "study_category": "research_study", "type": "nmdc:Study"}]),
+        parquet,
+    )
     report = build_target_validation_report(
         snapshot,
-        _manifest([]),
+        _manifest([_artifact(parquet, target_class="StudyFlat", source_class="Study", mapping=PRIMARY_MAPPING_ID)]),
         PUBLISHED_SCHEMA,
         requested_mode="full",
     )
