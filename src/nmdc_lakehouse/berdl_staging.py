@@ -552,6 +552,15 @@ def plan_berdl_staging(
     final_manifest = validate_snapshot(root)
     if final_manifest != manifest:
         raise BerdlStagingPlanError("The manifested snapshot changed while the BERDL staging plan was built.")
+    final_models = (
+        load_metadata_bundle(bundle_path),
+        load_destination_inventory(inventory_path),
+        load_publication_plan(publication_plan_path),
+        load_metadata_application_plan(metadata_plan_path),
+        load_target_validation_report(target_validation_path),
+    )
+    if final_models != (bundle, inventory, publication_plan, metadata_plan, target_validation):
+        raise BerdlStagingPlanError("Reviewed evidence changed while the BERDL staging plan was built.")
     if digests != [_sha256(path, label) for path, _name, label in paths]:
         raise BerdlStagingPlanError("A reviewed input changed while the BERDL staging plan was built.")
     return plan
