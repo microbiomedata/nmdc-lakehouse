@@ -178,10 +178,11 @@ just berdl-upload \
 ```
 
 The executor passes an argument vector directly to the reviewed BERIL command;
-it does not invoke a shell. The plan digest binds authorization to the reviewed
+it does not invoke a shell. BERIL progress is routed to stderr so stdout remains
+the parseable preview or NMDC outcome JSON. The plan digest binds authorization to the reviewed
 destination as well as the snapshot. After every started BERIL command exits,
-including a failed command, the executor revalidates the plan, snapshot, and
-external source revision before reporting the command result. After a successful
+fails, or is interrupted, the executor revalidates the plan, snapshot, and
+external source revision before returning control. After a successful
 command, it then requires the upstream
 outcome to report the planned bucket, bronze prefix, staging namespace, exact
 table set, object-storage-verified source SHA-256, and matching

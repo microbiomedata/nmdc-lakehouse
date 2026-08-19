@@ -224,7 +224,7 @@ def _run_command(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
 
 
 def _run_staging_command(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, text=True, check=False, shell=False)  # noqa: S603
+    return subprocess.run(args, text=True, check=False, shell=False, stdout=sys.stderr)  # noqa: S603
 
 
 def _sha256(path: Path, label: str) -> str:
@@ -962,12 +962,14 @@ def execute_berdl_staging(
             "Execution requires --authorize-plan-sha256 with the exact reviewed staging plan digest."
         )
     try:
-        result = staging_runner(command)
-    except OSError as error:
-        raise BerdlStagingPlanError("Cannot start the reviewed BERIL staging command.") from error
-    final_plan = revalidate_berdl_staging_plan(load_berdl_staging_plan(plan_path), runner=checkout_runner)
-    if final_plan != plan or _sha256(plan_path, "BERDL staging plan") != plan_sha256:
-        raise BerdlStagingPlanError("The staging plan or its evidence changed during BERIL execution.")
+        try:
+            result = staging_runner(command)
+        except OSError as error:
+            raise BerdlStagingPlanError("Cannot start the reviewed BERIL staging command.") from error
+    finally:
+        final_plan = revalidate_berdl_staging_plan(load_berdl_staging_plan(plan_path), runner=checkout_runner)
+        if final_plan != plan or _sha256(plan_path, "BERDL staging plan") != plan_sha256:
+            raise BerdlStagingPlanError("The staging plan or its evidence changed during BERIL execution.")
     if result.returncode != 0:
         raise BerdlStagingPlanError("BERIL staging did not complete successfully; retain its staging keys for review.")
     upstream, upstream_sha256 = _read_upstream_staging_outcome(upstream_outcome_path)

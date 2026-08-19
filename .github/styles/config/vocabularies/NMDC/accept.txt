@@ -138,4 +138,6 @@ workflow_run
 Zizmor
 dotenv
 enum
+parseable
+stderr
 stdout

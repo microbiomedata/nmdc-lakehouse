@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from click.testing import CliRunner
@@ -990,6 +992,26 @@ def test_failed_execution_still_revalidates_evidence(tmp_path: Path, monkeypatch
         )
 
 
+def test_interrupted_execution_still_revalidates_evidence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _plan, plan_path, paths, _checkout_value = _persisted_plan(tmp_path, monkeypatch)
+
+    def interrupt_after_mutating_evidence(_command):
+        paths["bundle"].write_text("changed during interrupted staging\n", encoding="utf-8")
+        raise KeyboardInterrupt
+
+    with pytest.raises(BerdlStagingPlanError, match="no longer matches"):
+        execute_berdl_staging(
+            plan_path,
+            upstream_outcome_path=tmp_path / "upstream.json",
+            output_path=tmp_path / "outcome.json",
+            authorize_snapshot=SNAPSHOT_ID,
+            execute_staging=True,
+            authorize_plan_sha256=_file_sha256(plan_path),
+            checkout_runner=GitRunner(),
+            staging_runner=interrupt_after_mutating_evidence,
+        )
+
+
 def test_execution_requires_exact_plan_authorization(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _plan, plan_path, _paths, _checkout_value = _persisted_plan(tmp_path, monkeypatch)
 
@@ -1193,3 +1215,51 @@ def test_cli_previews_staging_without_execution(tmp_path: Path, monkeypatch: pyt
 
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout) == {"status": "preview-only", "command": expected_command}
+
+
+def test_staging_command_routes_child_stdout_to_stderr(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = {}
+
+    def run(args, **kwargs):
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr("nmdc_lakehouse.berdl_staging.subprocess.run", run)
+
+    from nmdc_lakehouse.berdl_staging import _run_staging_command
+
+    _run_staging_command(["python", "ingest_dataset.py"])
+
+    assert captured["stdout"] is sys.stderr
+    assert captured["shell"] is False
+
+
+def test_cli_execution_keeps_stdout_as_outcome_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    expected = {"outcome_format_version": 1, "status": "data-verified"}
+    outcome = SimpleNamespace(model_dump=lambda **_kwargs: expected)
+    monkeypatch.setattr(
+        "nmdc_lakehouse.berdl_staging.execute_berdl_staging",
+        lambda *_args, **_kwargs: (["python", "ingest_dataset.py", "--execute-staging"], outcome),
+    )
+    output_path = tmp_path / "outcome.json"
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "berdl-upload",
+            "plan.json",
+            "--upstream-outcome",
+            str(tmp_path / "upstream.json"),
+            "--output",
+            str(output_path),
+            "--execute-staging",
+            "--authorize-snapshot",
+            SNAPSHOT_ID,
+            "--authorize-plan-sha256",
+            "a" * 64,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout) == expected
+    assert f"outcome={output_path.resolve()}" in result.stderr
