@@ -940,6 +940,24 @@ def test_execution_rejects_subprocess_failure(tmp_path: Path, monkeypatch: pytes
         )
 
 
+def test_execution_reports_failure_to_start_subprocess(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _plan, plan_path, _paths, _checkout_value = _persisted_plan(tmp_path, monkeypatch)
+
+    def cannot_start(_command):
+        raise FileNotFoundError("missing reviewed interpreter")
+
+    with pytest.raises(BerdlStagingPlanError, match="Cannot start"):
+        execute_berdl_staging(
+            plan_path,
+            upstream_outcome_path=tmp_path / "upstream.json",
+            output_path=tmp_path / "outcome.json",
+            authorize_snapshot=SNAPSHOT_ID,
+            execute_staging=True,
+            checkout_runner=GitRunner(),
+            staging_runner=cannot_start,
+        )
+
+
 @pytest.mark.parametrize("contents", [None, "not JSON"])
 def test_execution_rejects_missing_or_malformed_upstream_outcome(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, contents: str | None

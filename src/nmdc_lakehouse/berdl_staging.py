@@ -927,7 +927,10 @@ def execute_berdl_staging(
         return command, None
     if authorize_snapshot != plan.snapshot_id:
         raise BerdlStagingPlanError("Execution requires --authorize-snapshot with the exact snapshot ID.")
-    result = staging_runner(command)
+    try:
+        result = staging_runner(command)
+    except OSError as error:
+        raise BerdlStagingPlanError("Cannot start the reviewed BERIL staging command.") from error
     if result.returncode != 0:
         raise BerdlStagingPlanError("BERIL staging did not complete successfully; retain its staging keys for review.")
     final_plan = revalidate_berdl_staging_plan(load_berdl_staging_plan(plan_path), runner=checkout_runner)
