@@ -159,6 +159,7 @@ class UpstreamTableVerification(BaseModel):
     source_rows: int = Field(ge=0)
     destination_rows: int = Field(ge=0)
     source_basis: str
+    source_sha256: str
 
 
 class UpstreamVerification(BaseModel):
@@ -846,6 +847,8 @@ def build_berdl_staging_outcome(
             raise BerdlStagingPlanError(f"The BERIL outcome row counts do not match table '{name}'.")
         if table.source_basis != "source parquet":
             raise BerdlStagingPlanError(f"The BERIL outcome did not verify table '{name}' from Parquet.")
+        if table.source_sha256 != artifact.sha256:
+            raise BerdlStagingPlanError(f"The BERIL outcome source digest does not match table '{name}'.")
         tables.append(
             StagedTable(
                 table=name,

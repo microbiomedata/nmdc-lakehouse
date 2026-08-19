@@ -381,6 +381,7 @@ def _upstream_outcome(plan, **changes) -> UpstreamStagingOutcome:
                     "source_rows": 1,
                     "destination_rows": 1,
                     "source_basis": "source parquet",
+                    "source_sha256": plan.artifacts[0].sha256,
                 }
             ],
         },
@@ -1079,7 +1080,7 @@ def test_staging_outcome_write_failure_is_controlled(tmp_path: Path, monkeypatch
         write_berdl_staging_outcome(tmp_path / "outcome.json", outcome)
 
 
-@pytest.mark.parametrize("mismatch", ["destination", "tables", "rows", "basis"])
+@pytest.mark.parametrize("mismatch", ["destination", "tables", "rows", "basis", "digest"])
 def test_upstream_outcome_must_match_destination_tables_and_counts(tmp_path: Path, mismatch: str) -> None:
     plan = _build(tmp_path)
     upstream = _upstream_outcome(plan)
@@ -1089,8 +1090,10 @@ def test_upstream_outcome_must_match_destination_tables_and_counts(tmp_path: Pat
         upstream.verification.tables = []
     elif mismatch == "rows":
         upstream.verification.tables[0].destination_rows = 0
-    else:
+    elif mismatch == "basis":
         upstream.verification.tables[0].source_basis = "progress log"
+    else:
+        upstream.verification.tables[0].source_sha256 = "0" * 64
 
     with pytest.raises(BerdlStagingPlanError):
         build_berdl_staging_outcome(

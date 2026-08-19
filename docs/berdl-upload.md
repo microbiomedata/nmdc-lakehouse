@@ -176,8 +176,10 @@ The executor passes an argument vector directly to the reviewed BERIL command;
 it does not invoke a shell. After BERIL exits successfully, it revalidates the
 plan, snapshot, and external source revision. It then requires the upstream
 outcome to report the planned bucket, bronze prefix, staging namespace, exact
-table set, and matching source-versus-catalog row counts for every manifested
-Parquet artifact. Only then does it create the immutable, credential-free NMDC
+table set, object-storage-verified source SHA-256, and matching
+source-versus-catalog row counts for every manifested Parquet artifact. The
+source digest must equal the artifact digest in the reviewed snapshot. Only
+then does it create the immutable, credential-free NMDC
 outcome with status `data-verified`.
 
 Failure does not remove the unique bronze prefix, progress key, config key, or
