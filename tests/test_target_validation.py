@@ -165,6 +165,48 @@ def test_bounded_report_distinguishes_sampling_from_full_validation(tmp_path: Pa
     assert report.tables[0].selected_rows == 3
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_nonfinite_numbers_are_sanitized_failures_in_full_and_sampled_modes(
+    tmp_path: Path,
+    value: float,
+) -> None:
+    path = tmp_path / "biosample_set.parquet"
+    pq.write_table(
+        pa.Table.from_pylist(
+            [
+                {
+                    "id": "nmdc:bsm-1",
+                    "type": "nmdc:Biosample",
+                    "abs_air_humidity_has_numeric_value": value,
+                }
+            ]
+        ),
+        path,
+    )
+    artifact = _artifact(path, target_class="BiosampleFlat", source_class="Biosample", mapping=PRIMARY_MAPPING_ID)
+    manifest = _manifest([artifact])
+
+    full = build_target_validation_report(tmp_path, manifest, PUBLISHED_SCHEMA, requested_mode="full")
+    sampled = build_target_validation_report(
+        tmp_path,
+        manifest,
+        PUBLISHED_SCHEMA,
+        full_table_max_rows=0,
+        sample_rows=1,
+    )
+
+    assert full.tables[0].issue_categories == sampled.tables[0].issue_categories
+    for report in (full, sampled):
+        assert report.status == "failure"
+        assert report.invalid_rows == 1
+        categories = {
+            (issue.severity, issue.rule, issue.path, issue.count) for issue in report.tables[0].issue_categories
+        }
+        assert ("ERROR", "finite-number", "/abs_air_humidity_has_numeric_value", 1) in categories
+        assert "nan" not in report.model_dump_json().lower()
+        assert "infinity" not in report.model_dump_json().lower()
+
+
 def test_schema_and_class_contract_mismatches_fail_closed(tmp_path: Path) -> None:
     path = tmp_path / "study_set.parquet"
     pq.write_table(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import heapq
 import json
+import math
 import os
 import re
 import tempfile
@@ -118,6 +119,20 @@ def _canonical_default(value: Any) -> str:
     raise TypeError(f"Unsupported canonical value type: {type(value).__name__}")
 
 
+def _canonical_value(value: Any) -> Any:
+    """Represent non-finite numbers deterministically for sampling only."""
+    if isinstance(value, float) and not math.isfinite(value):
+        label = "nan" if math.isnan(value) else ("infinity" if value > 0 else "-infinity")
+        return {"__nmdc_lakehouse_nonfinite_number__": label}
+    if isinstance(value, Decimal) and not value.is_finite():
+        return {"__nmdc_lakehouse_nonfinite_number__": str(value).lower()}
+    if isinstance(value, dict):
+        return {key: _canonical_value(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_canonical_value(item) for item in value]
+    return value
+
+
 def _instance(row: dict[str, Any]) -> dict[str, Any]:
     """Treat Parquet nulls as absent optional LinkML slots."""
     return {name: value for name, value in row.items() if value is not None}
@@ -126,7 +141,7 @@ def _instance(row: dict[str, Any]) -> dict[str, Any]:
 def _canonical_bytes(row: dict[str, Any]) -> bytes:
     try:
         return json.dumps(
-            row,
+            _canonical_value(row),
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=True,
@@ -172,15 +187,30 @@ def _sanitized_category(result: ValidationResult) -> tuple[str, str, str]:
     source = result.source
     raw_rule = str(getattr(source, "validator", "validation"))
     rule = raw_rule if re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,63}", raw_rule) else "validation"
+    return result.severity.value, rule, _sanitized_path(getattr(source, "absolute_path", ()))
+
+
+def _sanitized_path(path: Any) -> str:
     components = []
-    for component in getattr(source, "absolute_path", ()):
+    for component in path:
         if isinstance(component, int):
             components.append("*")
         else:
             name = str(component)
             components.append(name if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", name) else "field")
-    path = "/" + "/".join(components) if components else "/"
-    return result.severity.value, rule, path
+    return "/" + "/".join(components) if components else "/"
+
+
+def _nonfinite_paths(value: Any, path: tuple[str | int, ...] = ()) -> list[str]:
+    if isinstance(value, float) and not math.isfinite(value):
+        return [_sanitized_path(path)]
+    if isinstance(value, Decimal) and not value.is_finite():
+        return [_sanitized_path(path)]
+    if isinstance(value, dict):
+        return [found for key, item in value.items() for found in _nonfinite_paths(item, (*path, str(key)))]
+    if isinstance(value, list | tuple):
+        return [found for index, item in enumerate(value) for found in _nonfinite_paths(item, (*path, index))]
+    return []
 
 
 def _validate_rows(
@@ -193,13 +223,15 @@ def _validate_rows(
     invalid = 0
     categories: Counter[tuple[str, str, str]] = Counter()
     for row in rows:
+        nonfinite_paths = _nonfinite_paths(row)
         results = list(validator.iter_results(row, target_class))
         errors = [result for result in results if result.severity.value in {"ERROR", "FATAL"}]
-        if errors:
+        if errors or nonfinite_paths:
             invalid += 1
         else:
             valid += 1
         categories.update(_sanitized_category(result) for result in results)
+        categories.update(("ERROR", "finite-number", path) for path in nonfinite_paths)
     issues = [
         IssueCategory(severity=severity, rule=rule, path=path, count=count)
         for (severity, rule, path), count in sorted(categories.items())
