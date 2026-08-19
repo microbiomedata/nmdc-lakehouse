@@ -548,6 +548,53 @@ def test_loaded_plan_hashes_every_reviewed_artifact(tmp_path: Path, monkeypatch:
         )
 
 
+def test_loaded_plan_revalidates_snapshot_after_assembly(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    manifest, bundle, inventory, publication_plan, metadata_plan, target_validation, checkout = _inputs(tmp_path)
+    changed_manifest = manifest.model_copy(deep=True)
+    changed_manifest.artifacts[0].sha256 = "0" * 64
+    snapshot = tmp_path / "snapshot"
+    snapshot.mkdir()
+    paths = {
+        "manifest": snapshot / "snapshot-manifest.json",
+        "bundle": tmp_path / "bundle.json",
+        "inventory": tmp_path / "inventory.json",
+        "publication": tmp_path / "publication.json",
+        "metadata": tmp_path / "metadata.json",
+        "target": tmp_path / "target-validation.json",
+    }
+    for name, path in paths.items():
+        path.write_text(name + "\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "nmdc_lakehouse.berdl_staging.validate_snapshot",
+        lambda _path: validate_results.pop(0),
+    )
+    monkeypatch.setattr("nmdc_lakehouse.berdl_staging.load_metadata_bundle", lambda _path: bundle)
+    monkeypatch.setattr("nmdc_lakehouse.berdl_staging.load_destination_inventory", lambda _path: inventory)
+    monkeypatch.setattr("nmdc_lakehouse.berdl_staging.load_publication_plan", lambda _path: publication_plan)
+    monkeypatch.setattr("nmdc_lakehouse.berdl_staging.load_metadata_application_plan", lambda _path: metadata_plan)
+    monkeypatch.setattr("nmdc_lakehouse.berdl_staging.load_target_validation_report", lambda _path: target_validation)
+    validate_results = [manifest, changed_manifest]
+
+    with pytest.raises(BerdlStagingPlanError, match="manifested snapshot changed"):
+        plan_berdl_staging(
+            snapshot,
+            bundle_path=paths["bundle"],
+            inventory_path=paths["inventory"],
+            publication_plan_path=paths["publication"],
+            metadata_plan_path=paths["metadata"],
+            target_validation_path=paths["target"],
+            beril_checkout=checkout,
+            beril_revision=REVISION,
+            tenant="nmdc",
+            dataset="nmdc_metadata_staging_20260819",
+            bucket="cdm-lake",
+            bronze_prefix="tenant-general-warehouse/nmdc/staging/20260819",
+            progress_key="tenant-general-warehouse/nmdc/staging/20260819/progress.jsonl",
+            config_key="tenant-general-warehouse/nmdc/staging/20260819/config.json",
+            runner=GitRunner(),
+        )
+
+
 def test_cli_writes_the_same_plan_it_prints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     plan = _build(tmp_path)
     output = tmp_path / "cli-plan.json"

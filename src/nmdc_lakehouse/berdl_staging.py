@@ -492,13 +492,11 @@ def plan_berdl_staging(
     publication_plan = load_publication_plan(publication_plan_path)
     metadata_plan = load_metadata_application_plan(metadata_plan_path)
     target_validation = load_target_validation_report(target_validation_path)
-    if digests != [_sha256(path, label) for path, _name, label in paths]:
-        raise BerdlStagingPlanError("A reviewed input changed while the BERDL staging plan was built.")
     evidence = [
         EvidenceDigest(name=name, path=str(path.expanduser().resolve()), sha256=digest)
         for (path, name, _label), digest in zip(paths, digests, strict=True)
     ]
-    return build_berdl_staging_plan(
+    plan = build_berdl_staging_plan(
         snapshot_root=root,
         manifest=manifest,
         bundle=bundle,
@@ -517,6 +515,12 @@ def plan_berdl_staging(
         config_key=config_key,
         runner=runner,
     )
+    final_manifest = validate_snapshot(root)
+    if final_manifest != manifest:
+        raise BerdlStagingPlanError("The manifested snapshot changed while the BERDL staging plan was built.")
+    if digests != [_sha256(path, label) for path, _name, label in paths]:
+        raise BerdlStagingPlanError("A reviewed input changed while the BERDL staging plan was built.")
+    return plan
 
 
 def render_berdl_staging_plan(plan: BerdlStagingPlan) -> str:
