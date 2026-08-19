@@ -458,6 +458,64 @@ def berdl_upload_plan_command(
     click.echo(f"plan={destination}", err=True)
 
 
+@cli.command("berdl-upload")
+@click.argument("plan_path", type=click.Path(path_type=Path, dir_okay=False))
+@click.option(
+    "--upstream-outcome",
+    "upstream_outcome_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    required=True,
+)
+@click.option("--output", "output_path", type=click.Path(path_type=Path, dir_okay=False), required=True)
+@click.option("--authorize-snapshot", help="Exact snapshot ID approved for this invocation.")
+@click.option(
+    "--execute-staging",
+    is_flag=True,
+    help="Run the reviewed staging command; the default only previews it.",
+)
+def berdl_upload_command(
+    plan_path: Path,
+    upstream_outcome_path: Path,
+    output_path: Path,
+    authorize_snapshot: str | None,
+    execute_staging: bool,
+) -> None:
+    """Preview or execute and independently verify one reviewed BERDL plan."""
+    import json
+
+    from nmdc_lakehouse.berdl_staging import BerdlStagingPlanError, execute_berdl_staging
+    from nmdc_lakehouse.metadata_application import MetadataApplicationError
+    from nmdc_lakehouse.metadata_bundle import MetadataBundleError
+    from nmdc_lakehouse.publication_plan import PublicationPlanError
+    from nmdc_lakehouse.publication_preflight import PublicationPreflightError
+    from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError
+    from nmdc_lakehouse.target_validation import TargetValidationError
+
+    try:
+        command, outcome = execute_berdl_staging(
+            plan_path,
+            upstream_outcome_path=upstream_outcome_path,
+            output_path=output_path,
+            authorize_snapshot=authorize_snapshot,
+            execute_staging=execute_staging,
+        )
+    except (
+        BerdlStagingPlanError,
+        MetadataApplicationError,
+        MetadataBundleError,
+        PublicationPlanError,
+        PublicationPreflightError,
+        SnapshotManifestError,
+        TargetValidationError,
+    ) as error:
+        raise click.ClickException(str(error)) from error
+    if outcome is None:
+        click.echo(json.dumps({"status": "preview-only", "command": command}, indent=2))
+    else:
+        click.echo(json.dumps(outcome.model_dump(mode="json"), indent=2, sort_keys=True))
+        click.echo(f"outcome={output_path.expanduser().resolve()}", err=True)
+
+
 @cli.command("berdl-doctor")
 @click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
 @click.option(

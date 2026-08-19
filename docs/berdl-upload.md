@@ -138,10 +138,54 @@ Observatory remains an optional operator resource and is not a runtime or
 release dependency of this workflow.
 
 The generated command intentionally omits the BERIL execution flag and outcome
-path. Do not add them by hand. Live execution and independent outcome checking
-remain tracked in [#136](https://github.com/microbiomedata/nmdc-lakehouse/issues/136),
-and catalog metadata application remains tracked in
-[#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114).
+path. Do not add them by hand.
+
+## Preview and execute verified data staging
+
+Use the maintained executor only with a BERIL revision that contains the
+reviewed non-interactive Parquet staging command and its immutable outcome
+contract. Preview is the default:
+
+```bash
+just berdl-upload \
+  /path/to/berdl-staging-plan.json \
+  /path/to/beril-upstream-outcome.json \
+  /path/to/nmdc-staging-outcome.json
+```
+
+Preview re-hashes and reloads every reviewed input, validates the snapshot,
+rechecks the clean BERIL revision and source hashes, and reconstructs the
+argument vector. It does not start the BERIL process, read credentials, contact
+a service, upload data, or change a catalog. The upstream and NMDC outcome paths
+must not already exist.
+
+After reviewing that preview, execute the same plan with the snapshot ID printed
+in the plan as a fresh, invocation-specific authorization:
+
+```bash
+just berdl-upload \
+  /path/to/berdl-staging-plan.json \
+  /path/to/beril-upstream-outcome.json \
+  /path/to/nmdc-staging-outcome.json \
+  --execute-staging \
+  --authorize-snapshot 'sha256:FULL_SNAPSHOT_DIGEST'
+```
+
+The executor passes an argument vector directly to the reviewed BERIL command;
+it does not invoke a shell. After BERIL exits successfully, it revalidates the
+plan, snapshot, and external source revision. It then requires the upstream
+outcome to report the planned bucket, bronze prefix, staging namespace, exact
+table set, and matching source-versus-catalog row counts for every manifested
+Parquet artifact. Only then does it create the immutable, credential-free NMDC
+outcome with status `data-verified`.
+
+Failure does not remove the unique bronze prefix, progress key, config key, or
+staging namespace. Retain them with the upstream outcome for diagnosis and make
+any retry an explicit new invocation. A `data-verified` outcome does not claim
+that catalog metadata was applied or that canonical replacement is authorized.
+Those remain separate work in
+[#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114) and
+[#234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
 
 The destination, catalog, and table format are explicit observations. Do not
 copy the historical Delta examples below unless current discovery confirms

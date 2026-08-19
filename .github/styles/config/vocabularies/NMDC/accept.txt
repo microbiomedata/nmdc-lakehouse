@@ -12,6 +12,7 @@ Arrow
 Authy
 BAM
 BERDL
+BERIL's
 BioProject
 BioSample
 biosamples

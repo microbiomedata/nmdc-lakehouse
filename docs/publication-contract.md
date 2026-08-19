@@ -289,9 +289,18 @@ source hashes, and the exact plan-only argument vector. Its dataset name must us
 `<name>_staging_<suffix>` form, and its object prefix must be inside the tenant's
 staging area. The output is created once and is not overwritten.
 
-This is command planning, not command execution. It does not read credentials,
-start a tunnel, invoke BERIL, upload data, create a table, apply metadata, or
-authorize a canonical change. See the
+The plan does not read credentials, start a tunnel, invoke BERIL, upload data,
+create a table, apply metadata, or authorize a canonical change. The maintained
+executor reloads and reconstructs this plan, previews by default, and requires
+an explicit snapshot-bound authorization before invoking the reviewed BERIL
+command without a shell. It accepts success only when BERIL's immutable outcome
+identifies the planned staging destination and independently reports matching
+source Parquet and catalog row counts for the complete manifested table set.
+
+The executor revalidates the plan and evidence after the live command, then
+creates a separate immutable NMDC outcome with status `data-verified`. That
+status means data staging passed; it does not mean metadata was applied or the
+canonical namespace may be changed. See the
 [BERDL upload guide](berdl-upload.md#build-the-maintained-staging-command-plan)
 for the complete recipe interface.
 

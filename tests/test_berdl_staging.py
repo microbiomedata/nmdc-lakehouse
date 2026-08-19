@@ -13,8 +13,12 @@ from nmdc_lakehouse import berdl_staging
 from nmdc_lakehouse.berdl_staging import (
     BerdlStagingPlanError,
     EvidenceDigest,
+    UpstreamStagingOutcome,
+    build_berdl_staging_outcome,
     build_berdl_staging_plan,
+    execute_berdl_staging,
     plan_berdl_staging,
+    revalidate_berdl_staging_plan,
     write_berdl_staging_plan,
 )
 from nmdc_lakehouse.cli import cli
@@ -309,6 +313,78 @@ def _build(tmp_path: Path, **changes):
     }
     values.update(changes)
     return build_berdl_staging_plan(**values)
+
+
+def _persisted_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    manifest, bundle, inventory, publication_plan, metadata_plan, target_validation, checkout = _inputs(tmp_path)
+    snapshot = tmp_path / "snapshot"
+    snapshot.mkdir()
+    paths = {
+        "manifest": snapshot / "snapshot-manifest.json",
+        "bundle": tmp_path / "bundle.json",
+        "inventory": tmp_path / "inventory.json",
+        "publication": tmp_path / "publication.json",
+        "metadata": tmp_path / "metadata.json",
+        "target": tmp_path / "target-validation.json",
+    }
+    for name, path in paths.items():
+        path.write_text(name + "\n", encoding="utf-8")
+    monkeypatch.setattr("nmdc_lakehouse.berdl_staging.validate_snapshot", lambda _path: manifest)
+    monkeypatch.setattr("nmdc_lakehouse.berdl_staging.load_metadata_bundle", lambda _path: bundle)
+    monkeypatch.setattr("nmdc_lakehouse.berdl_staging.load_destination_inventory", lambda _path: inventory)
+    monkeypatch.setattr("nmdc_lakehouse.berdl_staging.load_publication_plan", lambda _path: publication_plan)
+    monkeypatch.setattr("nmdc_lakehouse.berdl_staging.load_metadata_application_plan", lambda _path: metadata_plan)
+    monkeypatch.setattr("nmdc_lakehouse.berdl_staging.load_target_validation_report", lambda _path: target_validation)
+    plan = plan_berdl_staging(
+        snapshot,
+        bundle_path=paths["bundle"],
+        inventory_path=paths["inventory"],
+        publication_plan_path=paths["publication"],
+        metadata_plan_path=paths["metadata"],
+        target_validation_path=paths["target"],
+        beril_checkout=checkout,
+        beril_revision=REVISION,
+        tenant="nmdc",
+        dataset="nmdc_metadata_staging_20260819",
+        bucket="cdm-lake",
+        bronze_prefix="tenant-general-warehouse/nmdc/staging/20260819",
+        progress_key="tenant-general-warehouse/nmdc/staging/20260819/progress.jsonl",
+        config_key="tenant-general-warehouse/nmdc/staging/20260819/config.json",
+        runner=GitRunner(),
+    )
+    plan_path = tmp_path / "staging-plan.json"
+    write_berdl_staging_plan(plan_path, plan)
+    return plan, plan_path, paths, checkout
+
+
+def _upstream_outcome(plan, **changes) -> UpstreamStagingOutcome:
+    document = {
+        "schema_version": "1.0.0",
+        "status": "verified",
+        "started_at": "2026-08-19T17:00:00+00:00",
+        "finished_at": "2026-08-19T17:02:00+00:00",
+        "destination": {
+            "bucket": plan.bucket,
+            "bronze_prefix": plan.bronze_prefix,
+            "namespace": plan.staging_namespace,
+            "mode": "overwrite",
+        },
+        "verification": {
+            "verified": True,
+            "namespace": plan.staging_namespace,
+            "tables": [
+                {
+                    "table": "biosample_set",
+                    "status": "verified",
+                    "source_rows": 1,
+                    "destination_rows": 1,
+                    "source_basis": "source parquet",
+                }
+            ],
+        },
+    }
+    document.update(changes)
+    return UpstreamStagingOutcome.model_validate(document)
 
 
 def test_plan_binds_candidate_and_exact_plan_only_command(tmp_path: Path) -> None:
@@ -733,3 +809,223 @@ def test_cli_writes_the_same_plan_it_prints(tmp_path: Path, monkeypatch: pytest.
     assert json.loads(result.stdout) == plan.model_dump(mode="json")
     assert json.loads(output.read_text(encoding="utf-8")) == plan.model_dump(mode="json")
     assert f"plan={output.resolve()}" in result.stderr
+
+
+def test_revalidation_rejects_stale_evidence_and_changed_beril_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan, _plan_path, paths, checkout = _persisted_plan(tmp_path, monkeypatch)
+    assert revalidate_berdl_staging_plan(plan, runner=GitRunner()) == plan
+
+    paths["bundle"].write_text("changed\n", encoding="utf-8")
+    with pytest.raises(BerdlStagingPlanError, match="no longer matches"):
+        revalidate_berdl_staging_plan(plan, runner=GitRunner())
+
+    paths["bundle"].write_text("bundle\n", encoding="utf-8")
+    (checkout / "scripts" / "ingest_lib.py").write_text("changed\n", encoding="utf-8")
+    with pytest.raises(BerdlStagingPlanError, match="no longer matches"):
+        revalidate_berdl_staging_plan(plan, runner=GitRunner())
+
+
+def test_revalidation_rejects_edited_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    plan, _plan_path, _paths, _checkout_value = _persisted_plan(tmp_path, monkeypatch)
+    plan.command.append("--unreviewed-option")
+
+    with pytest.raises(BerdlStagingPlanError, match="no longer matches"):
+        revalidate_berdl_staging_plan(plan, runner=GitRunner())
+
+
+def test_preview_revalidates_without_starting_staging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    plan, plan_path, _paths, _checkout_value = _persisted_plan(tmp_path, monkeypatch)
+
+    def fail_if_called(_command):
+        pytest.fail("preview must not start the staging subprocess")
+
+    command, outcome = execute_berdl_staging(
+        plan_path,
+        upstream_outcome_path=tmp_path / "upstream.json",
+        output_path=tmp_path / "outcome.json",
+        authorize_snapshot=None,
+        execute_staging=False,
+        checkout_runner=GitRunner(),
+        staging_runner=fail_if_called,
+    )
+
+    assert outcome is None
+    assert command[:-3] == plan.command
+    assert command[-3:] == ["--outcome", str((tmp_path / "upstream.json").resolve()), "--execute-staging"]
+
+
+def test_preview_rejects_existing_upstream_outcome(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _plan, plan_path, _paths, _checkout_value = _persisted_plan(tmp_path, monkeypatch)
+    upstream_path = tmp_path / "upstream.json"
+    upstream_path.write_text("existing\n", encoding="utf-8")
+
+    with pytest.raises(BerdlStagingPlanError, match="Refusing to replace"):
+        execute_berdl_staging(
+            plan_path,
+            upstream_outcome_path=upstream_path,
+            output_path=tmp_path / "outcome.json",
+            authorize_snapshot=None,
+            execute_staging=False,
+            checkout_runner=GitRunner(),
+            staging_runner=lambda _command: pytest.fail("preview must not stage"),
+        )
+
+
+def test_execution_requires_exact_snapshot_authorization(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _plan, plan_path, _paths, _checkout_value = _persisted_plan(tmp_path, monkeypatch)
+
+    with pytest.raises(BerdlStagingPlanError, match="exact snapshot ID"):
+        execute_berdl_staging(
+            plan_path,
+            upstream_outcome_path=tmp_path / "upstream.json",
+            output_path=tmp_path / "outcome.json",
+            authorize_snapshot="sha256:stale",
+            execute_staging=True,
+            checkout_runner=GitRunner(),
+            staging_runner=lambda _command: pytest.fail("authorization must precede staging"),
+        )
+
+
+def test_execution_rejects_subprocess_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _plan, plan_path, _paths, _checkout_value = _persisted_plan(tmp_path, monkeypatch)
+
+    with pytest.raises(BerdlStagingPlanError, match="did not complete"):
+        execute_berdl_staging(
+            plan_path,
+            upstream_outcome_path=tmp_path / "upstream.json",
+            output_path=tmp_path / "outcome.json",
+            authorize_snapshot=SNAPSHOT_ID,
+            execute_staging=True,
+            checkout_runner=GitRunner(),
+            staging_runner=lambda command: subprocess.CompletedProcess(command, 1),
+        )
+
+
+@pytest.mark.parametrize("contents", [None, "not JSON"])
+def test_execution_rejects_missing_or_malformed_upstream_outcome(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, contents: str | None
+) -> None:
+    _plan, plan_path, _paths, _checkout_value = _persisted_plan(tmp_path, monkeypatch)
+    upstream_path = tmp_path / "upstream.json"
+
+    def run_staging(command):
+        if contents is not None:
+            upstream_path.write_text(contents, encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0)
+
+    with pytest.raises(BerdlStagingPlanError, match="upstream outcome"):
+        execute_berdl_staging(
+            plan_path,
+            upstream_outcome_path=upstream_path,
+            output_path=tmp_path / "outcome.json",
+            authorize_snapshot=SNAPSHOT_ID,
+            execute_staging=True,
+            checkout_runner=GitRunner(),
+            staging_runner=run_staging,
+        )
+
+
+def test_execution_rejects_evidence_changed_during_staging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _plan, plan_path, paths, _checkout_value = _persisted_plan(tmp_path, monkeypatch)
+
+    def run_staging(command):
+        paths["bundle"].write_text("changed during staging\n", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0)
+
+    with pytest.raises(BerdlStagingPlanError, match="no longer matches"):
+        execute_berdl_staging(
+            plan_path,
+            upstream_outcome_path=tmp_path / "upstream.json",
+            output_path=tmp_path / "outcome.json",
+            authorize_snapshot=SNAPSHOT_ID,
+            execute_staging=True,
+            checkout_runner=GitRunner(),
+            staging_runner=run_staging,
+        )
+
+
+def test_execution_writes_independently_verified_immutable_outcome(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan, plan_path, _paths, _checkout_value = _persisted_plan(tmp_path, monkeypatch)
+    upstream_path = tmp_path / "upstream.json"
+    output_path = tmp_path / "outcome.json"
+    calls = []
+
+    def run_staging(command):
+        calls.append(command)
+        upstream_path.write_text(_upstream_outcome(plan).model_dump_json(), encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0)
+
+    command, outcome = execute_berdl_staging(
+        plan_path,
+        upstream_outcome_path=upstream_path,
+        output_path=output_path,
+        authorize_snapshot=SNAPSHOT_ID,
+        execute_staging=True,
+        checkout_runner=GitRunner(),
+        staging_runner=run_staging,
+    )
+
+    assert calls == [command]
+    assert outcome is not None
+    assert outcome.status == "data-verified"
+    assert outcome.tables[0].rows == outcome.tables[0].destination_rows == 1
+    assert json.loads(output_path.read_text(encoding="utf-8")) == outcome.model_dump(mode="json")
+    with pytest.raises(BerdlStagingPlanError, match="Refusing to replace"):
+        execute_berdl_staging(
+            plan_path,
+            upstream_outcome_path=tmp_path / "second-upstream.json",
+            output_path=output_path,
+            authorize_snapshot=SNAPSHOT_ID,
+            execute_staging=True,
+            checkout_runner=GitRunner(),
+            staging_runner=lambda command: subprocess.CompletedProcess(command, 0),
+        )
+
+
+@pytest.mark.parametrize("mismatch", ["destination", "tables", "rows", "basis"])
+def test_upstream_outcome_must_match_destination_tables_and_counts(tmp_path: Path, mismatch: str) -> None:
+    plan = _build(tmp_path)
+    upstream = _upstream_outcome(plan)
+    if mismatch == "destination":
+        upstream.destination.namespace = "nmdc.other_staging_20260819"
+    elif mismatch == "tables":
+        upstream.verification.tables = []
+    elif mismatch == "rows":
+        upstream.verification.tables[0].destination_rows = 0
+    else:
+        upstream.verification.tables[0].source_basis = "progress log"
+
+    with pytest.raises(BerdlStagingPlanError):
+        build_berdl_staging_outcome(
+            plan,
+            upstream,
+            staging_plan_sha256="a" * 64,
+            upstream_outcome_sha256="b" * 64,
+        )
+
+
+def test_cli_previews_staging_without_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    expected_command = ["python", "ingest_dataset.py", "--execute-staging"]
+    monkeypatch.setattr(
+        "nmdc_lakehouse.berdl_staging.execute_berdl_staging",
+        lambda *_args, **_kwargs: (expected_command, None),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "berdl-upload",
+            "plan.json",
+            "--upstream-outcome",
+            str(tmp_path / "upstream.json"),
+            "--output",
+            str(tmp_path / "outcome.json"),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout) == {"status": "preview-only", "command": expected_command}

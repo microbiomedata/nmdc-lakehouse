@@ -45,6 +45,10 @@ metadata-application-plan BUNDLE INVENTORY STAGING_NAMESPACE *ARGS:
 berdl-upload-plan SNAPSHOT_ROOT BUNDLE INVENTORY PLAN METADATA_PLAN TARGET_VALIDATION INGEST_CHECKOUT INGEST_REVISION TENANT DATASET BUCKET BRONZE_PREFIX PROGRESS_KEY CONFIG_KEY OUTPUT *ARGS:
     uv run --no-sync nmdc-lakehouse berdl-upload-plan "{{ SNAPSHOT_ROOT }}" --bundle "{{ BUNDLE }}" --inventory "{{ INVENTORY }}" --plan "{{ PLAN }}" --metadata-plan "{{ METADATA_PLAN }}" --target-validation "{{ TARGET_VALIDATION }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" --ingest-revision "{{ INGEST_REVISION }}" --tenant "{{ TENANT }}" --dataset "{{ DATASET }}" --bucket "{{ BUCKET }}" --bronze-prefix "{{ BRONZE_PREFIX }}" --progress-key "{{ PROGRESS_KEY }}" --config-key "{{ CONFIG_KEY }}" --output "{{ OUTPUT }}" {{ ARGS }}
 
+# Preview or execute one reviewed BERDL staging plan and verify its outcome.
+berdl-upload PLAN UPSTREAM_OUTCOME OUTCOME *ARGS:
+    uv run --no-sync nmdc-lakehouse berdl-upload "{{ PLAN }}" --upstream-outcome "{{ UPSTREAM_OUTCOME }}" --output "{{ OUTCOME }}" {{ ARGS }}
+
 # Preserve an existing configured Git hooks-path policy instead of replacing it.
 [private]
 _install-pre-commit-hook:
