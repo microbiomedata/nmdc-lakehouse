@@ -14,7 +14,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from nmdc_lakehouse.metadata_application import MetadataApplicationPlan, load_metadata_application_plan
+from nmdc_lakehouse.metadata_application import (
+    MetadataApplicationPlan,
+    build_metadata_application_plan,
+    load_metadata_application_plan,
+)
 from nmdc_lakehouse.metadata_bundle import MetadataBundle, load_metadata_bundle
 from nmdc_lakehouse.publication_plan import (
     DestinationInventory,
@@ -25,7 +29,11 @@ from nmdc_lakehouse.publication_plan import (
 )
 from nmdc_lakehouse.publication_preflight import build_publication_preflight
 from nmdc_lakehouse.snapshot_manifest import MANIFEST_NAME, SnapshotManifest, validate_snapshot
-from nmdc_lakehouse.target_validation import TargetValidationReport, load_target_validation_report
+from nmdc_lakehouse.target_validation import (
+    SAMPLING_ALGORITHM,
+    TargetValidationReport,
+    load_target_validation_report,
+)
 
 PLAN_FORMAT_VERSION: Literal[1] = 1
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
@@ -180,33 +188,8 @@ def _require_metadata_agreement(
     metadata_plan: MetadataApplicationPlan,
     staging_namespace: str,
 ) -> None:
-    expected = (
-        manifest.snapshot_id,
-        bundle.profile_id,
-        bundle.generated_at,
-        bundle.namespace.name,
-        inventory.destination_id,
-        inventory.observed_at,
-        inventory.provider,
-        inventory.table_format,
-        sorted(inventory.metadata_capabilities),
-        staging_namespace,
-        sorted(artifact.table for artifact in manifest.artifacts),
-    )
-    actual = (
-        metadata_plan.snapshot_id,
-        metadata_plan.profile_id,
-        metadata_plan.bundle_generated_at,
-        metadata_plan.source_namespace,
-        metadata_plan.destination_id,
-        metadata_plan.destination_observed_at,
-        metadata_plan.destination_provider,
-        metadata_plan.destination_table_format,
-        sorted(metadata_plan.destination_metadata_capabilities),
-        metadata_plan.staging_namespace,
-        metadata_plan.tables,
-    )
-    if actual != expected:
+    expected = build_metadata_application_plan(bundle, inventory, staging_namespace)
+    if metadata_plan != expected or metadata_plan.snapshot_id != manifest.snapshot_id:
         raise BerdlStagingPlanError("The metadata application plan does not match the reviewed publication evidence.")
 
 
@@ -229,16 +212,22 @@ def _require_target_validation(manifest: SnapshotManifest, report: TargetValidat
         raise BerdlStagingPlanError("The target validation report source schema does not match the snapshot.")
     for name, artifact in artifacts.items():
         table = tables[name]
+        full = report.requested_mode == "full" or artifact.rows <= report.full_table_max_rows
+        expected_mode = "full" if full else "sampled"
+        expected_selected = artifact.rows if full else min(artifact.rows, report.sample_rows)
         if (
             table.artifact_path != artifact.path
             or table.target_class != artifact.target_class
             or table.eligible_rows != artifact.rows
+            or table.mode != expected_mode
+            or table.selected_rows != expected_selected
             or table.selected_rows != table.valid_rows
             or table.invalid_rows != 0
         ):
             raise BerdlStagingPlanError(f"Target validation evidence does not match table '{name}'.")
     if (
-        report.eligible_rows != sum(artifact.rows for artifact in manifest.artifacts)
+        report.sampling_algorithm != SAMPLING_ALGORITHM
+        or report.eligible_rows != sum(artifact.rows for artifact in manifest.artifacts)
         or report.selected_rows != sum(table.selected_rows for table in report.tables)
         or report.valid_rows != report.selected_rows
     ):
@@ -420,12 +409,6 @@ def plan_berdl_staging(
 ) -> BerdlStagingPlan:
     """Load and bind all reviewed inputs without contacting BERDL."""
     root = snapshot_root.expanduser()
-    manifest = validate_snapshot(root)
-    bundle = load_metadata_bundle(bundle_path)
-    inventory = load_destination_inventory(inventory_path)
-    publication_plan = load_publication_plan(publication_plan_path)
-    metadata_plan = load_metadata_application_plan(metadata_plan_path)
-    target_validation = load_target_validation_report(target_validation_path)
     paths = (
         (root / MANIFEST_NAME, "snapshot-manifest.json", "snapshot manifest"),
         (bundle_path, "metadata-bundle.json", "metadata bundle"),
@@ -434,9 +417,18 @@ def plan_berdl_staging(
         (metadata_plan_path, "metadata-application-plan.json", "metadata application plan"),
         (target_validation_path, "target-validation-report.json", "target validation report"),
     )
+    digests = [_sha256(path, label) for path, _name, label in paths]
+    manifest = validate_snapshot(root)
+    bundle = load_metadata_bundle(bundle_path)
+    inventory = load_destination_inventory(inventory_path)
+    publication_plan = load_publication_plan(publication_plan_path)
+    metadata_plan = load_metadata_application_plan(metadata_plan_path)
+    target_validation = load_target_validation_report(target_validation_path)
+    if digests != [_sha256(path, label) for path, _name, label in paths]:
+        raise BerdlStagingPlanError("A reviewed input changed while the BERDL staging plan was built.")
     evidence = [
-        EvidenceDigest(name=name, path=str(path.expanduser().resolve()), sha256=_sha256(path, label))
-        for path, name, label in paths
+        EvidenceDigest(name=name, path=str(path.expanduser().resolve()), sha256=digest)
+        for (path, name, _label), digest in zip(paths, digests, strict=True)
     ]
     return build_berdl_staging_plan(
         snapshot_root=root,

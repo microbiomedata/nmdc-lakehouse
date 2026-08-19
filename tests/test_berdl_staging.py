@@ -297,6 +297,24 @@ def test_metadata_plan_must_match_snapshot_and_staging_namespace(tmp_path: Path)
         )
 
 
+def test_metadata_plan_must_match_all_reviewed_operations(tmp_path: Path) -> None:
+    manifest, bundle, inventory, publication_plan, metadata_plan, target_validation, checkout = _inputs(tmp_path)
+    assert metadata_plan.supported_operations
+    metadata_plan.supported_operations = []
+
+    with pytest.raises(BerdlStagingPlanError, match="metadata application plan"):
+        _build(
+            tmp_path,
+            manifest=manifest,
+            bundle=bundle,
+            inventory=inventory,
+            publication_plan=publication_plan,
+            metadata_plan=metadata_plan,
+            target_validation=target_validation,
+            beril_checkout=checkout,
+        )
+
+
 @pytest.mark.parametrize(
     ("changes", "message"),
     [
@@ -351,6 +369,14 @@ def test_failed_or_incomplete_target_validation_is_rejected(tmp_path: Path) -> N
     target_validation = _target_validation(_manifest())
     target_validation.tables = []
     with pytest.raises(BerdlStagingPlanError, match="table coverage"):
+        _build(tmp_path, target_validation=target_validation)
+
+    target_validation = _target_validation(_manifest())
+    target_validation.tables[0].selected_rows = 0
+    target_validation.tables[0].valid_rows = 0
+    target_validation.selected_rows = 0
+    target_validation.valid_rows = 0
+    with pytest.raises(BerdlStagingPlanError, match="does not match table"):
         _build(tmp_path, target_validation=target_validation)
 
 
@@ -414,6 +440,30 @@ def test_loaded_plan_hashes_every_reviewed_artifact(tmp_path: Path, monkeypatch:
     ]
     assert [item.path for item in plan.evidence] == [str(path.resolve()) for path in paths.values()]
     assert len({item.sha256 for item in plan.evidence}) == 6
+
+    def mutate_after_loading(path: Path):
+        path.write_text("changed while loading\n", encoding="utf-8")
+        return bundle
+
+    monkeypatch.setattr("nmdc_lakehouse.berdl_staging.load_metadata_bundle", mutate_after_loading)
+    with pytest.raises(BerdlStagingPlanError, match="changed while"):
+        plan_berdl_staging(
+            snapshot,
+            bundle_path=paths["bundle"],
+            inventory_path=paths["inventory"],
+            publication_plan_path=paths["publication"],
+            metadata_plan_path=paths["metadata"],
+            target_validation_path=paths["target"],
+            beril_checkout=checkout,
+            beril_revision=REVISION,
+            tenant="nmdc",
+            dataset="nmdc_metadata_staging_20260819",
+            bucket="cdm-lake",
+            bronze_prefix="tenant-general-warehouse/nmdc/staging/20260819",
+            progress_key="tenant-general-warehouse/nmdc/staging/20260819/progress.jsonl",
+            config_key="tenant-general-warehouse/nmdc/staging/20260819/config.json",
+            runner=GitRunner(),
+        )
 
 
 def test_cli_writes_the_same_plan_it_prints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
