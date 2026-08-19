@@ -14,7 +14,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError
 
 from nmdc_lakehouse.metadata_application import (
     MetadataApplicationPlan,
@@ -179,8 +179,8 @@ class UpstreamStagingOutcome(BaseModel):
 
     schema_version: Literal["1.0.0"]
     status: Literal["verified"]
-    started_at: str
-    finished_at: str
+    started_at: AwareDatetime
+    finished_at: AwareDatetime
     destination: UpstreamDestination
     verification: UpstreamVerification
 
@@ -871,8 +871,8 @@ def build_berdl_staging_outcome(
         beril_revision=plan.beril.revision,
         staging_plan_sha256=staging_plan_sha256,
         upstream_outcome_sha256=upstream_outcome_sha256,
-        upstream_started_at=upstream.started_at,
-        upstream_finished_at=upstream.finished_at,
+        upstream_started_at=upstream.started_at.isoformat(),
+        upstream_finished_at=upstream.finished_at.isoformat(),
         tables=tables,
     )
 

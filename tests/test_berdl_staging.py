@@ -6,6 +6,7 @@ import hashlib
 import json
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -369,8 +370,8 @@ def _upstream_outcome(plan, **changes) -> UpstreamStagingOutcome:
     document = {
         "schema_version": "1.0.0",
         "status": "verified",
-        "started_at": "2026-08-19T17:00:00+00:00",
-        "finished_at": "2026-08-19T17:02:00+00:00",
+        "started_at": datetime.fromisoformat("2026-08-19T17:00:00+00:00"),
+        "finished_at": datetime.fromisoformat("2026-08-19T17:02:00+00:00"),
         "destination": {
             "bucket": plan.bucket,
             "bronze_prefix": plan.bronze_prefix,
@@ -1062,6 +1063,32 @@ def test_execution_rejects_missing_or_malformed_upstream_outcome(
         return subprocess.CompletedProcess(command, 0)
 
     with pytest.raises(BerdlStagingPlanError, match="upstream outcome"):
+        execute_berdl_staging(
+            plan_path,
+            upstream_outcome_path=upstream_path,
+            output_path=tmp_path / "outcome.json",
+            authorize_snapshot=SNAPSHOT_ID,
+            execute_staging=True,
+            authorize_plan_sha256=_file_sha256(plan_path),
+            checkout_runner=GitRunner(),
+            staging_runner=run_staging,
+        )
+
+
+@pytest.mark.parametrize("timestamp", ["not-a-timestamp", "2026-08-19T17:00:00"])
+def test_execution_rejects_invalid_or_timezone_naive_upstream_timestamp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, timestamp: str
+) -> None:
+    plan, plan_path, _paths, _checkout_value = _persisted_plan(tmp_path, monkeypatch)
+    upstream_path = tmp_path / "upstream.json"
+    document = _upstream_outcome(plan).model_dump(mode="json")
+    document["started_at"] = timestamp
+
+    def run_staging(command):
+        upstream_path.write_text(json.dumps(document), encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0)
+
+    with pytest.raises(BerdlStagingPlanError, match="supported verified outcome"):
         execute_berdl_staging(
             plan_path,
             upstream_outcome_path=upstream_path,
