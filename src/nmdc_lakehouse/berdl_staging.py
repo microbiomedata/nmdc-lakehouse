@@ -283,11 +283,15 @@ def _inspect_beril_checkout(
     checkout = checkout.resolve()
     script = checkout / "scripts" / "ingest_dataset.py"
     library = checkout / "scripts" / "ingest_lib.py"
-    python = checkout / ".venv-berdl" / "bin" / "python"
+    python_candidates = (
+        checkout / ".venv-berdl" / "bin" / "python",
+        checkout / ".venv-berdl" / "Scripts" / "python.exe",
+    )
+    python = next((candidate for candidate in python_candidates if candidate.is_file()), None)
     for path, label in ((script, "BERIL staging command"), (library, "BERIL ingest library")):
         if not path.is_file() or path.is_symlink():
             raise BerdlStagingPlanError(f"The {label} must be an ordinary file.")
-    if not python.is_file():
+    if python is None:
         raise BerdlStagingPlanError("The BERIL checkout has no .venv-berdl Python interpreter.")
     try:
         revision = runner(("git", "-C", str(checkout), "rev-parse", "--verify", "HEAD"))

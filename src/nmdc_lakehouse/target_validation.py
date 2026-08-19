@@ -416,9 +416,12 @@ def load_target_validation_report(path: Path) -> TargetValidationReport:
     if not document.is_file() or document.is_symlink():
         raise TargetValidationError("The target validation report must be an ordinary JSON file.")
     try:
-        return TargetValidationReport.model_validate_json(document.read_text(encoding="utf-8"))
+        report = TargetValidationReport.model_validate_json(document.read_text(encoding="utf-8"), strict=True)
     except (OSError, UnicodeDecodeError, ValidationError) as error:
         raise TargetValidationError("Cannot read a valid target validation report.") from error
+    if report.report_format_version != REPORT_FORMAT_VERSION:
+        raise TargetValidationError("Unsupported target validation report format version.")
+    return report
 
 
 def write_target_validation_report(output: Path, report: TargetValidationReport, *, snapshot_root: Path) -> Path:

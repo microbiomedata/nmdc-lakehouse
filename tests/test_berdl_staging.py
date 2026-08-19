@@ -142,8 +142,10 @@ def _checkout(tmp_path: Path) -> Path:
     (checkout / "scripts" / "ingest_dataset.py").write_text("# staging command\n", encoding="utf-8")
     (checkout / "scripts" / "ingest_lib.py").write_text("# ingest library\n", encoding="utf-8")
     python = checkout / ".venv-berdl" / "bin" / "python"
-    python.parent.mkdir(parents=True, exist_ok=True)
-    python.write_text("test interpreter\n", encoding="utf-8")
+    windows_python = checkout / ".venv-berdl" / "Scripts" / "python.exe"
+    if not windows_python.is_file():
+        python.parent.mkdir(parents=True, exist_ok=True)
+        python.write_text("test interpreter\n", encoding="utf-8")
     return checkout
 
 
@@ -315,6 +317,18 @@ def test_checkout_revision_and_cleanliness_are_required(tmp_path: Path) -> None:
         _build(tmp_path, runner=GitRunner(revision="b" * 40))
     with pytest.raises(BerdlStagingPlanError, match="tracked changes"):
         _build(tmp_path, runner=GitRunner(dirty=" M scripts/ingest_lib.py\n"))
+
+
+def test_windows_beril_interpreter_layout_is_supported(tmp_path: Path) -> None:
+    _manifest_value, _bundle_value, _inventory_value, _publication, _metadata, _target, checkout = _inputs(tmp_path)
+    (checkout / ".venv-berdl" / "bin" / "python").unlink()
+    python = checkout / ".venv-berdl" / "Scripts" / "python.exe"
+    python.parent.mkdir(parents=True)
+    python.write_text("test interpreter\n", encoding="utf-8")
+
+    plan = _build(tmp_path, beril_checkout=checkout)
+
+    assert plan.command[0] == str(python)
 
 
 def test_failed_or_incomplete_target_validation_is_rejected(tmp_path: Path) -> None:
