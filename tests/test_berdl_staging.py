@@ -873,6 +873,43 @@ def test_preview_rejects_existing_upstream_outcome(tmp_path: Path, monkeypatch: 
         )
 
 
+@pytest.mark.parametrize("outcome", ["upstream", "nmdc"])
+def test_staging_outcomes_cannot_be_written_inside_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outcome: str
+) -> None:
+    _plan, plan_path, paths, _checkout_value = _persisted_plan(tmp_path, monkeypatch)
+    snapshot_root = paths["manifest"].parent
+    upstream_path = snapshot_root / "upstream.json" if outcome == "upstream" else tmp_path / "upstream.json"
+    output_path = snapshot_root / "outcome.json" if outcome == "nmdc" else tmp_path / "outcome.json"
+
+    with pytest.raises(BerdlStagingPlanError, match="outside the immutable snapshot"):
+        execute_berdl_staging(
+            plan_path,
+            upstream_outcome_path=upstream_path,
+            output_path=output_path,
+            authorize_snapshot=None,
+            execute_staging=False,
+            checkout_runner=GitRunner(),
+            staging_runner=lambda _command: pytest.fail("invalid output paths must not stage"),
+        )
+
+
+def test_staging_outcomes_require_distinct_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _plan, plan_path, _paths, _checkout_value = _persisted_plan(tmp_path, monkeypatch)
+    outcome_path = tmp_path / "outcome.json"
+
+    with pytest.raises(BerdlStagingPlanError, match="distinct paths"):
+        execute_berdl_staging(
+            plan_path,
+            upstream_outcome_path=outcome_path,
+            output_path=outcome_path,
+            authorize_snapshot=None,
+            execute_staging=False,
+            checkout_runner=GitRunner(),
+            staging_runner=lambda _command: pytest.fail("invalid output paths must not stage"),
+        )
+
+
 def test_execution_requires_exact_snapshot_authorization(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _plan, plan_path, _paths, _checkout_value = _persisted_plan(tmp_path, monkeypatch)
 

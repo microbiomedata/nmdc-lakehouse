@@ -157,7 +157,8 @@ Preview re-hashes and reloads every reviewed input, validates the snapshot,
 rechecks the clean BERIL revision and source hashes, and reconstructs the
 argument vector. It does not start the BERIL process, read credentials, contact
 a service, upload data, or change a catalog. The upstream and NMDC outcome paths
-must not already exist.
+must be distinct, must not already exist, and must remain outside the immutable
+snapshot directory.
 
 After reviewing that preview, execute the same plan with the snapshot ID printed
 in the plan as a fresh, invocation-specific authorization:
