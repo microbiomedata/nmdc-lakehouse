@@ -62,6 +62,10 @@ _INGEST_SOURCE_PATHS = (
 )
 
 
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def _manifest() -> SnapshotManifest:
     artifact = ArtifactRecord(
         path="biosample_set.parquet",
@@ -960,8 +964,45 @@ def test_execution_rejects_subprocess_failure(tmp_path: Path, monkeypatch: pytes
             output_path=tmp_path / "outcome.json",
             authorize_snapshot=SNAPSHOT_ID,
             execute_staging=True,
+            authorize_plan_sha256=_file_sha256(plan_path),
             checkout_runner=GitRunner(),
             staging_runner=lambda command: subprocess.CompletedProcess(command, 1),
+        )
+
+
+def test_failed_execution_still_revalidates_evidence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _plan, plan_path, paths, _checkout_value = _persisted_plan(tmp_path, monkeypatch)
+
+    def fail_after_mutating_evidence(command):
+        paths["bundle"].write_text("changed during failed staging\n", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 1)
+
+    with pytest.raises(BerdlStagingPlanError, match="no longer matches"):
+        execute_berdl_staging(
+            plan_path,
+            upstream_outcome_path=tmp_path / "upstream.json",
+            output_path=tmp_path / "outcome.json",
+            authorize_snapshot=SNAPSHOT_ID,
+            execute_staging=True,
+            authorize_plan_sha256=_file_sha256(plan_path),
+            checkout_runner=GitRunner(),
+            staging_runner=fail_after_mutating_evidence,
+        )
+
+
+def test_execution_requires_exact_plan_authorization(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _plan, plan_path, _paths, _checkout_value = _persisted_plan(tmp_path, monkeypatch)
+
+    with pytest.raises(BerdlStagingPlanError, match="exact reviewed staging plan digest"):
+        execute_berdl_staging(
+            plan_path,
+            upstream_outcome_path=tmp_path / "upstream.json",
+            output_path=tmp_path / "outcome.json",
+            authorize_snapshot=SNAPSHOT_ID,
+            execute_staging=True,
+            authorize_plan_sha256="0" * 64,
+            checkout_runner=GitRunner(),
+            staging_runner=lambda _command: pytest.fail("plan authorization must precede staging"),
         )
 
 
@@ -978,6 +1019,7 @@ def test_execution_reports_failure_to_start_subprocess(tmp_path: Path, monkeypat
             output_path=tmp_path / "outcome.json",
             authorize_snapshot=SNAPSHOT_ID,
             execute_staging=True,
+            authorize_plan_sha256=_file_sha256(plan_path),
             checkout_runner=GitRunner(),
             staging_runner=cannot_start,
         )
@@ -1004,6 +1046,7 @@ def test_execution_rejects_missing_or_malformed_upstream_outcome(
             output_path=tmp_path / "outcome.json",
             authorize_snapshot=SNAPSHOT_ID,
             execute_staging=True,
+            authorize_plan_sha256=_file_sha256(plan_path),
             checkout_runner=GitRunner(),
             staging_runner=run_staging,
         )
@@ -1023,6 +1066,7 @@ def test_execution_rejects_evidence_changed_during_staging(tmp_path: Path, monke
             output_path=tmp_path / "outcome.json",
             authorize_snapshot=SNAPSHOT_ID,
             execute_staging=True,
+            authorize_plan_sha256=_file_sha256(plan_path),
             checkout_runner=GitRunner(),
             staging_runner=run_staging,
         )
@@ -1047,6 +1091,7 @@ def test_execution_writes_independently_verified_immutable_outcome(
         output_path=output_path,
         authorize_snapshot=SNAPSHOT_ID,
         execute_staging=True,
+        authorize_plan_sha256=_file_sha256(plan_path),
         checkout_runner=GitRunner(),
         staging_runner=run_staging,
     )
@@ -1064,6 +1109,7 @@ def test_execution_writes_independently_verified_immutable_outcome(
             output_path=output_path,
             authorize_snapshot=SNAPSHOT_ID,
             execute_staging=True,
+            authorize_plan_sha256=_file_sha256(plan_path),
             checkout_runner=GitRunner(),
             staging_runner=lambda command: subprocess.CompletedProcess(command, 0),
         )

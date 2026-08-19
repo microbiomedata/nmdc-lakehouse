@@ -930,6 +930,7 @@ def execute_berdl_staging(
     output_path: Path,
     authorize_snapshot: str | None,
     execute_staging: bool,
+    authorize_plan_sha256: str | None = None,
     checkout_runner: CommandRunner = _run_command,
     staging_runner: CommandRunner = _run_staging_command,
 ) -> tuple[list[str], BerdlStagingOutcome | None]:
@@ -956,15 +957,19 @@ def execute_berdl_staging(
         return command, None
     if authorize_snapshot != plan.snapshot_id:
         raise BerdlStagingPlanError("Execution requires --authorize-snapshot with the exact snapshot ID.")
+    if authorize_plan_sha256 != plan_sha256:
+        raise BerdlStagingPlanError(
+            "Execution requires --authorize-plan-sha256 with the exact reviewed staging plan digest."
+        )
     try:
         result = staging_runner(command)
     except OSError as error:
         raise BerdlStagingPlanError("Cannot start the reviewed BERIL staging command.") from error
-    if result.returncode != 0:
-        raise BerdlStagingPlanError("BERIL staging did not complete successfully; retain its staging keys for review.")
     final_plan = revalidate_berdl_staging_plan(load_berdl_staging_plan(plan_path), runner=checkout_runner)
     if final_plan != plan or _sha256(plan_path, "BERDL staging plan") != plan_sha256:
         raise BerdlStagingPlanError("The staging plan or its evidence changed during BERIL execution.")
+    if result.returncode != 0:
+        raise BerdlStagingPlanError("BERIL staging did not complete successfully; retain its staging keys for review.")
     upstream, upstream_sha256 = _read_upstream_staging_outcome(upstream_outcome_path)
     outcome = build_berdl_staging_outcome(
         plan,

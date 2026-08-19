@@ -468,6 +468,7 @@ def berdl_upload_plan_command(
 )
 @click.option("--output", "output_path", type=click.Path(path_type=Path, dir_okay=False), required=True)
 @click.option("--authorize-snapshot", help="Exact snapshot ID approved for this invocation.")
+@click.option("--authorize-plan-sha256", help="Exact SHA-256 digest of the reviewed staging plan.")
 @click.option(
     "--execute-staging",
     is_flag=True,
@@ -478,6 +479,7 @@ def berdl_upload_command(
     upstream_outcome_path: Path,
     output_path: Path,
     authorize_snapshot: str | None,
+    authorize_plan_sha256: str | None,
     execute_staging: bool,
 ) -> None:
     """Preview or execute and independently verify one reviewed BERDL plan."""
@@ -498,6 +500,7 @@ def berdl_upload_command(
             output_path=output_path,
             authorize_snapshot=authorize_snapshot,
             execute_staging=execute_staging,
+            authorize_plan_sha256=authorize_plan_sha256,
         )
     except (
         BerdlStagingPlanError,

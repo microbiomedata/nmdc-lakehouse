@@ -162,8 +162,10 @@ snapshot directory and the reviewed BERIL checkout. An outcome created inside
 the checkout would make it dirty and invalidate the required post-run revision
 check after staging had already changed the destination.
 
-After reviewing that preview, execute the same plan with the snapshot ID printed
-in the plan as a fresh, invocation-specific authorization:
+After reviewing that preview, compute the plan file's SHA-256 digest. For
+example, use `sha256sum` on Linux or `shasum -a 256` on macOS. Execute the same
+plan with both that digest and the snapshot ID printed in the plan as fresh,
+invocation-specific authorization:
 
 ```bash
 just berdl-upload \
@@ -171,12 +173,16 @@ just berdl-upload \
   /path/to/beril-upstream-outcome.json \
   /path/to/nmdc-staging-outcome.json \
   --execute-staging \
-  --authorize-snapshot 'sha256:FULL_SNAPSHOT_DIGEST'
+  --authorize-snapshot 'sha256:FULL_SNAPSHOT_DIGEST' \
+  --authorize-plan-sha256 'FULL_PLAN_FILE_SHA256'
 ```
 
 The executor passes an argument vector directly to the reviewed BERIL command;
-it does not invoke a shell. After BERIL exits successfully, it revalidates the
-plan, snapshot, and external source revision. It then requires the upstream
+it does not invoke a shell. The plan digest binds authorization to the reviewed
+destination as well as the snapshot. After every started BERIL command exits,
+including a failed command, the executor revalidates the plan, snapshot, and
+external source revision before reporting the command result. After a successful
+command, it then requires the upstream
 outcome to report the planned bucket, bronze prefix, staging namespace, exact
 table set, object-storage-verified source SHA-256, and matching
 source-versus-catalog row counts for every manifested Parquet artifact. The

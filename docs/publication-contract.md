@@ -292,12 +292,15 @@ staging area. The output is created once and is not overwritten.
 The plan does not read credentials, start a tunnel, invoke BERIL, upload data,
 create a table, apply metadata, or authorize a canonical change. The maintained
 executor reloads and reconstructs this plan, previews by default, and requires
-an explicit snapshot-bound authorization before invoking the reviewed BERIL
-command without a shell. It accepts success only when BERIL's immutable outcome
+explicit snapshot- and full-plan-digest authorization before invoking the
+reviewed BERIL command without a shell. The plan digest binds the approved
+destination tuple as well as all other plan fields. It accepts success only
+when BERIL's immutable outcome
 identifies the planned staging destination and independently reports matching
 source Parquet and catalog row counts for the complete manifested table set.
 
-The executor revalidates the plan and evidence after the live command, then
+The executor revalidates the plan and evidence after every started live command,
+including a failed command, then
 creates a separate immutable NMDC outcome with status `data-verified`. That
 status means data staging passed; it does not mean metadata was applied or the
 canonical namespace may be changed. See the
