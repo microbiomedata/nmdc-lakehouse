@@ -94,7 +94,9 @@ authorizes the historical upload steps below.
 ## Build the maintained staging command plan
 
 After reviewing the successful preflight and metadata-application plan, bind
-them to a clean BERIL checkout at the exact revision selected for staging:
+them to a clean checkout of the official
+[`kbase/data-lakehouse-ingest`](https://github.com/kbase/data-lakehouse-ingest)
+package at the exact revision selected for staging:
 
 ```bash
 just berdl-upload-plan \
@@ -104,8 +106,8 @@ just berdl-upload-plan \
   /path/to/publication-plan.json \
   /path/to/metadata-application-plan.json \
   /path/to/target-validation-report.json \
-  /path/to/BERIL-research-observatory \
-  FULL_40_CHARACTER_BERIL_COMMIT \
+  /path/to/data-lakehouse-ingest \
+  FULL_40_CHARACTER_INGEST_COMMIT \
   nmdc \
   nmdc_metadata_staging_20260819 \
   cdm-lake \
@@ -118,10 +120,14 @@ just berdl-upload-plan \
 The planner re-runs the portable preflight; verifies the metadata plan's
 snapshot, destination observation, capabilities, namespace, and table coverage;
 requires successful target-schema validation with exact snapshot and table
-coverage; and checks that the external checkout is clean at the requested
-revision. It then creates an immutable, credential-free JSON plan containing the
-local evidence paths and checksums plus the exact plan-only BERIL argument vector. It rejects canonical-looking dataset
-names and object prefixes outside the tenant staging area.
+coverage; and checks that the official ingest checkout is clean at the requested
+revision. It binds the NMDC-owned adapter and the official
+`data_lakehouse_ingest.ingest` package entry points, then creates an immutable,
+credential-free JSON plan containing local evidence paths, checksums, and the
+exact plan-only adapter argument vector. It rejects canonical-looking dataset
+names and object prefixes outside the tenant staging area. BERIL Research
+Observatory remains an optional operator resource and is not a runtime or
+release dependency of this workflow.
 
 The generated command intentionally omits the BERIL execution flag and outcome
 path. Do not add them by hand. Live execution and independent outcome checking

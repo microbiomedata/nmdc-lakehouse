@@ -8,6 +8,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from collections.abc import Callable, Sequence
 from pathlib import Path, PurePosixPath
@@ -64,14 +65,16 @@ class EvidenceDigest(BaseModel):
     sha256: str
 
 
-class BerilRevision(BaseModel):
-    """Exact external implementation selected for later execution."""
+class IngestRevision(BaseModel):
+    """Exact NMDC adapter and official KBase ingest source selected for execution."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
+    repository: Literal["https://github.com/kbase/data-lakehouse-ingest"]
     revision: str
-    ingest_script_sha256: str
-    ingest_library_sha256: str
+    adapter_sha256: str
+    package_init_sha256: str
+    ingest_core_sha256: str
 
 
 class StagingArtifact(BaseModel):
@@ -121,7 +124,7 @@ class BerdlStagingPlan(BaseModel):
     config_key: str
     evidence: list[EvidenceDigest]
     target_validation: TargetValidationEvidence
-    beril: BerilRevision
+    ingest: IngestRevision
     artifacts: list[StagingArtifact]
     command: list[str]
 
@@ -142,14 +145,6 @@ def _sha256(path: Path, label: str) -> str:
     except OSError as error:
         raise BerdlStagingPlanError(f"Cannot read the {label}.") from error
     return digest.hexdigest()
-
-
-def _is_executable_file(path: Path) -> bool:
-    try:
-        resolved = path.resolve(strict=True)
-    except (OSError, RuntimeError):
-        return False
-    return resolved.is_file() and not resolved.is_symlink() and os.access(resolved, os.X_OK)
 
 
 def _validate_object_key(value: str, label: str) -> None:
@@ -298,56 +293,57 @@ def _select_artifacts(manifest: SnapshotManifest, publication_plan: PublicationP
     return selected
 
 
+_INGEST_SOURCES = (
+    "src/data_lakehouse_ingest/__init__.py",
+    "src/data_lakehouse_ingest/core.py",
+)
+
+
 def _require_revision_sources(checkout: Path, revision: str, runner: CommandRunner) -> None:
     """Require normal index flags and source bytes identical to a Git revision."""
-    sources = ("scripts/ingest_dataset.py", "scripts/ingest_lib.py")
+    sources = _INGEST_SOURCES
     try:
         flags = runner(("git", "-C", str(checkout), "ls-files", "-v", "--", *sources))
     except (OSError, subprocess.TimeoutExpired) as error:
-        raise BerdlStagingPlanError("Cannot verify the BERIL staging sources against the revision.") from error
+        raise BerdlStagingPlanError("Cannot verify the KBase ingest sources against the revision.") from error
     if flags.returncode != 0 or set(flags.stdout.splitlines()) != {f"H {source}" for source in sources}:
-        raise BerdlStagingPlanError("The BERIL staging sources must not use special Git index flags.")
+        raise BerdlStagingPlanError("The KBase ingest sources must not use special Git index flags.")
     for source in sources:
         try:
             expected = runner(("git", "-C", str(checkout), "rev-parse", f"{revision}:{source}"))
             observed = runner(("git", "-C", str(checkout), "hash-object", f"--path={source}", source))
         except (OSError, subprocess.TimeoutExpired) as error:
-            raise BerdlStagingPlanError("Cannot verify the BERIL staging sources against the revision.") from error
+            raise BerdlStagingPlanError("Cannot verify the KBase ingest sources against the revision.") from error
         if (
             expected.returncode != 0
             or observed.returncode != 0
             or not expected.stdout.strip()
             or expected.stdout.strip() != observed.stdout.strip()
         ):
-            raise BerdlStagingPlanError("The BERIL staging source bytes do not match the selected revision.")
+            raise BerdlStagingPlanError("The KBase ingest source bytes do not match the selected revision.")
 
 
-def _inspect_beril_checkout(
+def _inspect_ingest_checkout(
     checkout: Path,
     expected_revision: str,
     runner: CommandRunner,
-) -> tuple[Path, Path, Path, BerilRevision]:
+) -> tuple[Path, Path, IngestRevision]:
     if not _REVISION.fullmatch(expected_revision):
-        raise BerdlStagingPlanError("The BERIL revision must be a full lowercase Git commit.")
+        raise BerdlStagingPlanError("The KBase ingest revision must be a full lowercase Git commit.")
     checkout = checkout.expanduser()
     if not checkout.is_dir() or checkout.is_symlink():
-        raise BerdlStagingPlanError("The BERIL checkout must be an ordinary directory.")
+        raise BerdlStagingPlanError("The KBase ingest checkout must be an ordinary directory.")
     checkout = checkout.resolve()
-    script = checkout / "scripts" / "ingest_dataset.py"
-    library = checkout / "scripts" / "ingest_lib.py"
-    python_candidates = (
-        checkout / ".venv-berdl" / "bin" / "python",
-        checkout / ".venv-berdl" / "Scripts" / "python.exe",
-    )
-    python = next(
-        (candidate for candidate in python_candidates if _is_executable_file(candidate)),
-        None,
-    )
-    for path, label in ((script, "BERIL staging command"), (library, "BERIL ingest library")):
+    adapter = Path(__file__).with_name("berdl_adapter.py")
+    package_init = checkout / _INGEST_SOURCES[0]
+    ingest_core = checkout / _INGEST_SOURCES[1]
+    for path, label in (
+        (adapter, "NMDC BERDL adapter"),
+        (package_init, "KBase ingest package initializer"),
+        (ingest_core, "KBase ingest core"),
+    ):
         if not path.is_file() or path.is_symlink():
             raise BerdlStagingPlanError(f"The {label} must be an ordinary file.")
-    if python is None:
-        raise BerdlStagingPlanError("The BERIL checkout has no .venv-berdl Python interpreter.")
     try:
         revision = runner(("git", "-C", str(checkout), "rev-parse", "--verify", "HEAD"))
         dirty = runner(("git", "-C", str(checkout), "status", "--porcelain", "--untracked-files=all"))
@@ -359,41 +355,48 @@ def _inspect_beril_checkout(
                 "ls-files",
                 "--error-unmatch",
                 "--",
-                "scripts/ingest_dataset.py",
-                "scripts/ingest_lib.py",
+                *_INGEST_SOURCES,
             )
         )
     except (OSError, subprocess.TimeoutExpired) as error:
-        raise BerdlStagingPlanError("Cannot inspect the BERIL checkout revision.") from error
+        raise BerdlStagingPlanError("Cannot inspect the KBase ingest checkout revision.") from error
     if revision.returncode != 0 or revision.stdout.strip() != expected_revision:
-        raise BerdlStagingPlanError("The BERIL checkout does not match the requested revision.")
+        raise BerdlStagingPlanError("The KBase ingest checkout does not match the requested revision.")
     if dirty.returncode != 0 or dirty.stdout.strip():
-        raise BerdlStagingPlanError("The BERIL checkout must have no tracked or untracked changes.")
-    if tracked.returncode != 0 or set(tracked.stdout.splitlines()) != {
-        "scripts/ingest_dataset.py",
-        "scripts/ingest_lib.py",
-    }:
-        raise BerdlStagingPlanError("The BERIL staging sources must be tracked by the selected revision.")
+        raise BerdlStagingPlanError("The KBase ingest checkout must have no tracked or untracked changes.")
+    if tracked.returncode != 0 or set(tracked.stdout.splitlines()) != set(_INGEST_SOURCES):
+        raise BerdlStagingPlanError("The KBase ingest sources must be tracked by the selected revision.")
     _require_revision_sources(checkout, expected_revision, runner)
-    evidence = BerilRevision(
+    evidence = IngestRevision(
+        repository="https://github.com/kbase/data-lakehouse-ingest",
         revision=expected_revision,
-        ingest_script_sha256=_sha256(script, "BERIL staging command"),
-        ingest_library_sha256=_sha256(library, "BERIL ingest library"),
+        adapter_sha256=_sha256(adapter, "NMDC BERDL adapter"),
+        package_init_sha256=_sha256(package_init, "KBase ingest package initializer"),
+        ingest_core_sha256=_sha256(ingest_core, "KBase ingest core"),
     )
     try:
         final_revision = runner(("git", "-C", str(checkout), "rev-parse", "--verify", "HEAD"))
         final_dirty = runner(("git", "-C", str(checkout), "status", "--porcelain", "--untracked-files=all"))
         _require_revision_sources(checkout, expected_revision, runner)
     except (OSError, subprocess.TimeoutExpired) as error:
-        raise BerdlStagingPlanError("Cannot recheck the BERIL checkout after hashing.") from error
+        raise BerdlStagingPlanError("Cannot recheck the KBase ingest checkout after hashing.") from error
     if (
         final_revision.returncode != 0
         or final_revision.stdout.strip() != expected_revision
         or final_dirty.returncode != 0
         or final_dirty.stdout.strip()
     ):
-        raise BerdlStagingPlanError("The BERIL checkout changed while its staging sources were hashed.")
-    return checkout, python, script, evidence
+        raise BerdlStagingPlanError("The KBase ingest checkout changed while its sources were hashed.")
+    final_evidence = IngestRevision(
+        repository="https://github.com/kbase/data-lakehouse-ingest",
+        revision=expected_revision,
+        adapter_sha256=_sha256(adapter, "NMDC BERDL adapter"),
+        package_init_sha256=_sha256(package_init, "KBase ingest package initializer"),
+        ingest_core_sha256=_sha256(ingest_core, "KBase ingest core"),
+    )
+    if final_evidence != evidence:
+        raise BerdlStagingPlanError("The NMDC adapter or KBase ingest sources changed while being hashed.")
+    return checkout, adapter, evidence
 
 
 def build_berdl_staging_plan(
@@ -406,8 +409,8 @@ def build_berdl_staging_plan(
     metadata_plan: MetadataApplicationPlan,
     target_validation: TargetValidationReport,
     evidence: list[EvidenceDigest],
-    beril_checkout: Path,
-    beril_revision: str,
+    ingest_checkout: Path,
+    ingest_revision: str,
     tenant: str,
     dataset: str,
     bucket: str,
@@ -434,13 +437,15 @@ def build_berdl_staging_plan(
     artifact_keys = {f"{bronze_prefix}/{artifact.path}" for artifact in artifacts}
     if progress_key in artifact_keys or config_key in artifact_keys:
         raise BerdlStagingPlanError("The progress and config keys must not collide with staged artifact keys.")
-    _checkout, python, script, beril = _inspect_beril_checkout(beril_checkout, beril_revision, runner)
+    checkout, adapter, ingest = _inspect_ingest_checkout(ingest_checkout, ingest_revision, runner)
     root = snapshot_root.resolve()
     command = [
-        str(python),
-        str(script),
+        sys.executable,
+        str(adapter),
         "--data-dir",
         str(root),
+        "--ingest-checkout",
+        str(checkout),
         "--tenant",
         tenant,
         "--dataset",
@@ -480,7 +485,7 @@ def build_berdl_staging_plan(
             selected_rows=target_validation.selected_rows,
             tables=len(target_validation.tables),
         ),
-        beril=beril,
+        ingest=ingest,
         artifacts=artifacts,
         command=command,
     )
@@ -494,8 +499,8 @@ def plan_berdl_staging(
     publication_plan_path: Path,
     metadata_plan_path: Path,
     target_validation_path: Path,
-    beril_checkout: Path,
-    beril_revision: str,
+    ingest_checkout: Path,
+    ingest_revision: str,
     tenant: str,
     dataset: str,
     bucket: str,
@@ -534,8 +539,8 @@ def plan_berdl_staging(
         metadata_plan=metadata_plan,
         target_validation=target_validation,
         evidence=evidence,
-        beril_checkout=beril_checkout,
-        beril_revision=beril_revision,
+        ingest_checkout=ingest_checkout,
+        ingest_revision=ingest_revision,
         tenant=tenant,
         dataset=dataset,
         bucket=bucket,

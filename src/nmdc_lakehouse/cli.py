@@ -386,8 +386,8 @@ def metadata_application_plan_schema_command() -> None:
     type=click.Path(path_type=Path, dir_okay=False),
     required=True,
 )
-@click.option("--beril-checkout", type=click.Path(path_type=Path, file_okay=False), required=True)
-@click.option("--beril-revision", required=True, help="Exact full Git commit selected for later staging.")
+@click.option("--ingest-checkout", type=click.Path(path_type=Path, file_okay=False), required=True)
+@click.option("--ingest-revision", required=True, help="Exact KBase ingest Git commit selected for staging.")
 @click.option("--tenant", required=True)
 @click.option("--dataset", required=True, help="Unique dataset name containing _staging_<suffix>.")
 @click.option("--bucket", required=True, help="Explicit S3 bucket selected for staging.")
@@ -402,8 +402,8 @@ def berdl_upload_plan_command(
     publication_plan_path: Path,
     metadata_plan_path: Path,
     target_validation_path: Path,
-    beril_checkout: Path,
-    beril_revision: str,
+    ingest_checkout: Path,
+    ingest_revision: str,
     tenant: str,
     dataset: str,
     bucket: str,
@@ -434,8 +434,8 @@ def berdl_upload_plan_command(
             publication_plan_path=publication_plan_path,
             metadata_plan_path=metadata_plan_path,
             target_validation_path=target_validation_path,
-            beril_checkout=beril_checkout,
-            beril_revision=beril_revision,
+            ingest_checkout=ingest_checkout,
+            ingest_revision=ingest_revision,
             tenant=tenant,
             dataset=dataset,
             bucket=bucket,

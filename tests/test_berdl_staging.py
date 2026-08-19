@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from nmdc_lakehouse import berdl_staging
 from nmdc_lakehouse.berdl_staging import (
     BerdlStagingPlanError,
     EvidenceDigest,
@@ -48,6 +49,10 @@ from nmdc_lakehouse.target_validation import (
 
 REVISION = "a" * 40
 SNAPSHOT_ID = "sha256:" + "1" * 64
+_INGEST_SOURCE_PATHS = (
+    "src/data_lakehouse_ingest/__init__.py",
+    "src/data_lakehouse_ingest/core.py",
+)
 
 
 def _manifest() -> SnapshotManifest:
@@ -135,23 +140,18 @@ def _inventory() -> DestinationInventory:
         destination_id="nmdc-production",
         observed_at="2026-08-19T12:15:00+00:00",
         provider="spark_catalog",
-        table_format="delta",
+        table_format="iceberg",
         metadata_capabilities=[MetadataCapability.NAMESPACE, MetadataCapability.TABLE, MetadataCapability.COLUMN],
         tables=[DestinationTable(name="biosample_set", rows=1, physical_schema_sha256="c" * 64)],
     )
 
 
 def _checkout(tmp_path: Path) -> Path:
-    checkout = tmp_path / "beril"
-    (checkout / "scripts").mkdir(parents=True, exist_ok=True)
-    (checkout / "scripts" / "ingest_dataset.py").write_text("# staging command\n", encoding="utf-8")
-    (checkout / "scripts" / "ingest_lib.py").write_text("# ingest library\n", encoding="utf-8")
-    python = checkout / ".venv-berdl" / "bin" / "python"
-    windows_python = checkout / ".venv-berdl" / "Scripts" / "python.exe"
-    if not windows_python.is_file():
-        python.parent.mkdir(parents=True, exist_ok=True)
-        python.write_text("test interpreter\n", encoding="utf-8")
-        python.chmod(0o755)
+    checkout = tmp_path / "data-lakehouse-ingest"
+    package = checkout / "src" / "data_lakehouse_ingest"
+    package.mkdir(parents=True, exist_ok=True)
+    (package / "__init__.py").write_text("from .core import ingest\n", encoding="utf-8")
+    (package / "core.py").write_text("def ingest(config): ...\n", encoding="utf-8")
     return checkout
 
 
@@ -203,7 +203,7 @@ class GitRunner:
         revision: str = REVISION,
         dirty: str = "",
         tracked: bool = True,
-        index_flags: str = "H scripts/ingest_dataset.py\nH scripts/ingest_lib.py\n",
+        index_flags: str = "".join(f"H {path}\n" for path in _INGEST_SOURCE_PATHS),
         source_matches: bool = True,
         final_source_matches: bool | None = None,
         final_revision: str | None = None,
@@ -237,7 +237,7 @@ class GitRunner:
             if "-v" in command:
                 self.source_round += 1
                 return subprocess.CompletedProcess(args, 0, self.index_flags, "")
-            output = "scripts/ingest_dataset.py\nscripts/ingest_lib.py\n" if self.tracked else ""
+            output = "\n".join(_INGEST_SOURCE_PATHS) + "\n" if self.tracked else ""
             return subprocess.CompletedProcess(args, 0 if self.tracked else 1, output, "")
         if "rev-parse" in command:
             return subprocess.CompletedProcess(args, 0, "1" * 40 + "\n", "")
@@ -291,8 +291,8 @@ def _build(tmp_path: Path, **changes):
                 sha256="f" * 64,
             )
         ],
-        "beril_checkout": checkout,
-        "beril_revision": REVISION,
+        "ingest_checkout": checkout,
+        "ingest_revision": REVISION,
         "tenant": "nmdc",
         "dataset": "nmdc_metadata_staging_20260819",
         "bucket": "cdm-lake",
@@ -315,7 +315,8 @@ def test_plan_binds_candidate_and_exact_plan_only_command(tmp_path: Path) -> Non
     assert plan.artifacts[0].sha256 == "b" * 64
     assert plan.target_validation.requested_mode == "bounded"
     assert plan.target_validation.selected_rows == 1
-    assert plan.beril.revision == REVISION
+    assert plan.ingest.revision == REVISION
+    assert plan.ingest.repository == "https://github.com/kbase/data-lakehouse-ingest"
     assert plan.command[-2:] == ["--config-key", plan.config_key]
     assert "--execute-staging" not in plan.command
     assert "--outcome" not in plan.command
@@ -336,7 +337,7 @@ def test_metadata_plan_must_match_snapshot_and_staging_namespace(tmp_path: Path)
             publication_plan=publication_plan,
             metadata_plan=metadata_plan,
             target_validation=target_validation,
-            beril_checkout=checkout,
+            ingest_checkout=checkout,
         )
 
 
@@ -354,7 +355,7 @@ def test_metadata_plan_must_match_all_reviewed_operations(tmp_path: Path) -> Non
             publication_plan=publication_plan,
             metadata_plan=metadata_plan,
             target_validation=target_validation,
-            beril_checkout=checkout,
+            ingest_checkout=checkout,
         )
 
 
@@ -386,7 +387,7 @@ def test_checkout_revision_and_cleanliness_are_required(tmp_path: Path) -> None:
     with pytest.raises(BerdlStagingPlanError, match="requested revision"):
         _build(tmp_path, runner=GitRunner(revision="b" * 40))
     with pytest.raises(BerdlStagingPlanError, match="tracked or untracked changes"):
-        _build(tmp_path, runner=GitRunner(dirty=" M scripts/ingest_lib.py\n"))
+        _build(tmp_path, runner=GitRunner(dirty=" M src/data_lakehouse_ingest/core.py\n"))
     with pytest.raises(BerdlStagingPlanError, match="tracked or untracked changes"):
         _build(tmp_path, runner=GitRunner(dirty="?? scripts/csv.py\n"))
     with pytest.raises(BerdlStagingPlanError, match="sources must be tracked"):
@@ -394,56 +395,36 @@ def test_checkout_revision_and_cleanliness_are_required(tmp_path: Path) -> None:
     with pytest.raises(BerdlStagingPlanError, match="special Git index flags"):
         _build(
             tmp_path,
-            runner=GitRunner(index_flags="S scripts/ingest_dataset.py\nh scripts/ingest_lib.py\n"),
+            runner=GitRunner(
+                index_flags="S src/data_lakehouse_ingest/__init__.py\nh src/data_lakehouse_ingest/core.py\n"
+            ),
         )
     with pytest.raises(BerdlStagingPlanError, match="source bytes do not match"):
         _build(tmp_path, runner=GitRunner(source_matches=False))
     with pytest.raises(BerdlStagingPlanError, match="changed while"):
         _build(tmp_path, runner=GitRunner(final_revision="b" * 40))
     with pytest.raises(BerdlStagingPlanError, match="changed while"):
-        _build(tmp_path, runner=GitRunner(final_dirty=" M scripts/ingest_lib.py\n"))
+        _build(tmp_path, runner=GitRunner(final_dirty=" M src/data_lakehouse_ingest/core.py\n"))
     with pytest.raises(BerdlStagingPlanError, match="source bytes do not match"):
         _build(tmp_path, runner=GitRunner(final_source_matches=False))
 
 
-def test_windows_beril_interpreter_layout_is_supported(tmp_path: Path) -> None:
-    _manifest_value, _bundle_value, _inventory_value, _publication, _metadata, _target, checkout = _inputs(tmp_path)
-    (checkout / ".venv-berdl" / "bin" / "python").unlink()
-    python = checkout / ".venv-berdl" / "Scripts" / "python.exe"
-    python.parent.mkdir(parents=True)
-    python.write_text("test interpreter\n", encoding="utf-8")
-    python.chmod(0o755)
+def test_ingest_source_digest_is_rechecked_after_git_verification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original_sha256 = berdl_staging._sha256
+    adapter = Path(berdl_staging.__file__).with_name("berdl_adapter.py")
+    adapter_hashes = iter(("1" * 64, "2" * 64))
 
-    plan = _build(tmp_path, beril_checkout=checkout)
+    def unstable_sha256(path: Path, label: str) -> str:
+        if path == adapter:
+            return next(adapter_hashes)
+        return original_sha256(path, label)
 
-    assert plan.command[0] == str(python)
+    monkeypatch.setattr(berdl_staging, "_sha256", unstable_sha256)
 
-
-def test_broken_symlinked_beril_interpreter_is_rejected(tmp_path: Path) -> None:
-    _manifest_value, _bundle_value, _inventory_value, _publication, _metadata, _target, checkout = _inputs(tmp_path)
-    python = checkout / ".venv-berdl" / "bin" / "python"
-    python.unlink()
-    python.symlink_to(tmp_path / "unreviewed-python")
-    windows_python = checkout / ".venv-berdl" / "Scripts" / "python.exe"
-    windows_python.parent.mkdir(parents=True)
-    windows_python.write_text("not executable\n", encoding="utf-8")
-
-    with pytest.raises(BerdlStagingPlanError, match="no .venv-berdl Python interpreter"):
-        _build(tmp_path, beril_checkout=checkout)
-
-
-def test_symlinked_beril_interpreter_with_executable_target_is_supported(tmp_path: Path) -> None:
-    _manifest_value, _bundle_value, _inventory_value, _publication, _metadata, _target, checkout = _inputs(tmp_path)
-    python = checkout / ".venv-berdl" / "bin" / "python"
-    target = tmp_path / "python3.13"
-    target.write_text("test interpreter\n", encoding="utf-8")
-    target.chmod(0o755)
-    python.unlink()
-    python.symlink_to(target)
-
-    plan = _build(tmp_path, beril_checkout=checkout)
-
-    assert plan.command[0] == str(python)
+    with pytest.raises(BerdlStagingPlanError, match="changed while being hashed"):
+        _build(tmp_path)
 
 
 def test_failed_or_incomplete_target_validation_is_rejected(tmp_path: Path) -> None:
@@ -532,8 +513,8 @@ def test_loaded_plan_hashes_every_reviewed_artifact(tmp_path: Path, monkeypatch:
         publication_plan_path=paths["publication"],
         metadata_plan_path=paths["metadata"],
         target_validation_path=paths["target"],
-        beril_checkout=checkout,
-        beril_revision=REVISION,
+        ingest_checkout=checkout,
+        ingest_revision=REVISION,
         tenant="nmdc",
         dataset="nmdc_metadata_staging_20260819",
         bucket="cdm-lake",
@@ -567,8 +548,8 @@ def test_loaded_plan_hashes_every_reviewed_artifact(tmp_path: Path, monkeypatch:
             publication_plan_path=paths["publication"],
             metadata_plan_path=paths["metadata"],
             target_validation_path=paths["target"],
-            beril_checkout=checkout,
-            beril_revision=REVISION,
+            ingest_checkout=checkout,
+            ingest_revision=REVISION,
             tenant="nmdc",
             dataset="nmdc_metadata_staging_20260819",
             bucket="cdm-lake",
@@ -614,8 +595,8 @@ def test_loaded_plan_revalidates_snapshot_after_assembly(tmp_path: Path, monkeyp
             publication_plan_path=paths["publication"],
             metadata_plan_path=paths["metadata"],
             target_validation_path=paths["target"],
-            beril_checkout=checkout,
-            beril_revision=REVISION,
+            ingest_checkout=checkout,
+            ingest_revision=REVISION,
             tenant="nmdc",
             dataset="nmdc_metadata_staging_20260819",
             bucket="cdm-lake",
@@ -646,9 +627,9 @@ def test_cli_writes_the_same_plan_it_prints(tmp_path: Path, monkeypatch: pytest.
             "metadata.json",
             "--target-validation",
             "target-validation.json",
-            "--beril-checkout",
-            "beril",
-            "--beril-revision",
+            "--ingest-checkout",
+            "data-lakehouse-ingest",
+            "--ingest-revision",
             REVISION,
             "--tenant",
             "nmdc",

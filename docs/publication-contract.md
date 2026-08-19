@@ -273,12 +273,13 @@ exact external implementation before any live operation. The
 application plan against the same snapshot and destination observation, requires
 a successful target-schema validation report with exact table coverage, and
 selects the complete manifest-owned Parquet table set. It also requires a clean
-BERIL checkout at an explicit full Git revision containing the maintained staging
-command.
+checkout of the official `kbase/data-lakehouse-ingest` package at an explicit
+full Git revision and binds that API to the NMDC-owned adapter. BERIL Research
+Observatory is not part of this accountable ingestion boundary.
 
 The generated JSON records local paths and checksums for every reviewed input, including target
-validation, the selected Parquet identities, the BERIL revision and relevant
-source hashes, and the exact plan-only argument vector. Its dataset name must use a unique
+validation, the selected Parquet identities, the KBase ingest revision and
+relevant source hashes, and the exact plan-only argument vector. Its dataset name must use a unique
 `<name>_staging_<suffix>` form, and its object prefix must be inside the tenant's
 staging area. The output is created once and is not overwritten.
 
