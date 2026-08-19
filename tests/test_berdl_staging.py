@@ -40,6 +40,7 @@ from nmdc_lakehouse.snapshot_manifest import (
     SoftwareRecord,
 )
 from nmdc_lakehouse.target_validation import (
+    IssueCategory,
     TableValidationRecord,
     TargetValidationReport,
     packaged_target_schema_sha256,
@@ -418,6 +419,13 @@ def test_failed_or_incomplete_target_validation_is_rejected(tmp_path: Path) -> N
     target_validation = _target_validation(_manifest())
     target_validation.target_schema_sha256 = "0" * 64
     with pytest.raises(BerdlStagingPlanError, match="packaged target schema"):
+        _build(tmp_path, target_validation=target_validation)
+
+    target_validation = _target_validation(_manifest())
+    target_validation.tables[0].issue_categories = [
+        IssueCategory(severity="ERROR", rule="required", path="/id", count=1)
+    ]
+    with pytest.raises(BerdlStagingPlanError, match="not successful"):
         _build(tmp_path, target_validation=target_validation)
 
 

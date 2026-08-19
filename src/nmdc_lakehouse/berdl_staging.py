@@ -225,7 +225,12 @@ def _require_metadata_agreement(
 def _require_target_validation(manifest: SnapshotManifest, report: TargetValidationReport) -> None:
     artifacts = {artifact.table: artifact for artifact in manifest.artifacts}
     tables = {table.table: table for table in report.tables}
-    if report.status != "success" or report.invalid_rows != 0:
+    has_error_issues = any(
+        issue.severity.strip().upper() in {"ERROR", "FATAL"}
+        for table in report.tables
+        for issue in table.issue_categories
+    )
+    if report.status != "success" or report.invalid_rows != 0 or has_error_issues:
         raise BerdlStagingPlanError("The target validation report is not successful.")
     if report.snapshot_id != manifest.snapshot_id:
         raise BerdlStagingPlanError("The target validation report does not match the snapshot identity.")
