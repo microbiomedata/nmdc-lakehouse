@@ -735,7 +735,7 @@ def load_berdl_staging_plan(path: Path) -> BerdlStagingPlan:
         raise BerdlStagingPlanError("The BERDL staging plan must be an ordinary file.")
     try:
         return BerdlStagingPlan.model_validate_json(document.read_text(encoding="utf-8"), strict=True)
-    except (OSError, ValidationError) as error:
+    except (OSError, UnicodeDecodeError, ValidationError) as error:
         raise BerdlStagingPlanError("The BERDL staging plan is not valid.") from error
 
 
@@ -801,15 +801,23 @@ def build_berdl_execution_command(
     return [*plan.command, "--outcome", str(outcome.resolve()), "--execute-staging"]
 
 
-def load_upstream_staging_outcome(path: Path) -> UpstreamStagingOutcome:
-    """Load the successful, credential-free outcome emitted by BERIL."""
+def _read_upstream_staging_outcome(path: Path) -> tuple[UpstreamStagingOutcome, str]:
+    """Validate and hash the same immutable BERIL outcome bytes."""
     document = path.expanduser()
     if not document.is_file() or document.is_symlink():
         raise BerdlStagingPlanError("The BERIL upstream outcome must be an ordinary file.")
     try:
-        return UpstreamStagingOutcome.model_validate_json(document.read_text(encoding="utf-8"), strict=True)
-    except (OSError, ValidationError) as error:
+        contents = document.read_bytes()
+        outcome = UpstreamStagingOutcome.model_validate_json(contents, strict=True)
+    except (OSError, UnicodeDecodeError, ValidationError) as error:
         raise BerdlStagingPlanError("The BERIL upstream outcome is not a supported verified outcome.") from error
+    return outcome, hashlib.sha256(contents).hexdigest()
+
+
+def load_upstream_staging_outcome(path: Path) -> UpstreamStagingOutcome:
+    """Load the successful, credential-free outcome emitted by BERIL."""
+    outcome, _sha256_value = _read_upstream_staging_outcome(path)
+    return outcome
 
 
 def build_berdl_staging_outcome(
@@ -880,10 +888,14 @@ def write_berdl_staging_outcome(path: Path, outcome: BerdlStagingOutcome) -> Pat
     if not parent.is_dir() or parent.is_symlink():
         raise BerdlStagingPlanError("The NMDC staging outcome parent must be an ordinary directory.")
     destination = destination.resolve()
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=parent)
-    temporary = Path(temporary_name)
+    descriptor: int | None = None
+    temporary: Path | None = None
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        descriptor, temporary_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=parent)
+        temporary = Path(temporary_name)
+        stream = os.fdopen(descriptor, "w", encoding="utf-8")
+        descriptor = None
+        with stream:
             stream.write(render_berdl_staging_outcome(outcome))
             stream.write("\n")
         try:
@@ -892,8 +904,19 @@ def write_berdl_staging_outcome(path: Path, outcome: BerdlStagingOutcome) -> Pat
             raise BerdlStagingPlanError("Refusing to replace an existing NMDC staging outcome.") from error
         except OSError as error:
             raise BerdlStagingPlanError("Cannot publish the NMDC staging outcome atomically.") from error
+    except OSError as error:
+        raise BerdlStagingPlanError("Cannot write the NMDC staging outcome.") from error
     finally:
-        temporary.unlink(missing_ok=True)
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
     return destination
 
 
@@ -936,12 +959,12 @@ def execute_berdl_staging(
     final_plan = revalidate_berdl_staging_plan(load_berdl_staging_plan(plan_path), runner=checkout_runner)
     if final_plan != plan or _sha256(plan_path, "BERDL staging plan") != plan_sha256:
         raise BerdlStagingPlanError("The staging plan or its evidence changed during BERIL execution.")
-    upstream = load_upstream_staging_outcome(upstream_outcome_path)
+    upstream, upstream_sha256 = _read_upstream_staging_outcome(upstream_outcome_path)
     outcome = build_berdl_staging_outcome(
         plan,
         upstream,
         staging_plan_sha256=plan_sha256,
-        upstream_outcome_sha256=_sha256(upstream_outcome_path, "BERIL upstream outcome"),
+        upstream_outcome_sha256=upstream_sha256,
     )
     write_berdl_staging_outcome(output, outcome)
     return command, outcome

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -19,6 +20,7 @@ from nmdc_lakehouse.berdl_staging import (
     execute_berdl_staging,
     plan_berdl_staging,
     revalidate_berdl_staging_plan,
+    write_berdl_staging_outcome,
     write_berdl_staging_plan,
 )
 from nmdc_lakehouse.cli import cli
@@ -958,15 +960,17 @@ def test_execution_reports_failure_to_start_subprocess(tmp_path: Path, monkeypat
         )
 
 
-@pytest.mark.parametrize("contents", [None, "not JSON"])
+@pytest.mark.parametrize("contents", [None, "not JSON", b"\xff"])
 def test_execution_rejects_missing_or_malformed_upstream_outcome(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, contents: str | None
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, contents: str | bytes | None
 ) -> None:
     _plan, plan_path, _paths, _checkout_value = _persisted_plan(tmp_path, monkeypatch)
     upstream_path = tmp_path / "upstream.json"
 
     def run_staging(command):
-        if contents is not None:
+        if isinstance(contents, bytes):
+            upstream_path.write_bytes(contents)
+        elif contents is not None:
             upstream_path.write_text(contents, encoding="utf-8")
         return subprocess.CompletedProcess(command, 0)
 
@@ -1028,6 +1032,7 @@ def test_execution_writes_independently_verified_immutable_outcome(
     assert outcome is not None
     assert outcome.status == "data-verified"
     assert outcome.tables[0].rows == outcome.tables[0].destination_rows == 1
+    assert outcome.upstream_outcome_sha256 == hashlib.sha256(upstream_path.read_bytes()).hexdigest()
     assert json.loads(output_path.read_text(encoding="utf-8")) == outcome.model_dump(mode="json")
     with pytest.raises(BerdlStagingPlanError, match="Refusing to replace"):
         execute_berdl_staging(
@@ -1039,6 +1044,39 @@ def test_execution_writes_independently_verified_immutable_outcome(
             checkout_runner=GitRunner(),
             staging_runner=lambda command: subprocess.CompletedProcess(command, 0),
         )
+
+
+def test_invalid_utf8_plan_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _plan, plan_path, _paths, _checkout_value = _persisted_plan(tmp_path, monkeypatch)
+    plan_path.write_bytes(b"\xff")
+
+    with pytest.raises(BerdlStagingPlanError, match="plan is not valid"):
+        execute_berdl_staging(
+            plan_path,
+            upstream_outcome_path=tmp_path / "upstream.json",
+            output_path=tmp_path / "outcome.json",
+            authorize_snapshot=None,
+            execute_staging=False,
+            checkout_runner=GitRunner(),
+        )
+
+
+def test_staging_outcome_write_failure_is_controlled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    plan = _build(tmp_path)
+    outcome = build_berdl_staging_outcome(
+        plan,
+        _upstream_outcome(plan),
+        staging_plan_sha256="1" * 64,
+        upstream_outcome_sha256="2" * 64,
+    )
+
+    def deny_temporary_file(**_kwargs):
+        raise PermissionError
+
+    monkeypatch.setattr("nmdc_lakehouse.berdl_staging.tempfile.mkstemp", deny_temporary_file)
+
+    with pytest.raises(BerdlStagingPlanError, match="Cannot write"):
+        write_berdl_staging_outcome(tmp_path / "outcome.json", outcome)
 
 
 @pytest.mark.parametrize("mismatch", ["destination", "tables", "rows", "basis"])
