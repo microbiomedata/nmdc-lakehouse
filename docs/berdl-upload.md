@@ -64,14 +64,15 @@ application plan for the explicitly selected staging namespace:
 just metadata-application-plan \
   /absolute/path/to/metadata-bundle.json \
   /absolute/path/to/destination-inventory.json \
-  discovered_catalog.nmdc_metadata_staging \
+  nmdc.nmdc_metadata_staging_20260819 \
   --output /absolute/path/to/metadata-application-plan.json
 ```
 
-Use the namespace discovered and approved for the current run; the example is
-not a permanent BERDL default. Review supported operations, unsupported
-operations, and missing descriptions. This offline command emits JSON data, not
-Spark SQL, and does not contact or change BERDL. The later adapter tracked in
+Use the exact `<tenant>.<dataset>` staging namespace that the later
+`berdl-upload-plan` invocation supplies; the example is not a permanent BERDL
+default. Review supported operations, unsupported operations, and missing
+descriptions. This offline command emits JSON data, not Spark SQL, and does not
+contact or change BERDL. The later adapter tracked in
 [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114) must recheck
 the bundle and inventory identities before applying the plan.
 
