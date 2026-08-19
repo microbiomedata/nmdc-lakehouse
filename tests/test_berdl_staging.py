@@ -197,19 +197,35 @@ def _target_validation(manifest: SnapshotManifest) -> TargetValidationReport:
 class GitRunner:
     """Provide only the local Git observations used by the planner."""
 
-    def __init__(self, *, revision: str = REVISION, dirty: str = "", tracked: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        revision: str = REVISION,
+        dirty: str = "",
+        tracked: bool = True,
+        final_revision: str | None = None,
+        final_dirty: str | None = None,
+    ) -> None:
         self.revision = revision
         self.dirty = dirty
         self.tracked = tracked
+        self.final_revision = final_revision
+        self.final_dirty = final_dirty
+        self.revision_calls = 0
+        self.status_calls = 0
         self.commands: list[tuple[str, ...]] = []
 
     def __call__(self, args):
         command = tuple(args)
         self.commands.append(command)
         if "rev-parse" in command:
-            return subprocess.CompletedProcess(args, 0, self.revision + "\n", "")
+            self.revision_calls += 1
+            revision = self.final_revision if self.revision_calls > 1 and self.final_revision else self.revision
+            return subprocess.CompletedProcess(args, 0, revision + "\n", "")
         if "status" in command:
-            return subprocess.CompletedProcess(args, 0, self.dirty, "")
+            self.status_calls += 1
+            dirty = self.final_dirty if self.status_calls > 1 and self.final_dirty is not None else self.dirty
+            return subprocess.CompletedProcess(args, 0, dirty, "")
         if "ls-files" in command:
             output = "scripts/ingest_dataset.py\nscripts/ingest_lib.py\n" if self.tracked else ""
             return subprocess.CompletedProcess(args, 0 if self.tracked else 1, output, "")
@@ -286,7 +302,7 @@ def test_plan_binds_candidate_and_exact_plan_only_command(tmp_path: Path) -> Non
     assert plan.command[-2:] == ["--config-key", plan.config_key]
     assert "--execute-staging" not in plan.command
     assert "--outcome" not in plan.command
-    assert len(runner.commands) == 3
+    assert len(runner.commands) == 5
     assert all(command[0] == "git" for command in runner.commands)
 
 
@@ -338,6 +354,10 @@ def test_metadata_plan_must_match_all_reviewed_operations(tmp_path: Path) -> Non
         ({"bronze_prefix": "tenant-general-warehouse/nmdc/canonical/20260819"}, "staging area"),
         ({"progress_key": "elsewhere/progress.jsonl"}, "children"),
         ({"config_key": "tenant-general-warehouse/nmdc/staging/20260819/progress.jsonl"}, "distinct"),
+        (
+            {"progress_key": "tenant-general-warehouse/nmdc/staging/20260819/biosample_set.parquet"},
+            "artifact keys",
+        ),
     ],
 )
 def test_unsafe_or_canonical_destinations_are_rejected(tmp_path: Path, changes, message: str) -> None:
@@ -354,6 +374,10 @@ def test_checkout_revision_and_cleanliness_are_required(tmp_path: Path) -> None:
         _build(tmp_path, runner=GitRunner(dirty="?? scripts/csv.py\n"))
     with pytest.raises(BerdlStagingPlanError, match="sources must be tracked"):
         _build(tmp_path, runner=GitRunner(tracked=False))
+    with pytest.raises(BerdlStagingPlanError, match="changed while"):
+        _build(tmp_path, runner=GitRunner(final_revision="b" * 40))
+    with pytest.raises(BerdlStagingPlanError, match="changed while"):
+        _build(tmp_path, runner=GitRunner(final_dirty=" M scripts/ingest_lib.py\n"))
 
 
 def test_windows_beril_interpreter_layout_is_supported(tmp_path: Path) -> None:

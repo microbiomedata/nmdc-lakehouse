@@ -352,6 +352,18 @@ def _inspect_beril_checkout(
         ingest_script_sha256=_sha256(script, "BERIL staging command"),
         ingest_library_sha256=_sha256(library, "BERIL ingest library"),
     )
+    try:
+        final_revision = runner(("git", "-C", str(checkout), "rev-parse", "--verify", "HEAD"))
+        final_dirty = runner(("git", "-C", str(checkout), "status", "--porcelain", "--untracked-files=all"))
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise BerdlStagingPlanError("Cannot recheck the BERIL checkout after hashing.") from error
+    if (
+        final_revision.returncode != 0
+        or final_revision.stdout.strip() != expected_revision
+        or final_dirty.returncode != 0
+        or final_dirty.stdout.strip()
+    ):
+        raise BerdlStagingPlanError("The BERIL checkout changed while its staging sources were hashed.")
     return checkout, python, script, evidence
 
 
@@ -390,6 +402,9 @@ def build_berdl_staging_plan(
     _require_target_validation(manifest, target_validation)
     _require_metadata_agreement(manifest, bundle, inventory, metadata_plan, staging_namespace)
     artifacts = _select_artifacts(manifest, publication_plan)
+    artifact_keys = {f"{bronze_prefix}/{artifact.path}" for artifact in artifacts}
+    if progress_key in artifact_keys or config_key in artifact_keys:
+        raise BerdlStagingPlanError("The progress and config keys must not collide with staged artifact keys.")
     _checkout, python, script, beril = _inspect_beril_checkout(beril_checkout, beril_revision, runner)
     root = snapshot_root.resolve()
     command = [
