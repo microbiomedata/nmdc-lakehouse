@@ -349,6 +349,33 @@ and the exact owned file set. Parquet files and manifests remain immutable;
 `parent_snapshot_id` reserves a future lineage link but does not implement the
 patch semantics tracked in [#147](https://github.com/microbiomedata/nmdc-lakehouse/issues/147).
 
+### Logical target-row validation
+
+Snapshot validation proves file integrity and contract identities; it does not
+prove that flattened values satisfy the logical LinkML target. Generate separate
+snapshot-bound evidence outside the immutable snapshot:
+
+```bash
+just validate-target-rows "$LAKEHOUSE_ROOT" \
+  "./local/target-validation-$(date +%Y%m%d_%H%M%S).json"
+```
+
+The default bounded mode validates every row in tables with at most 10,000 rows
+and deterministically selects 100 rows from each larger table. Selection uses a
+SHA-256 score over the target identifier, when declared, and the canonical row;
+it is independent of Parquet row order. The report always records eligible and
+selected counts and labels sampled tables, so a passing bounded run is not a
+claim of full conformance. To validate every row, add `--mode full` after the
+report argument.
+
+Before reading rows, the command reruns immutable snapshot validation and
+requires exact agreement among the manifest, Parquet footers, packaged target
+schema, target class, source class, mapping, and `nmdc-schema` package version.
+It returns nonzero for identity mismatch or semantic errors. Finding records
+contain only severity, LinkML/JSON-Schema rule, field path, and aggregate count;
+they do not contain row values, credentials, or raw validator messages. The
+JSON evidence path must not already exist or reside inside the snapshot.
+
 ### Portable Parquet schema metadata
 
 Each schema-directed Parquet file carries structural metadata in its Arrow

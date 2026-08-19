@@ -25,6 +25,10 @@ doctor:
 berdl-doctor SNAPSHOT_ROOT *ARGS:
     uv run --no-sync nmdc-lakehouse berdl-doctor "{{ SNAPSHOT_ROOT }}" {{ ARGS }}
 
+# Validate manifested rows against the packaged target LinkML schema without mutation.
+validate-target-rows SNAPSHOT_ROOT REPORT *ARGS:
+    uv run --no-sync nmdc-lakehouse validate-target-rows "{{ SNAPSHOT_ROOT }}" --output "{{ REPORT }}" {{ ARGS }}
+
 # Generate a reviewable metadata profile draft bound to a validated snapshot.
 metadata-profile SNAPSHOT_ROOT PROFILE_ID NAMESPACE TITLE DESCRIPTION *ARGS:
     uv run --no-sync nmdc-lakehouse metadata-profile "{{ SNAPSHOT_ROOT }}" --profile-id "{{ PROFILE_ID }}" --namespace-name "{{ NAMESPACE }}" --title "{{ TITLE }}" --description "{{ DESCRIPTION }}" {{ ARGS }}
