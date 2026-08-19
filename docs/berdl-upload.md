@@ -158,7 +158,9 @@ rechecks the clean BERIL revision and source hashes, and reconstructs the
 argument vector. It does not start the BERIL process, read credentials, contact
 a service, upload data, or change a catalog. The upstream and NMDC outcome paths
 must be distinct, must not already exist, and must remain outside the immutable
-snapshot directory.
+snapshot directory and the reviewed BERIL checkout. An outcome created inside
+the checkout would make it dirty and invalidate the required post-run revision
+check after staging had already changed the destination.
 
 After reviewing that preview, execute the same plan with the snapshot ID printed
 in the plan as a fresh, invocation-specific authorization:

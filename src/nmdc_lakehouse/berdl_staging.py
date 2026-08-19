@@ -937,10 +937,13 @@ def execute_berdl_staging(
     plan_sha256 = _sha256(plan_path, "BERDL staging plan")
     plan = revalidate_berdl_staging_plan(load_berdl_staging_plan(plan_path), runner=checkout_runner)
     snapshot_root = _evidence_paths(plan)["snapshot-manifest.json"].expanduser().resolve().parent
+    beril_checkout = Path(plan.command[1]).expanduser().resolve().parent.parent
     upstream_output = upstream_outcome_path.expanduser().resolve()
     nmdc_output = output_path.expanduser().resolve()
     if upstream_output.is_relative_to(snapshot_root) or nmdc_output.is_relative_to(snapshot_root):
         raise BerdlStagingPlanError("Staging outcomes must be written outside the immutable snapshot.")
+    if upstream_output.is_relative_to(beril_checkout) or nmdc_output.is_relative_to(beril_checkout):
+        raise BerdlStagingPlanError("Staging outcomes must be written outside the reviewed BERIL checkout.")
     if upstream_output == nmdc_output:
         raise BerdlStagingPlanError("The BERIL and NMDC staging outcomes must use distinct paths.")
     command = build_berdl_execution_command(plan, upstream_outcome_path)
