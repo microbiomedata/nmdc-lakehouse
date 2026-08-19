@@ -276,7 +276,7 @@ selects the complete manifest-owned Parquet table set. It also requires a clean
 BERIL checkout at an explicit full Git revision containing the maintained staging
 command.
 
-The generated JSON records checksums for every reviewed input, including target
+The generated JSON records local paths and checksums for every reviewed input, including target
 validation, the selected Parquet identities, the BERIL revision and relevant
 source hashes, and the exact plan-only argument vector. Its dataset name must use a unique
 `<name>_staging_<suffix>` form, and its object prefix must be inside the tenant's

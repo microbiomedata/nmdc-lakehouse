@@ -47,6 +47,7 @@ class EvidenceDigest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     name: str
+    path: str
     sha256: str
 
 
@@ -426,7 +427,10 @@ def plan_berdl_staging(
         (metadata_plan_path, "metadata-application-plan.json", "metadata application plan"),
         (target_validation_path, "target-validation-report.json", "target validation report"),
     )
-    evidence = [EvidenceDigest(name=name, sha256=_sha256(path, label)) for path, name, label in paths]
+    evidence = [
+        EvidenceDigest(name=name, path=str(path.expanduser().resolve()), sha256=_sha256(path, label))
+        for path, name, label in paths
+    ]
     return build_berdl_staging_plan(
         snapshot_root=root,
         manifest=manifest,

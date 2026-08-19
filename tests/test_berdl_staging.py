@@ -239,7 +239,13 @@ def _build(tmp_path: Path, **changes):
         "publication_plan": publication_plan,
         "metadata_plan": metadata_plan,
         "target_validation": target_validation,
-        "evidence": [EvidenceDigest(name="snapshot-manifest.json", sha256="f" * 64)],
+        "evidence": [
+            EvidenceDigest(
+                name="snapshot-manifest.json",
+                path=str(tmp_path / "snapshot" / "snapshot-manifest.json"),
+                sha256="f" * 64,
+            )
+        ],
         "beril_checkout": checkout,
         "beril_revision": REVISION,
         "tenant": "nmdc",
@@ -382,6 +388,7 @@ def test_loaded_plan_hashes_every_reviewed_artifact(tmp_path: Path, monkeypatch:
         "metadata-application-plan.json",
         "target-validation-report.json",
     ]
+    assert [item.path for item in plan.evidence] == [str(path.resolve()) for path in paths.values()]
     assert len({item.sha256 for item in plan.evidence}) == 6
 
 

@@ -118,7 +118,7 @@ snapshot, destination observation, capabilities, namespace, and table coverage;
 requires successful target-schema validation with exact snapshot and table
 coverage; and checks that the external checkout is clean at the requested
 revision. It then creates an immutable, credential-free JSON plan containing the
-exact plan-only BERIL argument vector. It rejects canonical-looking dataset
+local evidence paths and checksums plus the exact plan-only BERIL argument vector. It rejects canonical-looking dataset
 names and object prefixes outside the tenant staging area.
 
 The generated command intentionally omits the BERIL execution flag and outcome
