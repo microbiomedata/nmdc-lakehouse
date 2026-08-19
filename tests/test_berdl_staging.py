@@ -63,7 +63,7 @@ def _manifest() -> SnapshotManifest:
         source_schema_version="11.10.0",
         source_class="Biosample",
         target_schema_id="https://w3id.org/nmdc/nmdc-schema-flattened",
-        target_class="Biosample",
+        target_class="BiosampleFlat",
         mapping="nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener",
     )
     return SnapshotManifest(
@@ -203,22 +203,29 @@ class GitRunner:
         revision: str = REVISION,
         dirty: str = "",
         tracked: bool = True,
+        index_flags: str = "H scripts/ingest_dataset.py\nH scripts/ingest_lib.py\n",
+        source_matches: bool = True,
+        final_source_matches: bool | None = None,
         final_revision: str | None = None,
         final_dirty: str | None = None,
     ) -> None:
         self.revision = revision
         self.dirty = dirty
         self.tracked = tracked
+        self.index_flags = index_flags
+        self.source_matches = source_matches
+        self.final_source_matches = final_source_matches
         self.final_revision = final_revision
         self.final_dirty = final_dirty
         self.revision_calls = 0
         self.status_calls = 0
+        self.source_round = 0
         self.commands: list[tuple[str, ...]] = []
 
     def __call__(self, args):
         command = tuple(args)
         self.commands.append(command)
-        if "rev-parse" in command:
+        if "rev-parse" in command and command[-1] == "HEAD":
             self.revision_calls += 1
             revision = self.final_revision if self.revision_calls > 1 and self.final_revision else self.revision
             return subprocess.CompletedProcess(args, 0, revision + "\n", "")
@@ -227,8 +234,18 @@ class GitRunner:
             dirty = self.final_dirty if self.status_calls > 1 and self.final_dirty is not None else self.dirty
             return subprocess.CompletedProcess(args, 0, dirty, "")
         if "ls-files" in command:
+            if "-v" in command:
+                self.source_round += 1
+                return subprocess.CompletedProcess(args, 0, self.index_flags, "")
             output = "scripts/ingest_dataset.py\nscripts/ingest_lib.py\n" if self.tracked else ""
             return subprocess.CompletedProcess(args, 0 if self.tracked else 1, output, "")
+        if "rev-parse" in command:
+            return subprocess.CompletedProcess(args, 0, "1" * 40 + "\n", "")
+        if "hash-object" in command:
+            matches = self.source_matches
+            if self.source_round > 1 and self.final_source_matches is not None:
+                matches = self.final_source_matches
+            return subprocess.CompletedProcess(args, 0, ("1" if matches else "2") * 40 + "\n", "")
         raise AssertionError(f"Unexpected external command: {command}")
 
 
@@ -302,7 +319,7 @@ def test_plan_binds_candidate_and_exact_plan_only_command(tmp_path: Path) -> Non
     assert plan.command[-2:] == ["--config-key", plan.config_key]
     assert "--execute-staging" not in plan.command
     assert "--outcome" not in plan.command
-    assert len(runner.commands) == 5
+    assert len(runner.commands) == 15
     assert all(command[0] == "git" for command in runner.commands)
 
 
@@ -374,10 +391,19 @@ def test_checkout_revision_and_cleanliness_are_required(tmp_path: Path) -> None:
         _build(tmp_path, runner=GitRunner(dirty="?? scripts/csv.py\n"))
     with pytest.raises(BerdlStagingPlanError, match="sources must be tracked"):
         _build(tmp_path, runner=GitRunner(tracked=False))
+    with pytest.raises(BerdlStagingPlanError, match="special Git index flags"):
+        _build(
+            tmp_path,
+            runner=GitRunner(index_flags="S scripts/ingest_dataset.py\nh scripts/ingest_lib.py\n"),
+        )
+    with pytest.raises(BerdlStagingPlanError, match="source bytes do not match"):
+        _build(tmp_path, runner=GitRunner(source_matches=False))
     with pytest.raises(BerdlStagingPlanError, match="changed while"):
         _build(tmp_path, runner=GitRunner(final_revision="b" * 40))
     with pytest.raises(BerdlStagingPlanError, match="changed while"):
         _build(tmp_path, runner=GitRunner(final_dirty=" M scripts/ingest_lib.py\n"))
+    with pytest.raises(BerdlStagingPlanError, match="source bytes do not match"):
+        _build(tmp_path, runner=GitRunner(final_source_matches=False))
 
 
 def test_windows_beril_interpreter_layout_is_supported(tmp_path: Path) -> None:
@@ -430,6 +456,11 @@ def test_failed_or_incomplete_target_validation_is_rejected(tmp_path: Path) -> N
     target_validation = _target_validation(_manifest())
     target_validation.tables = []
     with pytest.raises(BerdlStagingPlanError, match="table coverage"):
+        _build(tmp_path, target_validation=target_validation)
+
+    target_validation = _target_validation(_manifest())
+    target_validation.tables[0].selection_basis = "canonical-row"
+    with pytest.raises(BerdlStagingPlanError, match="does not match table"):
         _build(tmp_path, target_validation=target_validation)
 
     target_validation = _target_validation(_manifest())

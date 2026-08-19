@@ -35,6 +35,7 @@ from nmdc_lakehouse.target_validation import (
     TargetValidationReport,
     load_target_validation_report,
     packaged_target_schema_sha256,
+    packaged_target_selection_bases,
 )
 
 PLAN_FORMAT_VERSION: Literal[1] = 1
@@ -246,6 +247,7 @@ def _require_target_validation(manifest: SnapshotManifest, report: TargetValidat
         or report.target_schema_source_package_version != manifest.software.nmdc_schema_version
     ):
         raise BerdlStagingPlanError("The target validation report source schema does not match the snapshot.")
+    selection_bases = packaged_target_selection_bases({artifact.target_class for artifact in manifest.artifacts})
     for name, artifact in artifacts.items():
         table = tables[name]
         full = report.requested_mode == "full" or artifact.rows <= report.full_table_max_rows
@@ -254,6 +256,7 @@ def _require_target_validation(manifest: SnapshotManifest, report: TargetValidat
         if (
             table.artifact_path != artifact.path
             or table.target_class != artifact.target_class
+            or table.selection_basis != selection_bases[artifact.target_class]
             or table.eligible_rows != artifact.rows
             or table.mode != expected_mode
             or table.selected_rows != expected_selected
@@ -293,6 +296,30 @@ def _select_artifacts(manifest: SnapshotManifest, publication_plan: PublicationP
             )
         )
     return selected
+
+
+def _require_revision_sources(checkout: Path, revision: str, runner: CommandRunner) -> None:
+    """Require normal index flags and source bytes identical to a Git revision."""
+    sources = ("scripts/ingest_dataset.py", "scripts/ingest_lib.py")
+    try:
+        flags = runner(("git", "-C", str(checkout), "ls-files", "-v", "--", *sources))
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise BerdlStagingPlanError("Cannot verify the BERIL staging sources against the revision.") from error
+    if flags.returncode != 0 or set(flags.stdout.splitlines()) != {f"H {source}" for source in sources}:
+        raise BerdlStagingPlanError("The BERIL staging sources must not use special Git index flags.")
+    for source in sources:
+        try:
+            expected = runner(("git", "-C", str(checkout), "rev-parse", f"{revision}:{source}"))
+            observed = runner(("git", "-C", str(checkout), "hash-object", f"--path={source}", source))
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise BerdlStagingPlanError("Cannot verify the BERIL staging sources against the revision.") from error
+        if (
+            expected.returncode != 0
+            or observed.returncode != 0
+            or not expected.stdout.strip()
+            or expected.stdout.strip() != observed.stdout.strip()
+        ):
+            raise BerdlStagingPlanError("The BERIL staging source bytes do not match the selected revision.")
 
 
 def _inspect_beril_checkout(
@@ -347,6 +374,7 @@ def _inspect_beril_checkout(
         "scripts/ingest_lib.py",
     }:
         raise BerdlStagingPlanError("The BERIL staging sources must be tracked by the selected revision.")
+    _require_revision_sources(checkout, expected_revision, runner)
     evidence = BerilRevision(
         revision=expected_revision,
         ingest_script_sha256=_sha256(script, "BERIL staging command"),
@@ -355,6 +383,7 @@ def _inspect_beril_checkout(
     try:
         final_revision = runner(("git", "-C", str(checkout), "rev-parse", "--verify", "HEAD"))
         final_dirty = runner(("git", "-C", str(checkout), "status", "--porcelain", "--untracked-files=all"))
+        _require_revision_sources(checkout, expected_revision, runner)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise BerdlStagingPlanError("Cannot recheck the BERIL checkout after hashing.") from error
     if (
