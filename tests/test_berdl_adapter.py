@@ -30,6 +30,10 @@ def _arguments(tmp_path: Path) -> list[str]:
         "nmdc_metadata_staging_20260819",
         "--staging-namespace",
         "nmdc.nmdc_metadata_staging_20260819",
+        "--destination-provider",
+        "spark_catalog",
+        "--destination-table-format",
+        "iceberg",
         "--mode",
         "overwrite",
         "--bucket",
@@ -50,6 +54,8 @@ def test_plan_only_reports_owned_adapter_inputs(tmp_path: Path, capsys: pytest.C
     assert document["status"] == "plan-only"
     assert document["tables"] == ["biosample_set"]
     assert document["destination"]["namespace"] == "nmdc.nmdc_metadata_staging_20260819"
+    assert document["destination"]["provider"] == "spark_catalog"
+    assert document["destination"]["table_format"] == "iceberg"
     assert document["ingest"]["api"] == "data_lakehouse_ingest.ingest"
 
 

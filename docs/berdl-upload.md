@@ -125,7 +125,10 @@ revision. It binds the NMDC-owned adapter and the official
 `data_lakehouse_ingest.ingest` package entry points, then creates an immutable,
 credential-free JSON plan containing local evidence paths, checksums, and the
 exact plan-only adapter argument vector. It rejects canonical-looking dataset
-names and object prefixes outside the tenant staging area. BERIL Research
+names and object prefixes outside the tenant staging area. It also requires and
+records the reviewed `spark_catalog` provider and `iceberg` table format used by
+the selected official ingest path; missing or incompatible labels fail closed.
+BERIL Research
 Observatory remains an optional operator resource and is not a runtime or
 release dependency of this workflow.
 

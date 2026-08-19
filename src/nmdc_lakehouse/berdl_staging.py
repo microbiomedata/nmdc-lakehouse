@@ -12,7 +12,7 @@ import sys
 import tempfile
 from collections.abc import Callable, Sequence
 from pathlib import Path, PurePosixPath
-from typing import Literal
+from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -47,6 +47,8 @@ _BUCKET_RESERVED_PREFIXES = ("xn--", "sthree-", "amzn-s3-demo-")
 _BUCKET_RESERVED_SUFFIXES = ("-s3alias", "--ol-s3", ".mrap", "--x-s3", "--table-s3")
 _OBJECT_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 _REVISION = re.compile(r"[0-9a-f]{40}\Z")
+_SUPPORTED_DESTINATION_PROVIDER: Final[Literal["spark_catalog"]] = "spark_catalog"
+_SUPPORTED_TABLE_FORMAT: Final[Literal["iceberg"]] = "iceberg"
 
 CommandRunner = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
 
@@ -115,6 +117,8 @@ class BerdlStagingPlan(BaseModel):
     snapshot_id: str
     destination_id: str
     destination_observed_at: str
+    destination_provider: Literal["spark_catalog"]
+    destination_table_format: Literal["iceberg"]
     staging_namespace: str
     tenant: str
     dataset: str
@@ -431,6 +435,10 @@ def build_berdl_staging_plan(
         config_key=config_key,
     )
     build_publication_preflight(manifest, bundle, inventory, publication_plan)
+    if inventory.provider != _SUPPORTED_DESTINATION_PROVIDER or inventory.table_format != _SUPPORTED_TABLE_FORMAT:
+        raise BerdlStagingPlanError(
+            "BERDL staging requires a reviewed spark_catalog destination using the Iceberg table format."
+        )
     _require_target_validation(manifest, target_validation)
     _require_metadata_agreement(manifest, bundle, inventory, metadata_plan, staging_namespace)
     artifacts = _select_artifacts(manifest, publication_plan)
@@ -452,6 +460,10 @@ def build_berdl_staging_plan(
         dataset,
         "--staging-namespace",
         staging_namespace,
+        "--destination-provider",
+        inventory.provider,
+        "--destination-table-format",
+        inventory.table_format,
         "--mode",
         "overwrite",
         "--bucket",
@@ -469,6 +481,8 @@ def build_berdl_staging_plan(
         snapshot_id=manifest.snapshot_id,
         destination_id=inventory.destination_id,
         destination_observed_at=inventory.observed_at,
+        destination_provider=_SUPPORTED_DESTINATION_PROVIDER,
+        destination_table_format=_SUPPORTED_TABLE_FORMAT,
         staging_namespace=staging_namespace,
         tenant=tenant,
         dataset=dataset,

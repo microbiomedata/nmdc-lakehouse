@@ -317,6 +317,10 @@ def test_plan_binds_candidate_and_exact_plan_only_command(tmp_path: Path) -> Non
     assert plan.target_validation.selected_rows == 1
     assert plan.ingest.revision == REVISION
     assert plan.ingest.repository == "https://github.com/kbase/data-lakehouse-ingest"
+    assert plan.destination_provider == "spark_catalog"
+    assert plan.destination_table_format == "iceberg"
+    assert "--destination-provider" in plan.command
+    assert "--destination-table-format" in plan.command
     assert plan.command[-2:] == ["--config-key", plan.config_key]
     assert "--execute-staging" not in plan.command
     assert "--outcome" not in plan.command
@@ -339,6 +343,17 @@ def test_metadata_plan_must_match_snapshot_and_staging_namespace(tmp_path: Path)
             target_validation=target_validation,
             ingest_checkout=checkout,
         )
+
+
+@pytest.mark.parametrize(("provider", "table_format"), [(None, "iceberg"), ("spark_catalog", None), ("trino", "delta")])
+def test_staging_requires_reviewed_supported_destination_contract(
+    tmp_path: Path, provider: str | None, table_format: str | None
+) -> None:
+    inventory = _inventory().model_copy(update={"provider": provider, "table_format": table_format})
+    publication_plan = build_publication_plan(_manifest(), inventory, PublicationPolicy(policy_format_version=1))
+
+    with pytest.raises(BerdlStagingPlanError, match="spark_catalog destination using the Iceberg"):
+        _build(tmp_path, inventory=inventory, publication_plan=publication_plan)
 
 
 def test_metadata_plan_must_match_all_reviewed_operations(tmp_path: Path) -> None:
