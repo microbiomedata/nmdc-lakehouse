@@ -390,7 +390,7 @@ def metadata_application_plan_schema_command() -> None:
 @click.option("--beril-revision", required=True, help="Exact full Git commit selected for later staging.")
 @click.option("--tenant", required=True)
 @click.option("--dataset", required=True, help="Unique dataset name containing _staging_<suffix>.")
-@click.option("--bucket", default="cdm-lake", show_default=True)
+@click.option("--bucket", required=True, help="Explicit S3 bucket selected for staging.")
 @click.option("--bronze-prefix", required=True)
 @click.option("--progress-key", required=True)
 @click.option("--config-key", required=True)

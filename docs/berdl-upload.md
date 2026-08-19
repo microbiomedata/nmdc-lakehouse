@@ -107,6 +107,7 @@ just berdl-upload-plan \
   FULL_40_CHARACTER_BERIL_COMMIT \
   nmdc \
   nmdc_metadata_staging_20260819 \
+  cdm-lake \
   tenant-general-warehouse/nmdc/staging/20260819 \
   tenant-general-warehouse/nmdc/staging/20260819/progress.jsonl \
   tenant-general-warehouse/nmdc/staging/20260819/config.json \

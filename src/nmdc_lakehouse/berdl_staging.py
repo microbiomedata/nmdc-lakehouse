@@ -287,7 +287,10 @@ def _inspect_beril_checkout(
         checkout / ".venv-berdl" / "bin" / "python",
         checkout / ".venv-berdl" / "Scripts" / "python.exe",
     )
-    python = next((candidate for candidate in python_candidates if candidate.is_file()), None)
+    python = next(
+        (candidate for candidate in python_candidates if candidate.is_file() and not candidate.is_symlink()),
+        None,
+    )
     for path, label in ((script, "BERIL staging command"), (library, "BERIL ingest library")):
         if not path.is_file() or path.is_symlink():
             raise BerdlStagingPlanError(f"The {label} must be an ordinary file.")

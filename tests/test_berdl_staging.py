@@ -331,6 +331,16 @@ def test_windows_beril_interpreter_layout_is_supported(tmp_path: Path) -> None:
     assert plan.command[0] == str(python)
 
 
+def test_symlinked_beril_interpreter_is_rejected(tmp_path: Path) -> None:
+    _manifest_value, _bundle_value, _inventory_value, _publication, _metadata, _target, checkout = _inputs(tmp_path)
+    python = checkout / ".venv-berdl" / "bin" / "python"
+    python.unlink()
+    python.symlink_to(tmp_path / "unreviewed-python")
+
+    with pytest.raises(BerdlStagingPlanError, match="no .venv-berdl Python interpreter"):
+        _build(tmp_path, beril_checkout=checkout)
+
+
 def test_failed_or_incomplete_target_validation_is_rejected(tmp_path: Path) -> None:
     target_validation = _target_validation(_manifest())
     target_validation.status = "failure"
@@ -434,6 +444,8 @@ def test_cli_writes_the_same_plan_it_prints(tmp_path: Path, monkeypatch: pytest.
             "nmdc",
             "--dataset",
             "nmdc_metadata_staging_20260819",
+            "--bucket",
+            "cdm-lake",
             "--bronze-prefix",
             "tenant-general-warehouse/nmdc/staging/20260819",
             "--progress-key",
