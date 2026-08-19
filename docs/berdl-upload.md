@@ -90,6 +90,43 @@ reviewed artifacts still identify the same snapshot and destination observation
 and that their table evidence and coverage agree. It neither contacts BERDL nor
 authorizes the historical upload steps below.
 
+## Build the maintained staging command plan
+
+After reviewing the successful preflight and metadata-application plan, bind
+them to a clean BERIL checkout at the exact revision selected for staging:
+
+```bash
+just berdl-upload-plan \
+  /path/to/completed-snapshot \
+  /path/to/metadata-bundle.json \
+  /path/to/destination-inventory.json \
+  /path/to/publication-plan.json \
+  /path/to/metadata-application-plan.json \
+  /path/to/target-validation-report.json \
+  /path/to/BERIL-research-observatory \
+  FULL_40_CHARACTER_BERIL_COMMIT \
+  nmdc \
+  nmdc_metadata_staging_20260819 \
+  tenant-general-warehouse/nmdc/staging/20260819 \
+  tenant-general-warehouse/nmdc/staging/20260819/progress.jsonl \
+  tenant-general-warehouse/nmdc/staging/20260819/config.json \
+  /path/to/berdl-staging-plan.json
+```
+
+The planner re-runs the portable preflight; verifies the metadata plan's
+snapshot, destination observation, capabilities, namespace, and table coverage;
+requires successful target-schema validation with exact snapshot and table
+coverage; and checks that the external checkout is clean at the requested
+revision. It then creates an immutable, credential-free JSON plan containing the
+exact plan-only BERIL argument vector. It rejects canonical-looking dataset
+names and object prefixes outside the tenant staging area.
+
+The generated command intentionally omits the BERIL execution flag and outcome
+path. Do not add them by hand. Live execution and independent outcome checking
+remain tracked in [#136](https://github.com/microbiomedata/nmdc-lakehouse/issues/136),
+and catalog metadata application remains tracked in
+[#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114).
+
 The destination, catalog, and table format are explicit observations. Do not
 copy the historical Delta examples below unless current discovery confirms
 them. A missing or blank value is a readiness failure.

@@ -41,6 +41,10 @@ publication-preflight SNAPSHOT_ROOT BUNDLE INVENTORY PLAN:
 metadata-application-plan BUNDLE INVENTORY STAGING_NAMESPACE *ARGS:
     uv run --no-sync nmdc-lakehouse metadata-application-plan "{{ BUNDLE }}" --inventory "{{ INVENTORY }}" --staging-namespace "{{ STAGING_NAMESPACE }}" {{ ARGS }}
 
+# Bind reviewed evidence to an exact plan-only BERIL staging command.
+berdl-upload-plan SNAPSHOT_ROOT BUNDLE INVENTORY PLAN METADATA_PLAN TARGET_VALIDATION BERIL_CHECKOUT BERIL_REVISION TENANT DATASET BRONZE_PREFIX PROGRESS_KEY CONFIG_KEY OUTPUT *ARGS:
+    uv run --no-sync nmdc-lakehouse berdl-upload-plan "{{ SNAPSHOT_ROOT }}" --bundle "{{ BUNDLE }}" --inventory "{{ INVENTORY }}" --plan "{{ PLAN }}" --metadata-plan "{{ METADATA_PLAN }}" --target-validation "{{ TARGET_VALIDATION }}" --beril-checkout "{{ BERIL_CHECKOUT }}" --beril-revision "{{ BERIL_REVISION }}" --tenant "{{ TENANT }}" --dataset "{{ DATASET }}" --bronze-prefix "{{ BRONZE_PREFIX }}" --progress-key "{{ PROGRESS_KEY }}" --config-key "{{ CONFIG_KEY }}" --output "{{ OUTPUT }}" {{ ARGS }}
+
 # Preserve an existing configured Git hooks-path policy instead of replacing it.
 [private]
 _install-pre-commit-hook:

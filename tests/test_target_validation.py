@@ -18,6 +18,7 @@ from nmdc_lakehouse.target_validation import (
     TargetValidationError,
     _sample_rows,
     build_target_validation_report,
+    load_target_validation_report,
     validate_target_snapshot,
     write_target_validation_report,
 )
@@ -163,6 +164,22 @@ def test_bounded_report_distinguishes_sampling_from_full_validation(tmp_path: Pa
     assert report.tables[0].mode == "sampled"
     assert report.tables[0].eligible_rows == 10
     assert report.tables[0].selected_rows == 3
+
+    report_path = tmp_path / "target-validation.json"
+    report_path.write_text(report.model_dump_json(), encoding="utf-8")
+    assert load_target_validation_report(report_path) == report
+
+
+def test_target_validation_loader_rejects_symlinks_and_invalid_json(tmp_path: Path) -> None:
+    invalid = tmp_path / "invalid.json"
+    invalid.write_text("not JSON\n", encoding="utf-8")
+    linked = tmp_path / "linked.json"
+    linked.symlink_to(invalid)
+
+    with pytest.raises(TargetValidationError, match="valid target validation"):
+        load_target_validation_report(invalid)
+    with pytest.raises(TargetValidationError, match="ordinary JSON"):
+        load_target_validation_report(linked)
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])

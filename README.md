@@ -161,6 +161,7 @@ operational-command inventory.
 | `just validate-target-rows SNAPSHOT_ROOT REPORT` | Validate manifested rows against the packaged target LinkML schema |
 | `just publication-preflight SNAPSHOT_ROOT BUNDLE INVENTORY PLAN` | Cross-check reviewed publication artifacts before staging |
 | `just metadata-application-plan BUNDLE INVENTORY STAGING_NAMESPACE` | Plan metadata operations for an explicit staging namespace |
+| `just berdl-upload-plan ...` | Bind reviewed artifacts to an exact plan-only BERIL staging command |
 | `just install`      | Synchronize the locked development environment    |
 | `just install-all`  | Synchronize locked development and docs extras    |
 | `just lock`         | Refresh `uv.lock`                                |

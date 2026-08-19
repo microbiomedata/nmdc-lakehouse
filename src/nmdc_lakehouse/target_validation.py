@@ -23,7 +23,7 @@ from linkml.validator import Validator
 from linkml.validator.plugins import JsonschemaValidationPlugin
 from linkml.validator.report import ValidationResult
 from linkml_runtime import SchemaView
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from nmdc_lakehouse.snapshot_manifest import ArtifactRecord, SnapshotManifest, validate_snapshot
 
@@ -408,6 +408,17 @@ def validate_target_snapshot(
             full_table_max_rows=full_table_max_rows,
             sample_rows=sample_rows,
         )
+
+
+def load_target_validation_report(path: Path) -> TargetValidationReport:
+    """Load strict snapshot-bound target validation evidence offline."""
+    document = path.expanduser()
+    if not document.is_file() or document.is_symlink():
+        raise TargetValidationError("The target validation report must be an ordinary JSON file.")
+    try:
+        return TargetValidationReport.model_validate_json(document.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValidationError) as error:
+        raise TargetValidationError("Cannot read a valid target validation report.") from error
 
 
 def write_target_validation_report(output: Path, report: TargetValidationReport, *, snapshot_root: Path) -> Path:
