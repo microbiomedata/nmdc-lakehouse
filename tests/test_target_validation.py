@@ -209,6 +209,31 @@ def test_aggregate_identities_must_match_artifact_identities(
         build_target_validation_report(tmp_path, manifest, PUBLISHED_SCHEMA)
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("source_schema_id", "https://example.org/wrong", "source schema identities"),
+        ("source_schema_version", "0.0.0", "source schema versions"),
+    ],
+)
+def test_artifact_source_schema_must_match_published_target_annotations(
+    tmp_path: Path,
+    field: str,
+    value: str,
+    message: str,
+) -> None:
+    path = tmp_path / "study_set.parquet"
+    pq.write_table(
+        pa.Table.from_pylist([{"id": "nmdc:sty-1", "study_category": "research_study", "type": "nmdc:Study"}]),
+        path,
+    )
+    artifact = _artifact(path, target_class="StudyFlat", source_class="Study", mapping=PRIMARY_MAPPING_ID)
+    setattr(artifact, field, value)
+
+    with pytest.raises(TargetValidationError, match=message):
+        build_target_validation_report(tmp_path, _manifest([artifact]), PUBLISHED_SCHEMA)
+
+
 def test_snapshot_root_symlink_is_rejected_before_resolution(tmp_path: Path) -> None:
     snapshot = tmp_path / "snapshot"
     snapshot.mkdir()

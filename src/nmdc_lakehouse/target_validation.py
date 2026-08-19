@@ -76,6 +76,7 @@ class TargetValidationReport(BaseModel):
     snapshot_id: str
     target_schema_id: str
     target_schema_sha256: str
+    target_schema_source_id: str
     target_schema_source_version: str
     target_schema_source_package_version: str
     linkml_version: str
@@ -299,8 +300,17 @@ def build_target_validation_report(
         raise TargetValidationError("Snapshot mapping identities do not match the manifested artifact identities.")
     if set(manifest.target_schema_ids) != {schema_id}:
         raise TargetValidationError("Snapshot and published target schema identities do not match exactly.")
+    source_id = _annotation(schema_view.schema, "source_schema_id")
     source_version = _annotation(schema_view.schema, "source_schema_version")
     source_package_version = _annotation(schema_view.schema, "source_package_version")
+    if {artifact.source_schema_id for artifact in manifest.artifacts} != {source_id}:
+        raise TargetValidationError(
+            "Manifested artifact source schema identities do not match the published target schema."
+        )
+    if {artifact.source_schema_version for artifact in manifest.artifacts} != {source_version}:
+        raise TargetValidationError(
+            "Manifested artifact source schema versions do not match the published target schema."
+        )
     if manifest.software.nmdc_schema_version != source_package_version:
         raise TargetValidationError("Snapshot and published target schema use different nmdc-schema package versions.")
 
@@ -328,6 +338,7 @@ def build_target_validation_report(
         snapshot_id=manifest.snapshot_id,
         target_schema_id=schema_id,
         target_schema_sha256=_sha256(schema_path),
+        target_schema_source_id=source_id,
         target_schema_source_version=source_version,
         target_schema_source_package_version=source_package_version,
         linkml_version=version("linkml"),
