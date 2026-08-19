@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -40,6 +41,8 @@ PLAN_FORMAT_VERSION: Literal[1] = 1
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 _STAGING_DATASET = re.compile(r"[A-Za-z_][A-Za-z0-9_]*_staging_[A-Za-z0-9_]+\Z")
 _BUCKET = re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\Z")
+_BUCKET_RESERVED_PREFIXES = ("xn--", "sthree-", "amzn-s3-demo-")
+_BUCKET_RESERVED_SUFFIXES = ("-s3alias", "--ol-s3", ".mrap", "--x-s3", "--table-s3")
 _OBJECT_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 _REVISION = re.compile(r"[0-9a-f]{40}\Z")
 
@@ -156,6 +159,23 @@ def _validate_object_key(value: str, label: str) -> None:
         raise BerdlStagingPlanError(f"The {label} contains an unsafe path segment.")
 
 
+def _is_valid_s3_bucket(value: str) -> bool:
+    if (
+        not _BUCKET.fullmatch(value)
+        or ".." in value
+        or ".-" in value
+        or "-." in value
+        or value.startswith(_BUCKET_RESERVED_PREFIXES)
+        or value.endswith(_BUCKET_RESERVED_SUFFIXES)
+    ):
+        return False
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return True
+    return False
+
+
 def _validate_destination(
     *,
     tenant: str,
@@ -172,7 +192,7 @@ def _validate_destination(
         raise BerdlStagingPlanError("The dataset must use a unique <name>_staging_<suffix> identifier.")
     if staging_namespace != f"{tenant}.{dataset}":
         raise BerdlStagingPlanError("The staging namespace must exactly match <tenant>.<dataset>.")
-    if not _BUCKET.fullmatch(bucket):
+    if not _is_valid_s3_bucket(bucket):
         raise BerdlStagingPlanError("The bucket must be a safe S3 bucket name.")
     for value, label in (
         (bronze_prefix, "bronze prefix"),
@@ -298,7 +318,7 @@ def _inspect_beril_checkout(
         raise BerdlStagingPlanError("The BERIL checkout has no .venv-berdl Python interpreter.")
     try:
         revision = runner(("git", "-C", str(checkout), "rev-parse", "--verify", "HEAD"))
-        dirty = runner(("git", "-C", str(checkout), "status", "--porcelain", "--untracked-files=no"))
+        dirty = runner(("git", "-C", str(checkout), "status", "--porcelain", "--untracked-files=all"))
         tracked = runner(
             (
                 "git",
@@ -316,7 +336,7 @@ def _inspect_beril_checkout(
     if revision.returncode != 0 or revision.stdout.strip() != expected_revision:
         raise BerdlStagingPlanError("The BERIL checkout does not match the requested revision.")
     if dirty.returncode != 0 or dirty.stdout.strip():
-        raise BerdlStagingPlanError("The BERIL checkout must have no tracked changes.")
+        raise BerdlStagingPlanError("The BERIL checkout must have no tracked or untracked changes.")
     if tracked.returncode != 0 or set(tracked.stdout.splitlines()) != {
         "scripts/ingest_dataset.py",
         "scripts/ingest_lib.py",

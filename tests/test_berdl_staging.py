@@ -329,6 +329,11 @@ def test_metadata_plan_must_match_all_reviewed_operations(tmp_path: Path) -> Non
     [
         ({"dataset": "nmdc_metadata"}, "unique"),
         ({"dataset": "nmdc_metadata_staging"}, "unique"),
+        ({"bucket": "a..b"}, "bucket"),
+        ({"bucket": "a.-b"}, "bucket"),
+        ({"bucket": "192.168.1.1"}, "bucket"),
+        ({"bucket": "xn--reserved"}, "bucket"),
+        ({"bucket": "reserved--x-s3"}, "bucket"),
         ({"bronze_prefix": "tenant-general-warehouse/nmdc/canonical/20260819"}, "staging area"),
         ({"progress_key": "elsewhere/progress.jsonl"}, "children"),
         ({"config_key": "tenant-general-warehouse/nmdc/staging/20260819/progress.jsonl"}, "distinct"),
@@ -342,8 +347,10 @@ def test_unsafe_or_canonical_destinations_are_rejected(tmp_path: Path, changes, 
 def test_checkout_revision_and_cleanliness_are_required(tmp_path: Path) -> None:
     with pytest.raises(BerdlStagingPlanError, match="requested revision"):
         _build(tmp_path, runner=GitRunner(revision="b" * 40))
-    with pytest.raises(BerdlStagingPlanError, match="tracked changes"):
+    with pytest.raises(BerdlStagingPlanError, match="tracked or untracked changes"):
         _build(tmp_path, runner=GitRunner(dirty=" M scripts/ingest_lib.py\n"))
+    with pytest.raises(BerdlStagingPlanError, match="tracked or untracked changes"):
+        _build(tmp_path, runner=GitRunner(dirty="?? scripts/csv.py\n"))
     with pytest.raises(BerdlStagingPlanError, match="sources must be tracked"):
         _build(tmp_path, runner=GitRunner(tracked=False))
 
