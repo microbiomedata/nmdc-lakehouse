@@ -21,6 +21,12 @@ bootstrap: install-all
 doctor:
     uv run --no-sync nmdc-lakehouse doctor
 
+# Preview or run the BERDL promotion and recovery capability probe on disposable tables.
+berdl-promotion-probe TENANT SOURCE_NAMESPACE DESTINATION_NAMESPACE OUTPUT *ARGS:
+    uv run --no-sync nmdc-lakehouse berdl-promotion-probe \
+        "{{ TENANT }}" "{{ SOURCE_NAMESPACE }}" "{{ DESTINATION_NAMESPACE }}" \
+        --output "{{ OUTPUT }}" {{ ARGS }}
+
 # Inspect a completed snapshot and explicitly configured BERDL tooling without mutation.
 berdl-doctor SNAPSHOT_ROOT *ARGS:
     uv run --no-sync nmdc-lakehouse berdl-doctor "{{ SNAPSHOT_ROOT }}" {{ ARGS }}

@@ -575,6 +575,56 @@ def berdl_apply_metadata_command(
     click.echo(f"outcome={destination.resolve()}", err=True)
 
 
+@cli.command("berdl-promotion-probe")
+@click.argument("tenant")
+@click.argument("source_namespace")
+@click.argument("destination_namespace")
+@click.option("--output", type=click.Path(path_type=Path, dir_okay=False), required=True)
+@click.option("--authorize-plan-sha256", help="Exact SHA-256 of the reviewed probe plan.")
+@click.option(
+    "--execute-probe",
+    is_flag=True,
+    help="Create and mutate disposable probe tables; the default only previews the plan.",
+)
+def berdl_promotion_probe_command(
+    tenant: str,
+    source_namespace: str,
+    destination_namespace: str,
+    output: Path,
+    authorize_plan_sha256: str | None,
+    execute_probe: bool,
+) -> None:
+    """Establish which BERDL promotion and recovery operations exist, on disposable tables."""
+    from nmdc_lakehouse.berdl_promotion_probe import (
+        BerdlPromotionProbeError,
+        build_promotion_probe_plan,
+        plan_sha256,
+        render_promotion_probe,
+        run_promotion_probe,
+        write_promotion_probe_outcome,
+    )
+
+    try:
+        plan = build_promotion_probe_plan(
+            tenant=tenant,
+            source_namespace=source_namespace,
+            destination_namespace=destination_namespace,
+        )
+        digest = plan_sha256(plan)
+        if not execute_probe:
+            click.echo(render_promotion_probe(plan))
+            click.echo(f"plan_sha256={digest}", err=True)
+            return
+        if authorize_plan_sha256 != digest:
+            raise BerdlPromotionProbeError("Execution requires the exact reviewed probe plan SHA-256.")
+        outcome = run_promotion_probe(plan, authorize_plan_sha256=digest)
+        destination = write_promotion_probe_outcome(output, outcome)
+    except (BerdlPromotionProbeError, OSError) as error:
+        raise click.ClickException(str(error)) from error
+    click.echo(render_promotion_probe(outcome))
+    click.echo(f"outcome={destination.resolve()}", err=True)
+
+
 @cli.command("berdl-doctor")
 @click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
 @click.option(
