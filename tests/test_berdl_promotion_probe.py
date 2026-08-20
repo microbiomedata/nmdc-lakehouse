@@ -499,7 +499,7 @@ def test_rendered_documents_use_stable_key_ordering() -> None:
 
 def test_key_ordering_does_not_change_the_plan_digest() -> None:
     """The digest binds the model, not the rendering, so review formatting cannot invalidate authorization."""
-    assert plan_sha256(_plan()) == "8078986676b242d14503df9d28631d9a6d79be6adbbb4f302b470edf6e78c6e0"
+    assert plan_sha256(_plan()) == "3aaed84e8decc71ed5944f246be531d36dc82ddd23efaa05d6e0c977d223e302"
 
 
 def test_unobservable_post_mutation_state_is_named_not_silently_omitted() -> None:
@@ -629,3 +629,29 @@ def test_an_unlistable_catalog_is_not_recorded_as_an_absent_table() -> None:
     assert injection.independently_verified is None
     assert any("could not be listed" in q for q in outcome.unresolved_questions)
     assert not any("promotion is not atomic across tables" in q for q in outcome.unresolved_questions)
+
+
+def test_the_plan_digest_is_canonical_json_not_pydantic_serialization() -> None:
+    """A serializer change across dependency versions must not invalidate an operator's digest."""
+    import hashlib
+    import json
+
+    plan = _plan()
+    expected = hashlib.sha256(
+        json.dumps(plan.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+    ).hexdigest()
+
+    assert plan_sha256(plan) == expected
+
+
+def test_an_unusable_row_count_is_not_recorded_as_zero() -> None:
+    """Fabricating a zero would put invented evidence into the report."""
+
+    class OddCount(FakeSpark):
+        def _answer(self, statement: str):
+            if statement.startswith("SELECT COUNT(*)") and f"{SOURCE}.probe_first" in statement:
+                return [("not-a-number",)]
+            return super()._answer(statement)
+
+    with pytest.raises(BerdlPromotionProbeError, match="observe every disposable table"):
+        _run(OddCount())

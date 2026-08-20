@@ -24,6 +24,10 @@ _PROBE_TABLES: tuple[str, str] = ("probe_first", "probe_second")
 _PROBE_ROWS: int = 2
 
 
+class BerdlMetadataProbeCountError(ValueError):
+    """Raised when a table's row count is not a usable integer."""
+
+
 class BerdlPromotionProbeError(ValueError):
     """Raised when the promotion probe cannot run safely or report honestly."""
 
@@ -173,9 +177,16 @@ def build_promotion_probe_plan(*, tenant: str, source_namespace: str, destinatio
 
 
 def plan_sha256(plan: ProbePlan) -> str:
-    """Return the content identity of a reviewed probe plan."""
-    payload = plan.model_dump_json(by_alias=False)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    """Return the content identity of a reviewed probe plan.
+
+    Hashes canonical JSON rather than Pydantic's serialization, matching
+    ``snapshot_manifest._json_sha256``. A serializer change across dependency versions must not
+    silently invalidate an authorization digest an operator is holding.
+    """
+    encoded = json.dumps(
+        plan.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _classify(error: BaseException) -> ProbeVerdict:
@@ -278,10 +289,14 @@ def _table_exists(spark: Any, namespace: str, table: str) -> bool | None:
 def _table_state(spark: Any, namespace: str, table: str) -> TableState:
     full_table = f"{namespace}.{table}"
     count = _scalar(spark, f"SELECT COUNT(*) FROM {full_table}")
+    if isinstance(count, bool) or not isinstance(count, int):
+        # Raising routes this through the existing unreadable-table pathway rather than
+        # recording a fabricated zero as observed evidence.
+        raise BerdlMetadataProbeCountError(f"Cannot read a row count for '{full_table}'.")
     return TableState(
         table=table,
         snapshot_id=_snapshot_id(spark, full_table),
-        row_count=int(count) if isinstance(count, int) else 0,
+        row_count=count,
         schema_fingerprint=_schema_fingerprint(spark, full_table),
     )
 
