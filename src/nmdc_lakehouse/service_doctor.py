@@ -25,7 +25,10 @@ def _missing_driver_check() -> DoctorCheck:
         name="mongo-ping",
         status=CheckStatus.FAIL,
         summary="The MongoDB driver is not installed, so this check cannot run.",
-        remediation="Install the MongoDB extra, or omit --service-check mongo-ping where it is not needed.",
+        remediation=(
+            "Install pymongo, which is a required dependency of this package, or omit "
+            "--service-check mongo-ping in an environment that does not read MongoDB."
+        ),
     )
 
 

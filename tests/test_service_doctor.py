@@ -398,7 +398,7 @@ def test_a_missing_driver_reports_a_remediable_failure() -> None:
         ping = [c for c in checks if c.name == "mongo-ping"][0]
         assert ping.status.value == "FAIL", ping
         assert "driver is not installed" in ping.summary, ping.summary
-        assert "Install the MongoDB extra" in ping.remediation, ping.remediation
+        assert "Install pymongo" in ping.remediation, ping.remediation
         print("ok")
         """
     )
