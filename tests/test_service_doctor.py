@@ -335,3 +335,91 @@ def test_combined_checks_keep_tunnel_result_when_mongo_credentials_are_missing(t
     ]
     assert checks[0].status is CheckStatus.FAIL
     assert checks[-1].status is CheckStatus.PASS
+
+
+def test_the_cli_and_berdl_commands_import_without_the_mongodb_driver() -> None:
+    """BERDL commands run where the ETL dependency set is absent, such as a BERDL pod."""
+    import builtins
+    import subprocess
+    import sys
+    import textwrap
+
+    script = textwrap.dedent(
+        """
+        import builtins, sys
+        _real = builtins.__import__
+        def _blocked(name, *a, **k):
+            if name == "pymongo" or name.startswith("pymongo."):
+                raise ModuleNotFoundError("No module named 'pymongo'", name="pymongo")
+            return _real(name, *a, **k)
+        builtins.__import__ = _blocked
+        from click.testing import CliRunner
+        from nmdc_lakehouse.cli import cli
+        from nmdc_lakehouse.service_doctor import SERVICE_CHECKS
+        assert SERVICE_CHECKS
+        for cmd in ("berdl-upload", "berdl-upload-plan", "berdl-apply-metadata", "berdl-doctor"):
+            result = CliRunner().invoke(cli, [cmd, "--help"])
+            assert result.exit_code == 0, (cmd, result.output)
+        print("ok")
+        """
+    )
+    assert builtins  # keep the import meaningful to linters
+    completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False)
+    assert completed.returncode == 0, completed.stderr
+    assert "ok" in completed.stdout
+
+
+def test_a_missing_driver_reports_a_remediable_failure() -> None:
+    """Exercise the real absence, not a factory that simulates it.
+
+    A simulated failure passed against an earlier version of this fix that raised before it could
+    report anything, because the driver's error classes were imported outside the guarded block.
+    """
+    import subprocess
+    import sys
+    import textwrap
+
+    script = textwrap.dedent(
+        """
+        import builtins
+        _real = builtins.__import__
+        def _blocked(name, *a, **k):
+            if name == "pymongo" or name.startswith("pymongo."):
+                raise ModuleNotFoundError("No module named 'pymongo'", name="pymongo")
+            return _real(name, *a, **k)
+        builtins.__import__ = _blocked
+        from nmdc_lakehouse.service_doctor import run_service_checks
+        configured = {
+            "MONGO_HOST": "localhost", "MONGO_PORT": "27124", "MONGO_DBNAME": "nmdc",
+            "MONGO_USERNAME": "reader", "MONGO_PASSWORD": "x", "MONGO_AUTH_SOURCE": "admin",
+            "MONGO_DIRECT_CONNECTION": "true",
+        }
+        checks = run_service_checks(("mongo-ping",), configured=configured)
+        ping = [c for c in checks if c.name == "mongo-ping"][0]
+        assert ping.status.value == "FAIL", ping
+        assert "driver is not installed" in ping.summary, ping.summary
+        assert "Install pymongo" in ping.remediation, ping.remediation
+        print("ok")
+        """
+    )
+    completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False)
+    assert completed.returncode == 0, completed.stderr
+    assert "ok" in completed.stdout
+
+
+def test_a_different_missing_module_is_not_blamed_on_the_mongodb_driver() -> None:
+    from nmdc_lakehouse.service_doctor import run_service_checks
+
+    def _factory(*_args, **_kwargs):
+        raise ModuleNotFoundError("No module named 'somethingelse'", name="somethingelse")
+
+    checks = run_service_checks(
+        ("mongo-ping",),
+        configured=_live_configuration(),
+        mongo_client_factory=_factory,
+    )
+
+    ping = [check for check in checks if check.name == "mongo-ping"][0]
+    assert ping.status is CheckStatus.FAIL
+    assert "driver is not installed" not in ping.summary
+    assert "unexpected sanitized error" in ping.summary
