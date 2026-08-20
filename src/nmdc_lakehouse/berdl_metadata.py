@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
@@ -183,6 +184,11 @@ def load_berdl_metadata_preview(
     )
 
 
+def _default_progress(message: str) -> None:
+    """Report progress on stderr, keeping stdout reserved for the parseable outcome JSON."""
+    print(message, file=sys.stderr, flush=True)
+
+
 def _runtime(checkout: Path) -> tuple[Any, Callable[..., dict[str, Any]], Callable[..., dict[str, Any]]]:
     source_root = (checkout.expanduser() / "src").resolve()
     package_root = source_root / "data_lakehouse_ingest"
@@ -237,6 +243,7 @@ def apply_berdl_staging_metadata(
     ingest_checkout: Path,
     runtime: Callable[[Path], tuple[Any, Callable[..., dict[str, Any]], Callable[..., dict[str, Any]]]] = _runtime,
     checkout_verifier: Callable[[Path, str], None] = _verify_ingest_checkout,
+    progress: Callable[[str], None] = _default_progress,
 ) -> BerdlMetadataOutcome:
     """Apply approved descriptions and require exact catalog read-back."""
     expected_preview = build_berdl_metadata_preview(
@@ -255,8 +262,14 @@ def apply_berdl_staging_metadata(
     except Exception as error:
         raise BerdlMetadataError("Cannot initialize the BERDL metadata runtime.") from error
     table_operations, column_operations, _deferred = _description_operations(plan)
+    planned_columns = sum(len(column_operations[name]) for name in plan.tables)
+    started = time.monotonic()
+    applied_columns = 0
+    progress(
+        f"applying descriptions to {len(plan.tables)} tables and {planned_columns} columns in {plan.staging_namespace}"
+    )
     targets: list[AppliedMetadataTarget] = []
-    for table in plan.tables:
+    for index, table in enumerate(plan.tables, start=1):
         full_table = f"{plan.staging_namespace}.{table}"
         table_operation = table_operations.get(table)
         table_status: Literal["verified", "not-planned"] = "not-planned"
@@ -270,6 +283,7 @@ def apply_berdl_staging_metadata(
         operations = column_operations[table]
         verified_columns: list[str] = []
         if operations:
+            progress(f"[{index}/{len(plan.tables)}] {table}: applying {len(operations)} column descriptions")
             report = apply_column_comments(
                 spark,
                 full_table,
@@ -286,6 +300,15 @@ def apply_berdl_staging_metadata(
                         f"The column description read-back failed for '{table}.{operation.column}'."
                     )
                 verified_columns.append(operation.column)
+        applied_columns += len(verified_columns)
+        elapsed = time.monotonic() - started
+        remaining = planned_columns - applied_columns
+        rate = applied_columns / elapsed if elapsed > 0 and applied_columns else 0.0
+        estimate = f", about {remaining / rate / 60:.0f} min left" if rate > 0 and remaining else ""
+        progress(
+            f"[{index}/{len(plan.tables)}] {table}: verified {len(verified_columns)} columns "
+            f"({applied_columns}/{planned_columns} total, {elapsed / 60:.1f} min elapsed{estimate})"
+        )
         targets.append(
             AppliedMetadataTarget(
                 table=table,

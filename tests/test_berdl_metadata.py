@@ -365,3 +365,57 @@ def test_checkout_verification_rejects_a_modified_checkout(tmp_path: Path, monke
         berdl_metadata._verify_ingest_checkout(tmp_path, revision)
 
     assert commands[-1][:4] == ("git", "-C", str(tmp_path.resolve()), "status")
+
+
+def test_application_reports_per_table_progress(tmp_path: Path) -> None:
+    """A run measured in tens of minutes must not be silent; #256."""
+    descriptions: dict[str, str] = {}
+    columns: dict[str, str] = {}
+
+    class Catalog:
+        def getTable(self, name):
+            return SimpleNamespace(description=descriptions.get(name))
+
+        def listColumns(self, _name):
+            return [SimpleNamespace(name="id", description=columns.get("id"))]
+
+    spark = SimpleNamespace(catalog=Catalog())
+
+    def apply_table(_spark, table, value, **_kwargs):
+        descriptions[table] = value
+        return {"status": "success"}
+
+    def apply_columns(_spark, _table, schema, **_kwargs):
+        columns.update({item["column"]: item["comment"] for item in schema})
+        return {"status": "success"}
+
+    messages: list[str] = []
+    preview = build_berdl_metadata_preview(
+        _plan(), _staging(), metadata_plan_sha256="5" * 64, staging_outcome_sha256="6" * 64
+    )
+    apply_berdl_staging_metadata(
+        _plan(),
+        _staging(),
+        preview,
+        ingest_checkout=tmp_path,
+        runtime=lambda _checkout: (spark, apply_table, apply_columns),
+        checkout_verifier=lambda *_args: None,
+        progress=messages.append,
+    )
+
+    joined = "\n".join(messages)
+    assert "applying descriptions to 1 tables and 1 columns" in joined
+    assert "[1/1] biosample_set: applying 1 column descriptions" in joined
+    assert "verified 1 columns" in joined
+    assert "1/1 total" in joined
+    assert "min elapsed" in joined
+
+
+def test_progress_goes_to_stderr_so_stdout_stays_parseable(capsys) -> None:
+    from nmdc_lakehouse.berdl_metadata import _default_progress
+
+    _default_progress("halfway through biosample_set")
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "halfway through biosample_set" in captured.err
