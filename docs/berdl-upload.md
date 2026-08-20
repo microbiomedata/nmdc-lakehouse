@@ -140,6 +140,15 @@ release dependency of this workflow.
 The generated command intentionally omits the live execution flag and outcome
 path. Do not add them by hand.
 
+Applying descriptions reports progress on stderr as it goes, naming the table it
+is on, the columns applied so far against the total, elapsed time, and an
+estimate of the time remaining. Standard output stays reserved for the parseable
+outcome JSON. Expect the run to be dominated by the widest table: descriptions
+are applied one column at a time and each is a separate catalog commit, so a
+table with over a thousand columns takes far longer than the data load it
+describes. See
+[#258](https://github.com/microbiomedata/nmdc-lakehouse/issues/258).
+
 ## Preview and execute verified data staging
 
 Generate the plan and run its preview and execution in the same BERDL
