@@ -24,7 +24,7 @@ _PROBE_TABLES: tuple[str, str] = ("probe_first", "probe_second")
 _PROBE_ROWS: int = 2
 
 
-class BerdlMetadataProbeCountError(ValueError):
+class BerdlPromotionProbeCountError(ValueError):
     """Raised when a table's row count is not a usable integer."""
 
 
@@ -153,8 +153,10 @@ def _require_disposable(tenant: str, namespace: str, label: str) -> str:
     if not namespace.startswith(prefix):
         raise BerdlPromotionProbeError(f"The {label} must live inside the requested tenant.")
     dataset = namespace[len(prefix) :]
-    if dataset in _RESERVED_DATASETS:
-        raise BerdlPromotionProbeError(f"The {label} must not name a canonical NMDC dataset.")
+    # Substring, not equality: 'nmdc_metadata_probe_1' satisfies the disposable pattern yet would
+    # put a canonical dataset name into every generated statement and into the report.
+    if any(reserved in dataset for reserved in _RESERVED_DATASETS):
+        raise BerdlPromotionProbeError(f"The {label} must not contain a canonical NMDC dataset name.")
     if not _PROBE_DATASET.fullmatch(dataset):
         raise BerdlPromotionProbeError(f"The {label} must use a disposable <name>_probe_<suffix> identifier.")
     return namespace
@@ -292,7 +294,7 @@ def _table_state(spark: Any, namespace: str, table: str) -> TableState:
     if isinstance(count, bool) or not isinstance(count, int):
         # Raising routes this through the existing unreadable-table pathway rather than
         # recording a fabricated zero as observed evidence.
-        raise BerdlMetadataProbeCountError(f"Cannot read a row count for '{full_table}'.")
+        raise BerdlPromotionProbeCountError(f"Cannot read a row count for '{full_table}'.")
     return TableState(
         table=table,
         snapshot_id=_snapshot_id(spark, full_table),
@@ -302,12 +304,18 @@ def _table_state(spark: Any, namespace: str, table: str) -> TableState:
 
 
 def _unreadable_question(unreadable: Sequence[str], namespace: str) -> list[str]:
-    """Name tables that exist but could not be read, so a real omission is never silent."""
+    """Name tables whose state could not be established, so a real omission is never silent.
+
+    Covers both a table that exists and could not be read, and a table whose existence could not be
+    determined because the catalog would not list it. Claiming the table exists would assert more
+    than the run established.
+    """
     if not unreadable:
         return []
     return [
-        f"The state of {', '.join(sorted(unreadable))} in '{namespace}' could not be read even though "
-        "the table exists, so this report is not complete evidence for those tables."
+        f"The state of {', '.join(sorted(unreadable))} in '{namespace}' could not be established, "
+        "either because the table could not be read or because its existence could not be "
+        "determined, so this report is not complete evidence for those tables."
     ]
 
 

@@ -515,7 +515,8 @@ def test_unobservable_post_mutation_state_is_named_not_silently_omitted() -> Non
 
     assert not any(state.table == "probe_first" for state in outcome.state_after)
     assert any(
-        "could not be read" in question and "probe_first" in question for question in outcome.unresolved_questions
+        "could not be established" in question and "probe_first" in question
+        for question in outcome.unresolved_questions
     )
 
 
@@ -543,7 +544,7 @@ def test_a_deliberately_absent_table_is_not_reported_as_unreadable() -> None:
     """probe_second is meant to be missing after the injected failure; that is not an omission."""
     outcome = _run(FakeSpark())
 
-    assert not any("could not be read" in question for question in outcome.unresolved_questions)
+    assert not any("could not be established" in question for question in outcome.unresolved_questions)
     assert [state.table for state in outcome.state_after] == ["probe_first"]
 
 
@@ -655,3 +656,23 @@ def test_an_unusable_row_count_is_not_recorded_as_zero() -> None:
 
     with pytest.raises(BerdlPromotionProbeError, match="observe every disposable table"):
         _run(OddCount())
+
+
+def test_a_disposable_name_may_not_embed_a_canonical_dataset_name() -> None:
+    """The pattern alone is not enough: nmdc_metadata_probe_1 matches it and is still unsafe."""
+    for unsafe in (
+        "nmdc.nmdc_metadata_probe_1",
+        "nmdc.nmdc_results_probe_x",
+        "nmdc.my_nmdc_ref_data_probe_2",
+    ):
+        with pytest.raises(BerdlPromotionProbeError, match="canonical NMDC dataset name"):
+            build_promotion_probe_plan(tenant=TENANT, source_namespace=unsafe, destination_namespace=DESTINATION)
+
+
+def test_an_unusable_row_count_raises_the_promotion_probe_error() -> None:
+    from nmdc_lakehouse.berdl_promotion_probe import BerdlPromotionProbeCountError
+
+    assert issubclass(BerdlPromotionProbeCountError, ValueError)
+    assert not hasattr(
+        __import__("nmdc_lakehouse.berdl_promotion_probe", fromlist=["x"]), "BerdlMetadataProbeCountError"
+    )
