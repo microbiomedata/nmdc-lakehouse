@@ -47,7 +47,7 @@ from nmdc_lakehouse.target_validation import (
     packaged_target_schema_sha256,
 )
 
-REVISION = "a" * 40
+REVISION = "a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3"
 SNAPSHOT_ID = "sha256:" + "1" * 64
 _INGEST_SOURCE_PATHS = (
     "src/data_lakehouse_ingest/__init__.py",
@@ -323,6 +323,7 @@ def test_plan_binds_candidate_and_exact_plan_only_command(tmp_path: Path) -> Non
     assert plan.target_validation.selected_rows == 1
     assert plan.ingest.revision == REVISION
     assert plan.ingest.repository == "https://github.com/kbase/data-lakehouse-ingest"
+    assert plan.ingest.checkout == str((tmp_path / "data-lakehouse-ingest").resolve())
     assert plan.ingest.checkout_remote == "https://github.com/kbase/data-lakehouse-ingest.git"
     assert plan.ingest.package_tree_git_oid == "1" * 40
     assert plan.destination_provider == "spark_catalog"
@@ -508,6 +509,18 @@ def test_plan_output_cannot_be_written_inside_snapshot(tmp_path: Path) -> None:
 
     with pytest.raises(BerdlStagingPlanError, match="outside the immutable snapshot"):
         write_berdl_staging_plan(snapshot / "staging-plan.json", plan)
+
+
+def test_plan_output_cannot_be_written_inside_ingest_checkout(tmp_path: Path) -> None:
+    plan = _build(tmp_path)
+
+    with pytest.raises(BerdlStagingPlanError, match="outside the KBase ingest checkout"):
+        write_berdl_staging_plan(Path(plan.ingest.checkout) / "staging-plan.json", plan)
+
+
+def test_plan_rejects_unapproved_ingest_revision(tmp_path: Path) -> None:
+    with pytest.raises(BerdlStagingPlanError, match="approved Iceberg-compatible stock release"):
+        _build(tmp_path, ingest_revision="a" * 40)
 
 
 def test_loaded_plan_hashes_every_reviewed_artifact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

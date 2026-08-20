@@ -49,6 +49,7 @@ _OBJECT_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 _REVISION = re.compile(r"[0-9a-f]{40}\Z")
 _SUPPORTED_DESTINATION_PROVIDER: Final[Literal["spark_catalog"]] = "spark_catalog"
 _SUPPORTED_TABLE_FORMAT: Final[Literal["iceberg"]] = "iceberg"
+_SUPPORTED_INGEST_REVISIONS: Final = frozenset({"a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3"})
 
 CommandRunner = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
 
@@ -73,6 +74,7 @@ class IngestRevision(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     repository: Literal["https://github.com/kbase/data-lakehouse-ingest"]
+    checkout: str
     checkout_remote: str
     revision: str
     adapter_sha256: str
@@ -360,6 +362,8 @@ def _inspect_ingest_checkout(
 ) -> tuple[Path, Path, IngestRevision]:
     if not _REVISION.fullmatch(expected_revision):
         raise BerdlStagingPlanError("The KBase ingest revision must be a full lowercase Git commit.")
+    if expected_revision not in _SUPPORTED_INGEST_REVISIONS:
+        raise BerdlStagingPlanError("The KBase ingest revision is not an approved Iceberg-compatible stock release.")
     checkout = checkout.expanduser()
     if not checkout.is_dir() or checkout.is_symlink():
         raise BerdlStagingPlanError("The KBase ingest checkout must be an ordinary directory.")
@@ -386,6 +390,7 @@ def _inspect_ingest_checkout(
     remote_url, tree_oid, sources = _require_revision_package(checkout, expected_revision, runner)
     evidence = IngestRevision(
         repository="https://github.com/kbase/data-lakehouse-ingest",
+        checkout=str(checkout),
         checkout_remote=remote_url,
         revision=expected_revision,
         adapter_sha256=_sha256(adapter, "NMDC BERDL adapter"),
@@ -408,6 +413,7 @@ def _inspect_ingest_checkout(
         raise BerdlStagingPlanError("The KBase ingest checkout changed while its sources were hashed.")
     final_evidence = IngestRevision(
         repository="https://github.com/kbase/data-lakehouse-ingest",
+        checkout=str(checkout),
         checkout_remote=final_remote_url,
         revision=expected_revision,
         adapter_sha256=_sha256(adapter, "NMDC BERDL adapter"),
@@ -617,6 +623,9 @@ def write_berdl_staging_plan(path: Path, plan: BerdlStagingPlan) -> Path:
     snapshot_root = Path(manifest_evidence[0].path).expanduser().resolve().parent
     if destination.is_relative_to(snapshot_root):
         raise BerdlStagingPlanError("The BERDL staging plan must be written outside the immutable snapshot.")
+    ingest_checkout = Path(plan.ingest.checkout).expanduser().resolve()
+    if destination.is_relative_to(ingest_checkout):
+        raise BerdlStagingPlanError("The BERDL staging plan must be written outside the KBase ingest checkout.")
     descriptor, temporary_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=parent)
     temporary = Path(temporary_name)
     try:

@@ -107,7 +107,7 @@ just berdl-upload-plan \
   /path/to/metadata-application-plan.json \
   /path/to/target-validation-report.json \
   /path/to/data-lakehouse-ingest \
-  FULL_40_CHARACTER_INGEST_COMMIT \
+  a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3 \
   nmdc \
   nmdc_metadata_staging_20260819 \
   cdm-lake \
@@ -121,7 +121,11 @@ The planner re-runs the portable preflight; verifies the metadata plan's
 snapshot, destination observation, capabilities, namespace, and table coverage;
 requires successful target-schema validation with exact snapshot and table
 coverage; and checks that the official ingest checkout is clean at the requested
-revision. It binds the NMDC-owned adapter and the official checkout's complete
+revision. The maintained compatibility gate currently accepts the stock
+`v0.1.5` commit `a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3`, whose writer uses
+Spark's catalog-driven Iceberg API. An authentic but unapproved older or newer
+revision fails closed until its write contract is reviewed. The planner binds
+the NMDC-owned adapter and the official checkout's complete
 tracked `data_lakehouse_ingest` package tree, verifies every package file against
 the selected revision, and requires an official KBase GitHub remote. It then creates an immutable,
 credential-free JSON plan containing local evidence paths, checksums, and the
