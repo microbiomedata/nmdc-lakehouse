@@ -443,6 +443,19 @@ def _require_revision_package(checkout: Path, revision: str, runner: CommandRunn
     return remote_url, tree_oid, sources
 
 
+def _require_pristine_checkout(checkout: Path, revision: str, runner: CommandRunner) -> None:
+    """Require the checkout to sit on the revision with no tracked or untracked changes."""
+    try:
+        head = runner(("git", "-C", str(checkout), "rev-parse", "--verify", "HEAD"))
+        dirty = runner(("git", "-C", str(checkout), "status", "--porcelain", "--untracked-files=all"))
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise BerdlStagingPlanError("Cannot inspect the KBase ingest checkout revision.") from error
+    if head.returncode != 0 or head.stdout.strip() != revision:
+        raise BerdlStagingPlanError("The KBase ingest checkout does not match the requested revision.")
+    if dirty.returncode != 0 or dirty.stdout.strip():
+        raise BerdlStagingPlanError("The KBase ingest checkout must have no tracked or untracked changes.")
+
+
 def _inspect_ingest_checkout(
     checkout: Path,
     expected_revision: str,
@@ -466,15 +479,7 @@ def _inspect_ingest_checkout(
     ):
         if not path.is_file() or path.is_symlink():
             raise BerdlStagingPlanError(f"The {label} must be an ordinary file.")
-    try:
-        revision = runner(("git", "-C", str(checkout), "rev-parse", "--verify", "HEAD"))
-        dirty = runner(("git", "-C", str(checkout), "status", "--porcelain", "--untracked-files=all"))
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise BerdlStagingPlanError("Cannot inspect the KBase ingest checkout revision.") from error
-    if revision.returncode != 0 or revision.stdout.strip() != expected_revision:
-        raise BerdlStagingPlanError("The KBase ingest checkout does not match the requested revision.")
-    if dirty.returncode != 0 or dirty.stdout.strip():
-        raise BerdlStagingPlanError("The KBase ingest checkout must have no tracked or untracked changes.")
+    _require_pristine_checkout(checkout, expected_revision, runner)
     remote_url, tree_oid, sources = _require_revision_package(checkout, expected_revision, runner)
     evidence = IngestRevision(
         repository="https://github.com/kbase/data-lakehouse-ingest",

@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from nmdc_lakehouse.berdl_staging import (
     BerdlStagingOutcome,
     BerdlStagingPlanError,
+    _require_pristine_checkout,
     _require_revision_package,
     _run_command,
 )
@@ -201,10 +202,12 @@ def _runtime(checkout: Path) -> tuple[Any, Callable[..., dict[str, Any]], Callab
 
 
 def _verify_ingest_checkout(checkout: Path, revision: str) -> None:
+    resolved = checkout.expanduser().resolve()
     try:
-        _require_revision_package(checkout.expanduser().resolve(), revision, _run_command)
+        _require_pristine_checkout(resolved, revision, _run_command)
+        _require_revision_package(resolved, revision, _run_command)
     except BerdlStagingPlanError as error:
-        raise BerdlMetadataError("The KBase metadata helpers do not match the verified ingest revision.") from error
+        raise BerdlMetadataError("The KBase ingest checkout does not match the verified ingest revision.") from error
 
 
 def _catalog_description(value: Any) -> str | None:
@@ -265,6 +268,7 @@ def apply_berdl_staging_metadata(
                 raise BerdlMetadataError(f"The table description read-back failed for '{table}'.")
             table_status = "verified"
         operations = column_operations[table]
+        verified_columns: list[str] = []
         if operations:
             report = apply_column_comments(
                 spark,
@@ -274,13 +278,14 @@ def apply_berdl_staging_metadata(
             )
             if report.get("status") != "success":
                 raise BerdlMetadataError(f"Column descriptions failed for '{table}'.")
-        observed_columns = _read_column_descriptions(spark, full_table)
-        verified_columns: list[str] = []
-        for operation in operations:
-            assert operation.column is not None
-            if observed_columns.get(operation.column) != operation.value:
-                raise BerdlMetadataError(f"The column description read-back failed for '{table}.{operation.column}'.")
-            verified_columns.append(operation.column)
+            observed_columns = _read_column_descriptions(spark, full_table)
+            for operation in operations:
+                assert operation.column is not None
+                if observed_columns.get(operation.column) != operation.value:
+                    raise BerdlMetadataError(
+                        f"The column description read-back failed for '{table}.{operation.column}'."
+                    )
+                verified_columns.append(operation.column)
         targets.append(
             AppliedMetadataTarget(
                 table=table,

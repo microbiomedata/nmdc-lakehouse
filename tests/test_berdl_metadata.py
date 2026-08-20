@@ -5,12 +5,14 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from click.testing import CliRunner
 
+from nmdc_lakehouse import berdl_metadata
 from nmdc_lakehouse.berdl_metadata import (
     AppliedMetadataTarget,
     BerdlMetadataError,
@@ -300,3 +302,66 @@ def test_metadata_outcome_publication_is_atomic(tmp_path: Path, monkeypatch: pyt
 
     assert not output.exists()
     assert list(tmp_path.iterdir()) == []
+
+
+def test_apply_skips_column_readback_without_planned_columns(tmp_path: Path) -> None:
+    plan = _plan()
+    plan.supported_operations = [
+        operation
+        for operation in plan.supported_operations
+        if operation.kind is not MetadataOperationKind.COLUMN_DESCRIPTION
+    ]
+    descriptions: dict[str, str] = {}
+
+    class Catalog:
+        def getTable(self, name):
+            return SimpleNamespace(description=descriptions.get(name))
+
+        def listColumns(self, _name):
+            pytest.fail("column descriptions must not be read back without planned columns")
+
+    spark = SimpleNamespace(catalog=Catalog())
+
+    def apply_table(_spark, table, value, **_kwargs):
+        descriptions[table] = value
+        return {"status": "success"}
+
+    preview = build_berdl_metadata_preview(
+        plan, _staging(), metadata_plan_sha256="5" * 64, staging_outcome_sha256="6" * 64
+    )
+    outcome = apply_berdl_staging_metadata(
+        plan,
+        _staging(),
+        preview,
+        ingest_checkout=tmp_path,
+        runtime=lambda _checkout: (
+            spark,
+            apply_table,
+            lambda *_args, **_kwargs: pytest.fail("column descriptions must not be applied"),
+        ),
+        checkout_verifier=lambda *_args: None,
+    )
+
+    assert outcome.targets[0].table_description_status == "verified"
+    assert outcome.targets[0].columns_verified == []
+
+
+def test_checkout_verification_rejects_a_modified_checkout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    revision = "a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3"
+    commands: list[tuple[str, ...]] = []
+
+    def runner(args):
+        command = tuple(args)
+        commands.append(command)
+        if "rev-parse" in command and command[-1] == "HEAD":
+            return subprocess.CompletedProcess(args, 0, revision + "\n", "")
+        if "status" in command:
+            return subprocess.CompletedProcess(args, 0, " M utils/delta_comments.py\n", "")
+        pytest.fail(f"unexpected command after a dirty checkout: {command}")
+
+    monkeypatch.setattr(berdl_metadata, "_run_command", runner)
+
+    with pytest.raises(BerdlMetadataError, match="does not match the verified ingest revision"):
+        berdl_metadata._verify_ingest_checkout(tmp_path, revision)
+
+    assert commands[-1][:4] == ("git", "-C", str(tmp_path.resolve()), "status")
