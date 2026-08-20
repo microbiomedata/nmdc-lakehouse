@@ -69,10 +69,14 @@ A failing step also records `error_type`, the exception class name, and
 `error_condition`, the provider's stable error identifier such as
 `INSUFFICIENT_PRIVILEGES` or `UNSUPPORTED_FEATURE`. Those identifiers are
 enumerated codes rather than free text, so they can be recorded without carrying
-provider message content into the report, and they are what the verdict is
-classified from. An `unclassified-failure` with no `error_condition` means the
-provider offered no identifier, and the statement has to be rerun by hand in the
-pod terminal to learn why.
+provider message content into the report.
+
+Classification does not rely on `error_condition` alone. The verdict is matched
+against the exception type name, the error condition when the provider supplies
+one, and a small set of markers found in the provider's message, all compared
+case-folded. The message is used to classify but is never recorded. An
+`unclassified-failure` means none of those matched, and the statement has to be
+rerun by hand in the pod terminal to learn why.
 
 A step may also carry `independently_verified`, which is `null` when the check
 backing it could not be completed. A failed catalog listing is never recorded as

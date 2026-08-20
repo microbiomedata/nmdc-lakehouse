@@ -163,9 +163,11 @@ def _require_disposable(tenant: str, namespace: str, label: str) -> str:
     if not namespace.startswith(prefix):
         raise BerdlPromotionProbeError(f"The {label} must live inside the requested tenant.")
     dataset = namespace[len(prefix) :]
-    # Substring, not equality: 'nmdc_metadata_probe_1' satisfies the disposable pattern yet would
-    # put a canonical dataset name into every generated statement and into the report.
-    if any(reserved in dataset for reserved in _RESERVED_DATASETS):
+    # Substring and case-folded. 'nmdc_metadata_probe_1' satisfies the disposable pattern, and so
+    # does 'NMDC_METADATA_probe_1'; either would put a canonical dataset name into every generated
+    # statement and into the report.
+    folded = dataset.casefold()
+    if any(reserved.casefold() in folded for reserved in _RESERVED_DATASETS):
         raise BerdlPromotionProbeError(f"The {label} must not contain a canonical NMDC dataset name.")
     if not _PROBE_DATASET.fullmatch(dataset):
         raise BerdlPromotionProbeError(f"The {label} must use a disposable <name>_probe_<suffix> identifier.")

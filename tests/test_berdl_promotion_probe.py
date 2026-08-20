@@ -240,9 +240,9 @@ def test_probe_never_names_a_canonical_object_in_any_statement() -> None:
 
     _run(spark)
 
-    joined = "\n".join(spark.statements)
+    joined = "\n".join(spark.statements).casefold()
     for canonical in ("nmdc_metadata", "nmdc_results", "nmdc_ref_data"):
-        assert canonical not in joined
+        assert canonical.casefold() not in joined
 
 
 def test_outcome_is_written_once_and_never_replaced(tmp_path: Path) -> None:
@@ -664,6 +664,9 @@ def test_a_disposable_name_may_not_embed_a_canonical_dataset_name() -> None:
         "nmdc.nmdc_metadata_probe_1",
         "nmdc.nmdc_results_probe_x",
         "nmdc.my_nmdc_ref_data_probe_2",
+        "nmdc.NMDC_METADATA_probe_1",
+        "nmdc.Nmdc_Results_probe_x",
+        "nmdc.MY_NMDC_REF_DATA_probe_2",
     ):
         with pytest.raises(BerdlPromotionProbeError, match="canonical NMDC dataset name"):
             build_promotion_probe_plan(tenant=TENANT, source_namespace=unsafe, destination_namespace=DESTINATION)
