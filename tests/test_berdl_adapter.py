@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -107,10 +108,32 @@ def test_execute_uploads_verifies_and_calls_official_ingest(
 
     document = json.loads(capsys.readouterr().out)
     assert document["status"] == "verified"
+    assert document["destination"]["provider"] == "spark_catalog"
+    assert document["destination"]["table_format"] == "iceberg"
     assert document["verification"]["tables"][0]["source_rows"] == 1
     assert observed["config"]["tables"][0]["format"] == "parquet"
     assert outcome.is_file()
     assert ("cdm-lake", "tenant-general-warehouse/nmdc/staging/20260819/config.json") in client.objects
+
+
+def test_runtime_rejects_package_imported_outside_selected_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout = tmp_path / "selected"
+    package = checkout / "src" / "data_lakehouse_ingest"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("def ingest(config, *, minio_client): ...\n", encoding="utf-8")
+    other = tmp_path / "other" / "data_lakehouse_ingest" / "__init__.py"
+    other.parent.mkdir(parents=True)
+    other.write_text("def ingest(config, *, minio_client): ...\n", encoding="utf-8")
+    stale = SimpleNamespace(__file__=str(other), ingest=lambda *_args, **_kwargs: None)
+    monkeypatch.setitem(sys.modules, "data_lakehouse_ingest", stale)
+    clients = SimpleNamespace(get_s3_client=lambda: object())
+    monkeypatch.setitem(sys.modules, "berdl_notebook_utils", SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "berdl_notebook_utils.clients", clients)
+
+    with pytest.raises(berdl_adapter.AdapterExecutionError, match="selected checkout"):
+        berdl_adapter._runtime(checkout)
 
 
 @pytest.mark.parametrize(

@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
-import sys
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -373,6 +372,8 @@ def _upstream_outcome(plan, **changes) -> UpstreamStagingOutcome:
         "started_at": datetime.fromisoformat("2026-08-19T17:00:00+00:00"),
         "finished_at": datetime.fromisoformat("2026-08-19T17:02:00+00:00"),
         "destination": {
+            "provider": plan.destination_provider,
+            "table_format": plan.destination_table_format,
             "bucket": plan.bucket,
             "bronze_prefix": plan.bronze_prefix,
             "namespace": plan.staging_namespace,
@@ -1271,7 +1272,7 @@ def test_staging_command_routes_child_stdout_to_stderr(monkeypatch: pytest.Monke
 
     def run(args, **kwargs):
         captured.update(kwargs)
-        return subprocess.CompletedProcess(args, 0)
+        return subprocess.CompletedProcess(args, 0, stdout="child output\n", stderr="child warning\n")
 
     monkeypatch.setattr("nmdc_lakehouse.berdl_staging.subprocess.run", run)
 
@@ -1279,7 +1280,7 @@ def test_staging_command_routes_child_stdout_to_stderr(monkeypatch: pytest.Monke
 
     _run_staging_command(["python", "ingest_dataset.py"])
 
-    assert captured["stdout"] is sys.stderr
+    assert captured["capture_output"] is True
     assert captured["shell"] is False
 
 

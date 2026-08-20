@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import io
 import ipaddress
 import json
@@ -11,7 +12,7 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 _BUCKET = re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\Z")
@@ -148,15 +149,24 @@ def _remote_sha256(client: Any, bucket: str, key: str) -> str:
 
 
 def _runtime(checkout: Path) -> tuple[Callable[..., dict[str, Any]], Any]:
-    source = str((checkout / "src").resolve())
+    source_root = (checkout / "src").resolve()
+    package_root = source_root / "data_lakehouse_ingest"
+    source = str(source_root)
     sys.path.insert(0, source)
     try:
         from berdl_notebook_utils.clients import get_s3_client
-        from data_lakehouse_ingest import ingest
+
+        package = importlib.import_module("data_lakehouse_ingest")
     except ImportError as error:
         raise AdapterExecutionError("the selected KBase ingest runtime is not importable") from error
     finally:
         sys.path.remove(source)
+    package_file = getattr(package, "__file__", None)
+    if package_file is None or not Path(package_file).resolve().is_relative_to(package_root):
+        raise AdapterExecutionError("the KBase ingest runtime was not imported from the selected checkout")
+    ingest = getattr(package, "ingest", None)
+    if not callable(ingest):
+        raise AdapterExecutionError("the selected KBase ingest runtime does not expose ingest")
     return ingest, get_s3_client()
 
 
@@ -172,10 +182,11 @@ def _execute(plan: dict[str, object], args: argparse.Namespace) -> dict[str, obj
     if outcome.exists() or outcome.is_symlink() or not outcome.parent.is_dir() or outcome.parent.is_symlink():
         raise AdapterConfigurationError("outcome must be a new file in an ordinary directory")
     started_at = datetime.now(timezone.utc)
-    checkout = Path(str(dict(plan["ingest"])["checkout"]))
+    ingest_plan = cast(dict[str, object], plan["ingest"])
+    checkout = Path(str(ingest_plan["checkout"]))
     ingest, client = _runtime(checkout)
     data_dir = Path(str(plan["data_dir"]))
-    destination = dict(plan["destination"])
+    destination = cast(dict[str, object], plan["destination"])
     bucket = str(destination["bucket"])
     bronze_prefix = str(destination["bronze_prefix"])
     files = sorted(data_dir.glob("*.parquet"))
@@ -229,7 +240,7 @@ def _execute(plan: dict[str, object], args: argparse.Namespace) -> dict[str, obj
                 "source_sha256": source_hashes[name],
             }
         )
-    document = {
+    document: dict[str, object] = {
         "schema_version": "1.0.0",
         "status": "verified",
         "started_at": started_at.isoformat(),

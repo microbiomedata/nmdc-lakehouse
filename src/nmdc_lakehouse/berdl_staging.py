@@ -143,6 +143,8 @@ class UpstreamDestination(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
+    provider: Literal["spark_catalog"]
+    table_format: Literal["iceberg"]
     bucket: str
     bronze_prefix: str
     namespace: str
@@ -224,7 +226,12 @@ def _run_command(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
 
 
 def _run_staging_command(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, text=True, check=False, shell=False, stdout=sys.stderr)  # noqa: S603
+    completed = subprocess.run(args, text=True, capture_output=True, check=False, shell=False)  # noqa: S603
+    if completed.stdout:
+        sys.stderr.write(completed.stdout)
+    if completed.stderr:
+        sys.stderr.write(completed.stderr)
+    return completed
 
 
 def _sha256(path: Path, label: str) -> str:
@@ -775,10 +782,15 @@ def revalidate_berdl_staging_plan(
     adapter = Path(plan.command[1])
     if adapter.name != "berdl_adapter.py":
         raise BerdlStagingPlanError("The staging plan command does not identify the NMDC BERDL adapter.")
+    expected_adapter = Path(__file__).with_name("berdl_adapter.py").resolve()
+    if adapter.expanduser().resolve() != expected_adapter:
+        raise BerdlStagingPlanError("The staging plan command does not identify the reviewed NMDC BERDL adapter.")
     ingest_indices = [index for index, value in enumerate(plan.command) if value == "--ingest-checkout"]
     if len(ingest_indices) != 1 or ingest_indices[0] + 1 >= len(plan.command):
         raise BerdlStagingPlanError("The staging plan command does not identify one KBase ingest checkout.")
-    ingest_checkout = Path(plan.command[ingest_indices[0] + 1])
+    ingest_checkout = Path(plan.ingest.checkout).expanduser().resolve()
+    if Path(plan.command[ingest_indices[0] + 1]).expanduser().resolve() != ingest_checkout:
+        raise BerdlStagingPlanError("The staging plan command does not match the reviewed KBase ingest checkout.")
     rebuilt = plan_berdl_staging(
         paths["snapshot-manifest.json"].parent,
         bundle_path=paths["metadata-bundle.json"],
@@ -842,7 +854,9 @@ def build_berdl_staging_outcome(
 ) -> BerdlStagingOutcome:
     """Independently bind BERIL's verified counts to the manifested snapshot."""
     if (
-        upstream.destination.bucket != plan.bucket
+        upstream.destination.provider != plan.destination_provider
+        or upstream.destination.table_format != plan.destination_table_format
+        or upstream.destination.bucket != plan.bucket
         or upstream.destination.bronze_prefix != plan.bronze_prefix
         or upstream.destination.namespace != plan.staging_namespace
         or upstream.verification.namespace != plan.staging_namespace
@@ -950,8 +964,7 @@ def execute_berdl_staging(
     loaded_plan, plan_sha256 = _read_berdl_staging_plan(plan_path)
     plan = revalidate_berdl_staging_plan(loaded_plan, runner=checkout_runner)
     snapshot_root = _evidence_paths(plan)["snapshot-manifest.json"].expanduser().resolve().parent
-    ingest_index = plan.command.index("--ingest-checkout")
-    ingest_checkout = Path(plan.command[ingest_index + 1]).expanduser().resolve()
+    ingest_checkout = Path(plan.ingest.checkout).expanduser().resolve()
     upstream_output = upstream_outcome_path.expanduser().resolve()
     nmdc_output = output_path.expanduser().resolve()
     if upstream_output.is_relative_to(snapshot_root) or nmdc_output.is_relative_to(snapshot_root):

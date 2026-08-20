@@ -485,7 +485,11 @@ def berdl_upload_command(
     """Preview or execute and independently verify one reviewed BERDL plan."""
     import json
 
-    from nmdc_lakehouse.berdl_staging import BerdlStagingPlanError, execute_berdl_staging
+    from nmdc_lakehouse.berdl_staging import (
+        BerdlStagingPlanError,
+        execute_berdl_staging,
+        render_berdl_staging_outcome,
+    )
     from nmdc_lakehouse.metadata_application import MetadataApplicationError
     from nmdc_lakehouse.metadata_bundle import MetadataBundleError
     from nmdc_lakehouse.publication_plan import PublicationPlanError
@@ -515,7 +519,7 @@ def berdl_upload_command(
     if outcome is None:
         click.echo(json.dumps({"status": "preview-only", "command": command}, indent=2))
     else:
-        click.echo(json.dumps(outcome.model_dump(mode="json"), indent=2, sort_keys=True))
+        click.echo(render_berdl_staging_outcome(outcome))
         click.echo(f"outcome={output_path.expanduser().resolve()}", err=True)
 
 
