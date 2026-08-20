@@ -338,8 +338,6 @@ def test_direct_loaded_tables_record_the_loader_that_produces_them() -> None:
 
 
 def test_generated_schema_annotates_the_direct_loader_for_its_collections() -> None:
-    from pathlib import Path
-
     import yaml
 
     from nmdc_lakehouse.jobs.direct_mongo_to_parquet import DIRECT_COLLECTIONS, DIRECT_MAPPING_ID
