@@ -30,8 +30,49 @@ _RANGE_TO_ARROW: dict[str, pa.DataType] = {
     "datetime": pa.string(),
 }
 
+# LinkML type bases, used when a range names a custom type rather than a builtin.
+_BASE_TO_ARROW: dict[str, pa.DataType] = {
+    "str": pa.string(),
+    "int": pa.int64(),
+    "float": pa.float64(),
+    "Decimal": pa.float64(),
+    "Bool": pa.bool_(),
+}
+
 _METADATA_PREFIX = "nmdc_lakehouse."
 FOOTER_METADATA_FORMAT_VERSION = "1"
+
+
+def _arrow_type_for_range(range_name: str, source_schema: SchemaDefinition | None) -> pa.DataType:
+    """Map a LinkML range to an Arrow type, resolving custom types through their base.
+
+    A range naming a custom type, such as ``decimal_degree`` or ``bytes``, is not a builtin and
+    would otherwise fall back to string, silently discarding the source's numeric type. Enum
+    ranges are not types and correctly remain strings.
+    """
+    direct = _RANGE_TO_ARROW.get(range_name)
+    if direct is not None:
+        return direct
+    types = getattr(source_schema, "types", None) or {}
+    seen: set[str] = set()
+    name: str | None = range_name
+    while name and name not in seen:
+        seen.add(name)
+        definition = types.get(name)
+        if definition is None:
+            break
+        typeof = getattr(definition, "typeof", None)
+        if typeof:
+            mapped = _RANGE_TO_ARROW.get(typeof)
+            if mapped is not None:
+                return mapped
+            name = typeof
+            continue
+        base = getattr(definition, "base", None)
+        if base:
+            return _BASE_TO_ARROW.get(base, pa.string())
+        break
+    return pa.string()
 
 
 def _encoded_metadata(values: dict[str, str | None]) -> dict[bytes, bytes]:
@@ -73,7 +114,7 @@ def class_def_to_arrow_schema(
     for name in names:
         slot = class_def.attributes[name]
         range_name = slot.range or "string"
-        element_type = _RANGE_TO_ARROW.get(range_name, pa.string())
+        element_type = _arrow_type_for_range(range_name, source_schema)
         arrow_type = pa.list_(element_type) if slot.multivalued else element_type
         field_metadata = _encoded_metadata(
             {
