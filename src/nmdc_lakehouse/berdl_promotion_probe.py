@@ -48,6 +48,7 @@ class ProbeVerdict(StrEnum):
     UNSUPPORTED_SYNTAX = "unsupported-syntax"
     INSUFFICIENT_GRANTS = "insufficient-grants"
     UNAVAILABLE_CAPABILITY = "unavailable-capability"
+    FAILED_AS_EXPECTED = "failed-as-expected"
     UNCLASSIFIED_FAILURE = "unclassified-failure"
     NOT_ATTEMPTED = "not-attempted"
 
@@ -68,7 +69,6 @@ _CAPABILITY_MARKERS: tuple[str, ...] = (
     "not supported",
     "cannot be performed",
     "PROCEDURE_NOT_FOUND",
-    "TABLE_OR_VIEW_NOT_FOUND",
 )
 
 
@@ -270,15 +270,13 @@ def _table_state(spark: Any, namespace: str, table: str) -> TableState:
     )
 
 
-def _unobserved(tables: Sequence[str], states: Sequence[TableState], namespace: str) -> list[str]:
-    """Name any table whose state could not be read, so an omission is never silent."""
-    observed = {state.table for state in states}
-    missing = [table for table in tables if table not in observed]
-    if not missing:
+def _unreadable_question(unreadable: Sequence[str], namespace: str) -> list[str]:
+    """Name tables that exist but could not be read, so a real omission is never silent."""
+    if not unreadable:
         return []
     return [
-        f"The state of {', '.join(sorted(missing))} in '{namespace}' could not be observed, "
-        "so this report is not complete evidence for those tables."
+        f"The state of {', '.join(sorted(unreadable))} in '{namespace}' could not be read even though "
+        "the table exists, so this report is not complete evidence for those tables."
     ]
 
 
@@ -292,14 +290,22 @@ def _observed_state(spark: Any, namespace: str, table: str) -> TableState | None
         return None
 
 
-def _observed_states(spark: Any, namespace: str, tables: Sequence[str]) -> list[TableState]:
+def _observed_states(spark: Any, namespace: str, tables: Sequence[str]) -> tuple[list[TableState], list[str]]:
+    """Return observed states, plus the tables that exist but could not be read.
+
+    A table that is simply absent is an expected outcome, such as the second table after the
+    injected failure, and is not reported as an unreadable omission.
+    """
     states: list[TableState] = []
+    unreadable: list[str] = []
     for table in tables:
+        if not _table_exists(spark, namespace, table):
+            continue
         try:
             states.append(_table_state(spark, namespace, table))
         except Exception:
-            continue
-    return states
+            unreadable.append(table)
+    return states, unreadable
 
 
 def _setting(spark: Any, key: str) -> str | None:
@@ -396,8 +402,8 @@ def run_promotion_probe(
     spark = runtime()
     environment = _environment(spark)
     _create_probe_tables(spark, plan)
-    state_before = _observed_states(spark, plan.source_namespace, plan.tables)
-    if len(state_before) != len(plan.tables):
+    state_before, unreadable_before = _observed_states(spark, plan.source_namespace, plan.tables)
+    if unreadable_before or len(state_before) != len(plan.tables):
         raise BerdlPromotionProbeError("The probe could not observe every disposable table before mutation.")
 
     steps: list[ProbeStep] = [ProbeStep(operation=ProbeOperation.ENVIRONMENT, verdict=ProbeVerdict.SUPPORTED)]
@@ -429,10 +435,9 @@ def run_promotion_probe(
             )
         )
 
-    state_after = _observed_states(spark, plan.destination_namespace, plan.tables)
+    state_after, unreadable_after = _observed_states(spark, plan.destination_namespace, plan.tables)
 
     catalog = plan.tenant
-    unobserved_after = _unobserved(plan.tables, state_after, plan.destination_namespace)
     promoted = _observed_state(spark, plan.destination_namespace, first)
     if promoted is None or promoted.snapshot_id is None:
         for operation in (
@@ -494,6 +499,8 @@ def run_promotion_probe(
     first_present = _table_exists(spark, plan.destination_namespace, first)
     second_present = _table_exists(spark, plan.destination_namespace, second)
     injection.independently_verified = not second_present
+    if injection.verdict is not ProbeVerdict.SUPPORTED:
+        injection.verdict = ProbeVerdict.FAILED_AS_EXPECTED
     steps.append(injection)
     if injection.verdict is ProbeVerdict.SUPPORTED:
         unresolved.append(
@@ -534,9 +541,9 @@ def run_promotion_probe(
                 "Snapshot retention is not readable from table properties, so recovery time is unbounded."
             )
 
-    state_after_recovery = _observed_states(spark, plan.destination_namespace, plan.tables)
-    unresolved.extend(unobserved_after)
-    unresolved.extend(_unobserved(plan.tables, state_after_recovery, plan.destination_namespace))
+    state_after_recovery, unreadable_recovery = _observed_states(spark, plan.destination_namespace, plan.tables)
+    unresolved.extend(_unreadable_question(unreadable_after, plan.destination_namespace))
+    unresolved.extend(_unreadable_question(unreadable_recovery, plan.destination_namespace))
     complete = all(step.verdict is not ProbeVerdict.UNCLASSIFIED_FAILURE for step in steps)
     return ProbeOutcome(
         outcome_format_version=OUTCOME_FORMAT_VERSION,

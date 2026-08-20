@@ -61,6 +61,7 @@ Each attempted operation carries a verdict:
 | `unsupported-syntax` | The parser rejected the statement. |
 | `insufficient-grants` | The principal is not permitted to run it. |
 | `unavailable-capability` | The operation does not exist in this deployment. |
+| `failed-as-expected` | The step was designed to fail, and it did. |
 | `unclassified-failure` | The failure matched none of the above. |
 | `not-attempted` | An earlier result made the attempt unnecessary. |
 
@@ -103,6 +104,13 @@ table from a source that does not exist, so the run fails between two table
 mutations, then records which destination tables exist. A destination holding
 the first table and not the second shows that promotion is not atomic across
 tables and that a partial promotion is observable.
+
+That step is expected to fail, so it is recorded as `failed-as-expected` rather
+than as a missing platform capability. A missing input table is a data
+condition, not evidence that the platform lacks an operation, and the report
+would be misleading if the two looked alike. For the same reason a table that is
+deliberately absent is not reported as unreadable; only a table that exists and
+cannot be read raises an unresolved question.
 
 `unresolved_questions` names what the run could not settle, including a rollback
 that reported success without restoring rows, and an injected failure that did

@@ -508,7 +508,7 @@ def test_unobservable_post_mutation_state_is_named_not_silently_omitted() -> Non
 
     assert not any(state.table == "probe_first" for state in outcome.state_after)
     assert any(
-        "could not be observed" in question and "probe_first" in question for question in outcome.unresolved_questions
+        "could not be read" in question and "probe_first" in question for question in outcome.unresolved_questions
     )
 
 
@@ -530,3 +530,31 @@ def test_a_missing_promoted_table_is_not_reported_as_a_missing_platform_capabili
     assert retention.verdict is ProbeVerdict.NOT_ATTEMPTED
     assert retention.statement is not None
     assert any("never created" in question for question in outcome.unresolved_questions)
+
+
+def test_a_deliberately_absent_table_is_not_reported_as_unreadable() -> None:
+    """probe_second is meant to be missing after the injected failure; that is not an omission."""
+    outcome = _run(FakeSpark())
+
+    assert not any("could not be read" in question for question in outcome.unresolved_questions)
+    assert [state.table for state in outcome.state_after] == ["probe_first"]
+
+
+def test_the_injected_failure_is_not_reported_as_a_missing_platform_capability() -> None:
+    spark = FakeSpark()
+
+    outcome = _run(spark)
+
+    injection = {step.operation: step for step in outcome.steps}[ProbeOperation.INJECTED_FAILURE_RECOVERY]
+    assert injection.verdict is ProbeVerdict.FAILED_AS_EXPECTED
+    assert injection.independently_verified is True
+    assert outcome.status == "probe-complete"
+
+
+def test_a_missing_input_table_is_not_a_capability_verdict() -> None:
+    spark = FakeSpark(failures={"RENAME TO": RuntimeError("TABLE_OR_VIEW_NOT_FOUND: some.table")})
+
+    outcome = _run(spark)
+
+    rename = {step.operation: step for step in outcome.steps}[ProbeOperation.CROSS_NAMESPACE_RENAME]
+    assert rename.verdict is ProbeVerdict.UNCLASSIFIED_FAILURE
