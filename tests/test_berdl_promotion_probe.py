@@ -39,6 +39,10 @@ class FakeSpark:
     def __init__(self, failures: dict[str, Exception] | None = None, retention: str | None = "604800000") -> None:
         self.failures = failures or {}
         self.retention = retention
+        self.settings = {
+            "spark.sql.catalogImplementation": "in-memory",
+            "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
+        }
         self.statements: list[str] = []
         self.tables: dict[str, int] = {}
         self.snapshots: dict[str, int] = {}
@@ -123,7 +127,7 @@ class FakeSpark:
         if statement.startswith("SHOW TBLPROPERTIES"):
             return [] if self.retention is None else [("history.expire.max-snapshot-age-ms", self.retention)]
         if statement.startswith("SET "):
-            return [("hive",)]
+            return [(statement[4:].strip(), self.settings.get(statement[4:].strip(), "<undefined>"))]
         if statement.startswith("SELECT current_user()"):
             return [("mamillerpa",)]
         raise AssertionError(f"Unexpected statement: {statement}")
@@ -424,3 +428,36 @@ def test_setup_clears_leftovers_in_both_namespaces() -> None:
     dropped = [s for s in spark.statements if s.startswith("DROP TABLE IF EXISTS")]
     assert f"DROP TABLE IF EXISTS {DESTINATION}.probe_first" in dropped
     assert f"DROP TABLE IF EXISTS {SOURCE}.probe_first" in dropped
+
+
+def test_environment_records_configuration_values_not_key_names() -> None:
+    outcome = _run(FakeSpark())
+
+    assert outcome.environment.catalog_implementation == "in-memory"
+    assert outcome.environment.iceberg_version.startswith("org.apache.iceberg")
+    assert outcome.environment.spark_version == "3.5.1"
+
+
+def test_unset_configuration_is_recorded_as_absent_not_as_the_literal_undefined() -> None:
+    spark = FakeSpark()
+    spark.settings = {}
+
+    outcome = _run(spark)
+
+    assert outcome.environment.catalog_implementation is None
+    assert outcome.environment.iceberg_version is None
+
+
+def test_provider_error_condition_is_recorded_and_used_for_classification() -> None:
+    class Denied(Exception):
+        def getCondition(self):  # noqa: N802 - mirrors the provider API name
+            return "INSUFFICIENT_PRIVILEGES"
+
+    spark = FakeSpark(failures={"RENAME TO": Denied("opaque provider text")})
+
+    outcome = _run(spark)
+
+    rename = {step.operation: step for step in outcome.steps}[ProbeOperation.CROSS_NAMESPACE_RENAME]
+    assert rename.error_condition == "INSUFFICIENT_PRIVILEGES"
+    assert rename.error_type == "Denied"
+    assert rename.verdict is ProbeVerdict.INSUFFICIENT_GRANTS

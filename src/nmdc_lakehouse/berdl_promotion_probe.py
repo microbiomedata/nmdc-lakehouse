@@ -53,9 +53,18 @@ class ProbeVerdict(StrEnum):
 
 
 _SYNTAX_MARKERS: tuple[str, ...] = ("PARSE_SYNTAX_ERROR", "ParseException", "mismatched input", "extraneous input")
-_GRANT_MARKERS: tuple[str, ...] = ("AccessDenied", "NotAuthorized", "Forbidden", "PERMISSION_DENIED", "not authorized")
+_GRANT_MARKERS: tuple[str, ...] = (
+    "AccessDenied",
+    "NotAuthorized",
+    "Forbidden",
+    "PERMISSION_DENIED",
+    "INSUFFICIENT_PERMISSIONS",
+    "INSUFFICIENT_PRIVILEGES",
+    "not authorized",
+)
 _CAPABILITY_MARKERS: tuple[str, ...] = (
     "UnsupportedOperationException",
+    "UNSUPPORTED_FEATURE",
     "not supported",
     "cannot be performed",
     "PROCEDURE_NOT_FOUND",
@@ -85,6 +94,7 @@ class ProbeStep(BaseModel):
     verdict: ProbeVerdict
     statement: str | None = None
     error_type: str | None = None
+    error_condition: str | None = None
     detail: str | None = None
     independently_verified: bool | None = None
 
@@ -168,7 +178,7 @@ def plan_sha256(plan: ProbePlan) -> str:
 
 
 def _classify(error: BaseException) -> ProbeVerdict:
-    text = f"{type(error).__name__}: {error}"
+    text = f"{type(error).__name__}: {_error_condition(error) or ''}: {error}"
     if any(marker in text for marker in _SYNTAX_MARKERS):
         return ProbeVerdict.UNSUPPORTED_SYNTAX
     if any(marker in text for marker in _GRANT_MARKERS):
@@ -191,6 +201,21 @@ def _scalar(spark: Any, statement: str) -> Any:
     return values[0] if values else None
 
 
+def _error_condition(error: BaseException) -> str | None:
+    """Return the provider's stable error identifier, never its free-text message."""
+    for name in ("getCondition", "getErrorClass", "getSqlState"):
+        reader = getattr(error, name, None)
+        if not callable(reader):
+            continue
+        try:
+            value = reader()
+        except Exception:
+            continue
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
 def _attempt(spark: Any, operation: ProbeOperation, statement: str, *, detail: str | None = None) -> ProbeStep:
     """Run one statement and record a credential-free verdict."""
     try:
@@ -201,6 +226,7 @@ def _attempt(spark: Any, operation: ProbeOperation, statement: str, *, detail: s
             verdict=_classify(error),
             statement=statement,
             error_type=type(error).__name__,
+            error_condition=_error_condition(error),
             detail=detail,
         )
     return ProbeStep(operation=operation, verdict=ProbeVerdict.SUPPORTED, statement=statement, detail=detail)
@@ -254,6 +280,19 @@ def _observed_states(spark: Any, namespace: str, tables: Sequence[str]) -> list[
     return states
 
 
+def _setting(spark: Any, key: str) -> str | None:
+    """Read one Spark configuration value, not the key echoed back beside it."""
+    rows = _rows(spark, f"SET {key}")
+    if not rows:
+        return None
+    first = rows[0]
+    values = list(first) if isinstance(first, (list, tuple)) else [first]
+    if len(values) < 2 or values[1] is None:
+        return None
+    value = str(values[1])
+    return None if value in {"", "<undefined>"} else value
+
+
 def _environment(spark: Any) -> ProbeEnvironment:
     def _safe(reader: Callable[[], Any]) -> Any:
         try:
@@ -262,8 +301,8 @@ def _environment(spark: Any) -> ProbeEnvironment:
             return None
 
     version = _safe(lambda: getattr(spark, "version", None))
-    catalog_impl = _safe(lambda: _scalar(spark, "SET spark.sql.catalogImplementation"))
-    iceberg = _safe(lambda: _scalar(spark, "SET spark.sql.extensions"))
+    catalog_impl = _safe(lambda: _setting(spark, "spark.sql.catalogImplementation"))
+    iceberg = _safe(lambda: _setting(spark, "spark.sql.extensions"))
     principal = _safe(lambda: _scalar(spark, "SELECT current_user()"))
     return ProbeEnvironment(
         spark_version=str(version) if version is not None else None,

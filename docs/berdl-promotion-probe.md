@@ -64,6 +64,15 @@ Each attempted operation carries a verdict:
 | `unclassified-failure` | The failure matched none of the above. |
 | `not-attempted` | An earlier result made the attempt unnecessary. |
 
+A failing step also records `error_type`, the exception class name, and
+`error_condition`, the provider's stable error identifier such as
+`INSUFFICIENT_PRIVILEGES` or `UNSUPPORTED_FEATURE`. Those identifiers are
+enumerated codes rather than free text, so they can be recorded without carrying
+provider message content into the report, and they are what the verdict is
+classified from. An `unclassified-failure` with no `error_condition` means the
+provider offered no identifier, and the statement has to be rerun by hand in the
+pod terminal to learn why.
+
 A step may also carry `independently_verified`. A call that returns without error is not evidence
 that it did anything, so recovery is checked by reading the table back and comparing row counts, and
 the injected failure is checked by confirming the destination table it targeted does not exist.
