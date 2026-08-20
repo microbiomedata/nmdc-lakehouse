@@ -19,6 +19,16 @@ SocketProbe = Callable[[str, int, float], bool]
 MongoClientFactory = Callable[..., Any]
 
 
+def _missing_driver_check() -> DoctorCheck:
+    """Report an absent MongoDB driver as a remediable condition rather than a crash."""
+    return DoctorCheck(
+        name="mongo-ping",
+        status=CheckStatus.FAIL,
+        summary="The MongoDB driver is not installed, so this check cannot run.",
+        remediation="Install the MongoDB extra, or omit --service-check mongo-ping where it is not needed.",
+    )
+
+
 def _default_mongo_client_factory(*args: Any, **kwargs: Any) -> Any:
     """Construct a MongoClient, importing the driver only when a check actually runs.
 
@@ -196,13 +206,18 @@ def _mongo_ping_check(
     client_factory: MongoClientFactory,
     timeout: float,
 ) -> DoctorCheck:
-    from pymongo.errors import (
-        ConfigurationError,
-        ConnectionFailure,
-        NetworkTimeout,
-        OperationFailure,
-        ServerSelectionTimeoutError,
-    )
+    # Guarded separately from the probe below: without the driver this import is the first thing
+    # that fails, and it must produce a remediable result rather than a traceback.
+    try:
+        from pymongo.errors import (
+            ConfigurationError,
+            ConnectionFailure,
+            NetworkTimeout,
+            OperationFailure,
+            ServerSelectionTimeoutError,
+        )
+    except ModuleNotFoundError:
+        return _missing_driver_check()
 
     timeout_ms = max(1, int(timeout * 1000))
     try:
@@ -237,13 +252,16 @@ def _mongo_ping_check(
             summary="MongoDB was not reachable within the bounded timeout.",
             remediation="Check the network path or separately managed tunnel, then retry.",
         )
-    except ModuleNotFoundError:
-        return DoctorCheck(
-            name="mongo-ping",
-            status=CheckStatus.FAIL,
-            summary="The MongoDB driver is not installed, so this check cannot run.",
-            remediation="Install the MongoDB extra, or omit --service-check mongo-ping where it is not needed.",
-        )
+    except ModuleNotFoundError as error:
+        if (error.name or "").split(".")[0] != "pymongo":
+            # A different missing module is not evidence about the MongoDB driver.
+            return DoctorCheck(
+                name="mongo-ping",
+                status=CheckStatus.FAIL,
+                summary="MongoDB readiness failed with an unexpected sanitized error.",
+                remediation="Review local configuration and logs without sharing credential-bearing values.",
+            )
+        return _missing_driver_check()
     except Exception:
         return DoctorCheck(
             name="mongo-ping",

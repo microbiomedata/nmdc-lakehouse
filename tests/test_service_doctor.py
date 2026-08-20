@@ -369,19 +369,57 @@ def test_the_cli_and_berdl_commands_import_without_the_mongodb_driver() -> None:
     assert "ok" in completed.stdout
 
 
-def test_a_missing_driver_reports_a_remediable_failure(tmp_path: Path) -> None:
-    """Without the driver, the check must name the cause instead of an unexplained failure."""
+def test_a_missing_driver_reports_a_remediable_failure() -> None:
+    """Exercise the real absence, not a factory that simulates it.
+
+    A simulated failure passed against an earlier version of this fix that raised before it could
+    report anything, because the driver's error classes were imported outside the guarded block.
+    """
+    import subprocess
+    import sys
+    import textwrap
+
+    script = textwrap.dedent(
+        """
+        import builtins
+        _real = builtins.__import__
+        def _blocked(name, *a, **k):
+            if name == "pymongo" or name.startswith("pymongo."):
+                raise ModuleNotFoundError("No module named 'pymongo'", name="pymongo")
+            return _real(name, *a, **k)
+        builtins.__import__ = _blocked
+        from nmdc_lakehouse.service_doctor import run_service_checks
+        configured = {
+            "MONGO_HOST": "localhost", "MONGO_PORT": "27124", "MONGO_DBNAME": "nmdc",
+            "MONGO_USERNAME": "reader", "MONGO_PASSWORD": "x", "MONGO_AUTH_SOURCE": "admin",
+            "MONGO_DIRECT_CONNECTION": "true",
+        }
+        checks = run_service_checks(("mongo-ping",), configured=configured)
+        ping = [c for c in checks if c.name == "mongo-ping"][0]
+        assert ping.status.value == "FAIL", ping
+        assert "driver is not installed" in ping.summary, ping.summary
+        assert "Install the MongoDB extra" in ping.remediation, ping.remediation
+        print("ok")
+        """
+    )
+    completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False)
+    assert completed.returncode == 0, completed.stderr
+    assert "ok" in completed.stdout
+
+
+def test_a_different_missing_module_is_not_blamed_on_the_mongodb_driver() -> None:
+    from nmdc_lakehouse.service_doctor import run_service_checks
 
     def _factory(*_args, **_kwargs):
-        raise ModuleNotFoundError("No module named 'pymongo'")
+        raise ModuleNotFoundError("No module named 'somethingelse'", name="somethingelse")
 
     checks = run_service_checks(
         ("mongo-ping",),
-        configured=_live_configuration(tmp_path / "jump-key"),
+        configured=_live_configuration(),
         mongo_client_factory=_factory,
     )
 
     ping = [check for check in checks if check.name == "mongo-ping"][0]
     assert ping.status is CheckStatus.FAIL
-    assert "driver is not installed" in ping.summary
-    assert "Install the MongoDB extra" in ping.remediation
+    assert "driver is not installed" not in ping.summary
+    assert "unexpected sanitized error" in ping.summary
