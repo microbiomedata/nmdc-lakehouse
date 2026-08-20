@@ -289,15 +289,22 @@ source hashes, and the exact plan-only argument vector. Its dataset name must us
 `<name>_staging_<suffix>` form, and its object prefix must be inside the tenant's
 staging area. The output is created once and is not overwritten.
 
-The plan does not read credentials, start a tunnel, invoke BERIL, upload data,
-create a table, apply metadata, or authorize a canonical change. The maintained
-executor reloads and reconstructs this plan, previews by default, and requires
-explicit snapshot- and full-plan-digest authorization before invoking the
-reviewed BERIL command without a shell. The plan digest binds the approved
-destination tuple as well as all other plan fields. It accepts success only
-when BERIL's immutable outcome
-identifies the planned staging destination and independently reports matching
-source Parquet and catalog row counts for the complete manifested table set.
+The plan does not read credentials, start a tunnel, invoke the adapter, upload
+data, create a table, apply metadata, or authorize a canonical change. The
+maintained executor reloads and reconstructs this plan, previews by default,
+and requires explicit snapshot- and full-plan-digest authorization before
+invoking the reviewed NMDC adapter without a shell. The plan digest binds the
+approved destination tuple as well as all other plan fields. It accepts success
+only when the adapter's immutable outcome identifies the planned staging
+destination and independently reports matching source Parquet and catalog row
+counts for the complete manifested table set.
+
+Planning and execution occur in the same BERDL JupyterHub pod because the plan
+binds its interpreter and absolute evidence, adapter, and official-ingest paths.
+The adapter uploads and verifies the Parquet objects, then calls the pinned
+stock `data_lakehouse_ingest.ingest` API in-process. BERIL Research Observatory
+is not a runtime dependency. A disposable-namespace rehearsal remains required
+before using the executor for the authorized staging reload.
 
 The executor revalidates the plan and evidence after every started live command,
 including a failed command, then
