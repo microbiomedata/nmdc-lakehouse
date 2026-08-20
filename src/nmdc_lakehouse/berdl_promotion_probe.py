@@ -270,13 +270,18 @@ def _attempt(spark: Any, operation: ProbeOperation, statement: str, *, detail: s
     return ProbeStep(operation=operation, verdict=ProbeVerdict.SUPPORTED, statement=statement, detail=detail)
 
 
-def _explainable(spark: Any, statement: str) -> bool:
-    """Return whether the platform accepts a read-only plan for the statement."""
+def _explain_detail(spark: Any, statement: str) -> str:
+    """Describe what a read-only plan for the statement did, without asserting why it failed.
+
+    A failed EXPLAIN is not evidence that EXPLAIN is unsupported; it may equally be a syntax or
+    permission problem with the statement itself. The report says what happened, not why.
+    """
     try:
         _rows(spark, f"EXPLAIN {statement}")
-    except Exception:
-        return False
-    return True
+    except Exception as error:
+        condition = _error_condition(error) or type(error).__name__
+        return f"no read-only plan was produced ({condition})"
+    return "read-only plan accepted"
 
 
 def _schema_fingerprint(spark: Any, table: str) -> str:
@@ -378,23 +383,32 @@ def _setting(spark: Any, key: str) -> str | None:
     return None if value in {"", "<undefined>"} else value
 
 
-def _environment(spark: Any) -> ProbeEnvironment:
-    def _safe(reader: Callable[[], Any]) -> Any:
+def _environment(spark: Any) -> tuple[ProbeEnvironment, list[str]]:
+    """Read the platform identification, naming any field that could not be read.
+
+    Returning None for both "not set" and "could not be read" would let a permission problem look
+    like an absent setting, so the unreadable ones are named separately.
+    """
+    unreadable: list[str] = []
+
+    def _safe(name: str, reader: Callable[[], Any]) -> Any:
         try:
             return reader()
         except Exception:
+            unreadable.append(name)
             return None
 
-    version = _safe(lambda: getattr(spark, "version", None))
-    catalog_impl = _safe(lambda: _setting(spark, "spark.sql.catalogImplementation"))
-    extensions = _safe(lambda: _setting(spark, "spark.sql.extensions"))
-    principal = _safe(lambda: _scalar(spark, "SELECT current_user()"))
-    return ProbeEnvironment(
+    version = _safe("spark_version", lambda: getattr(spark, "version", None))
+    catalog_impl = _safe("catalog_implementation", lambda: _setting(spark, "spark.sql.catalogImplementation"))
+    extensions = _safe("spark_sql_extensions", lambda: _setting(spark, "spark.sql.extensions"))
+    principal = _safe("current_principal", lambda: _scalar(spark, "SELECT current_user()"))
+    environment = ProbeEnvironment(
         spark_version=str(version) if version is not None else None,
         catalog_implementation=str(catalog_impl) if catalog_impl is not None else None,
         spark_sql_extensions=str(extensions) if extensions is not None else None,
         current_principal_present=principal is not None,
     )
+    return environment, unreadable
 
 
 def _runtime() -> Any:
@@ -450,18 +464,23 @@ def _retention_step(spark: Any, statement: str) -> tuple[ProbeStep, int | None]:
         )
         return step, None
     retention: int | None = None
+    unparseable: str | None = None
     for row in rows:
         values = list(row) if isinstance(row, (list, tuple)) else [row]
         if len(values) >= 2 and str(values[0]) == "history.expire.max-snapshot-age-ms":
             try:
                 retention = int(str(values[1]))
             except ValueError:
-                retention = None
+                # Present but not a number: a different situation from the property being absent.
+                unparseable = "the retention property is present but is not an integer"
             break
     step = ProbeStep(
         operation=ProbeOperation.SNAPSHOT_RETENTION,
-        verdict=ProbeVerdict.SUPPORTED if retention is not None else ProbeVerdict.UNAVAILABLE_CAPABILITY,
+        verdict=ProbeVerdict.SUPPORTED
+        if retention is not None
+        else (ProbeVerdict.UNCLASSIFIED_FAILURE if unparseable else ProbeVerdict.UNAVAILABLE_CAPABILITY),
         statement=statement,
+        detail=unparseable,
     )
     return step, retention
 
@@ -489,14 +508,25 @@ def run_promotion_probe(
             "The probe plan is not the canonical plan for its namespaces; refusing to run it."
         )
     spark = runtime()
-    environment = _environment(spark)
+    environment, unreadable_environment = _environment(spark)
     _create_probe_tables(spark, plan)
     state_before, unreadable_before = _observed_states(spark, plan.source_namespace, plan.tables)
     if unreadable_before or len(state_before) != len(plan.tables):
         raise BerdlPromotionProbeError("The probe could not observe every disposable table before mutation.")
 
-    steps: list[ProbeStep] = [ProbeStep(operation=ProbeOperation.ENVIRONMENT, verdict=ProbeVerdict.SUPPORTED)]
+    steps: list[ProbeStep] = [
+        ProbeStep(
+            operation=ProbeOperation.ENVIRONMENT,
+            verdict=ProbeVerdict.SUPPORTED if not unreadable_environment else ProbeVerdict.UNCLASSIFIED_FAILURE,
+            detail=(f"could not read: {', '.join(sorted(unreadable_environment))}" if unreadable_environment else None),
+        )
+    ]
     unresolved: list[str] = []
+    if unreadable_environment:
+        unresolved.append(
+            f"The platform fields {', '.join(sorted(unreadable_environment))} could not be read, so this "
+            "report does not identify the deployment completely."
+        )
 
     first, second = plan.tables
     source_first = f"{plan.source_namespace}.{first}"
@@ -508,7 +538,7 @@ def run_promotion_probe(
         spark,
         ProbeOperation.CROSS_NAMESPACE_RENAME,
         rename,
-        detail="read-only plan accepted" if _explainable(spark, rename) else "no read-only plan available",
+        detail=_explain_detail(spark, rename),
     )
     steps.append(rename_step)
 

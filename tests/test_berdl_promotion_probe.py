@@ -771,3 +771,63 @@ def test_a_syntax_failure_reading_retention_is_not_described_as_a_grant_problem(
     assert step.verdict is ProbeVerdict.UNSUPPORTED_SYNTAX
     assert any("unsupported-syntax" in q for q in outcome.unresolved_questions)
     assert not any("not readable from table properties" in q for q in outcome.unresolved_questions)
+
+
+def test_unreadable_environment_fields_are_named_not_reported_as_unset() -> None:
+    """A field that could not be read is not a field that has no value; #255."""
+
+    class BlindEnvironment(FakeSpark):
+        def sql(self, statement: str):
+            if statement.startswith("SET spark.sql.extensions"):
+                self.statements.append(statement)
+                raise RuntimeError("INSUFFICIENT_PRIVILEGES reading configuration")
+            return super().sql(statement)
+
+    outcome = _run(BlindEnvironment())
+
+    step = {s.operation: s for s in outcome.steps}[ProbeOperation.ENVIRONMENT]
+    assert step.verdict is ProbeVerdict.UNCLASSIFIED_FAILURE
+    assert "spark_sql_extensions" in (step.detail or "")
+    assert any("could not be read" in q and "spark_sql_extensions" in q for q in outcome.unresolved_questions)
+
+
+def test_a_present_but_unparseable_retention_is_not_reported_as_absent() -> None:
+    outcome = _run(FakeSpark(retention="not-a-number"))
+
+    step = {s.operation: s for s in outcome.steps}[ProbeOperation.SNAPSHOT_RETENTION]
+    assert step.verdict is ProbeVerdict.UNCLASSIFIED_FAILURE
+    assert "present but is not an integer" in (step.detail or "")
+    assert outcome.snapshot_retention_ms is None
+
+
+def test_a_failed_explain_does_not_claim_explain_is_unsupported() -> None:
+    class NoExplain(FakeSpark):
+        def sql(self, statement: str):
+            if statement.startswith("EXPLAIN "):
+                self.statements.append(statement)
+                raise RuntimeError("INSUFFICIENT_PRIVILEGES on EXPLAIN")
+            return super().sql(statement)
+
+    outcome = _run(NoExplain())
+
+    rename = {s.operation: s for s in outcome.steps}[ProbeOperation.CROSS_NAMESPACE_RENAME]
+    detail = rename.detail or ""
+    assert "no read-only plan was produced" in detail
+    assert "RuntimeError" in detail or "INSUFFICIENT" in detail
+    assert "unsupported" not in detail.lower()
+
+
+def test_every_guard_rejects_at_least_one_input_it_must_reject() -> None:
+    """The audit's second question: a guard exercised only on valid input asserts nothing."""
+    rejected = [
+        ("canonical dataset", "nmdc.nmdc_metadata", DESTINATION),
+        ("canonical substring", "nmdc.nmdc_metadata_probe_1", DESTINATION),
+        ("canonical mixed case", "nmdc.NMDC_METADATA_probe_1", DESTINATION),
+        ("no disposable marker", "nmdc.scratch_area", DESTINATION),
+        ("outside the tenant", "other.promotion_probe_1", DESTINATION),
+        ("identical namespaces", SOURCE, SOURCE),
+    ]
+    for label, source, destination in rejected:
+        with pytest.raises(BerdlPromotionProbeError, match=r".+") as caught:
+            build_promotion_probe_plan(tenant=TENANT, source_namespace=source, destination_namespace=destination)
+        assert str(caught.value), f"guard for {label} raised without a reason"

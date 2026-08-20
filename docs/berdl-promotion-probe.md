@@ -80,7 +80,16 @@ rerun by hand in the pod terminal to learn why.
 
 A step may also carry `independently_verified`, which is `null` when the check
 backing it could not be completed. A failed catalog listing is never recorded as
-a table being absent. A call that returns without error is not evidence
+a table being absent.
+
+The report distinguishes three things that are easy to conflate, and does so
+everywhere rather than only where it was convenient: a value the platform does
+not have, a value the principal may not read, and a value that could not be
+parsed. An environment field that could not be read is named in
+`unresolved_questions` rather than left indistinguishable from one that is unset,
+a retention property that is present but not an integer is `unclassified-failure`
+rather than `unavailable-capability`, and a failed `EXPLAIN` is recorded as no
+plan having been produced rather than as `EXPLAIN` being unsupported. A call that returns without error is not evidence
 that it did anything, so recovery is checked by reading the table back and comparing row counts, and
 the injected failure is checked by confirming the destination table it targeted does not exist.
 
