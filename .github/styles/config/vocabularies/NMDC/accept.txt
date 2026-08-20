@@ -154,3 +154,4 @@ MAG
 NOM
 ORCID
 TAXID
+reviewdog

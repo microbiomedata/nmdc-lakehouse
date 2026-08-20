@@ -71,7 +71,7 @@ input labels annotations and is not a threshold. Lowering `MinAlertLevel` makes
 every warning a failed build.
 
 Run `just prose-lint` rather than `vale` directly. The recipe sets `HOME` to a
-scratch directory, which is what makes it match CI's configuration, and passes
+scratch directory, which is what makes it match the CI configuration, and passes
 `--minAlertLevel=suggestion` so warnings and suggestions stay visible to you
 without reaching CI. A bare `vale` invocation merges any personal Vale
 configuration on the machine and can report problems CI will not, or miss the
