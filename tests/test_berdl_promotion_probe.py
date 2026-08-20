@@ -493,3 +493,40 @@ def test_rendered_documents_use_stable_key_ordering() -> None:
 def test_key_ordering_does_not_change_the_plan_digest() -> None:
     """The digest binds the model, not the rendering, so review formatting cannot invalidate authorization."""
     assert plan_sha256(_plan()) == "8078986676b242d14503df9d28631d9a6d79be6adbbb4f302b470edf6e78c6e0"
+
+
+def test_unobservable_post_mutation_state_is_named_not_silently_omitted() -> None:
+    """An omitted table must never let a partial report read as complete evidence."""
+
+    class HalfBlind(FakeSpark):
+        def _answer(self, statement: str):
+            if statement.startswith("SELECT COUNT(*)") and f"{DESTINATION}.probe_first" in statement:
+                raise RuntimeError("catalog read failed")
+            return super()._answer(statement)
+
+    outcome = _run(HalfBlind())
+
+    assert not any(state.table == "probe_first" for state in outcome.state_after)
+    assert any(
+        "could not be observed" in question and "probe_first" in question for question in outcome.unresolved_questions
+    )
+
+
+def test_retention_records_its_statement() -> None:
+    outcome = _run(FakeSpark())
+
+    retention = {step.operation: step for step in outcome.steps}[ProbeOperation.SNAPSHOT_RETENTION]
+    assert retention.statement == f"SHOW TBLPROPERTIES {DESTINATION}.probe_first"
+    assert retention.verdict is ProbeVerdict.SUPPORTED
+
+
+def test_a_missing_promoted_table_is_not_reported_as_a_missing_platform_capability() -> None:
+    spark = FakeSpark(failures={"CREATE OR REPLACE TABLE": RuntimeError("AccessDenied")})
+    spark.failures["RENAME TO"] = ParseException("mismatched input 'RENAME'")
+
+    outcome = _run(spark)
+
+    retention = {step.operation: step for step in outcome.steps}[ProbeOperation.SNAPSHOT_RETENTION]
+    assert retention.verdict is ProbeVerdict.NOT_ATTEMPTED
+    assert retention.statement is not None
+    assert any("never created" in question for question in outcome.unresolved_questions)

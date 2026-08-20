@@ -270,6 +270,18 @@ def _table_state(spark: Any, namespace: str, table: str) -> TableState:
     )
 
 
+def _unobserved(tables: Sequence[str], states: Sequence[TableState], namespace: str) -> list[str]:
+    """Name any table whose state could not be read, so an omission is never silent."""
+    observed = {state.table for state in states}
+    missing = [table for table in tables if table not in observed]
+    if not missing:
+        return []
+    return [
+        f"The state of {', '.join(sorted(missing))} in '{namespace}' could not be observed, "
+        "so this report is not complete evidence for those tables."
+    ]
+
+
 def _observed_state(spark: Any, namespace: str, table: str) -> TableState | None:
     """Read one table's state, or return None so a partial run can still emit a report."""
     if not _table_exists(spark, namespace, table):
@@ -420,6 +432,7 @@ def run_promotion_probe(
     state_after = _observed_states(spark, plan.destination_namespace, plan.tables)
 
     catalog = plan.tenant
+    unobserved_after = _unobserved(plan.tables, state_after, plan.destination_namespace)
     promoted = _observed_state(spark, plan.destination_namespace, first)
     if promoted is None or promoted.snapshot_id is None:
         for operation in (
@@ -492,17 +505,38 @@ def run_promotion_probe(
             "second, so a partial promotion is observable and promotion is not atomic across tables."
         )
 
-    retention = _retention_ms(spark, destination_first)
-    steps.append(
-        ProbeStep(
-            operation=ProbeOperation.SNAPSHOT_RETENTION,
-            verdict=ProbeVerdict.SUPPORTED if retention is not None else ProbeVerdict.UNAVAILABLE_CAPABILITY,
+    retention_statement = f"SHOW TBLPROPERTIES {destination_first}"
+    if not first_present:
+        steps.append(
+            ProbeStep(
+                operation=ProbeOperation.SNAPSHOT_RETENTION,
+                verdict=ProbeVerdict.NOT_ATTEMPTED,
+                statement=retention_statement,
+                detail="the promoted table does not exist, so retention could not be read",
+            )
         )
-    )
-    if retention is None:
-        unresolved.append("Snapshot retention is not readable from table properties, so recovery time is unbounded.")
+        retention = None
+        unresolved.append(
+            "The promoted table was never created, so the snapshot retention window is unknown for a "
+            "reason unrelated to platform capability."
+        )
+    else:
+        retention = _retention_ms(spark, destination_first)
+        steps.append(
+            ProbeStep(
+                operation=ProbeOperation.SNAPSHOT_RETENTION,
+                verdict=ProbeVerdict.SUPPORTED if retention is not None else ProbeVerdict.UNAVAILABLE_CAPABILITY,
+                statement=retention_statement,
+            )
+        )
+        if retention is None:
+            unresolved.append(
+                "Snapshot retention is not readable from table properties, so recovery time is unbounded."
+            )
 
     state_after_recovery = _observed_states(spark, plan.destination_namespace, plan.tables)
+    unresolved.extend(unobserved_after)
+    unresolved.extend(_unobserved(plan.tables, state_after_recovery, plan.destination_namespace))
     complete = all(step.verdict is not ProbeVerdict.UNCLASSIFIED_FAILURE for step in steps)
     return ProbeOutcome(
         outcome_format_version=OUTCOME_FORMAT_VERSION,
