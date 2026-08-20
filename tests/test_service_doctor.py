@@ -335,3 +335,53 @@ def test_combined_checks_keep_tunnel_result_when_mongo_credentials_are_missing(t
     ]
     assert checks[0].status is CheckStatus.FAIL
     assert checks[-1].status is CheckStatus.PASS
+
+
+def test_the_cli_and_berdl_commands_import_without_the_mongodb_driver() -> None:
+    """BERDL commands run where the ETL dependency set is absent, such as a BERDL pod."""
+    import builtins
+    import subprocess
+    import sys
+    import textwrap
+
+    script = textwrap.dedent(
+        """
+        import builtins, sys
+        _real = builtins.__import__
+        def _blocked(name, *a, **k):
+            if name == "pymongo" or name.startswith("pymongo."):
+                raise ModuleNotFoundError("No module named 'pymongo'")
+            return _real(name, *a, **k)
+        builtins.__import__ = _blocked
+        from click.testing import CliRunner
+        from nmdc_lakehouse.cli import cli
+        from nmdc_lakehouse.service_doctor import SERVICE_CHECKS
+        assert SERVICE_CHECKS
+        for cmd in ("berdl-upload", "berdl-upload-plan", "berdl-apply-metadata", "berdl-doctor"):
+            result = CliRunner().invoke(cli, [cmd, "--help"])
+            assert result.exit_code == 0, (cmd, result.output)
+        print("ok")
+        """
+    )
+    assert builtins  # keep the import meaningful to linters
+    completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False)
+    assert completed.returncode == 0, completed.stderr
+    assert "ok" in completed.stdout
+
+
+def test_a_missing_driver_reports_a_remediable_failure(tmp_path: Path) -> None:
+    """Without the driver, the check must name the cause instead of an unexplained failure."""
+
+    def _factory(*_args, **_kwargs):
+        raise ModuleNotFoundError("No module named 'pymongo'")
+
+    checks = run_service_checks(
+        ("mongo-ping",),
+        configured=_live_configuration(tmp_path / "jump-key"),
+        mongo_client_factory=_factory,
+    )
+
+    ping = [check for check in checks if check.name == "mongo-ping"][0]
+    assert ping.status is CheckStatus.FAIL
+    assert "driver is not installed" in ping.summary
+    assert "Install the MongoDB extra" in ping.remediation

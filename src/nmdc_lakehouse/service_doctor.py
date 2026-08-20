@@ -8,15 +8,6 @@ from contextlib import closing
 from dataclasses import dataclass
 from typing import Any
 
-from pymongo import MongoClient
-from pymongo.errors import (
-    ConfigurationError,
-    ConnectionFailure,
-    NetworkTimeout,
-    OperationFailure,
-    ServerSelectionTimeoutError,
-)
-
 from nmdc_lakehouse.config import MongoSettings
 from nmdc_lakehouse.doctor import CheckStatus, DoctorCheck, _jump_key_check
 
@@ -26,6 +17,17 @@ DEFAULT_JUMP_KEY = "~/.ssh/jump-dev.microbiomedata.org.private_key"
 
 SocketProbe = Callable[[str, int, float], bool]
 MongoClientFactory = Callable[..., Any]
+
+
+def _default_mongo_client_factory(*args: Any, **kwargs: Any) -> Any:
+    """Construct a MongoClient, importing the driver only when a check actually runs.
+
+    Importing pymongo at module scope would make every command in this package, including the
+    BERDL commands that never read MongoDB, fail to start where the driver is absent.
+    """
+    from pymongo import MongoClient
+
+    return MongoClient(*args, **kwargs)
 
 
 @dataclass(frozen=True)
@@ -194,6 +196,14 @@ def _mongo_ping_check(
     client_factory: MongoClientFactory,
     timeout: float,
 ) -> DoctorCheck:
+    from pymongo.errors import (
+        ConfigurationError,
+        ConnectionFailure,
+        NetworkTimeout,
+        OperationFailure,
+        ServerSelectionTimeoutError,
+    )
+
     timeout_ms = max(1, int(timeout * 1000))
     try:
         client = client_factory(
@@ -227,6 +237,13 @@ def _mongo_ping_check(
             summary="MongoDB was not reachable within the bounded timeout.",
             remediation="Check the network path or separately managed tunnel, then retry.",
         )
+    except ModuleNotFoundError:
+        return DoctorCheck(
+            name="mongo-ping",
+            status=CheckStatus.FAIL,
+            summary="The MongoDB driver is not installed, so this check cannot run.",
+            remediation="Install the MongoDB extra, or omit --service-check mongo-ping where it is not needed.",
+        )
     except Exception:
         return DoctorCheck(
             name="mongo-ping",
@@ -247,9 +264,11 @@ def run_service_checks(
     configured: Mapping[str, str],
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     socket_probe: SocketProbe = _default_socket_probe,
-    mongo_client_factory: MongoClientFactory = MongoClient,
+    mongo_client_factory: MongoClientFactory | None = None,
 ) -> list[DoctorCheck]:
     """Run explicitly requested checks without starting or changing services."""
+    if mongo_client_factory is None:
+        mongo_client_factory = _default_mongo_client_factory
     if not requested:
         return []
     unknown = set(requested) - set(SERVICE_CHECKS)
