@@ -234,6 +234,14 @@ def apply_berdl_staging_metadata(
     checkout_verifier: Callable[[Path, str], None] = _verify_ingest_checkout,
 ) -> BerdlMetadataOutcome:
     """Apply approved descriptions and require exact catalog read-back."""
+    expected_preview = build_berdl_metadata_preview(
+        plan,
+        staging,
+        metadata_plan_sha256=preview.metadata_plan_sha256,
+        staging_outcome_sha256=preview.staging_outcome_sha256,
+    )
+    if preview != expected_preview:
+        raise BerdlMetadataError("The metadata preview does not match the plan and staging outcome.")
     checkout_verifier(ingest_checkout, staging.ingest_revision)
     try:
         spark, apply_table_comment, apply_column_comments = runtime(ingest_checkout)

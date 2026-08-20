@@ -176,6 +176,23 @@ def test_apply_requires_exact_catalog_readback(tmp_path: Path) -> None:
     }
 
 
+def test_apply_rejects_a_preview_from_different_inputs(tmp_path: Path) -> None:
+    preview = build_berdl_metadata_preview(
+        _plan(), _staging(), metadata_plan_sha256="5" * 64, staging_outcome_sha256="6" * 64
+    )
+    preview.targets[0].column_descriptions = 0
+
+    with pytest.raises(BerdlMetadataError, match="preview does not match"):
+        apply_berdl_staging_metadata(
+            _plan(),
+            _staging(),
+            preview,
+            ingest_checkout=tmp_path,
+            runtime=lambda _checkout: pytest.fail("runtime must not be initialized"),
+            checkout_verifier=lambda *_args: pytest.fail("checkout must not be inspected"),
+        )
+
+
 def test_cli_preview_is_offline_and_reports_input_hashes(tmp_path: Path) -> None:
     plan_path = tmp_path / "metadata-plan.json"
     staging_path = tmp_path / "staging-outcome.json"
