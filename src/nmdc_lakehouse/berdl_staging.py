@@ -73,8 +73,10 @@ class IngestRevision(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     repository: Literal["https://github.com/kbase/data-lakehouse-ingest"]
+    checkout_remote: str
     revision: str
     adapter_sha256: str
+    package_tree_git_oid: str
     package_init_sha256: str
     ingest_core_sha256: str
 
@@ -297,34 +299,58 @@ def _select_artifacts(manifest: SnapshotManifest, publication_plan: PublicationP
     return selected
 
 
-_INGEST_SOURCES = (
+_INGEST_PACKAGE = "src/data_lakehouse_ingest"
+_INGEST_ENTRY_SOURCES = (
     "src/data_lakehouse_ingest/__init__.py",
     "src/data_lakehouse_ingest/core.py",
 )
+_OFFICIAL_INGEST_REMOTES = {
+    "https://github.com/kbase/data-lakehouse-ingest",
+    "https://github.com/kbase/data-lakehouse-ingest.git",
+    "git@github.com:kbase/data-lakehouse-ingest.git",
+}
 
 
-def _require_revision_sources(checkout: Path, revision: str, runner: CommandRunner) -> None:
-    """Require normal index flags and source bytes identical to a Git revision."""
-    sources = _INGEST_SOURCES
+def _require_revision_package(checkout: Path, revision: str, runner: CommandRunner) -> tuple[str, str, tuple[str, ...]]:
+    """Bind the complete imported package and official checkout provenance."""
     try:
-        flags = runner(("git", "-C", str(checkout), "ls-files", "-v", "--", *sources))
+        remote = runner(("git", "-C", str(checkout), "remote", "get-url", "origin"))
+        tracked = runner(("git", "-C", str(checkout), "ls-files", "--", _INGEST_PACKAGE))
+        tree = runner(("git", "-C", str(checkout), "rev-parse", f"{revision}:{_INGEST_PACKAGE}"))
     except (OSError, subprocess.TimeoutExpired) as error:
-        raise BerdlStagingPlanError("Cannot verify the KBase ingest sources against the revision.") from error
+        raise BerdlStagingPlanError("Cannot verify the KBase ingest package against the revision.") from error
+    remote_url = remote.stdout.strip()
+    sources = tuple(sorted(filter(None, tracked.stdout.splitlines())))
+    tree_oid = tree.stdout.strip()
+    if remote.returncode != 0 or remote_url not in _OFFICIAL_INGEST_REMOTES:
+        raise BerdlStagingPlanError("The KBase ingest checkout must identify the official GitHub repository.")
+    if tracked.returncode != 0 or not sources or not set(_INGEST_ENTRY_SOURCES).issubset(sources):
+        raise BerdlStagingPlanError("The complete KBase ingest package must be tracked by the selected revision.")
+    if tree.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40,64}", tree_oid):
+        raise BerdlStagingPlanError("Cannot identify the selected KBase ingest package tree.")
+    try:
+        flags = runner(("git", "-C", str(checkout), "ls-files", "-v", "--", _INGEST_PACKAGE))
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise BerdlStagingPlanError("Cannot verify the KBase ingest package against the revision.") from error
     if flags.returncode != 0 or set(flags.stdout.splitlines()) != {f"H {source}" for source in sources}:
-        raise BerdlStagingPlanError("The KBase ingest sources must not use special Git index flags.")
+        raise BerdlStagingPlanError("The KBase ingest package must not use special Git index flags.")
     for source in sources:
+        path = checkout / source
+        if not path.is_file() or path.is_symlink():
+            raise BerdlStagingPlanError("The KBase ingest package must contain only ordinary tracked source files.")
         try:
             expected = runner(("git", "-C", str(checkout), "rev-parse", f"{revision}:{source}"))
             observed = runner(("git", "-C", str(checkout), "hash-object", f"--path={source}", source))
         except (OSError, subprocess.TimeoutExpired) as error:
-            raise BerdlStagingPlanError("Cannot verify the KBase ingest sources against the revision.") from error
+            raise BerdlStagingPlanError("Cannot verify the KBase ingest package against the revision.") from error
         if (
             expected.returncode != 0
             or observed.returncode != 0
             or not expected.stdout.strip()
             or expected.stdout.strip() != observed.stdout.strip()
         ):
-            raise BerdlStagingPlanError("The KBase ingest source bytes do not match the selected revision.")
+            raise BerdlStagingPlanError("The KBase ingest package bytes do not match the selected revision.")
+    return remote_url, tree_oid, sources
 
 
 def _inspect_ingest_checkout(
@@ -339,8 +365,8 @@ def _inspect_ingest_checkout(
         raise BerdlStagingPlanError("The KBase ingest checkout must be an ordinary directory.")
     checkout = checkout.resolve()
     adapter = Path(__file__).with_name("berdl_adapter.py")
-    package_init = checkout / _INGEST_SOURCES[0]
-    ingest_core = checkout / _INGEST_SOURCES[1]
+    package_init = checkout / _INGEST_ENTRY_SOURCES[0]
+    ingest_core = checkout / _INGEST_ENTRY_SOURCES[1]
     for path, label in (
         (adapter, "NMDC BERDL adapter"),
         (package_init, "KBase ingest package initializer"),
@@ -351,37 +377,26 @@ def _inspect_ingest_checkout(
     try:
         revision = runner(("git", "-C", str(checkout), "rev-parse", "--verify", "HEAD"))
         dirty = runner(("git", "-C", str(checkout), "status", "--porcelain", "--untracked-files=all"))
-        tracked = runner(
-            (
-                "git",
-                "-C",
-                str(checkout),
-                "ls-files",
-                "--error-unmatch",
-                "--",
-                *_INGEST_SOURCES,
-            )
-        )
     except (OSError, subprocess.TimeoutExpired) as error:
         raise BerdlStagingPlanError("Cannot inspect the KBase ingest checkout revision.") from error
     if revision.returncode != 0 or revision.stdout.strip() != expected_revision:
         raise BerdlStagingPlanError("The KBase ingest checkout does not match the requested revision.")
     if dirty.returncode != 0 or dirty.stdout.strip():
         raise BerdlStagingPlanError("The KBase ingest checkout must have no tracked or untracked changes.")
-    if tracked.returncode != 0 or set(tracked.stdout.splitlines()) != set(_INGEST_SOURCES):
-        raise BerdlStagingPlanError("The KBase ingest sources must be tracked by the selected revision.")
-    _require_revision_sources(checkout, expected_revision, runner)
+    remote_url, tree_oid, sources = _require_revision_package(checkout, expected_revision, runner)
     evidence = IngestRevision(
         repository="https://github.com/kbase/data-lakehouse-ingest",
+        checkout_remote=remote_url,
         revision=expected_revision,
         adapter_sha256=_sha256(adapter, "NMDC BERDL adapter"),
+        package_tree_git_oid=tree_oid,
         package_init_sha256=_sha256(package_init, "KBase ingest package initializer"),
         ingest_core_sha256=_sha256(ingest_core, "KBase ingest core"),
     )
     try:
         final_revision = runner(("git", "-C", str(checkout), "rev-parse", "--verify", "HEAD"))
         final_dirty = runner(("git", "-C", str(checkout), "status", "--porcelain", "--untracked-files=all"))
-        _require_revision_sources(checkout, expected_revision, runner)
+        final_remote_url, final_tree_oid, final_sources = _require_revision_package(checkout, expected_revision, runner)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise BerdlStagingPlanError("Cannot recheck the KBase ingest checkout after hashing.") from error
     if (
@@ -393,12 +408,14 @@ def _inspect_ingest_checkout(
         raise BerdlStagingPlanError("The KBase ingest checkout changed while its sources were hashed.")
     final_evidence = IngestRevision(
         repository="https://github.com/kbase/data-lakehouse-ingest",
+        checkout_remote=final_remote_url,
         revision=expected_revision,
         adapter_sha256=_sha256(adapter, "NMDC BERDL adapter"),
+        package_tree_git_oid=final_tree_oid,
         package_init_sha256=_sha256(package_init, "KBase ingest package initializer"),
         ingest_core_sha256=_sha256(ingest_core, "KBase ingest core"),
     )
-    if final_evidence != evidence:
+    if final_sources != sources or final_evidence != evidence:
         raise BerdlStagingPlanError("The NMDC adapter or KBase ingest sources changed while being hashed.")
     return checkout, adapter, evidence
 

@@ -51,7 +51,7 @@ class IssueCategory(BaseModel):
 class TableValidationRecord(BaseModel):
     """Validation coverage and findings for one manifested Parquet table."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     table: str
     artifact_path: str
@@ -69,7 +69,7 @@ class TableValidationRecord(BaseModel):
 class TargetValidationReport(BaseModel):
     """Snapshot-bound, credential-free logical target validation evidence."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     report_format_version: int
     status: Literal["success", "failure"]

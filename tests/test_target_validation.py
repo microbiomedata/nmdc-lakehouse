@@ -208,6 +208,12 @@ def test_target_validation_loader_requires_current_strict_format(tmp_path: Path)
     with pytest.raises(TargetValidationError, match="valid target validation"):
         load_target_validation_report(report_path)
 
+    document["full_table_max_rows"] = 10_000
+    document["elapsed_seconds"] = float("inf")
+    report_path.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(TargetValidationError, match="valid target validation"):
+        load_target_validation_report(report_path)
+
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
 def test_nonfinite_numbers_are_sanitized_failures_in_full_and_sampled_modes(

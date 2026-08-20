@@ -51,6 +51,7 @@ REVISION = "a" * 40
 SNAPSHOT_ID = "sha256:" + "1" * 64
 _INGEST_SOURCE_PATHS = (
     "src/data_lakehouse_ingest/__init__.py",
+    "src/data_lakehouse_ingest/config_loader.py",
     "src/data_lakehouse_ingest/core.py",
 )
 
@@ -151,6 +152,7 @@ def _checkout(tmp_path: Path) -> Path:
     package = checkout / "src" / "data_lakehouse_ingest"
     package.mkdir(parents=True, exist_ok=True)
     (package / "__init__.py").write_text("from .core import ingest\n", encoding="utf-8")
+    (package / "config_loader.py").write_text("class ConfigLoader: ...\n", encoding="utf-8")
     (package / "core.py").write_text("def ingest(config): ...\n", encoding="utf-8")
     return checkout
 
@@ -201,6 +203,7 @@ class GitRunner:
         self,
         *,
         revision: str = REVISION,
+        remote_url: str = "https://github.com/kbase/data-lakehouse-ingest.git",
         dirty: str = "",
         tracked: bool = True,
         index_flags: str = "".join(f"H {path}\n" for path in _INGEST_SOURCE_PATHS),
@@ -210,6 +213,7 @@ class GitRunner:
         final_dirty: str | None = None,
     ) -> None:
         self.revision = revision
+        self.remote_url = remote_url
         self.dirty = dirty
         self.tracked = tracked
         self.index_flags = index_flags
@@ -233,6 +237,8 @@ class GitRunner:
             self.status_calls += 1
             dirty = self.final_dirty if self.status_calls > 1 and self.final_dirty is not None else self.dirty
             return subprocess.CompletedProcess(args, 0, dirty, "")
+        if "remote" in command and "get-url" in command:
+            return subprocess.CompletedProcess(args, 0, self.remote_url + "\n", "")
         if "ls-files" in command:
             if "-v" in command:
                 self.source_round += 1
@@ -317,6 +323,8 @@ def test_plan_binds_candidate_and_exact_plan_only_command(tmp_path: Path) -> Non
     assert plan.target_validation.selected_rows == 1
     assert plan.ingest.revision == REVISION
     assert plan.ingest.repository == "https://github.com/kbase/data-lakehouse-ingest"
+    assert plan.ingest.checkout_remote == "https://github.com/kbase/data-lakehouse-ingest.git"
+    assert plan.ingest.package_tree_git_oid == "1" * 40
     assert plan.destination_provider == "spark_catalog"
     assert plan.destination_table_format == "iceberg"
     assert "--destination-provider" in plan.command
@@ -324,8 +332,8 @@ def test_plan_binds_candidate_and_exact_plan_only_command(tmp_path: Path) -> Non
     assert plan.command[-2:] == ["--config-key", plan.config_key]
     assert "--execute-staging" not in plan.command
     assert "--outcome" not in plan.command
-    assert len(runner.commands) == 15
     assert all(command[0] == "git" for command in runner.commands)
+    assert any("hash-object" in command and command[-1].endswith("config_loader.py") for command in runner.commands)
 
 
 def test_metadata_plan_must_match_snapshot_and_staging_namespace(tmp_path: Path) -> None:
@@ -405,7 +413,7 @@ def test_checkout_revision_and_cleanliness_are_required(tmp_path: Path) -> None:
         _build(tmp_path, runner=GitRunner(dirty=" M src/data_lakehouse_ingest/core.py\n"))
     with pytest.raises(BerdlStagingPlanError, match="tracked or untracked changes"):
         _build(tmp_path, runner=GitRunner(dirty="?? scripts/csv.py\n"))
-    with pytest.raises(BerdlStagingPlanError, match="sources must be tracked"):
+    with pytest.raises(BerdlStagingPlanError, match="package must be tracked"):
         _build(tmp_path, runner=GitRunner(tracked=False))
     with pytest.raises(BerdlStagingPlanError, match="special Git index flags"):
         _build(
@@ -414,13 +422,15 @@ def test_checkout_revision_and_cleanliness_are_required(tmp_path: Path) -> None:
                 index_flags="S src/data_lakehouse_ingest/__init__.py\nh src/data_lakehouse_ingest/core.py\n"
             ),
         )
-    with pytest.raises(BerdlStagingPlanError, match="source bytes do not match"):
+    with pytest.raises(BerdlStagingPlanError, match="package bytes do not match"):
         _build(tmp_path, runner=GitRunner(source_matches=False))
+    with pytest.raises(BerdlStagingPlanError, match="official GitHub repository"):
+        _build(tmp_path, runner=GitRunner(remote_url="https://github.com/example/data-lakehouse-ingest.git"))
     with pytest.raises(BerdlStagingPlanError, match="changed while"):
         _build(tmp_path, runner=GitRunner(final_revision="b" * 40))
     with pytest.raises(BerdlStagingPlanError, match="changed while"):
         _build(tmp_path, runner=GitRunner(final_dirty=" M src/data_lakehouse_ingest/core.py\n"))
-    with pytest.raises(BerdlStagingPlanError, match="source bytes do not match"):
+    with pytest.raises(BerdlStagingPlanError, match="package bytes do not match"):
         _build(tmp_path, runner=GitRunner(final_source_matches=False))
 
 

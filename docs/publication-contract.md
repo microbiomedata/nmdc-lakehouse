@@ -282,9 +282,10 @@ The current adapter accepts only a destination inventory that identifies the
 the immutable staging plan and its exact adapter arguments; an absent or
 incompatible destination contract cannot produce an executable-looking plan.
 
-The generated JSON records local paths and checksums for every reviewed input, including target
-validation, the selected Parquet identities, the KBase ingest revision and
-relevant source hashes, and the exact plan-only argument vector. Its dataset name must use a unique
+The generated JSON records local paths and checksums for every reviewed input,
+including target validation, the selected Parquet identities, the KBase ingest
+revision, official checkout provenance, complete package-tree identity, relevant
+source hashes, and the exact plan-only argument vector. Its dataset name must use a unique
 `<name>_staging_<suffix>` form, and its object prefix must be inside the tenant's
 staging area. The output is created once and is not overwritten.
 

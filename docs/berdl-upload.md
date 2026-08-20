@@ -121,8 +121,9 @@ The planner re-runs the portable preflight; verifies the metadata plan's
 snapshot, destination observation, capabilities, namespace, and table coverage;
 requires successful target-schema validation with exact snapshot and table
 coverage; and checks that the official ingest checkout is clean at the requested
-revision. It binds the NMDC-owned adapter and the official
-`data_lakehouse_ingest.ingest` package entry points, then creates an immutable,
+revision. It binds the NMDC-owned adapter and the official checkout's complete
+tracked `data_lakehouse_ingest` package tree, verifies every package file against
+the selected revision, and requires an official KBase GitHub remote. It then creates an immutable,
 credential-free JSON plan containing local evidence paths, checksums, and the
 exact plan-only adapter argument vector. It rejects canonical-looking dataset
 names and object prefixes outside the tenant staging area. It also requires and
