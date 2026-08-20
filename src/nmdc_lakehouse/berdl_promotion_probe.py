@@ -118,7 +118,7 @@ class ProbeEnvironment(BaseModel):
 
     spark_version: str | None
     catalog_implementation: str | None
-    iceberg_version: str | None
+    spark_sql_extensions: str | None
     current_principal_present: bool
 
 
@@ -341,12 +341,12 @@ def _environment(spark: Any) -> ProbeEnvironment:
 
     version = _safe(lambda: getattr(spark, "version", None))
     catalog_impl = _safe(lambda: _setting(spark, "spark.sql.catalogImplementation"))
-    iceberg = _safe(lambda: _setting(spark, "spark.sql.extensions"))
+    extensions = _safe(lambda: _setting(spark, "spark.sql.extensions"))
     principal = _safe(lambda: _scalar(spark, "SELECT current_user()"))
     return ProbeEnvironment(
         spark_version=str(version) if version is not None else None,
         catalog_implementation=str(catalog_impl) if catalog_impl is not None else None,
-        iceberg_version=str(iceberg) if iceberg is not None else None,
+        spark_sql_extensions=str(extensions) if extensions is not None else None,
         current_principal_present=principal is not None,
     )
 

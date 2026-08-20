@@ -441,7 +441,7 @@ def test_environment_records_configuration_values_not_key_names() -> None:
     outcome = _run(FakeSpark())
 
     assert outcome.environment.catalog_implementation == "in-memory"
-    assert outcome.environment.iceberg_version.startswith("org.apache.iceberg")
+    assert outcome.environment.spark_sql_extensions.startswith("org.apache.iceberg")
     assert outcome.environment.spark_version == "3.5.1"
 
 
@@ -452,7 +452,7 @@ def test_unset_configuration_is_recorded_as_absent_not_as_the_literal_undefined(
     outcome = _run(spark)
 
     assert outcome.environment.catalog_implementation is None
-    assert outcome.environment.iceberg_version is None
+    assert outcome.environment.spark_sql_extensions is None
 
 
 def test_provider_error_condition_is_recorded_and_used_for_classification() -> None:

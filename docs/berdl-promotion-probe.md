@@ -82,6 +82,13 @@ the injected failure is checked by confirming the destination table it targeted 
 folded into a known cause, and any such result sets the report status to
 `probe-incomplete` so it cannot be read as a clean answer.
 
+The environment block records the Spark version, the catalog implementation, and
+the value of `spark.sql.extensions`. That last one is a list of extension class
+names, not a version, and the field is named `spark_sql_extensions` to say so. It
+is still worth recording: on the first live run it showed the deployment loads
+both the Delta and the Iceberg extensions. Iceberg and Polaris version numbers
+are not currently captured, and the report does not imply otherwise.
+
 The report carries the exact statements the probe constructed, the exception
 type name, table snapshot identifiers, row counts, and schema fingerprints
 before mutation, after mutation, and after recovery. It does not carry provider
