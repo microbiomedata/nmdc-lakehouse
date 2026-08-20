@@ -90,9 +90,10 @@ def flatten_class_def(
     cls = ClassDefinition(name=target_name)
     source_class = schema_view.get_class(root_class)
     source_description = f"{source_class.description} " if source_class and source_class.description else ""
+    # The producing loader is recorded once, in the `mapping` annotation. Naming it here too
+    # would contradict that annotation for any table produced by a different loader.
     cls.description = source_description + (
-        f"Flattened tabular form of '{root_class}' produced by "
-        f"`SchemaDrivenFlattener`. Attributes are the union of base-class "
+        f"Flattened tabular form of '{root_class}'. Attributes are the union of base-class "
         f"slots and slots from concrete subclasses of '{root_class}' that "
         f"may appear via the 'type' field."
     )

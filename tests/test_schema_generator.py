@@ -6,6 +6,8 @@ validate generated flattened column names and related slot behavior.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from linkml_runtime import SchemaView
 
@@ -352,3 +354,20 @@ def test_generated_schema_annotates_the_direct_loader_for_its_collections() -> N
     }
     for table in DIRECT_COLLECTIONS:
         assert by_table[table] == DIRECT_MAPPING_ID
+
+
+def test_class_descriptions_do_not_name_a_producing_loader() -> None:
+    """The producer is recorded once, in the mapping annotation, so prose cannot contradict it."""
+    import yaml
+
+    from nmdc_lakehouse.transforms import schema_generator
+
+    schema_path = Path(schema_generator.__file__).parents[1] / "schemas" / "nmdc_metadata.yaml"
+    schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
+    offenders = [
+        name
+        for name, definition in schema["classes"].items()
+        if "SchemaDrivenFlattener" in (definition.get("description") or "")
+        or "DirectMongoToParquetJob" in (definition.get("description") or "")
+    ]
+    assert offenders == []
