@@ -18455,7 +18455,7 @@ classes:
         value: FunctionalAnnotationAggMember
       mapping:
         tag: mapping
-        value: nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener
+        value: nmdc_lakehouse.jobs.direct_mongo_to_parquet.DirectMongoToParquetJob
     description: This class is used to store aggregated results from workflows which
       produce functional annotations such as metaproteomics and metagenomics. Flattened
       tabular form of 'FunctionalAnnotationAggMember' produced by `SchemaDrivenFlattener`.

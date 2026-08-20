@@ -175,7 +175,7 @@ def flatten_database_schema(
         if range_class is None:
             continue
         flat = flatten_class_def(schema_view, slot.range)
-        _annotate_target_class(flat, table_name=slot.name, source_class=slot.range, mapping=PRIMARY_MAPPING_ID)
+        _annotate_target_class(flat, table_name=slot.name, source_class=slot.range, mapping=_mapping_id(slot.name))
         _add_target_class(out, flat)
         for table_name, side_class in side_table_class_defs(schema_view, slot.range, slot.name):
             _annotate_target_class(
@@ -187,6 +187,19 @@ def flatten_database_schema(
             _add_target_class(out, side_class)
 
     return out
+
+
+def _mapping_id(table_name: str) -> str:
+    """Return the loader identity that will actually produce this table.
+
+    Most tables come from the schema-driven flattener, but a collection routed to the direct
+    loader records that loader in its Parquet footer and snapshot manifest. Publishing the wrong
+    identity here makes target validation fail closed on any snapshot that includes such a table.
+    Imported lazily because the direct loader imports this module.
+    """
+    from nmdc_lakehouse.jobs.direct_mongo_to_parquet import DIRECT_COLLECTIONS, DIRECT_MAPPING_ID
+
+    return DIRECT_MAPPING_ID if table_name in DIRECT_COLLECTIONS else PRIMARY_MAPPING_ID
 
 
 def _annotate_target_class(
