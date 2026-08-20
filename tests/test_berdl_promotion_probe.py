@@ -601,7 +601,7 @@ def test_a_denied_retention_read_is_not_reported_as_a_missing_capability() -> No
     assert step.verdict is ProbeVerdict.INSUFFICIENT_GRANTS
     assert step.error_type == "RuntimeError"
     assert outcome.snapshot_retention_ms is None
-    assert any("unrelated to platform capability" in q for q in outcome.unresolved_questions)
+    assert any("insufficient-grants" in q for q in outcome.unresolved_questions)
     assert not any("not readable from table properties" in q for q in outcome.unresolved_questions)
 
 
@@ -739,3 +739,32 @@ def test_a_plan_with_altered_tables_is_refused_even_with_a_valid_digest() -> Non
             authorize_plan_sha256=plan_sha256(plan),
             runtime=lambda: pytest.fail("Spark must not be reached for a non-canonical plan"),
         )
+
+
+def test_the_replacement_detail_names_the_actual_rename_verdict() -> None:
+    """Replacement is attempted for any non-supported rename, so the detail must not assume one."""
+    spark = FakeSpark(failures={"RENAME TO": RuntimeError("AccessDenied on namespace")})
+
+    outcome = _run(spark)
+
+    steps = {s.operation: s for s in outcome.steps}
+    assert steps[ProbeOperation.CROSS_NAMESPACE_RENAME].verdict is ProbeVerdict.INSUFFICIENT_GRANTS
+    detail = steps[ProbeOperation.REPLACEMENT].detail or ""
+    assert "insufficient-grants" in detail
+    assert "not supported" not in detail
+
+
+def test_a_syntax_failure_reading_retention_is_not_described_as_a_grant_problem() -> None:
+    class BadSyntax(FakeSpark):
+        def sql(self, statement: str):
+            if statement.startswith("SHOW TBLPROPERTIES"):
+                self.statements.append(statement)
+                raise ParseException("mismatched input 'TBLPROPERTIES'")
+            return super().sql(statement)
+
+    outcome = _run(BadSyntax())
+
+    step = {s.operation: s for s in outcome.steps}[ProbeOperation.SNAPSHOT_RETENTION]
+    assert step.verdict is ProbeVerdict.UNSUPPORTED_SYNTAX
+    assert any("unsupported-syntax" in q for q in outcome.unresolved_questions)
+    assert not any("not readable from table properties" in q for q in outcome.unresolved_questions)

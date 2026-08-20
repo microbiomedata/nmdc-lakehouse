@@ -518,7 +518,7 @@ def run_promotion_probe(
                 spark,
                 ProbeOperation.REPLACEMENT,
                 f"CREATE OR REPLACE TABLE {destination_first} USING iceberg AS SELECT * FROM {source_first}",
-                detail="attempted because cross-namespace rename was not supported",
+                detail=f"attempted because cross-namespace rename returned {rename_step.verdict.value}",
             )
         )
 
@@ -628,8 +628,9 @@ def run_promotion_probe(
             )
         elif retention is None:
             unresolved.append(
-                "The retention property could not be read, so the recovery window is unknown for a reason "
-                "unrelated to platform capability."
+                "The retention property read returned "
+                f"{retention_step.verdict.value}, so the recovery window is unknown and this run does "
+                "not establish whether the platform provides one."
             )
 
     state_after_recovery, unreadable_recovery = _observed_states(spark, plan.destination_namespace, plan.tables)
