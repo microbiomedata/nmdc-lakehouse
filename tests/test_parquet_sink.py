@@ -448,3 +448,32 @@ def test_drop_empty_cols_keeps_required_identifier_and_designates_type_columns(f
     assert "type" in tbl.schema.names
     assert "required_value" in tbl.schema.names
     assert "has_raw_value" in tbl.schema.names
+
+
+def test_custom_linkml_types_resolve_to_their_base_arrow_type() -> None:
+    """A range naming a custom type must not silently fall back to string."""
+    from linkml_runtime.linkml_model import SchemaDefinition, TypeDefinition
+
+    from nmdc_lakehouse.sinks.parquet_sink import _arrow_type_for_range
+
+    schema = SchemaDefinition(id="https://example.org/t", name="t")
+    schema.types["decimal_degree"] = TypeDefinition(name="decimal_degree", base="float", uri="xsd:decimal")
+    schema.types["bytes"] = TypeDefinition(name="bytes", base="int", uri="xsd:long")
+    schema.types["external_identifier"] = TypeDefinition(name="external_identifier", typeof="uriorcurie")
+
+    assert _arrow_type_for_range("decimal_degree", schema) == pa.float64()
+    assert _arrow_type_for_range("bytes", schema) == pa.int64()
+    assert _arrow_type_for_range("external_identifier", schema) == pa.string()
+    assert _arrow_type_for_range("string", schema) == pa.string()
+
+
+def test_enum_ranges_and_unknown_ranges_remain_strings() -> None:
+    from linkml_runtime.linkml_model import SchemaDefinition
+
+    from nmdc_lakehouse.sinks.parquet_sink import _arrow_type_for_range
+
+    schema = SchemaDefinition(id="https://example.org/t", name="t")
+
+    assert _arrow_type_for_range("FileTypeEnum", schema) == pa.string()
+    assert _arrow_type_for_range("SomethingUndefined", schema) == pa.string()
+    assert _arrow_type_for_range("decimal_degree", None) == pa.string()

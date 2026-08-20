@@ -6,6 +6,8 @@ validate generated flattened column names and related slot behavior.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from linkml_runtime import SchemaView
 
@@ -322,3 +324,48 @@ def test_side_table_schema_covers_runtime_row_keys(sv):
         schema_cols = {attr for attr in defs[table_name].attributes}
         extra = set(row.keys()) - schema_cols
         assert not extra, f"side_table_rows emitted keys {extra} not in ClassDef for {table_name!r}"
+
+
+def test_direct_loaded_tables_record_the_loader_that_produces_them() -> None:
+    """The published mapping must match what the run actually writes, or target validation fails closed."""
+    from nmdc_lakehouse.jobs.direct_mongo_to_parquet import DIRECT_COLLECTIONS, DIRECT_MAPPING_ID
+    from nmdc_lakehouse.transforms.schema_generator import PRIMARY_MAPPING_ID, _mapping_id
+
+    for table in DIRECT_COLLECTIONS:
+        assert _mapping_id(table) == DIRECT_MAPPING_ID
+
+    assert _mapping_id("biosample_set") == PRIMARY_MAPPING_ID
+
+
+def test_generated_schema_annotates_the_direct_loader_for_its_collections() -> None:
+    import yaml
+
+    from nmdc_lakehouse.jobs.direct_mongo_to_parquet import DIRECT_COLLECTIONS, DIRECT_MAPPING_ID
+    from nmdc_lakehouse.transforms import schema_generator
+
+    schema_path = Path(schema_generator.__file__).parents[1] / "schemas" / "nmdc_metadata.yaml"
+    schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
+    by_table = {
+        definition["annotations"]["table_name"]["value"]: definition["annotations"]["mapping"]["value"]
+        for definition in schema["classes"].values()
+        if "annotations" in definition and "table_name" in definition["annotations"]
+    }
+    for table in DIRECT_COLLECTIONS:
+        assert by_table[table] == DIRECT_MAPPING_ID
+
+
+def test_class_descriptions_do_not_name_a_producing_loader() -> None:
+    """The producer is recorded once, in the mapping annotation, so prose cannot contradict it."""
+    import yaml
+
+    from nmdc_lakehouse.transforms import schema_generator
+
+    schema_path = Path(schema_generator.__file__).parents[1] / "schemas" / "nmdc_metadata.yaml"
+    schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
+    offenders = [
+        name
+        for name, definition in schema["classes"].items()
+        if "SchemaDrivenFlattener" in (definition.get("description") or "")
+        or "DirectMongoToParquetJob" in (definition.get("description") or "")
+    ]
+    assert offenders == []

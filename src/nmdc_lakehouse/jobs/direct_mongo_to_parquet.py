@@ -38,6 +38,7 @@ _BATCH_SIZE = 50_000
 # Collections handled by this module. Excluded from CollectionToParquetJob's
 # auto-registration loop so each name is registered exactly once.
 DIRECT_COLLECTIONS: frozenset[str] = frozenset({"functional_annotation_agg"})
+DIRECT_MAPPING_ID = "nmdc_lakehouse.jobs.direct_mongo_to_parquet.DirectMongoToParquetJob"
 
 
 def _schema_path() -> str:
@@ -156,7 +157,7 @@ class DirectMongoToParquetJob(Job):
                     source_schema=schema_view.schema,
                     source_class=self.root_class,
                     target_schema_id=DEFAULT_FLATTENED_SCHEMA_ID,
-                    mapping="nmdc_lakehouse.jobs.direct_mongo_to_parquet.DirectMongoToParquetJob",
+                    mapping=DIRECT_MAPPING_ID,
                 )
                 rows_written = sink.write(_stream(), table=self.collection)
                 table_rows = ((self.collection, rows_written),)
