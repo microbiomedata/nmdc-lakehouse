@@ -98,7 +98,7 @@ lint-just:
 # Isolate HOME so a contributor's global Vale configuration cannot affect it.
 prose-lint:
     mkdir -p .vale-home
-    HOME="$PWD/.vale-home" vale --config=.vale.ini --glob='**/*.md' README.md CONTRIBUTING.md AGENTS.md .github/pull_request_template.md docs scripts/README.md notebooks
+    HOME="$PWD/.vale-home" vale --config=.vale.ini --minAlertLevel=suggestion --glob='**/*.md' README.md CONTRIBUTING.md AGENTS.md .github/pull_request_template.md docs scripts/README.md notebooks
 
 # Dry-render one recipe with explicitly safe values, then lint without executing it.
 [private]

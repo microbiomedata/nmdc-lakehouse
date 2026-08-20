@@ -63,10 +63,19 @@ expansion. Vale matches text, so it cannot tell a term being used from a term
 being discussed; a bare-reference or undefined-term alert on a document about
 those rules is expected.
 
+`MinAlertLevel` in `.vale.ini` must stay at `error`, and a non-blocking rule
+works by Vale not emitting it rather than by CI ignoring it. The Vale action
+runs with `filter_mode: nofilter` and `fail_on_error: true`, so reviewdog fails
+the build on any result it receives, of any severity. The action's `level`
+input labels annotations and is not a threshold. Lowering `MinAlertLevel` makes
+every warning a failed build.
+
 Run `just prose-lint` rather than `vale` directly. The recipe sets `HOME` to a
-scratch directory, which is what makes it match CI. A bare `vale` invocation
-merges any personal Vale configuration on the machine and can report problems
-CI will not, or miss the vocabulary CI uses.
+scratch directory, which is what makes it match CI's configuration, and passes
+`--minAlertLevel=suggestion` so warnings and suggestions stay visible to you
+without reaching CI. A bare `vale` invocation merges any personal Vale
+configuration on the machine and can report problems CI will not, or miss the
+vocabulary CI uses.
 
 ## Describe and review the change
 
