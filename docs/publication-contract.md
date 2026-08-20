@@ -297,7 +297,9 @@ invoking the reviewed NMDC adapter without a shell. The plan digest binds the
 approved destination tuple as well as all other plan fields. It accepts success
 only when the adapter's immutable outcome identifies the planned staging
 destination and independently reports matching source Parquet and catalog row
-counts for the complete manifested table set.
+counts for the complete manifested table set. Catalog counts come from reading
+each fully qualified destination table after ingest, not from the ingest
+writer's report.
 
 Planning and execution occur in the same BERDL JupyterHub pod because the plan
 binds its interpreter and absolute evidence, adapter, and official-ingest paths.

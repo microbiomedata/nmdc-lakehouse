@@ -226,12 +226,7 @@ def _run_command(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
 
 
 def _run_staging_command(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
-    completed = subprocess.run(args, text=True, capture_output=True, check=False, shell=False)  # noqa: S603
-    if completed.stdout:
-        sys.stderr.write(completed.stdout)
-    if completed.stderr:
-        sys.stderr.write(completed.stderr)
-    return completed
+    return subprocess.run(args, text=True, stdout=2, stderr=2, check=False, shell=False)  # noqa: S603
 
 
 def _sha256(path: Path, label: str) -> str:

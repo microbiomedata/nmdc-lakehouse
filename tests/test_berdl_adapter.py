@@ -98,11 +98,17 @@ def test_execute_uploads_verifies_and_calls_official_ingest(
                     status=SimpleNamespace(value="success"),
                     rows_in=1,
                     rows_written=1,
+                    target_table="nmdc.nmdc_metadata_staging_20260819.biosample_set",
                 )
             ],
         }
 
     monkeypatch.setattr(berdl_adapter, "_runtime", lambda _checkout: (ingest, client))
+    monkeypatch.setattr(
+        berdl_adapter,
+        "_catalog_row_count",
+        lambda table: observed.setdefault("counted_table", table) and 1,
+    )
     outcome = tmp_path / "upstream-outcome.json"
     assert berdl_adapter.main([*_arguments(tmp_path), "--outcome", str(outcome), "--execute-staging"]) == 0
 
@@ -112,8 +118,38 @@ def test_execute_uploads_verifies_and_calls_official_ingest(
     assert document["destination"]["table_format"] == "iceberg"
     assert document["verification"]["tables"][0]["source_rows"] == 1
     assert observed["config"]["tables"][0]["format"] == "parquet"
+    assert observed["counted_table"] == "nmdc.nmdc_metadata_staging_20260819.biosample_set"
     assert outcome.is_file()
     assert ("cdm-lake", "tenant-general-warehouse/nmdc/staging/20260819/config.json") in client.objects
+
+
+def test_execute_rejects_destination_count_that_differs_from_source(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _Client()
+
+    def ingest(_config, *, minio_client):
+        assert minio_client is client
+        return {
+            "success": True,
+            "tables": [
+                SimpleNamespace(
+                    name="biosample_set",
+                    status=SimpleNamespace(value="success"),
+                    rows_in=1,
+                    rows_written=1,
+                    target_table="nmdc.nmdc_metadata_staging_20260819.biosample_set",
+                )
+            ],
+        }
+
+    monkeypatch.setattr(berdl_adapter, "_runtime", lambda _checkout: (ingest, client))
+    monkeypatch.setattr(berdl_adapter, "_catalog_row_count", lambda _table: 2)
+
+    with pytest.raises(SystemExit, match="2"):
+        berdl_adapter.main([*_arguments(tmp_path), "--outcome", str(tmp_path / "outcome.json"), "--execute-staging"])
+
+    assert "destination row count does not match" in capsys.readouterr().err
 
 
 def test_runtime_rejects_package_imported_outside_selected_checkout(

@@ -190,6 +190,9 @@ returning control. After a successful command, it requires the adapter's strict
 outcome to report the planned bucket, bronze prefix, staging namespace, exact
 table set, object-storage-verified source SHA-256, and matching
 source-versus-catalog row counts for every manifested Parquet artifact. The
+adapter requires the stock report to name the planned fully qualified table,
+then independently counts that table through Spark rather than treating the
+ingest report's write count as destination evidence. The
 source digest must equal the artifact digest in the reviewed snapshot. Only
 then does it create the immutable, credential-free NMDC
 outcome with status `data-verified`.

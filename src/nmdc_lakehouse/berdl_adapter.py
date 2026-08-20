@@ -175,6 +175,20 @@ def _report_value(record: Any, name: str) -> Any:
     return getattr(value, "value", value)
 
 
+def _catalog_row_count(table: str) -> int:
+    try:
+        from berdl_notebook_utils.setup_spark_session import get_spark_session
+    except ImportError as error:
+        raise AdapterExecutionError("the BERDL Spark runtime is not importable") from error
+    try:
+        count = get_spark_session().table(table).count()
+    except Exception as error:
+        raise AdapterExecutionError(f"cannot count destination table '{table}'") from error
+    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+        raise AdapterExecutionError(f"destination table '{table}' returned an invalid row count")
+    return count
+
+
 def _execute(plan: dict[str, object], args: argparse.Namespace) -> dict[str, object]:
     if args.outcome is None:
         raise AdapterConfigurationError("--outcome is required with --execute-staging")
@@ -228,14 +242,21 @@ def _execute(plan: dict[str, object], args: argparse.Namespace) -> dict[str, obj
         status = _report_value(record, "status")
         rows_in = _report_value(record, "rows_in")
         rows_written = _report_value(record, "rows_written")
-        if status != "success" or not isinstance(rows_in, int) or rows_written != rows_in:
+        target_table = _report_value(record, "target_table")
+        expected_target = f"{args.staging_namespace}.{name}"
+        if target_table != expected_target:
+            raise AdapterExecutionError(f"KBase ingest reported an unexpected target for table '{name}'")
+        if status != "success" or not isinstance(rows_in, int) or isinstance(rows_in, bool) or rows_written != rows_in:
             raise AdapterExecutionError(f"KBase ingest did not verify matching row counts for table '{name}'")
+        destination_rows = _catalog_row_count(expected_target)
+        if destination_rows != rows_in:
+            raise AdapterExecutionError(f"destination row count does not match source table '{name}'")
         tables.append(
             {
                 "table": name,
                 "status": "verified",
                 "source_rows": rows_in,
-                "destination_rows": rows_written,
+                "destination_rows": destination_rows,
                 "source_basis": "source parquet",
                 "source_sha256": source_hashes[name],
             }

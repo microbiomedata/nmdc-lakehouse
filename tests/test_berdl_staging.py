@@ -1280,7 +1280,8 @@ def test_staging_command_routes_child_stdout_to_stderr(monkeypatch: pytest.Monke
 
     _run_staging_command(["python", "ingest_dataset.py"])
 
-    assert captured["capture_output"] is True
+    assert captured["stdout"] == 2
+    assert captured["stderr"] == 2
     assert captured["shell"] is False
 
 
