@@ -167,8 +167,8 @@ check after staging had already changed the destination.
 
 After reviewing that preview, compute the plan file's SHA-256 digest. For
 example, use `sha256sum` on Linux or `shasum -a 256` on macOS. Execute the same
-plan with both that digest and the snapshot ID printed in the plan as fresh,
-invocation-specific authorization:
+plan with both that digest and the snapshot ID printed in the plan as explicit,
+plan-bound authorization:
 
 ```bash
 just berdl-upload \
@@ -179,6 +179,12 @@ just berdl-upload \
   --authorize-snapshot 'sha256:FULL_SNAPSHOT_DIGEST' \
   --authorize-plan-sha256 'FULL_PLAN_FILE_SHA256'
 ```
+
+These values authorize the exact immutable plan, not one invocation. Reusing
+them intentionally replays the overwrite-mode load into the same isolated
+staging namespace and object prefix. Use new outcome paths for every attempt,
+retain failed-attempt evidence, and do not reuse an authorization after the
+reviewed plan or snapshot changes.
 
 The executor passes an argument vector directly to the reviewed NMDC adapter;
 it does not invoke a shell. Adapter and KBase ingest progress is routed to
