@@ -523,6 +523,63 @@ def berdl_upload_command(
         click.echo(f"outcome={output_path.expanduser().resolve()}", err=True)
 
 
+@cli.command("berdl-apply-metadata")
+@click.argument("metadata_plan_path", type=click.Path(path_type=Path, dir_okay=False))
+@click.argument("staging_outcome_path", type=click.Path(path_type=Path, dir_okay=False))
+@click.option(
+    "--ingest-checkout",
+    type=click.Path(path_type=Path, file_okay=False),
+    required=True,
+    help="Clean checkout of the stock KBase ingest revision used for staging.",
+)
+@click.option("--output", type=click.Path(path_type=Path, dir_okay=False), required=True)
+@click.option("--authorize-plan-sha256", help="Exact SHA-256 of the reviewed metadata plan.")
+@click.option("--authorize-staging-outcome-sha256", help="Exact SHA-256 of the verified staging outcome.")
+@click.option(
+    "--execute-metadata",
+    is_flag=True,
+    help="Apply and read back table and column descriptions; the default only previews them.",
+)
+def berdl_apply_metadata_command(
+    metadata_plan_path: Path,
+    staging_outcome_path: Path,
+    ingest_checkout: Path,
+    output: Path,
+    authorize_plan_sha256: str | None,
+    authorize_staging_outcome_sha256: str | None,
+    execute_metadata: bool,
+) -> None:
+    """Preview or apply approved descriptions to verified staging tables."""
+    from nmdc_lakehouse.berdl_metadata import (
+        BerdlMetadataError,
+        apply_berdl_staging_metadata,
+        load_berdl_metadata_preview,
+        render_berdl_metadata,
+    )
+
+    try:
+        plan, staging, preview = load_berdl_metadata_preview(metadata_plan_path, staging_outcome_path)
+        if not execute_metadata:
+            click.echo(render_berdl_metadata(preview))
+            return
+        if authorize_plan_sha256 != preview.metadata_plan_sha256:
+            raise BerdlMetadataError("Execution requires the exact reviewed metadata plan SHA-256.")
+        if authorize_staging_outcome_sha256 != preview.staging_outcome_sha256:
+            raise BerdlMetadataError("Execution requires the exact verified staging outcome SHA-256.")
+        destination = output.expanduser()
+        if destination.exists() or destination.is_symlink():
+            raise BerdlMetadataError("Refusing to replace an existing BERDL metadata outcome.")
+        if not destination.parent.is_dir() or destination.parent.is_symlink():
+            raise BerdlMetadataError("The BERDL metadata outcome parent must be an ordinary directory.")
+        outcome = apply_berdl_staging_metadata(plan, staging, preview, ingest_checkout=ingest_checkout)
+        with destination.open("x", encoding="utf-8") as stream:
+            stream.write(f"{render_berdl_metadata(outcome)}\n")
+    except (BerdlMetadataError, OSError) as error:
+        raise click.ClickException(str(error)) from error
+    click.echo(render_berdl_metadata(outcome))
+    click.echo(f"outcome={destination.resolve()}", err=True)
+
+
 @cli.command("berdl-doctor")
 @click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
 @click.option(

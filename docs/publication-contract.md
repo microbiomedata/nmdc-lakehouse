@@ -372,6 +372,12 @@ Apply only the supported operations in the reviewed metadata application plan to
 staging, report unsupported operations, and rebuild staging copies of every table
 classified as **rebuild**.
 
+For the BERDL profile, `berdl-apply-metadata` applies and reads back the approved
+table and column descriptions only after the staging outcome is data-verified.
+It binds the metadata plan, staging outcome, and stock ingest revision. Namespace
+properties remain a separate provider operation and are not implied by a
+successful table/column metadata outcome.
+
 ### 5. Validate staging
 
 At minimum, verify:
