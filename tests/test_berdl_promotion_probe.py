@@ -705,3 +705,37 @@ def test_the_injected_failure_is_recognised_whatever_its_casing() -> None:
 
     injection = {s.operation: s for s in outcome.steps}[ProbeOperation.INJECTED_FAILURE_RECOVERY]
     assert injection.verdict is ProbeVerdict.FAILED_AS_EXPECTED
+
+
+def test_a_hand_built_plan_naming_canonical_objects_is_refused() -> None:
+    """A matching digest proves the caller knows the plan, not that the plan is safe."""
+    from nmdc_lakehouse.berdl_promotion_probe import ProbePlan
+
+    hostile = ProbePlan(
+        plan_format_version=1,
+        tenant=TENANT,
+        source_namespace="nmdc.metadata",
+        destination_namespace="nmdc.metadata_backup",
+        tables=["biosample_set", "study_set"],
+        rows_per_table=2,
+    )
+
+    # Refused while re-deriving the canonical plan, which rejects a canonical namespace outright.
+    with pytest.raises(BerdlPromotionProbeError, match="disposable"):
+        run_promotion_probe(
+            hostile,
+            authorize_plan_sha256=plan_sha256(hostile),
+            runtime=lambda: pytest.fail("Spark must not be reached for a non-canonical plan"),
+        )
+
+
+def test_a_plan_with_altered_tables_is_refused_even_with_a_valid_digest() -> None:
+    plan = _plan()
+    plan.tables = ["probe_first", "something_else"]
+
+    with pytest.raises(BerdlPromotionProbeError, match="not the canonical plan"):
+        run_promotion_probe(
+            plan,
+            authorize_plan_sha256=plan_sha256(plan),
+            runtime=lambda: pytest.fail("Spark must not be reached for a non-canonical plan"),
+        )

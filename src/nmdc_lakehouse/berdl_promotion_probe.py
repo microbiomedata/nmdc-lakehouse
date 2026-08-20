@@ -474,6 +474,18 @@ def run_promotion_probe(
     expected = plan_sha256(plan)
     if authorize_plan_sha256 != expected:
         raise BerdlPromotionProbeError("The probe authorization does not match the reviewed plan.")
+    # A matching digest proves the caller knows the plan, not that the plan is safe. The
+    # disposable-namespace and fixed-table constraints live in build_promotion_probe_plan, so a plan
+    # loaded from disk would otherwise reach Spark without ever having been through them.
+    canonical = build_promotion_probe_plan(
+        tenant=plan.tenant,
+        source_namespace=plan.source_namespace,
+        destination_namespace=plan.destination_namespace,
+    )
+    if plan != canonical:
+        raise BerdlPromotionProbeError(
+            "The probe plan is not the canonical plan for its namespaces; refusing to run it."
+        )
     spark = runtime()
     environment = _environment(spark)
     _create_probe_tables(spark, plan)
