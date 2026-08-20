@@ -31,6 +31,13 @@ class ParseException(Exception):
     """Stands in for the Spark parser failure without importing Spark."""
 
 
+class TableNotFound(Exception):
+    """Mirrors Spark's missing-table failure, which carries a stable error condition."""
+
+    def getCondition(self):  # noqa: N802 - mirrors the provider API name
+        return "TABLE_OR_VIEW_NOT_FOUND"
+
+
 class FakeSpark:
     """A small Iceberg-like catalog: tables exist or they do not, and mutations advance snapshots."""
 
@@ -58,7 +65,7 @@ class FakeSpark:
 
     def _require(self, table: str) -> None:
         if table not in self.tables:
-            raise RuntimeError(f"TABLE_OR_VIEW_NOT_FOUND: {table}")
+            raise TableNotFound(f"missing table {table}")
 
     def sql(self, statement: str):
         self.statements.append(statement)
@@ -558,3 +565,20 @@ def test_a_missing_input_table_is_not_a_capability_verdict() -> None:
 
     rename = {step.operation: step for step in outcome.steps}[ProbeOperation.CROSS_NAMESPACE_RENAME]
     assert rename.verdict is ProbeVerdict.UNCLASSIFIED_FAILURE
+
+
+def test_a_grant_failure_during_injection_is_not_disguised_as_expected() -> None:
+    """Only the intended missing-input failure may be recorded as expected."""
+
+    class DeniedInjection(FakeSpark):
+        def sql(self, statement: str):
+            if statement.startswith("CREATE OR REPLACE TABLE") and "_absent" in statement:
+                self.statements.append(statement)
+                raise RuntimeError("INSUFFICIENT_PRIVILEGES: principal lacks TABLE_WRITE")
+            return super().sql(statement)
+
+    outcome = _run(DeniedInjection())
+
+    injection = {step.operation: step for step in outcome.steps}[ProbeOperation.INJECTED_FAILURE_RECOVERY]
+    assert injection.verdict is ProbeVerdict.INSUFFICIENT_GRANTS
+    assert injection.verdict is not ProbeVerdict.FAILED_AS_EXPECTED

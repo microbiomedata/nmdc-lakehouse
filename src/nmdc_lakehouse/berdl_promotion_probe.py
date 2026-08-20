@@ -63,6 +63,7 @@ _GRANT_MARKERS: tuple[str, ...] = (
     "INSUFFICIENT_PRIVILEGES",
     "not authorized",
 )
+_MISSING_INPUT_MARKERS: tuple[str, ...] = ("TABLE_OR_VIEW_NOT_FOUND",)
 _CAPABILITY_MARKERS: tuple[str, ...] = (
     "UnsupportedOperationException",
     "UNSUPPORTED_FEATURE",
@@ -214,6 +215,16 @@ def _error_condition(error: BaseException) -> str | None:
         if isinstance(value, str) and value:
             return value
     return None
+
+
+def _is_missing_input(step: ProbeStep) -> bool:
+    """Return whether a step failed for the one reason the injected failure intends.
+
+    Any other failure keeps its classified verdict, so a grant or syntax problem is never
+    disguised as an expected outcome.
+    """
+    text = f"{step.error_condition or ''} {step.error_type or ''}"
+    return any(marker in text for marker in _MISSING_INPUT_MARKERS)
 
 
 def _attempt(spark: Any, operation: ProbeOperation, statement: str, *, detail: str | None = None) -> ProbeStep:
@@ -499,7 +510,7 @@ def run_promotion_probe(
     first_present = _table_exists(spark, plan.destination_namespace, first)
     second_present = _table_exists(spark, plan.destination_namespace, second)
     injection.independently_verified = not second_present
-    if injection.verdict is not ProbeVerdict.SUPPORTED:
+    if injection.verdict is not ProbeVerdict.SUPPORTED and _is_missing_input(injection):
         injection.verdict = ProbeVerdict.FAILED_AS_EXPECTED
     steps.append(injection)
     if injection.verdict is ProbeVerdict.SUPPORTED:
