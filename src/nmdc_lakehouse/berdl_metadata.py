@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import os
 import sys
+import tempfile
 from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
@@ -302,3 +304,44 @@ def apply_berdl_staging_metadata(
 def render_berdl_metadata(value: BaseModel) -> str:
     """Render stable credential-free preview or outcome JSON."""
     return json.dumps(value.model_dump(mode="json"), indent=2, sort_keys=True)
+
+
+def write_berdl_metadata_outcome(path: Path, outcome: BerdlMetadataOutcome) -> Path:
+    """Atomically create metadata evidence without replacing an earlier outcome."""
+    destination = path.expanduser()
+    if destination.exists() or destination.is_symlink():
+        raise BerdlMetadataError("Refusing to replace an existing BERDL metadata outcome.")
+    parent = destination.parent
+    if not parent.is_dir() or parent.is_symlink():
+        raise BerdlMetadataError("The BERDL metadata outcome parent must be an ordinary directory.")
+    destination = parent.resolve() / destination.name
+    descriptor: int | None = None
+    temporary: Path | None = None
+    try:
+        descriptor, temporary_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=parent)
+        temporary = Path(temporary_name)
+        stream = os.fdopen(descriptor, "w", encoding="utf-8")
+        descriptor = None
+        with stream:
+            stream.write(render_berdl_metadata(outcome))
+            stream.write("\n")
+        try:
+            os.link(temporary, destination)
+        except FileExistsError as error:
+            raise BerdlMetadataError("Refusing to replace an existing BERDL metadata outcome.") from error
+        except OSError as error:
+            raise BerdlMetadataError("Cannot publish the BERDL metadata outcome atomically.") from error
+    except OSError as error:
+        raise BerdlMetadataError("Cannot write the BERDL metadata outcome.") from error
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+    return destination

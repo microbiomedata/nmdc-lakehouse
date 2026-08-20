@@ -555,6 +555,7 @@ def berdl_apply_metadata_command(
         apply_berdl_staging_metadata,
         load_berdl_metadata_preview,
         render_berdl_metadata,
+        write_berdl_metadata_outcome,
     )
 
     try:
@@ -566,14 +567,8 @@ def berdl_apply_metadata_command(
             raise BerdlMetadataError("Execution requires the exact reviewed metadata plan SHA-256.")
         if authorize_staging_outcome_sha256 != preview.staging_outcome_sha256:
             raise BerdlMetadataError("Execution requires the exact verified staging outcome SHA-256.")
-        destination = output.expanduser()
-        if destination.exists() or destination.is_symlink():
-            raise BerdlMetadataError("Refusing to replace an existing BERDL metadata outcome.")
-        if not destination.parent.is_dir() or destination.parent.is_symlink():
-            raise BerdlMetadataError("The BERDL metadata outcome parent must be an ordinary directory.")
         outcome = apply_berdl_staging_metadata(plan, staging, preview, ingest_checkout=ingest_checkout)
-        with destination.open("x", encoding="utf-8") as stream:
-            stream.write(f"{render_berdl_metadata(outcome)}\n")
+        destination = write_berdl_metadata_outcome(output, outcome)
     except (BerdlMetadataError, OSError) as error:
         raise click.ClickException(str(error)) from error
     click.echo(render_berdl_metadata(outcome))

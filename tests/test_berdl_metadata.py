@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,6 +17,7 @@ from nmdc_lakehouse.berdl_metadata import (
     BerdlMetadataOutcome,
     apply_berdl_staging_metadata,
     build_berdl_metadata_preview,
+    write_berdl_metadata_outcome,
 )
 from nmdc_lakehouse.berdl_staging import BerdlStagingOutcome, StagedTable
 from nmdc_lakehouse.cli import cli
@@ -272,3 +274,29 @@ def test_cli_execution_requires_hashes_and_writes_verified_outcome(
 
     assert result.exit_code == 0, result.output
     assert json.loads(output_path.read_text(encoding="utf-8"))["status"] == "metadata-verified"
+
+
+def test_metadata_outcome_publication_is_atomic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    output = tmp_path / "metadata-outcome.json"
+    expected = BerdlMetadataOutcome(
+        outcome_format_version=1,
+        status="metadata-verified",
+        snapshot_id=SNAPSHOT_ID,
+        destination_id="berdl-production",
+        staging_namespace="nmdc.metadata_staging_20260820",
+        staging_outcome_sha256="6" * 64,
+        metadata_plan_sha256="5" * 64,
+        deferred_namespace_operations=1,
+        targets=[],
+    )
+
+    def fail_link(_source, _destination):
+        raise OSError("injected publication failure")
+
+    monkeypatch.setattr(os, "link", fail_link)
+
+    with pytest.raises(BerdlMetadataError, match="publish.*atomically"):
+        write_berdl_metadata_outcome(output, expected)
+
+    assert not output.exists()
+    assert list(tmp_path.iterdir()) == []
