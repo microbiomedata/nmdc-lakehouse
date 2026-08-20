@@ -1,4 +1,4 @@
-"""Build an immutable, non-mutating BERDL staging command plan."""
+"""Plan, execute, and independently verify guarded BERDL data staging."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Final, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError
 
 from nmdc_lakehouse.metadata_application import (
     MetadataApplicationPlan,
@@ -52,6 +52,7 @@ _SUPPORTED_TABLE_FORMAT: Final[Literal["iceberg"]] = "iceberg"
 _SUPPORTED_INGEST_REVISIONS: Final = frozenset({"a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3"})
 
 CommandRunner = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
+OUTCOME_FORMAT_VERSION: Literal[1] = 1
 
 
 class BerdlStagingPlanError(ValueError):
@@ -137,8 +138,95 @@ class BerdlStagingPlan(BaseModel):
     command: list[str]
 
 
+class UpstreamDestination(BaseModel):
+    """Destination identity reported by the BERIL command."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    provider: Literal["spark_catalog"]
+    table_format: Literal["iceberg"]
+    bucket: str
+    bronze_prefix: str
+    namespace: str
+    mode: Literal["overwrite"]
+
+
+class UpstreamTableVerification(BaseModel):
+    """One BERIL source-to-catalog row-count comparison."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    table: str
+    status: Literal["verified"]
+    source_rows: int = Field(ge=0)
+    destination_rows: int = Field(ge=0)
+    source_basis: str
+    source_sha256: str
+
+
+class UpstreamVerification(BaseModel):
+    """Structured verification emitted by the BERIL command."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    verified: Literal[True]
+    namespace: str
+    tables: list[UpstreamTableVerification]
+
+
+class UpstreamStagingOutcome(BaseModel):
+    """Successful BERIL staging outcome accepted by this repository."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal["1.0.0"]
+    status: Literal["verified"]
+    started_at: AwareDatetime
+    finished_at: AwareDatetime
+    destination: UpstreamDestination
+    verification: UpstreamVerification
+
+
+class StagedTable(BaseModel):
+    """Independently checked table recorded in the NMDC outcome."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    table: str
+    artifact_sha256: str
+    rows: int = Field(ge=0)
+    destination_rows: int = Field(ge=0)
+    source_basis: str
+
+
+class BerdlStagingOutcome(BaseModel):
+    """Credential-free evidence that one immutable plan staged verified data."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    outcome_format_version: Literal[1]
+    status: Literal["data-verified"]
+    snapshot_id: str
+    staging_namespace: str
+    destination_id: str
+    bucket: str
+    bronze_prefix: str
+    progress_key: str
+    config_key: str
+    ingest_revision: str
+    staging_plan_sha256: str
+    upstream_outcome_sha256: str
+    upstream_started_at: str
+    upstream_finished_at: str
+    tables: list[StagedTable]
+
+
 def _run_command(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, text=True, capture_output=True, check=False, timeout=10)  # noqa: S603
+
+
+def _run_staging_command(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(args, text=True, stdout=2, stderr=2, check=False, shell=False)  # noqa: S603
 
 
 def _sha256(path: Path, label: str) -> str:
@@ -641,3 +729,277 @@ def write_berdl_staging_plan(path: Path, plan: BerdlStagingPlan) -> Path:
     finally:
         temporary.unlink(missing_ok=True)
     return destination
+
+
+def _read_berdl_staging_plan(path: Path) -> tuple[BerdlStagingPlan, str]:
+    """Validate and hash the same immutable staging-plan bytes."""
+    document = path.expanduser()
+    if not document.is_file() or document.is_symlink():
+        raise BerdlStagingPlanError("The BERDL staging plan must be an ordinary file.")
+    try:
+        contents = document.read_bytes()
+        plan = BerdlStagingPlan.model_validate_json(contents, strict=True)
+    except (OSError, UnicodeDecodeError, ValidationError) as error:
+        raise BerdlStagingPlanError("The BERDL staging plan is not valid.") from error
+    return plan, hashlib.sha256(contents).hexdigest()
+
+
+def load_berdl_staging_plan(path: Path) -> BerdlStagingPlan:
+    """Load one immutable plan with strict contract validation."""
+    plan, _sha256_value = _read_berdl_staging_plan(path)
+    return plan
+
+
+def _evidence_paths(plan: BerdlStagingPlan) -> dict[str, Path]:
+    expected = {
+        "snapshot-manifest.json",
+        "metadata-bundle.json",
+        "destination-inventory.json",
+        "publication-plan.json",
+        "metadata-application-plan.json",
+        "target-validation-report.json",
+    }
+    paths = {item.name: Path(item.path) for item in plan.evidence}
+    if set(paths) != expected or len(paths) != len(plan.evidence):
+        raise BerdlStagingPlanError("The staging plan evidence set is not complete and unique.")
+    return paths
+
+
+def revalidate_berdl_staging_plan(
+    plan: BerdlStagingPlan,
+    *,
+    runner: CommandRunner = _run_command,
+) -> BerdlStagingPlan:
+    """Rebuild a plan from its evidence instead of trusting stored arguments."""
+    paths = _evidence_paths(plan)
+    if len(plan.command) < 2:
+        raise BerdlStagingPlanError("The staging plan command is incomplete.")
+    adapter = Path(plan.command[1])
+    if adapter.name != "berdl_adapter.py":
+        raise BerdlStagingPlanError("The staging plan command does not identify the NMDC BERDL adapter.")
+    expected_adapter = Path(__file__).with_name("berdl_adapter.py").resolve()
+    if adapter.expanduser().resolve() != expected_adapter:
+        raise BerdlStagingPlanError("The staging plan command does not identify the reviewed NMDC BERDL adapter.")
+    ingest_indices = [index for index, value in enumerate(plan.command) if value == "--ingest-checkout"]
+    if len(ingest_indices) != 1 or ingest_indices[0] + 1 >= len(plan.command):
+        raise BerdlStagingPlanError("The staging plan command does not identify one KBase ingest checkout.")
+    ingest_checkout = Path(plan.ingest.checkout).expanduser().resolve()
+    if Path(plan.command[ingest_indices[0] + 1]).expanduser().resolve() != ingest_checkout:
+        raise BerdlStagingPlanError("The staging plan command does not match the reviewed KBase ingest checkout.")
+    rebuilt = plan_berdl_staging(
+        paths["snapshot-manifest.json"].parent,
+        bundle_path=paths["metadata-bundle.json"],
+        inventory_path=paths["destination-inventory.json"],
+        publication_plan_path=paths["publication-plan.json"],
+        metadata_plan_path=paths["metadata-application-plan.json"],
+        target_validation_path=paths["target-validation-report.json"],
+        ingest_checkout=ingest_checkout,
+        ingest_revision=plan.ingest.revision,
+        tenant=plan.tenant,
+        dataset=plan.dataset,
+        bucket=plan.bucket,
+        bronze_prefix=plan.bronze_prefix,
+        progress_key=plan.progress_key,
+        config_key=plan.config_key,
+        runner=runner,
+    )
+    if rebuilt != plan:
+        raise BerdlStagingPlanError("The staging plan no longer matches its reviewed evidence.")
+    return rebuilt
+
+
+def build_berdl_execution_command(
+    plan: BerdlStagingPlan,
+    upstream_outcome_path: Path,
+) -> list[str]:
+    """Add only BERIL's explicit staging gate and immutable outcome path."""
+    outcome = upstream_outcome_path.expanduser()
+    if outcome.exists() or outcome.is_symlink():
+        raise BerdlStagingPlanError("Refusing to replace an existing BERIL upstream outcome.")
+    if not outcome.parent.is_dir() or outcome.parent.is_symlink():
+        raise BerdlStagingPlanError("The BERIL upstream outcome parent must be an ordinary directory.")
+    return [*plan.command, "--outcome", str(outcome.resolve()), "--execute-staging"]
+
+
+def _read_upstream_staging_outcome(path: Path) -> tuple[UpstreamStagingOutcome, str]:
+    """Validate and hash the same immutable BERIL outcome bytes."""
+    document = path.expanduser()
+    if not document.is_file() or document.is_symlink():
+        raise BerdlStagingPlanError("The BERIL upstream outcome must be an ordinary file.")
+    try:
+        contents = document.read_bytes()
+        outcome = UpstreamStagingOutcome.model_validate_json(contents, strict=True)
+    except (OSError, UnicodeDecodeError, ValidationError) as error:
+        raise BerdlStagingPlanError("The BERIL upstream outcome is not a supported verified outcome.") from error
+    return outcome, hashlib.sha256(contents).hexdigest()
+
+
+def load_upstream_staging_outcome(path: Path) -> UpstreamStagingOutcome:
+    """Load the successful, credential-free outcome emitted by BERIL."""
+    outcome, _sha256_value = _read_upstream_staging_outcome(path)
+    return outcome
+
+
+def build_berdl_staging_outcome(
+    plan: BerdlStagingPlan,
+    upstream: UpstreamStagingOutcome,
+    *,
+    staging_plan_sha256: str,
+    upstream_outcome_sha256: str,
+) -> BerdlStagingOutcome:
+    """Independently bind BERIL's verified counts to the manifested snapshot."""
+    if (
+        upstream.destination.provider != plan.destination_provider
+        or upstream.destination.table_format != plan.destination_table_format
+        or upstream.destination.bucket != plan.bucket
+        or upstream.destination.bronze_prefix != plan.bronze_prefix
+        or upstream.destination.namespace != plan.staging_namespace
+        or upstream.verification.namespace != plan.staging_namespace
+    ):
+        raise BerdlStagingPlanError("The BERIL outcome destination does not match the staging plan.")
+    expected = {artifact.table: artifact for artifact in plan.artifacts}
+    observed = {table.table: table for table in upstream.verification.tables}
+    if set(observed) != set(expected) or len(observed) != len(upstream.verification.tables):
+        raise BerdlStagingPlanError("The BERIL outcome table set does not match the staging plan.")
+    tables: list[StagedTable] = []
+    for name, artifact in sorted(expected.items()):
+        table = observed[name]
+        if table.source_rows != artifact.rows or table.destination_rows != artifact.rows:
+            raise BerdlStagingPlanError(f"The BERIL outcome row counts do not match table '{name}'.")
+        if table.source_basis != "source parquet":
+            raise BerdlStagingPlanError(f"The BERIL outcome did not verify table '{name}' from Parquet.")
+        if table.source_sha256 != artifact.sha256:
+            raise BerdlStagingPlanError(f"The BERIL outcome source digest does not match table '{name}'.")
+        tables.append(
+            StagedTable(
+                table=name,
+                artifact_sha256=artifact.sha256,
+                rows=table.source_rows,
+                destination_rows=table.destination_rows,
+                source_basis=table.source_basis,
+            )
+        )
+    return BerdlStagingOutcome(
+        outcome_format_version=OUTCOME_FORMAT_VERSION,
+        status="data-verified",
+        snapshot_id=plan.snapshot_id,
+        staging_namespace=plan.staging_namespace,
+        destination_id=plan.destination_id,
+        bucket=plan.bucket,
+        bronze_prefix=plan.bronze_prefix,
+        progress_key=plan.progress_key,
+        config_key=plan.config_key,
+        ingest_revision=plan.ingest.revision,
+        staging_plan_sha256=staging_plan_sha256,
+        upstream_outcome_sha256=upstream_outcome_sha256,
+        upstream_started_at=upstream.started_at.isoformat(),
+        upstream_finished_at=upstream.finished_at.isoformat(),
+        tables=tables,
+    )
+
+
+def render_berdl_staging_outcome(outcome: BerdlStagingOutcome) -> str:
+    """Render stable, credential-free staging outcome JSON."""
+    return json.dumps(outcome.model_dump(mode="json"), indent=2, sort_keys=True)
+
+
+def write_berdl_staging_outcome(path: Path, outcome: BerdlStagingOutcome) -> Path:
+    """Atomically create an NMDC outcome without replacing prior evidence."""
+    destination = path.expanduser()
+    if destination.exists() or destination.is_symlink():
+        raise BerdlStagingPlanError("Refusing to replace an existing NMDC staging outcome.")
+    parent = destination.parent
+    if not parent.is_dir() or parent.is_symlink():
+        raise BerdlStagingPlanError("The NMDC staging outcome parent must be an ordinary directory.")
+    destination = destination.resolve()
+    descriptor: int | None = None
+    temporary: Path | None = None
+    try:
+        descriptor, temporary_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=parent)
+        temporary = Path(temporary_name)
+        stream = os.fdopen(descriptor, "w", encoding="utf-8")
+        descriptor = None
+        with stream:
+            stream.write(render_berdl_staging_outcome(outcome))
+            stream.write("\n")
+        try:
+            os.link(temporary, destination)
+        except FileExistsError as error:
+            raise BerdlStagingPlanError("Refusing to replace an existing NMDC staging outcome.") from error
+        except OSError as error:
+            raise BerdlStagingPlanError("Cannot publish the NMDC staging outcome atomically.") from error
+    except OSError as error:
+        raise BerdlStagingPlanError("Cannot write the NMDC staging outcome.") from error
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+    return destination
+
+
+def execute_berdl_staging(
+    plan_path: Path,
+    *,
+    upstream_outcome_path: Path,
+    output_path: Path,
+    authorize_snapshot: str | None,
+    execute_staging: bool,
+    authorize_plan_sha256: str | None = None,
+    checkout_runner: CommandRunner = _run_command,
+    staging_runner: CommandRunner = _run_staging_command,
+) -> tuple[list[str], BerdlStagingOutcome | None]:
+    """Preview or execute one revalidated, snapshot-authorized staging plan."""
+    loaded_plan, plan_sha256 = _read_berdl_staging_plan(plan_path)
+    plan = revalidate_berdl_staging_plan(loaded_plan, runner=checkout_runner)
+    snapshot_root = _evidence_paths(plan)["snapshot-manifest.json"].expanduser().resolve().parent
+    ingest_checkout = Path(plan.ingest.checkout).expanduser().resolve()
+    upstream_output = upstream_outcome_path.expanduser().resolve()
+    nmdc_output = output_path.expanduser().resolve()
+    if upstream_output.is_relative_to(snapshot_root) or nmdc_output.is_relative_to(snapshot_root):
+        raise BerdlStagingPlanError("Staging outcomes must be written outside the immutable snapshot.")
+    if upstream_output.is_relative_to(ingest_checkout) or nmdc_output.is_relative_to(ingest_checkout):
+        raise BerdlStagingPlanError("Staging outcomes must be written outside the reviewed KBase ingest checkout.")
+    if upstream_output == nmdc_output:
+        raise BerdlStagingPlanError("The BERIL and NMDC staging outcomes must use distinct paths.")
+    command = build_berdl_execution_command(plan, upstream_outcome_path)
+    output = output_path.expanduser()
+    if output.exists() or output.is_symlink():
+        raise BerdlStagingPlanError("Refusing to replace an existing NMDC staging outcome.")
+    if not output.parent.is_dir() or output.parent.is_symlink():
+        raise BerdlStagingPlanError("The NMDC staging outcome parent must be an ordinary directory.")
+    if not execute_staging:
+        return command, None
+    if authorize_snapshot != plan.snapshot_id:
+        raise BerdlStagingPlanError("Execution requires --authorize-snapshot with the exact snapshot ID.")
+    if authorize_plan_sha256 != plan_sha256:
+        raise BerdlStagingPlanError(
+            "Execution requires --authorize-plan-sha256 with the exact reviewed staging plan digest."
+        )
+    try:
+        try:
+            result = staging_runner(command)
+        except OSError as error:
+            raise BerdlStagingPlanError("Cannot start the reviewed BERIL staging command.") from error
+    finally:
+        loaded_final_plan, final_plan_sha256 = _read_berdl_staging_plan(plan_path)
+        final_plan = revalidate_berdl_staging_plan(loaded_final_plan, runner=checkout_runner)
+        if final_plan != plan or final_plan_sha256 != plan_sha256:
+            raise BerdlStagingPlanError("The staging plan or its evidence changed during BERIL execution.")
+    if result.returncode != 0:
+        raise BerdlStagingPlanError("BERIL staging did not complete successfully; retain its staging keys for review.")
+    upstream, upstream_sha256 = _read_upstream_staging_outcome(upstream_outcome_path)
+    outcome = build_berdl_staging_outcome(
+        plan,
+        upstream,
+        staging_plan_sha256=plan_sha256,
+        upstream_outcome_sha256=upstream_sha256,
+    )
+    write_berdl_staging_outcome(output, outcome)
+    return command, outcome

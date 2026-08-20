@@ -137,11 +137,86 @@ BERIL Research
 Observatory remains an optional operator resource and is not a runtime or
 release dependency of this workflow.
 
-The generated command intentionally omits the BERIL execution flag and outcome
-path. Do not add them by hand. Live execution and independent outcome checking
-remain tracked in [#136](https://github.com/microbiomedata/nmdc-lakehouse/issues/136),
-and catalog metadata application remains tracked in
-[#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114).
+The generated command intentionally omits the live execution flag and outcome
+path. Do not add them by hand.
+
+## Preview and execute verified data staging
+
+Generate the plan and run its preview and execution in the same BERDL
+JupyterHub pod. The plan binds absolute paths, the Python interpreter, this
+repository's adapter, and the official KBase ingest checkout. The completed
+snapshot and all reviewed evidence must therefore be available in that pod.
+Start the Spark Connect sidecar with `get_spark_session()` in a notebook before
+using the pod terminal for a long-running execution. Preview is the default:
+
+```bash
+just berdl-upload \
+  /path/to/berdl-staging-plan.json \
+  /path/to/kbase-ingest-outcome.json \
+  /path/to/nmdc-staging-outcome.json
+```
+
+Preview re-hashes and reloads every reviewed input, validates the snapshot,
+rechecks the clean official ingest revision and source hashes, and reconstructs
+the argument vector. It does not start the adapter, read credentials, contact
+a service, upload data, or change a catalog. The upstream and NMDC outcome paths
+must be distinct, must not already exist, and must remain outside the immutable
+snapshot directory and the reviewed KBase ingest checkout. An outcome created inside
+the checkout would make it dirty and invalidate the required post-run revision
+check after staging had already changed the destination.
+
+After reviewing that preview, compute the plan file's SHA-256 digest. For
+example, use `sha256sum` on Linux or `shasum -a 256` on macOS. Execute the same
+plan with both that digest and the snapshot ID printed in the plan as explicit,
+plan-bound authorization:
+
+```bash
+just berdl-upload \
+  /path/to/berdl-staging-plan.json \
+  /path/to/kbase-ingest-outcome.json \
+  /path/to/nmdc-staging-outcome.json \
+  --execute-staging \
+  --authorize-snapshot 'sha256:FULL_SNAPSHOT_DIGEST' \
+  --authorize-plan-sha256 'FULL_PLAN_FILE_SHA256'
+```
+
+These values authorize the exact immutable plan, not one invocation. Reusing
+them intentionally replays the overwrite-mode load into the same isolated
+staging namespace and object prefix. Use new outcome paths for every attempt,
+retain failed-attempt evidence, and do not reuse an authorization after the
+reviewed plan or snapshot changes.
+
+The executor passes an argument vector directly to the reviewed NMDC adapter;
+it does not invoke a shell. Adapter and KBase ingest progress is routed to
+stderr so stdout remains the parseable preview or NMDC outcome JSON. The plan
+digest binds authorization to the reviewed destination as well as the snapshot.
+After every started adapter process exits, fails, or is interrupted, the
+executor revalidates the plan, snapshot, and external source revision before
+returning control. After a successful command, it requires the adapter's strict
+outcome to report the planned bucket, bronze prefix, staging namespace, exact
+table set, object-storage-verified source SHA-256, and matching
+source-versus-catalog row counts for every manifested Parquet artifact. The
+adapter requires the stock report to name the planned fully qualified table,
+then independently counts that table through Spark rather than treating the
+ingest report's write count as destination evidence. The
+source digest must equal the artifact digest in the reviewed snapshot. Only
+then does it create the immutable, credential-free NMDC
+outcome with status `data-verified`.
+
+The adapter uploads every manifested Parquet file to the plan's unique bronze
+prefix, reads each object back to verify its SHA-256 digest, stores the inline
+ingest configuration, and calls stock `data_lakehouse_ingest.ingest` in-process.
+It does not depend on BERIL Research Observatory source code. The first live
+attempt must use a disposable staging namespace and remains an integration
+rehearsal until the pod run and catalog queries confirm the complete contract.
+
+Failure does not remove the unique bronze prefix, progress key, config key, or
+staging namespace. Retain them with the upstream outcome for diagnosis and make
+any retry an explicit new invocation. A `data-verified` outcome does not claim
+that catalog metadata was applied or that canonical replacement is authorized.
+Those remain separate work in
+[#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114) and
+[#234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
 
 The destination, catalog, and table format are explicit observations. Do not
 copy the historical Delta examples below unless current discovery confirms

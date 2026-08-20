@@ -162,6 +162,7 @@ operational-command inventory.
 | `just publication-preflight SNAPSHOT_ROOT BUNDLE INVENTORY PLAN` | Cross-check reviewed publication artifacts before staging |
 | `just metadata-application-plan BUNDLE INVENTORY STAGING_NAMESPACE` | Plan metadata operations for an explicit staging namespace |
 | `just berdl-upload-plan ...` | Bind reviewed artifacts to the NMDC adapter and exact KBase ingest revision |
+| `just berdl-upload ...` | Preview or execute and verify one reviewed BERDL staging plan |
 | `just install`      | Synchronize the locked development environment    |
 | `just install-all`  | Synchronize locked development and docs extras    |
 | `just lock`         | Refresh `uv.lock`                                |
