@@ -676,3 +676,32 @@ def test_an_unusable_row_count_raises_the_promotion_probe_error() -> None:
     assert not hasattr(
         __import__("nmdc_lakehouse.berdl_promotion_probe", fromlist=["x"]), "BerdlMetadataProbeCountError"
     )
+
+
+def test_classification_ignores_provider_capitalisation() -> None:
+    """A casing difference must not decide whether a failure is classified."""
+    spark = FakeSpark(failures={"RENAME TO": RuntimeError("Insufficient_Privileges on namespace")})
+
+    outcome = _run(spark)
+
+    rename = {s.operation: s for s in outcome.steps}[ProbeOperation.CROSS_NAMESPACE_RENAME]
+    assert rename.verdict is ProbeVerdict.INSUFFICIENT_GRANTS
+    assert outcome.status == "probe-complete"
+
+
+def test_the_injected_failure_is_recognised_whatever_its_casing() -> None:
+    class LowerCaseNotFound(Exception):
+        def getCondition(self):  # noqa: N802 - mirrors the provider API name
+            return "table_or_view_not_found"
+
+    class OddCasing(FakeSpark):
+        def sql(self, statement: str):
+            if statement.startswith("CREATE OR REPLACE TABLE") and "_absent" in statement:
+                self.statements.append(statement)
+                raise LowerCaseNotFound("missing")
+            return super().sql(statement)
+
+    outcome = _run(OddCasing())
+
+    injection = {s.operation: s for s in outcome.steps}[ProbeOperation.INJECTED_FAILURE_RECOVERY]
+    assert injection.verdict is ProbeVerdict.FAILED_AS_EXPECTED

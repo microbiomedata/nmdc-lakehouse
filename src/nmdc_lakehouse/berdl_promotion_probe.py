@@ -57,24 +57,34 @@ class ProbeVerdict(StrEnum):
     NOT_ATTEMPTED = "not-attempted"
 
 
-_SYNTAX_MARKERS: tuple[str, ...] = ("PARSE_SYNTAX_ERROR", "ParseException", "mismatched input", "extraneous input")
-_GRANT_MARKERS: tuple[str, ...] = (
-    "AccessDenied",
-    "NotAuthorized",
-    "Forbidden",
-    "PERMISSION_DENIED",
-    "INSUFFICIENT_PERMISSIONS",
-    "INSUFFICIENT_PRIVILEGES",
-    "not authorized",
+# Markers are matched against case-folded text, so a provider's capitalisation cannot decide
+# whether a failure is classified or falls through to unclassified.
+_SYNTAX_MARKERS: tuple[str, ...] = tuple(
+    marker.casefold() for marker in ("PARSE_SYNTAX_ERROR", "ParseException", "mismatched input", "extraneous input")
 )
-_MISSING_INPUT_MARKERS: tuple[str, ...] = ("TABLE_OR_VIEW_NOT_FOUND",)
-_CAPABILITY_MARKERS: tuple[str, ...] = (
-    "UnsupportedOperationException",
-    "UNSUPPORTED_FEATURE",
-    "not supported",
-    "cannot be performed",
-    "PROCEDURE_NOT_FOUND",
+_GRANT_MARKERS: tuple[str, ...] = tuple(
+    marker.casefold()
+    for marker in (
+        "AccessDenied",
+        "NotAuthorized",
+        "Forbidden",
+        "PERMISSION_DENIED",
+        "INSUFFICIENT_PERMISSIONS",
+        "INSUFFICIENT_PRIVILEGES",
+        "not authorized",
+    )
 )
+_CAPABILITY_MARKERS: tuple[str, ...] = tuple(
+    marker.casefold()
+    for marker in (
+        "UnsupportedOperationException",
+        "UNSUPPORTED_FEATURE",
+        "not supported",
+        "cannot be performed",
+        "PROCEDURE_NOT_FOUND",
+    )
+)
+_MISSING_INPUT_MARKERS: tuple[str, ...] = tuple(marker.casefold() for marker in ("TABLE_OR_VIEW_NOT_FOUND",))
 
 
 class ProbePlan(BaseModel):
@@ -192,7 +202,9 @@ def plan_sha256(plan: ProbePlan) -> str:
 
 
 def _classify(error: BaseException) -> ProbeVerdict:
-    text = f"{type(error).__name__}: {_error_condition(error) or ''}: {error}"
+    # Case-folded: providers vary in how they capitalise conditions and free text, and a casing
+    # difference must not decide whether a failure is classified or reported as unclassified.
+    text = f"{type(error).__name__}: {_error_condition(error) or ''}: {error}".casefold()
     if any(marker in text for marker in _SYNTAX_MARKERS):
         return ProbeVerdict.UNSUPPORTED_SYNTAX
     if any(marker in text for marker in _GRANT_MARKERS):
@@ -236,7 +248,7 @@ def _is_missing_input(step: ProbeStep) -> bool:
     Any other failure keeps its classified verdict, so a grant or syntax problem is never
     disguised as an expected outcome.
     """
-    text = f"{step.error_condition or ''} {step.error_type or ''}"
+    text = f"{step.error_condition or ''} {step.error_type or ''}".casefold()
     return any(marker in text for marker in _MISSING_INPUT_MARKERS)
 
 
