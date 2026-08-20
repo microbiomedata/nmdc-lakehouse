@@ -831,3 +831,20 @@ def test_every_guard_rejects_at_least_one_input_it_must_reject() -> None:
         with pytest.raises(BerdlPromotionProbeError, match=r".+") as caught:
             build_promotion_probe_plan(tenant=TENANT, source_namespace=source, destination_namespace=destination)
         assert str(caught.value), f"guard for {label} raised without a reason"
+
+
+def test_unreadable_environment_names_match_the_output_model() -> None:
+    """A name in an unresolved question must be findable in the environment payload."""
+    from nmdc_lakehouse.berdl_promotion_probe import ProbeEnvironment, _environment
+
+    class AllBlind(FakeSpark):
+        def sql(self, statement: str):
+            if statement.startswith("SET ") or statement.startswith("SELECT current_user()"):
+                raise RuntimeError("INSUFFICIENT_PRIVILEGES")
+            return super().sql(statement)
+
+    _, unreadable = _environment(AllBlind())
+
+    assert unreadable, "expected every readable field to be reported unreadable"
+    for name in unreadable:
+        assert name in ProbeEnvironment.model_fields, f"{name} is not a field of ProbeEnvironment"

@@ -401,7 +401,8 @@ def _environment(spark: Any) -> tuple[ProbeEnvironment, list[str]]:
     version = _safe("spark_version", lambda: getattr(spark, "version", None))
     catalog_impl = _safe("catalog_implementation", lambda: _setting(spark, "spark.sql.catalogImplementation"))
     extensions = _safe("spark_sql_extensions", lambda: _setting(spark, "spark.sql.extensions"))
-    principal = _safe("current_principal", lambda: _scalar(spark, "SELECT current_user()"))
+    # Named for the field it populates, so an unresolved question can be correlated with the payload.
+    principal = _safe("current_principal_present", lambda: _scalar(spark, "SELECT current_user()"))
     environment = ProbeEnvironment(
         spark_version=str(version) if version is not None else None,
         catalog_implementation=str(catalog_impl) if catalog_impl is not None else None,
