@@ -1,0 +1,6 @@
+extends: existence
+message: "Em dash. Banned outright: use a comma, period, colon, or parentheses."
+level: error
+nonword: true
+tokens:
+  - '—'

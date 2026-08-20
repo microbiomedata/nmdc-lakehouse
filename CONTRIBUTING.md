@@ -52,6 +52,22 @@ not make documentation less precise merely to satisfy it. When a correct
 project term triggers Vale, add a narrow entry to the repository vocabulary or
 use a justified local exception.
 
+Rules carry different levels and only errors fail CI. `Mark.Jargon` and
+`Mark.ThroatClearing` are errors because the repository has none of them.
+`Mark.EmDash` is a warning while a backlog is cleared, `Mark.BareRef` is a
+suggestion until it can exclude references that already carry a URL, and
+`Mark.Undefined` is a warning that flags an acronym never expanded in the same
+file. For that last one, either expand the term on first use or add it to the
+NMDC vocabulary, which is a deliberate statement that this audience needs no
+expansion. Vale matches text, so it cannot tell a term being used from a term
+being discussed; a bare-reference or undefined-term alert on a document about
+those rules is expected.
+
+Run `just prose-lint` rather than `vale` directly. The recipe sets `HOME` to a
+scratch directory, which is what makes it match CI. A bare `vale` invocation
+merges any personal Vale configuration on the machine and can report problems
+CI will not, or miss the vocabulary CI uses.
+
 ## Describe and review the change
 
 Use a concise, specific, imperative pull request title. The description should

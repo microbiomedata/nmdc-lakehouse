@@ -141,3 +141,16 @@ enum
 parseable
 stderr
 stdout
+CDS
+COG
+CRISPR
+EBI
+GOLD
+GTDBTK
+HMM
+HMMER
+KEGG
+MAG
+NOM
+ORCID
+TAXID

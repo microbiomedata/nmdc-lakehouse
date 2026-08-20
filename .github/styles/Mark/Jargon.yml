@@ -1,0 +1,18 @@
+extends: substitution
+message: "House style: use '%s' instead of '%s'."
+level: error
+ignorecase: true
+swap:
+  footgun: easy to misuse
+  'hoist(ing|ed)?': move up
+  'hot[- ]path': performance shortcut
+  'surface area': scope
+  delve: go into
+  'leverages?': use
+  robust: reliable
+  seamless: smooth
+  'under the hood': internally
+  'out of the box': by default
+  boilerplate: repeated setup
+  idiomatic: conventional
+  ergonomic: easy to use
