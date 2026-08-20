@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from io import BytesIO
 from pathlib import Path
@@ -150,6 +151,40 @@ def test_execute_rejects_destination_count_that_differs_from_source(
         berdl_adapter.main([*_arguments(tmp_path), "--outcome", str(tmp_path / "outcome.json"), "--execute-staging"])
 
     assert "destination row count does not match" in capsys.readouterr().err
+
+
+def test_execute_sanitizes_object_store_failures(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FailingClient(_Client):
+        def fput_object(self, *_args, **_kwargs):
+            raise RuntimeError("sensitive backend detail")
+
+    monkeypatch.setattr(berdl_adapter, "_runtime", lambda _checkout: (pytest.fail, FailingClient()))
+
+    with pytest.raises(SystemExit, match="2"):
+        berdl_adapter.main([*_arguments(tmp_path), "--outcome", str(tmp_path / "outcome.json"), "--execute-staging"])
+
+    message = capsys.readouterr().err
+    assert "object-store transfer failed for table 'biosample_set'" in message
+    assert "sensitive backend detail" not in message
+
+
+def test_outcome_publication_does_not_leave_a_partial_final_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    outcome = tmp_path / "outcome.json"
+
+    def fail_link(_source, _destination):
+        raise OSError("injected publication failure")
+
+    monkeypatch.setattr(os, "link", fail_link)
+
+    with pytest.raises(berdl_adapter.AdapterExecutionError, match="publish.*atomically"):
+        berdl_adapter._write_outcome(outcome, {"status": "verified"})
+
+    assert not outcome.exists()
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_runtime_rejects_package_imported_outside_selected_checkout(

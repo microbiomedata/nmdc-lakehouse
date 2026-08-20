@@ -8,8 +8,10 @@ import importlib
 import io
 import ipaddress
 import json
+import os
 import re
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, cast
@@ -167,7 +169,11 @@ def _runtime(checkout: Path) -> tuple[Callable[..., dict[str, Any]], Any]:
     ingest = getattr(package, "ingest", None)
     if not callable(ingest):
         raise AdapterExecutionError("the selected KBase ingest runtime does not expose ingest")
-    return ingest, get_s3_client()
+    try:
+        client = get_s3_client()
+    except Exception as error:
+        raise AdapterExecutionError("cannot initialize the BERDL object-store client") from error
+    return ingest, client
 
 
 def _report_value(record: Any, name: str) -> Any:
@@ -189,6 +195,39 @@ def _catalog_row_count(table: str) -> int:
     return count
 
 
+def _write_outcome(path: Path, document: dict[str, object]) -> None:
+    """Publish a complete outcome once, without exposing a partial final file."""
+    descriptor: int | None = None
+    temporary: Path | None = None
+    try:
+        descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+        temporary = Path(temporary_name)
+        stream = os.fdopen(descriptor, "w", encoding="utf-8")
+        descriptor = None
+        with stream:
+            json.dump(document, stream, indent=2, sort_keys=True)
+            stream.write("\n")
+        try:
+            os.link(temporary, path)
+        except FileExistsError as error:
+            raise AdapterExecutionError("refusing to replace an existing staging outcome") from error
+        except OSError as error:
+            raise AdapterExecutionError("cannot publish the staging outcome atomically") from error
+    except OSError as error:
+        raise AdapterExecutionError("cannot write the staging outcome") from error
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 def _execute(plan: dict[str, object], args: argparse.Namespace) -> dict[str, object]:
     if args.outcome is None:
         raise AdapterConfigurationError("--outcome is required with --execute-staging")
@@ -208,8 +247,12 @@ def _execute(plan: dict[str, object], args: argparse.Namespace) -> dict[str, obj
     for path in files:
         key = f"{bronze_prefix}/{path.name}"
         digest = _sha256(path)
-        client.fput_object(bucket, key, str(path), metadata={"nmdc-sha256": digest})
-        if _remote_sha256(client, bucket, key) != digest:
+        try:
+            client.fput_object(bucket, key, str(path), metadata={"nmdc-sha256": digest})
+            remote_digest = _remote_sha256(client, bucket, key)
+        except Exception as error:
+            raise AdapterExecutionError(f"object-store transfer failed for table '{path.stem}'") from error
+        if remote_digest != digest:
             raise AdapterExecutionError(f"uploaded Parquet digest does not match table '{path.stem}'")
         source_hashes[path.stem] = digest
     config = {
@@ -228,8 +271,14 @@ def _execute(plan: dict[str, object], args: argparse.Namespace) -> dict[str, obj
         ],
     }
     config_bytes = json.dumps(config, indent=2, sort_keys=True).encode()
-    client.put_object(bucket, str(plan["config_key"]), io.BytesIO(config_bytes), len(config_bytes))
-    report = ingest(config, minio_client=client)
+    try:
+        client.put_object(bucket, str(plan["config_key"]), io.BytesIO(config_bytes), len(config_bytes))
+    except Exception as error:
+        raise AdapterExecutionError("cannot store the reviewed ingest configuration") from error
+    try:
+        report = ingest(config, minio_client=client)
+    except Exception as error:
+        raise AdapterExecutionError("KBase ingest did not complete successfully") from error
     if not isinstance(report, dict):
         raise AdapterExecutionError("KBase ingest did not return a supported report")
     records = report.get("tables", [])
@@ -269,11 +318,12 @@ def _execute(plan: dict[str, object], args: argparse.Namespace) -> dict[str, obj
         "destination": destination,
         "verification": {"verified": True, "namespace": args.staging_namespace, "tables": tables},
     }
-    with outcome.open("x", encoding="utf-8") as stream:
-        json.dump(document, stream, indent=2, sort_keys=True)
-        stream.write("\n")
     progress = json.dumps({"status": "verified", "tables": len(tables)}, sort_keys=True).encode()
-    client.put_object(bucket, str(plan["progress_key"]), io.BytesIO(progress), len(progress))
+    try:
+        client.put_object(bucket, str(plan["progress_key"]), io.BytesIO(progress), len(progress))
+    except Exception as error:
+        raise AdapterExecutionError("cannot store the verified staging progress") from error
+    _write_outcome(outcome, document)
     return document
 
 
