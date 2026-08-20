@@ -19,6 +19,21 @@ SocketProbe = Callable[[str, int, float], bool]
 MongoClientFactory = Callable[..., Any]
 
 
+def _is_missing_driver(error: ModuleNotFoundError) -> bool:
+    """Return whether the missing module is the MongoDB driver rather than something else."""
+    return (error.name or "").split(".")[0] == "pymongo"
+
+
+def _unexpected_check() -> DoctorCheck:
+    """Report a failure whose cause this check cannot attribute."""
+    return DoctorCheck(
+        name="mongo-ping",
+        status=CheckStatus.FAIL,
+        summary="MongoDB readiness failed with an unexpected sanitized error.",
+        remediation="Review local configuration and logs without sharing credential-bearing values.",
+    )
+
+
 def _missing_driver_check() -> DoctorCheck:
     """Report an absent MongoDB driver as a remediable condition rather than a crash."""
     return DoctorCheck(
@@ -219,7 +234,9 @@ def _mongo_ping_check(
             OperationFailure,
             ServerSelectionTimeoutError,
         )
-    except ModuleNotFoundError:
+    except ModuleNotFoundError as error:
+        if not _is_missing_driver(error):
+            return _unexpected_check()
         return _missing_driver_check()
 
     timeout_ms = max(1, int(timeout * 1000))
@@ -256,14 +273,8 @@ def _mongo_ping_check(
             remediation="Check the network path or separately managed tunnel, then retry.",
         )
     except ModuleNotFoundError as error:
-        if (error.name or "").split(".")[0] != "pymongo":
-            # A different missing module is not evidence about the MongoDB driver.
-            return DoctorCheck(
-                name="mongo-ping",
-                status=CheckStatus.FAIL,
-                summary="MongoDB readiness failed with an unexpected sanitized error.",
-                remediation="Review local configuration and logs without sharing credential-bearing values.",
-            )
+        if not _is_missing_driver(error):
+            return _unexpected_check()
         return _missing_driver_check()
     except Exception:
         return DoctorCheck(

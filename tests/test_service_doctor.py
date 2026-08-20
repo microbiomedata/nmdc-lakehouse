@@ -350,7 +350,7 @@ def test_the_cli_and_berdl_commands_import_without_the_mongodb_driver() -> None:
         _real = builtins.__import__
         def _blocked(name, *a, **k):
             if name == "pymongo" or name.startswith("pymongo."):
-                raise ModuleNotFoundError("No module named 'pymongo'")
+                raise ModuleNotFoundError("No module named 'pymongo'", name="pymongo")
             return _real(name, *a, **k)
         builtins.__import__ = _blocked
         from click.testing import CliRunner
