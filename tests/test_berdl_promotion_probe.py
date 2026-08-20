@@ -837,14 +837,18 @@ def test_unreadable_environment_names_match_the_output_model() -> None:
     """A name in an unresolved question must be findable in the environment payload."""
     from nmdc_lakehouse.berdl_promotion_probe import ProbeEnvironment, _environment
 
-    class AllBlind(FakeSpark):
+    class QueryBlind(FakeSpark):
+        """Fails every field read that goes through SQL; `spark_version` is an attribute and survives."""
+
         def sql(self, statement: str):
             if statement.startswith("SET ") or statement.startswith("SELECT current_user()"):
                 raise RuntimeError("INSUFFICIENT_PRIVILEGES")
             return super().sql(statement)
 
-    _, unreadable = _environment(AllBlind())
+    environment, unreadable = _environment(QueryBlind())
 
-    assert unreadable, "expected every readable field to be reported unreadable"
+    assert unreadable, "expected the SQL-backed fields to be reported unreadable"
+    assert "spark_version" not in unreadable, "spark_version does not use SQL and should still be readable"
+    assert environment.spark_version is not None
     for name in unreadable:
         assert name in ProbeEnvironment.model_fields, f"{name} is not a field of ProbeEnvironment"
