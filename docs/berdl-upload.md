@@ -218,6 +218,26 @@ Those remain separate work in
 [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114) and
 [#234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
 
+After staging has a `data-verified` outcome, preview the table and column
+description operations bound to it:
+
+```bash
+just berdl-apply-metadata \
+  /path/to/metadata-application-plan.json \
+  /path/to/nmdc-staging-outcome.json \
+  /path/to/data-lakehouse-ingest \
+  /path/to/nmdc-staging-metadata-outcome.json
+```
+
+The preview is offline. Execution additionally requires `--execute-metadata`,
+`--authorize-plan-sha256`, and `--authorize-staging-outcome-sha256` with the
+exact digests printed by the preview. It verifies that the stock KBase helper
+package still matches the ingest revision recorded by staging, applies only
+approved table and column descriptions, and reads every applied description
+back from the catalog. The outcome is created once and records namespace
+operations as deferred work for #114. This step does not change canonical
+tables, promote staging, or claim that missing descriptions were filled.
+
 The destination, catalog, and table format are explicit observations. Do not
 copy the historical Delta examples below unless current discovery confirms
 them. A missing or blank value is a readiness failure.
