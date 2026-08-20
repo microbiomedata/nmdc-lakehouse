@@ -211,7 +211,7 @@ class BerdlStagingOutcome(BaseModel):
     bronze_prefix: str
     progress_key: str
     config_key: str
-    beril_revision: str
+    ingest_revision: str
     staging_plan_sha256: str
     upstream_outcome_sha256: str
     upstream_started_at: str
@@ -729,15 +729,23 @@ def write_berdl_staging_plan(path: Path, plan: BerdlStagingPlan) -> Path:
     return destination
 
 
-def load_berdl_staging_plan(path: Path) -> BerdlStagingPlan:
-    """Load one immutable plan with strict contract validation."""
+def _read_berdl_staging_plan(path: Path) -> tuple[BerdlStagingPlan, str]:
+    """Validate and hash the same immutable staging-plan bytes."""
     document = path.expanduser()
     if not document.is_file() or document.is_symlink():
         raise BerdlStagingPlanError("The BERDL staging plan must be an ordinary file.")
     try:
-        return BerdlStagingPlan.model_validate_json(document.read_text(encoding="utf-8"), strict=True)
+        contents = document.read_bytes()
+        plan = BerdlStagingPlan.model_validate_json(contents, strict=True)
     except (OSError, UnicodeDecodeError, ValidationError) as error:
         raise BerdlStagingPlanError("The BERDL staging plan is not valid.") from error
+    return plan, hashlib.sha256(contents).hexdigest()
+
+
+def load_berdl_staging_plan(path: Path) -> BerdlStagingPlan:
+    """Load one immutable plan with strict contract validation."""
+    plan, _sha256_value = _read_berdl_staging_plan(path)
+    return plan
 
 
 def _evidence_paths(plan: BerdlStagingPlan) -> dict[str, Path]:
@@ -764,9 +772,13 @@ def revalidate_berdl_staging_plan(
     paths = _evidence_paths(plan)
     if len(plan.command) < 2:
         raise BerdlStagingPlanError("The staging plan command is incomplete.")
-    script = Path(plan.command[1])
-    if script.name != "ingest_dataset.py" or script.parent.name != "scripts":
-        raise BerdlStagingPlanError("The staging plan command does not identify the BERIL staging script.")
+    adapter = Path(plan.command[1])
+    if adapter.name != "berdl_adapter.py":
+        raise BerdlStagingPlanError("The staging plan command does not identify the NMDC BERDL adapter.")
+    ingest_indices = [index for index, value in enumerate(plan.command) if value == "--ingest-checkout"]
+    if len(ingest_indices) != 1 or ingest_indices[0] + 1 >= len(plan.command):
+        raise BerdlStagingPlanError("The staging plan command does not identify one KBase ingest checkout.")
+    ingest_checkout = Path(plan.command[ingest_indices[0] + 1])
     rebuilt = plan_berdl_staging(
         paths["snapshot-manifest.json"].parent,
         bundle_path=paths["metadata-bundle.json"],
@@ -774,8 +786,8 @@ def revalidate_berdl_staging_plan(
         publication_plan_path=paths["publication-plan.json"],
         metadata_plan_path=paths["metadata-application-plan.json"],
         target_validation_path=paths["target-validation-report.json"],
-        beril_checkout=script.parent.parent,
-        beril_revision=plan.beril.revision,
+        ingest_checkout=ingest_checkout,
+        ingest_revision=plan.ingest.revision,
         tenant=plan.tenant,
         dataset=plan.dataset,
         bucket=plan.bucket,
@@ -868,7 +880,7 @@ def build_berdl_staging_outcome(
         bronze_prefix=plan.bronze_prefix,
         progress_key=plan.progress_key,
         config_key=plan.config_key,
-        beril_revision=plan.beril.revision,
+        ingest_revision=plan.ingest.revision,
         staging_plan_sha256=staging_plan_sha256,
         upstream_outcome_sha256=upstream_outcome_sha256,
         upstream_started_at=upstream.started_at.isoformat(),
@@ -935,16 +947,17 @@ def execute_berdl_staging(
     staging_runner: CommandRunner = _run_staging_command,
 ) -> tuple[list[str], BerdlStagingOutcome | None]:
     """Preview or execute one revalidated, snapshot-authorized staging plan."""
-    plan_sha256 = _sha256(plan_path, "BERDL staging plan")
-    plan = revalidate_berdl_staging_plan(load_berdl_staging_plan(plan_path), runner=checkout_runner)
+    loaded_plan, plan_sha256 = _read_berdl_staging_plan(plan_path)
+    plan = revalidate_berdl_staging_plan(loaded_plan, runner=checkout_runner)
     snapshot_root = _evidence_paths(plan)["snapshot-manifest.json"].expanduser().resolve().parent
-    beril_checkout = Path(plan.command[1]).expanduser().resolve().parent.parent
+    ingest_index = plan.command.index("--ingest-checkout")
+    ingest_checkout = Path(plan.command[ingest_index + 1]).expanduser().resolve()
     upstream_output = upstream_outcome_path.expanduser().resolve()
     nmdc_output = output_path.expanduser().resolve()
     if upstream_output.is_relative_to(snapshot_root) or nmdc_output.is_relative_to(snapshot_root):
         raise BerdlStagingPlanError("Staging outcomes must be written outside the immutable snapshot.")
-    if upstream_output.is_relative_to(beril_checkout) or nmdc_output.is_relative_to(beril_checkout):
-        raise BerdlStagingPlanError("Staging outcomes must be written outside the reviewed BERIL checkout.")
+    if upstream_output.is_relative_to(ingest_checkout) or nmdc_output.is_relative_to(ingest_checkout):
+        raise BerdlStagingPlanError("Staging outcomes must be written outside the reviewed KBase ingest checkout.")
     if upstream_output == nmdc_output:
         raise BerdlStagingPlanError("The BERIL and NMDC staging outcomes must use distinct paths.")
     command = build_berdl_execution_command(plan, upstream_outcome_path)
@@ -967,8 +980,9 @@ def execute_berdl_staging(
         except OSError as error:
             raise BerdlStagingPlanError("Cannot start the reviewed BERIL staging command.") from error
     finally:
-        final_plan = revalidate_berdl_staging_plan(load_berdl_staging_plan(plan_path), runner=checkout_runner)
-        if final_plan != plan or _sha256(plan_path, "BERDL staging plan") != plan_sha256:
+        loaded_final_plan, final_plan_sha256 = _read_berdl_staging_plan(plan_path)
+        final_plan = revalidate_berdl_staging_plan(loaded_final_plan, runner=checkout_runner)
+        if final_plan != plan or final_plan_sha256 != plan_sha256:
             raise BerdlStagingPlanError("The staging plan or its evidence changed during BERIL execution.")
     if result.returncode != 0:
         raise BerdlStagingPlanError("BERIL staging did not complete successfully; retain its staging keys for review.")

@@ -351,8 +351,8 @@ def _persisted_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         publication_plan_path=paths["publication"],
         metadata_plan_path=paths["metadata"],
         target_validation_path=paths["target"],
-        beril_checkout=checkout,
-        beril_revision=REVISION,
+        ingest_checkout=checkout,
+        ingest_revision=REVISION,
         tenant="nmdc",
         dataset="nmdc_metadata_staging_20260819",
         bucket="cdm-lake",
@@ -821,7 +821,29 @@ def test_cli_writes_the_same_plan_it_prints(tmp_path: Path, monkeypatch: pytest.
     assert f"plan={output.resolve()}" in result.stderr
 
 
-def test_revalidation_rejects_stale_evidence_and_changed_beril_source(
+def test_plan_digest_identifies_the_same_bytes_that_are_validated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plan, plan_path, _paths, _checkout = _persisted_plan(tmp_path, monkeypatch)
+    reviewed_bytes = plan_path.read_bytes()
+    replacement = plan.model_copy(update={"bucket": "other-bucket"}).model_dump_json().encode()
+    reads = 0
+
+    def replace_after_first_read(_path: Path) -> bytes:
+        nonlocal reads
+        reads += 1
+        return reviewed_bytes if reads == 1 else replacement
+
+    monkeypatch.setattr(Path, "read_bytes", replace_after_first_read)
+
+    loaded, digest = berdl_staging._read_berdl_staging_plan(plan_path)
+
+    assert loaded == plan
+    assert digest == hashlib.sha256(reviewed_bytes).hexdigest()
+    assert reads == 1
+
+
+def test_revalidation_rejects_stale_evidence_and_changed_ingest_source(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     plan, _plan_path, paths, checkout = _persisted_plan(tmp_path, monkeypatch)
@@ -832,7 +854,7 @@ def test_revalidation_rejects_stale_evidence_and_changed_beril_source(
         revalidate_berdl_staging_plan(plan, runner=GitRunner())
 
     paths["bundle"].write_text("bundle\n", encoding="utf-8")
-    (checkout / "scripts" / "ingest_lib.py").write_text("changed\n", encoding="utf-8")
+    (checkout / "src" / "data_lakehouse_ingest" / "core.py").write_text("changed\n", encoding="utf-8")
     with pytest.raises(BerdlStagingPlanError, match="no longer matches"):
         revalidate_berdl_staging_plan(plan, runner=GitRunner())
 
@@ -905,7 +927,7 @@ def test_staging_outcomes_cannot_be_written_inside_snapshot(
 
 
 @pytest.mark.parametrize("outcome", ["upstream", "nmdc"])
-def test_staging_outcomes_cannot_be_written_inside_beril_checkout(
+def test_staging_outcomes_cannot_be_written_inside_ingest_checkout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outcome: str
 ) -> None:
     _plan, plan_path, _paths, checkout = _persisted_plan(tmp_path, monkeypatch)
@@ -914,7 +936,7 @@ def test_staging_outcomes_cannot_be_written_inside_beril_checkout(
     upstream_path = outcome_dir / "upstream.json" if outcome == "upstream" else tmp_path / "upstream.json"
     output_path = outcome_dir / "outcome.json" if outcome == "nmdc" else tmp_path / "outcome.json"
 
-    with pytest.raises(BerdlStagingPlanError, match="outside the reviewed BERIL checkout"):
+    with pytest.raises(BerdlStagingPlanError, match="outside the reviewed KBase ingest checkout"):
         execute_berdl_staging(
             plan_path,
             upstream_outcome_path=upstream_path,

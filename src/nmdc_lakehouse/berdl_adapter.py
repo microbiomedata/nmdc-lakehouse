@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import io
 import ipaddress
 import json
 import re
+import sys
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
+from typing import Any, Callable
 
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 _BUCKET = re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\Z")
@@ -16,6 +21,10 @@ _OTHER_SOURCE_SUFFIXES = {".csv", ".db", ".sqlite", ".sqlite3", ".tsv"}
 
 class AdapterConfigurationError(ValueError):
     """Raised before the adapter performs any external operation."""
+
+
+class AdapterExecutionError(RuntimeError):
+    """Raised when upload, ingest, or verification does not complete safely."""
 
 
 def _object_key(value: str, label: str) -> str:
@@ -118,17 +127,134 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _remote_sha256(client: Any, bucket: str, key: str) -> str:
+    response = client.get_object(bucket, key)
+    digest = hashlib.sha256()
+    try:
+        for block in iter(lambda: response.read(1024 * 1024), b""):
+            digest.update(block)
+    finally:
+        response.close()
+        response.release_conn()
+    return digest.hexdigest()
+
+
+def _runtime(checkout: Path) -> tuple[Callable[..., dict[str, Any]], Any]:
+    source = str((checkout / "src").resolve())
+    sys.path.insert(0, source)
+    try:
+        from berdl_notebook_utils.clients import get_s3_client
+        from data_lakehouse_ingest import ingest
+    except ImportError as error:
+        raise AdapterExecutionError("the selected KBase ingest runtime is not importable") from error
+    finally:
+        sys.path.remove(source)
+    return ingest, get_s3_client()
+
+
+def _report_value(record: Any, name: str) -> Any:
+    value = record.get(name) if isinstance(record, dict) else getattr(record, name, None)
+    return getattr(value, "value", value)
+
+
+def _execute(plan: dict[str, object], args: argparse.Namespace) -> dict[str, object]:
+    if args.outcome is None:
+        raise AdapterConfigurationError("--outcome is required with --execute-staging")
+    outcome = args.outcome.expanduser()
+    if outcome.exists() or outcome.is_symlink() or not outcome.parent.is_dir() or outcome.parent.is_symlink():
+        raise AdapterConfigurationError("outcome must be a new file in an ordinary directory")
+    started_at = datetime.now(timezone.utc)
+    checkout = Path(str(dict(plan["ingest"])["checkout"]))
+    ingest, client = _runtime(checkout)
+    data_dir = Path(str(plan["data_dir"]))
+    destination = dict(plan["destination"])
+    bucket = str(destination["bucket"])
+    bronze_prefix = str(destination["bronze_prefix"])
+    files = sorted(data_dir.glob("*.parquet"))
+    source_hashes: dict[str, str] = {}
+    for path in files:
+        key = f"{bronze_prefix}/{path.name}"
+        digest = _sha256(path)
+        client.fput_object(bucket, key, str(path), metadata={"nmdc-sha256": digest})
+        if _remote_sha256(client, bucket, key) != digest:
+            raise AdapterExecutionError(f"uploaded Parquet digest does not match table '{path.stem}'")
+        source_hashes[path.stem] = digest
+    config = {
+        "tenant": args.tenant,
+        "dataset": args.dataset,
+        "paths": {"bronze_base": f"s3a://{bucket}/{bronze_prefix}"},
+        "tables": [
+            {
+                "name": path.stem,
+                "enabled": True,
+                "format": "parquet",
+                "mode": "overwrite",
+                "bronze_path": f"s3a://{bucket}/{bronze_prefix}/{path.name}",
+            }
+            for path in files
+        ],
+    }
+    config_bytes = json.dumps(config, indent=2, sort_keys=True).encode()
+    client.put_object(bucket, str(plan["config_key"]), io.BytesIO(config_bytes), len(config_bytes))
+    report = ingest(config, minio_client=client)
+    if not isinstance(report, dict):
+        raise AdapterExecutionError("KBase ingest did not return a supported report")
+    records = report.get("tables", [])
+    observed = {_report_value(record, "name"): record for record in records}
+    if report.get("success") is not True or set(observed) != set(source_hashes):
+        raise AdapterExecutionError("KBase ingest did not report success for the exact table set")
+    tables = []
+    for name in sorted(source_hashes):
+        record = observed[name]
+        status = _report_value(record, "status")
+        rows_in = _report_value(record, "rows_in")
+        rows_written = _report_value(record, "rows_written")
+        if status != "success" or not isinstance(rows_in, int) or rows_written != rows_in:
+            raise AdapterExecutionError(f"KBase ingest did not verify matching row counts for table '{name}'")
+        tables.append(
+            {
+                "table": name,
+                "status": "verified",
+                "source_rows": rows_in,
+                "destination_rows": rows_written,
+                "source_basis": "source parquet",
+                "source_sha256": source_hashes[name],
+            }
+        )
+    document = {
+        "schema_version": "1.0.0",
+        "status": "verified",
+        "started_at": started_at.isoformat(),
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+        "destination": destination,
+        "verification": {"verified": True, "namespace": args.staging_namespace, "tables": tables},
+    }
+    with outcome.open("x", encoding="utf-8") as stream:
+        json.dump(document, stream, indent=2, sort_keys=True)
+        stream.write("\n")
+    progress = json.dumps({"status": "verified", "tables": len(tables)}, sort_keys=True).encode()
+    client.put_object(bucket, str(plan["progress_key"]), io.BytesIO(progress), len(progress))
+    return document
+
+
 def main(argv: list[str] | None = None) -> int:
-    """Print a credential-free plan and refuse live execution in this slice."""
+    """Preview or execute the reviewed adapter through the official KBase API."""
     parser = _parser()
     args = parser.parse_args(argv)
     try:
         plan = _validated_plan(args)
-        if args.execute_staging:
-            raise AdapterConfigurationError("live staging execution is not available in this planner slice")
-    except AdapterConfigurationError as error:
+        document = _execute(plan, args) if args.execute_staging else plan
+    except (AdapterConfigurationError, AdapterExecutionError, OSError) as error:
         parser.error(str(error))
-    print(json.dumps(plan, indent=2, sort_keys=True))
+    print(json.dumps(document, indent=2, sort_keys=True))
     return 0
 
 

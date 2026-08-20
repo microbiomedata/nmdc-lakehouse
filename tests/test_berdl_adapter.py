@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -59,11 +61,56 @@ def test_plan_only_reports_owned_adapter_inputs(tmp_path: Path, capsys: pytest.C
     assert document["ingest"]["api"] == "data_lakehouse_ingest.ingest"
 
 
-def test_planner_slice_refuses_live_execution(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit, match="2"):
-        berdl_adapter.main([*_arguments(tmp_path), "--execute-staging"])
+class _Response(BytesIO):
+    def release_conn(self) -> None:
+        pass
 
-    assert "live staging execution is not available" in capsys.readouterr().err
+
+class _Client:
+    def __init__(self) -> None:
+        self.objects: dict[tuple[str, str], bytes] = {}
+
+    def fput_object(self, bucket, key, path, metadata=None):
+        self.objects[(bucket, key)] = Path(path).read_bytes()
+
+    def get_object(self, bucket, key):
+        return _Response(self.objects[(bucket, key)])
+
+    def put_object(self, bucket, key, stream, length):
+        self.objects[(bucket, key)] = stream.read(length)
+
+
+def test_execute_uploads_verifies_and_calls_official_ingest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _Client()
+    observed = {}
+
+    def ingest(config, *, minio_client):
+        observed["config"] = config
+        assert minio_client is client
+        return {
+            "success": True,
+            "tables": [
+                SimpleNamespace(
+                    name="biosample_set",
+                    status=SimpleNamespace(value="success"),
+                    rows_in=1,
+                    rows_written=1,
+                )
+            ],
+        }
+
+    monkeypatch.setattr(berdl_adapter, "_runtime", lambda _checkout: (ingest, client))
+    outcome = tmp_path / "upstream-outcome.json"
+    assert berdl_adapter.main([*_arguments(tmp_path), "--outcome", str(outcome), "--execute-staging"]) == 0
+
+    document = json.loads(capsys.readouterr().out)
+    assert document["status"] == "verified"
+    assert document["verification"]["tables"][0]["source_rows"] == 1
+    assert observed["config"]["tables"][0]["format"] == "parquet"
+    assert outcome.is_file()
+    assert ("cdm-lake", "tenant-general-warehouse/nmdc/staging/20260819/config.json") in client.objects
 
 
 @pytest.mark.parametrize(
