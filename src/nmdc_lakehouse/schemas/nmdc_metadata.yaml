@@ -6100,9 +6100,9 @@ classes:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener
     description: Biological source material which can be characterized by an experiment.
-      Flattened tabular form of 'Biosample' produced by `SchemaDrivenFlattener`. Attributes
-      are the union of base-class slots and slots from concrete subclasses of 'Biosample'
-      that may appear via the 'type' field.
+      Flattened tabular form of 'Biosample'. Attributes are the union of base-class
+      slots and slots from concrete subclasses of 'Biosample' that may appear via
+      the 'type' field.
     attributes:
       abs_air_humidity_has_maximum_numeric_value:
         name: abs_air_humidity_has_maximum_numeric_value
@@ -15355,10 +15355,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -15393,10 +15392,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -15431,10 +15429,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -15493,10 +15490,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -15531,10 +15527,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -15570,9 +15565,9 @@ classes:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
     description: A controlled term or class from an ontology Flattened tabular form
-      of 'ControlledTermValue' produced by `SchemaDrivenFlattener`. Attributes are
-      the union of base-class slots and slots from concrete subclasses of 'ControlledTermValue'
-      that may appear via the 'type' field.
+      of 'ControlledTermValue'. Attributes are the union of base-class slots and slots
+      from concrete subclasses of 'ControlledTermValue' that may appear via the 'type'
+      field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -15661,10 +15656,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -15699,10 +15693,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -15737,10 +15730,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -15775,10 +15767,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -15813,10 +15804,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -15851,10 +15841,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -15889,10 +15878,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -15927,10 +15915,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -15965,10 +15952,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16003,10 +15989,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16041,10 +16026,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16079,10 +16063,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16117,10 +16100,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16155,10 +16137,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16193,10 +16174,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16231,10 +16211,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16271,9 +16250,9 @@ classes:
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
     description: A structured record of data that doesn't fit nicely within the constraints
       of other NMDC AttributeValues. Uses primitive ranges only. Flattened tabular
-      form of 'PropertyAssertion' produced by `SchemaDrivenFlattener`. Attributes
-      are the union of base-class slots and slots from concrete subclasses of 'PropertyAssertion'
-      that may appear via the 'type' field.
+      form of 'PropertyAssertion'. Attributes are the union of base-class slots and
+      slots from concrete subclasses of 'PropertyAssertion' that may appear via the
+      'type' field.
     attributes:
       has_attribute_id:
         name: has_attribute_id
@@ -16359,10 +16338,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16397,10 +16375,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16435,10 +16412,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A simple quantity, e.g. 2cm Flattened tabular form of 'QuantityValue'
-      produced by `SchemaDrivenFlattener`. Attributes are the union of base-class
-      slots and slots from concrete subclasses of 'QuantityValue' that may appear
-      via the 'type' field.
+    description: A simple quantity, e.g. 2cm Flattened tabular form of 'QuantityValue'.
+      Attributes are the union of base-class slots and slots from concrete subclasses
+      of 'QuantityValue' that may appear via the 'type' field.
     attributes:
       has_maximum_numeric_value:
         name: has_maximum_numeric_value
@@ -16491,10 +16467,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16529,10 +16504,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16567,10 +16541,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16605,10 +16578,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16643,10 +16615,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16681,10 +16652,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16719,10 +16689,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16757,10 +16726,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16795,10 +16763,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16833,10 +16800,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16871,10 +16837,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16909,10 +16874,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16947,10 +16911,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -16985,10 +16948,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -17023,10 +16985,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -17061,10 +17022,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -17099,10 +17059,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -17137,10 +17096,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: A basic string value Flattened tabular form of 'TextValue' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'TextValue' that may appear via the 'type'
-      field.
+    description: A basic string value Flattened tabular form of 'TextValue'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'TextValue'
+      that may appear via the 'type' field.
     attributes:
       has_raw_value:
         name: has_raw_value
@@ -17176,9 +17134,9 @@ classes:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener
     description: A calibration object that is associated with a process. Flattened
-      tabular form of 'CalibrationInformation' produced by `SchemaDrivenFlattener`.
-      Attributes are the union of base-class slots and slots from concrete subclasses
-      of 'CalibrationInformation' that may appear via the 'type' field.
+      tabular form of 'CalibrationInformation'. Attributes are the union of base-class
+      slots and slots from concrete subclasses of 'CalibrationInformation' that may
+      appear via the 'type' field.
     attributes:
       alternative_identifiers:
         name: alternative_identifiers
@@ -17245,10 +17203,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener
-    description: Flattened tabular form of 'CollectingBiosamplesFromSite' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'CollectingBiosamplesFromSite' that may appear
-      via the 'type' field.
+    description: Flattened tabular form of 'CollectingBiosamplesFromSite'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'CollectingBiosamplesFromSite'
+      that may appear via the 'type' field.
     attributes:
       alternative_identifiers:
         name: alternative_identifiers
@@ -17368,9 +17325,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: Flattened tabular form of 'FailureCategorization' produced by `SchemaDrivenFlattener`.
-      Attributes are the union of base-class slots and slots from concrete subclasses
-      of 'FailureCategorization' that may appear via the 'type' field.
+    description: Flattened tabular form of 'FailureCategorization'. Attributes are
+      the union of base-class slots and slots from concrete subclasses of 'FailureCategorization'
+      that may appear via the 'type' field.
     attributes:
       qc_failure_what:
         name: qc_failure_what
@@ -17456,10 +17413,9 @@ classes:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener
     description: A set of parameters that define the actions of a process and is shared
-      among multiple instances of the process. Flattened tabular form of 'Configuration'
-      produced by `SchemaDrivenFlattener`. Attributes are the union of base-class
-      slots and slots from concrete subclasses of 'Configuration' that may appear
-      via the 'type' field.
+      among multiple instances of the process. Flattened tabular form of 'Configuration'.
+      Attributes are the union of base-class slots and slots from concrete subclasses
+      of 'Configuration' that may appear via the 'type' field.
     attributes:
       alternative_identifiers:
         name: alternative_identifiers
@@ -17633,10 +17589,9 @@ classes:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
     description: A fluid mixture of substances that flow though a chromatographic
-      stationary phase. Flattened tabular form of 'MobilePhaseSegment' produced by
-      `SchemaDrivenFlattener`. Attributes are the union of base-class slots and slots
-      from concrete subclasses of 'MobilePhaseSegment' that may appear via the 'type'
-      field.
+      stationary phase. Flattened tabular form of 'MobilePhaseSegment'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'MobilePhaseSegment'
+      that may appear via the 'type' field.
     attributes:
       duration_has_maximum_numeric_value:
         name: duration_has_maximum_numeric_value
@@ -17727,9 +17682,9 @@ classes:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener
     description: The methods and processes used to generate omics data from a biosample
-      or organism. Flattened tabular form of 'DataGeneration' produced by `SchemaDrivenFlattener`.
-      Attributes are the union of base-class slots and slots from concrete subclasses
-      of 'DataGeneration' that may appear via the 'type' field.
+      or organism. Flattened tabular form of 'DataGeneration'. Attributes are the
+      union of base-class slots and slots from concrete subclasses of 'DataGeneration'
+      that may appear via the 'type' field.
     attributes:
       alternative_identifiers:
         name: alternative_identifiers
@@ -18044,9 +17999,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: Flattened tabular form of 'FailureCategorization' produced by `SchemaDrivenFlattener`.
-      Attributes are the union of base-class slots and slots from concrete subclasses
-      of 'FailureCategorization' that may appear via the 'type' field.
+    description: Flattened tabular form of 'FailureCategorization'. Attributes are
+      the union of base-class slots and slots from concrete subclasses of 'FailureCategorization'
+      that may appear via the 'type' field.
     attributes:
       qc_failure_what:
         name: qc_failure_what
@@ -18157,9 +18112,8 @@ classes:
         value: nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener
     description: An object that primarily consists of symbols that represent information.   Files,
       records, and omics data are examples of data objects. Flattened tabular form
-      of 'DataObject' produced by `SchemaDrivenFlattener`. Attributes are the union
-      of base-class slots and slots from concrete subclasses of 'DataObject' that
-      may appear via the 'type' field.
+      of 'DataObject'. Attributes are the union of base-class slots and slots from
+      concrete subclasses of 'DataObject' that may appear via the 'type' field.
     attributes:
       alternative_identifiers:
         name: alternative_identifiers
@@ -18292,9 +18246,9 @@ classes:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener
     description: A site, outside of a laboratory, from which biosamples may be collected.
-      Flattened tabular form of 'FieldResearchSite' produced by `SchemaDrivenFlattener`.
-      Attributes are the union of base-class slots and slots from concrete subclasses
-      of 'FieldResearchSite' that may appear via the 'type' field.
+      Flattened tabular form of 'FieldResearchSite'. Attributes are the union of base-class
+      slots and slots from concrete subclasses of 'FieldResearchSite' that may appear
+      via the 'type' field.
     attributes:
       alternative_identifiers:
         name: alternative_identifiers
@@ -18455,12 +18409,12 @@ classes:
         value: FunctionalAnnotationAggMember
       mapping:
         tag: mapping
-        value: nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener
+        value: nmdc_lakehouse.jobs.direct_mongo_to_parquet.DirectMongoToParquetJob
     description: This class is used to store aggregated results from workflows which
       produce functional annotations such as metaproteomics and metagenomics. Flattened
-      tabular form of 'FunctionalAnnotationAggMember' produced by `SchemaDrivenFlattener`.
-      Attributes are the union of base-class slots and slots from concrete subclasses
-      of 'FunctionalAnnotationAggMember' that may appear via the 'type' field.
+      tabular form of 'FunctionalAnnotationAggMember'. Attributes are the union of
+      base-class slots and slots from concrete subclasses of 'FunctionalAnnotationAggMember'
+      that may appear via the 'type' field.
     attributes:
       count:
         name: count
@@ -18504,9 +18458,9 @@ classes:
       in. Functional annotations can be assigned manually by curators, or automatically
       in workflows.  In the context of NMDC, all function annotation is performed
       automatically, typically using HMM or Blast type methods Flattened tabular form
-      of 'FunctionalAnnotation' produced by `SchemaDrivenFlattener`. Attributes are
-      the union of base-class slots and slots from concrete subclasses of 'FunctionalAnnotation'
-      that may appear via the 'type' field.
+      of 'FunctionalAnnotation'. Attributes are the union of base-class slots and
+      slots from concrete subclasses of 'FunctionalAnnotation' that may appear via
+      the 'type' field.
     attributes:
       feature_category_has_raw_value:
         name: feature_category_has_raw_value
@@ -18608,9 +18562,8 @@ classes:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener
     description: A feature localized to an interval along a genome Flattened tabular
-      form of 'GenomeFeature' produced by `SchemaDrivenFlattener`. Attributes are
-      the union of base-class slots and slots from concrete subclasses of 'GenomeFeature'
-      that may appear via the 'type' field.
+      form of 'GenomeFeature'. Attributes are the union of base-class slots and slots
+      from concrete subclasses of 'GenomeFeature' that may appear via the 'type' field.
     attributes:
       encodes:
         name: encodes
@@ -18743,9 +18696,8 @@ classes:
     description: A material entity that is designed to perform a function in a scientific
       investigation, but is not a reagent. This class models the make and model of
       the instrument, not the specific instance of the instrument. Flattened tabular
-      form of 'Instrument' produced by `SchemaDrivenFlattener`. Attributes are the
-      union of base-class slots and slots from concrete subclasses of 'Instrument'
-      that may appear via the 'type' field.
+      form of 'Instrument'. Attributes are the union of base-class slots and slots
+      from concrete subclasses of 'Instrument' that may appear via the 'type' field.
     attributes:
       alternative_identifiers:
         name: alternative_identifiers
@@ -18797,10 +18749,9 @@ classes:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener
     description: A qualified collection of DataObjects that can be analyzed together
-      in the same experimental context. Flattened tabular form of 'Manifest' produced
-      by `SchemaDrivenFlattener`. Attributes are the union of base-class slots and
-      slots from concrete subclasses of 'Manifest' that may appear via the 'type'
-      field.
+      in the same experimental context. Flattened tabular form of 'Manifest'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'Manifest'
+      that may appear via the 'type' field.
     attributes:
       alternative_identifiers:
         name: alternative_identifiers
@@ -18851,10 +18802,9 @@ classes:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener
     description: A process that takes one or more samples as inputs and generates
-      one or more samples as outputs. Flattened tabular form of 'MaterialProcessing'
-      produced by `SchemaDrivenFlattener`. Attributes are the union of base-class
-      slots and slots from concrete subclasses of 'MaterialProcessing' that may appear
-      via the 'type' field.
+      one or more samples as outputs. Flattened tabular form of 'MaterialProcessing'.
+      Attributes are the union of base-class slots and slots from concrete subclasses
+      of 'MaterialProcessing' that may appear via the 'type' field.
     attributes:
       adapters:
         name: adapters
@@ -19489,9 +19439,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: Flattened tabular form of 'FailureCategorization' produced by `SchemaDrivenFlattener`.
-      Attributes are the union of base-class slots and slots from concrete subclasses
-      of 'FailureCategorization' that may appear via the 'type' field.
+    description: Flattened tabular form of 'FailureCategorization'. Attributes are
+      the union of base-class slots and slots from concrete subclasses of 'FailureCategorization'
+      that may appear via the 'type' field.
     attributes:
       qc_failure_what:
         name: qc_failure_what
@@ -19601,10 +19551,9 @@ classes:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
     description: A fluid mixture of substances that flow though a chromatographic
-      stationary phase. Flattened tabular form of 'MobilePhaseSegment' produced by
-      `SchemaDrivenFlattener`. Attributes are the union of base-class slots and slots
-      from concrete subclasses of 'MobilePhaseSegment' that may appear via the 'type'
-      field.
+      stationary phase. Flattened tabular form of 'MobilePhaseSegment'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'MobilePhaseSegment'
+      that may appear via the 'type' field.
     attributes:
       duration_has_maximum_numeric_value:
         name: duration_has_maximum_numeric_value
@@ -19696,9 +19645,9 @@ classes:
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
     description: A portion of any matter of defined composition that has discrete
       existence, whose origin may be biological, mineral or chemical. Flattened tabular
-      form of 'PortionOfSubstance' produced by `SchemaDrivenFlattener`. Attributes
-      are the union of base-class slots and slots from concrete subclasses of 'PortionOfSubstance'
-      that may appear via the 'type' field.
+      form of 'PortionOfSubstance'. Attributes are the union of base-class slots and
+      slots from concrete subclasses of 'PortionOfSubstance' that may appear via the
+      'type' field.
     attributes:
       final_concentration_has_maximum_numeric_value:
         name: final_concentration_has_maximum_numeric_value
@@ -19868,10 +19817,9 @@ classes:
       genome. This includes microbial colony picks, pellets from presumably pure liquid
       cultures, plant tissue clips, fungal fruiting body sections, and similar materials
       where the submitter intends to study a single organism. The purity expectation
-      may be contradicted by sequencing results. Flattened tabular form of 'OrganismSample'
-      produced by `SchemaDrivenFlattener`. Attributes are the union of base-class
-      slots and slots from concrete subclasses of 'OrganismSample' that may appear
-      via the 'type' field.
+      may be contradicted by sequencing results. Flattened tabular form of 'OrganismSample'.
+      Attributes are the union of base-class slots and slots from concrete subclasses
+      of 'OrganismSample' that may appear via the 'type' field.
     attributes:
       alternative_identifiers:
         name: alternative_identifiers
@@ -20127,9 +20075,9 @@ classes:
       instances represent the biological identity of what is in a sample, not the
       sample itself. Sub-species identity (strain, cultivar, lab isolate) is captured
       by slots on this class rather than via a separate Strain subclass. Flattened
-      tabular form of 'Organism' produced by `SchemaDrivenFlattener`. Attributes are
-      the union of base-class slots and slots from concrete subclasses of 'Organism'
-      that may appear via the 'type' field.
+      tabular form of 'Organism'. Attributes are the union of base-class slots and
+      slots from concrete subclasses of 'Organism' that may appear via the 'type'
+      field.
     attributes:
       alternative_identifiers:
         name: alternative_identifiers
@@ -20223,9 +20171,9 @@ classes:
       alongside other OntologyClass instances. No NMDC-minted identifiers are assigned.
       Support for additional taxonomic authorities (GTDB, LPSN, SeqCode) would be
       represented by separate classes or by widening this class's id_prefixes in a
-      follow-on PR. Flattened tabular form of 'NcbiTaxon' produced by `SchemaDrivenFlattener`.
-      Attributes are the union of base-class slots and slots from concrete subclasses
-      of 'NcbiTaxon' that may appear via the 'type' field.
+      follow-on PR. Flattened tabular form of 'NcbiTaxon'. Attributes are the union
+      of base-class slots and slots from concrete subclasses of 'NcbiTaxon' that may
+      appear via the 'type' field.
     attributes:
       alternative_identifiers:
         name: alternative_identifiers
@@ -20295,9 +20243,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener
-    description: Flattened tabular form of 'ProcessedSample' produced by `SchemaDrivenFlattener`.
-      Attributes are the union of base-class slots and slots from concrete subclasses
-      of 'ProcessedSample' that may appear via the 'type' field.
+    description: Flattened tabular form of 'ProcessedSample'. Attributes are the union
+      of base-class slots and slots from concrete subclasses of 'ProcessedSample'
+      that may appear via the 'type' field.
     attributes:
       alternative_identifiers:
         name: alternative_identifiers
@@ -20394,9 +20342,9 @@ classes:
         value: nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener
     description: A planned process with the objective to preserve and protect material
       entities by placing them in an identified  location which may have a controlled
-      environment. Flattened tabular form of 'StorageProcess' produced by `SchemaDrivenFlattener`.
-      Attributes are the union of base-class slots and slots from concrete subclasses
-      of 'StorageProcess' that may appear via the 'type' field.
+      environment. Flattened tabular form of 'StorageProcess'. Attributes are the
+      union of base-class slots and slots from concrete subclasses of 'StorageProcess'
+      that may appear via the 'type' field.
     attributes:
       alternative_identifiers:
         name: alternative_identifiers
@@ -20552,9 +20500,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: Flattened tabular form of 'FailureCategorization' produced by `SchemaDrivenFlattener`.
-      Attributes are the union of base-class slots and slots from concrete subclasses
-      of 'FailureCategorization' that may appear via the 'type' field.
+    description: Flattened tabular form of 'FailureCategorization'. Attributes are
+      the union of base-class slots and slots from concrete subclasses of 'FailureCategorization'
+      that may appear via the 'type' field.
     attributes:
       qc_failure_what:
         name: qc_failure_what
@@ -20641,9 +20589,9 @@ classes:
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
     description: A portion of any matter of defined composition that has discrete
       existence, whose origin may be biological, mineral or chemical. Flattened tabular
-      form of 'PortionOfSubstance' produced by `SchemaDrivenFlattener`. Attributes
-      are the union of base-class slots and slots from concrete subclasses of 'PortionOfSubstance'
-      that may appear via the 'type' field.
+      form of 'PortionOfSubstance'. Attributes are the union of base-class slots and
+      slots from concrete subclasses of 'PortionOfSubstance' that may appear via the
+      'type' field.
     attributes:
       final_concentration_has_maximum_numeric_value:
         name: final_concentration_has_maximum_numeric_value
@@ -20811,9 +20759,8 @@ classes:
         value: nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener
     description: A study summarizes the overall goal of a research initiative and
       outlines the key objective of its underlying projects. Flattened tabular form
-      of 'Study' produced by `SchemaDrivenFlattener`. Attributes are the union of
-      base-class slots and slots from concrete subclasses of 'Study' that may appear
-      via the 'type' field.
+      of 'Study'. Attributes are the union of base-class slots and slots from concrete
+      subclasses of 'Study' that may appear via the 'type' field.
     attributes:
       alternative_descriptions:
         name: alternative_descriptions
@@ -21090,9 +21037,9 @@ classes:
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
     description: A centrally registered identifier symbol used to uniquely identify
       objects given by the International DOI Foundation. The DOI system is particularly
-      used for electronic documents. Flattened tabular form of 'Doi' produced by `SchemaDrivenFlattener`.
-      Attributes are the union of base-class slots and slots from concrete subclasses
-      of 'Doi' that may appear via the 'type' field.
+      used for electronic documents. Flattened tabular form of 'Doi'. Attributes are
+      the union of base-class slots and slots from concrete subclasses of 'Doi' that
+      may appear via the 'type' field.
     attributes:
       doi_category:
         name: doi_category
@@ -21138,9 +21085,9 @@ classes:
       will be at least a slot for a CRediT Contributor Role and for a person value.
       Specifically see the associated researchers tab on the NMDC_SampleMetadata-V4_CommentsForUpdates
       at https://docs.google.com/spreadsheets/d/1INlBo5eoqn2efn4H2P2i8rwRBtnbDVTqXrochJEAPko/edit#gid=0
-      Flattened tabular form of 'CreditAssociation' produced by `SchemaDrivenFlattener`.
-      Attributes are the union of base-class slots and slots from concrete subclasses
-      of 'CreditAssociation' that may appear via the 'type' field.
+      Flattened tabular form of 'CreditAssociation'. Attributes are the union of base-class
+      slots and slots from concrete subclasses of 'CreditAssociation' that may appear
+      via the 'type' field.
     attributes:
       applied_roles:
         name: applied_roles
@@ -21235,9 +21182,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: Flattened tabular form of 'Protocol' produced by `SchemaDrivenFlattener`.
-      Attributes are the union of base-class slots and slots from concrete subclasses
-      of 'Protocol' that may appear via the 'type' field.
+    description: Flattened tabular form of 'Protocol'. Attributes are the union of
+      base-class slots and slots from concrete subclasses of 'Protocol' that may appear
+      via the 'type' field.
     attributes:
       analysis_type:
         name: analysis_type
@@ -21286,9 +21233,8 @@ classes:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
     description: An attribute value representing an image. Flattened tabular form
-      of 'ImageValue' produced by `SchemaDrivenFlattener`. Attributes are the union
-      of base-class slots and slots from concrete subclasses of 'ImageValue' that
-      may appear via the 'type' field.
+      of 'ImageValue'. Attributes are the union of base-class slots and slots from
+      concrete subclasses of 'ImageValue' that may appear via the 'type' field.
     attributes:
       description:
         name: description
@@ -21334,9 +21280,9 @@ classes:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener
     description: Represents an instance of an execution of a particular workflow Flattened
-      tabular form of 'WorkflowExecution' produced by `SchemaDrivenFlattener`. Attributes
-      are the union of base-class slots and slots from concrete subclasses of 'WorkflowExecution'
-      that may appear via the 'type' field.
+      tabular form of 'WorkflowExecution'. Attributes are the union of base-class
+      slots and slots from concrete subclasses of 'WorkflowExecution' that may appear
+      via the 'type' field.
     attributes:
       alternative_identifiers:
         name: alternative_identifiers
@@ -21926,9 +21872,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: Flattened tabular form of 'FailureCategorization' produced by `SchemaDrivenFlattener`.
-      Attributes are the union of base-class slots and slots from concrete subclasses
-      of 'FailureCategorization' that may appear via the 'type' field.
+    description: Flattened tabular form of 'FailureCategorization'. Attributes are
+      the union of base-class slots and slots from concrete subclasses of 'FailureCategorization'
+      that may appear via the 'type' field.
     attributes:
       qc_failure_what:
         name: qc_failure_what
@@ -21990,10 +21936,9 @@ classes:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
     description: This is used to link a metabolomics analysis workflow to a specific
-      metabolite Flattened tabular form of 'MetaboliteIdentification' produced by
-      `SchemaDrivenFlattener`. Attributes are the union of base-class slots and slots
-      from concrete subclasses of 'MetaboliteIdentification' that may appear via the
-      'type' field.
+      metabolite Flattened tabular form of 'MetaboliteIdentification'. Attributes
+      are the union of base-class slots and slots from concrete subclasses of 'MetaboliteIdentification'
+      that may appear via the 'type' field.
     attributes:
       alternative_identifiers:
         name: alternative_identifiers
@@ -22055,9 +22000,9 @@ classes:
       mapping:
         tag: mapping
         value: nmdc_lakehouse.transforms.flatteners.side_table_rows
-    description: Flattened tabular form of 'MagBin' produced by `SchemaDrivenFlattener`.
-      Attributes are the union of base-class slots and slots from concrete subclasses
-      of 'MagBin' that may appear via the 'type' field.
+    description: Flattened tabular form of 'MagBin'. Attributes are the union of base-class
+      slots and slots from concrete subclasses of 'MagBin' that may appear via the
+      'type' field.
     attributes:
       bin_name:
         name: bin_name
