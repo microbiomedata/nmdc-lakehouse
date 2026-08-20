@@ -1,7 +1,8 @@
 # Dropping and loading collections selectively
 
-A full NMDC metadata run rebuilds every collection and republishes the whole
-snapshot. That is the right default, because a snapshot is the unit that carries
+A full NMDC metadata run rebuilds every collection and produces a complete
+snapshot suitable for publication. Publishing it to a destination is a separate
+operation. That is the right default, because a snapshot is the unit that carries
 a manifest, a digest, and a validation result. It is the wrong tool when one
 collection changed, when one collection is expensive, or when one collection must
 be held back from a reload.
@@ -113,7 +114,9 @@ undefined rather than assuming it means append.
 One sequencing note. Selective *loading* also depends on the destination
 supporting per-table replacement with tested recovery, which is the open question
 in [#240](https://github.com/microbiomedata/nmdc-lakehouse/issues/240) and
-[#234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234). Evidence from
-2026-08-20 shows per-table replacement works and is recoverable, and that
-promotion is not atomic across tables. A selective load is therefore closer to
+[#234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234). The first
+live probe run against BERDL, reported in
+[this evidence comment](https://github.com/microbiomedata/nmdc-lakehouse/issues/240#issuecomment-5358756245),
+shows per-table replacement works and that a verified recovery operation exists,
+and that promotion is not atomic across tables. A selective load is therefore closer to
 reach than a selective snapshot.
