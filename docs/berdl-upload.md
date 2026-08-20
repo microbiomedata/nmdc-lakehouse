@@ -64,14 +64,15 @@ application plan for the explicitly selected staging namespace:
 just metadata-application-plan \
   /absolute/path/to/metadata-bundle.json \
   /absolute/path/to/destination-inventory.json \
-  discovered_catalog.nmdc_metadata_staging \
+  nmdc.nmdc_metadata_staging_20260819 \
   --output /absolute/path/to/metadata-application-plan.json
 ```
 
-Use the namespace discovered and approved for the current run; the example is
-not a permanent BERDL default. Review supported operations, unsupported
-operations, and missing descriptions. This offline command emits JSON data, not
-Spark SQL, and does not contact or change BERDL. The later adapter tracked in
+Use the exact `<tenant>.<dataset>` staging namespace that the later
+`berdl-upload-plan` invocation supplies; the example is not a permanent BERDL
+default. Review supported operations, unsupported operations, and missing
+descriptions. This offline command emits JSON data, not Spark SQL, and does not
+contact or change BERDL. The later adapter tracked in
 [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114) must recheck
 the bundle and inventory identities before applying the plan.
 
@@ -89,6 +90,58 @@ This command is offline and non-mutating. It proves that the independently
 reviewed artifacts still identify the same snapshot and destination observation
 and that their table evidence and coverage agree. It neither contacts BERDL nor
 authorizes the historical upload steps below.
+
+## Build the maintained staging command plan
+
+After reviewing the successful preflight and metadata-application plan, bind
+them to a clean checkout of the official
+[`kbase/data-lakehouse-ingest`](https://github.com/kbase/data-lakehouse-ingest)
+package at the exact revision selected for staging:
+
+```bash
+just berdl-upload-plan \
+  /path/to/completed-snapshot \
+  /path/to/metadata-bundle.json \
+  /path/to/destination-inventory.json \
+  /path/to/publication-plan.json \
+  /path/to/metadata-application-plan.json \
+  /path/to/target-validation-report.json \
+  /path/to/data-lakehouse-ingest \
+  a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3 \
+  nmdc \
+  nmdc_metadata_staging_20260819 \
+  cdm-lake \
+  tenant-general-warehouse/nmdc/staging/20260819 \
+  tenant-general-warehouse/nmdc/staging/20260819/progress.jsonl \
+  tenant-general-warehouse/nmdc/staging/20260819/config.json \
+  /path/to/berdl-staging-plan.json
+```
+
+The planner re-runs the portable preflight; verifies the metadata plan's
+snapshot, destination observation, capabilities, namespace, and table coverage;
+requires successful target-schema validation with exact snapshot and table
+coverage; and checks that the official ingest checkout is clean at the requested
+revision. The maintained compatibility gate currently accepts the stock
+`v0.1.5` commit `a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3`, whose writer uses
+Spark's catalog-driven Iceberg API. An authentic but unapproved older or newer
+revision fails closed until its write contract is reviewed. The planner binds
+the NMDC-owned adapter and the official checkout's complete
+tracked `data_lakehouse_ingest` package tree, verifies every package file against
+the selected revision, and requires an official KBase GitHub remote. It then creates an immutable,
+credential-free JSON plan containing local evidence paths, checksums, and the
+exact plan-only adapter argument vector. It rejects canonical-looking dataset
+names and object prefixes outside the tenant staging area. It also requires and
+records the reviewed `spark_catalog` provider and `iceberg` table format used by
+the selected official ingest path; missing or incompatible labels fail closed.
+BERIL Research
+Observatory remains an optional operator resource and is not a runtime or
+release dependency of this workflow.
+
+The generated command intentionally omits the BERIL execution flag and outcome
+path. Do not add them by hand. Live execution and independent outcome checking
+remain tracked in [#136](https://github.com/microbiomedata/nmdc-lakehouse/issues/136),
+and catalog metadata application remains tracked in
+[#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114).
 
 The destination, catalog, and table format are explicit observations. Do not
 copy the historical Delta examples below unless current discovery confirms

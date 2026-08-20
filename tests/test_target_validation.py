@@ -1,5 +1,6 @@
 """Tests for logical target validation of manifested Parquet rows."""
 
+import json
 from importlib.metadata import version
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from nmdc_lakehouse.target_validation import (
     TargetValidationError,
     _sample_rows,
     build_target_validation_report,
+    load_target_validation_report,
     validate_target_snapshot,
     write_target_validation_report,
 )
@@ -163,6 +165,54 @@ def test_bounded_report_distinguishes_sampling_from_full_validation(tmp_path: Pa
     assert report.tables[0].mode == "sampled"
     assert report.tables[0].eligible_rows == 10
     assert report.tables[0].selected_rows == 3
+
+    report_path = tmp_path / "target-validation.json"
+    report_path.write_text(report.model_dump_json(), encoding="utf-8")
+    assert load_target_validation_report(report_path) == report
+
+
+def test_target_validation_loader_rejects_symlinks_and_invalid_json(tmp_path: Path) -> None:
+    invalid = tmp_path / "invalid.json"
+    invalid.write_text("not JSON\n", encoding="utf-8")
+    linked = tmp_path / "linked.json"
+    linked.symlink_to(invalid)
+
+    with pytest.raises(TargetValidationError, match="valid target validation"):
+        load_target_validation_report(invalid)
+    with pytest.raises(TargetValidationError, match="ordinary JSON"):
+        load_target_validation_report(linked)
+
+
+def test_target_validation_loader_requires_current_strict_format(tmp_path: Path) -> None:
+    path = tmp_path / "study_set.parquet"
+    pq.write_table(
+        pa.Table.from_pylist([{"id": "nmdc:sty-1", "study_category": "research_study", "type": "nmdc:Study"}]),
+        path,
+    )
+    report = build_target_validation_report(
+        tmp_path,
+        _manifest([_artifact(path, target_class="StudyFlat", source_class="Study", mapping=PRIMARY_MAPPING_ID)]),
+        PUBLISHED_SCHEMA,
+    )
+    document = report.model_dump(mode="json")
+    report_path = tmp_path / "report.json"
+
+    document["report_format_version"] = 99
+    report_path.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(TargetValidationError, match="Unsupported.*format version"):
+        load_target_validation_report(report_path)
+
+    document["report_format_version"] = 1
+    document["full_table_max_rows"] = "10000"
+    report_path.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(TargetValidationError, match="valid target validation"):
+        load_target_validation_report(report_path)
+
+    document["full_table_max_rows"] = 10_000
+    document["elapsed_seconds"] = float("inf")
+    report_path.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(TargetValidationError, match="valid target validation"):
+        load_target_validation_report(report_path)
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])

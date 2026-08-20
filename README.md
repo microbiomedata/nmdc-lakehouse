@@ -120,7 +120,7 @@ Key variables (full list in `.env.example`):
 | `MONGO_HOST` | `localhost` | |
 | `MONGO_PORT` | `27017` | Use `27124` for the GCP SSH tunnel |
 | `MONGO_DBNAME` | `nmdc` | |
-| `MONGO_USERNAME` | `admin` | Personal MongoDB account — see connection guide |
+| `MONGO_USERNAME` | `admin` | Personal MongoDB account; see connection guide |
 | `MONGO_PASSWORD` | | |
 | `MONGO_AUTH_SOURCE` | `admin` | Authentication database |
 | `MONGO_REPLICA_SET` | | Optional replica set name |
@@ -161,6 +161,7 @@ operational-command inventory.
 | `just validate-target-rows SNAPSHOT_ROOT REPORT` | Validate manifested rows against the packaged target LinkML schema |
 | `just publication-preflight SNAPSHOT_ROOT BUNDLE INVENTORY PLAN` | Cross-check reviewed publication artifacts before staging |
 | `just metadata-application-plan BUNDLE INVENTORY STAGING_NAMESPACE` | Plan metadata operations for an explicit staging namespace |
+| `just berdl-upload-plan ...` | Bind reviewed artifacts to the NMDC adapter and exact KBase ingest revision |
 | `just install`      | Synchronize the locked development environment    |
 | `just install-all`  | Synchronize locked development and docs extras    |
 | `just lock`         | Refresh `uv.lock`                                |

@@ -23,7 +23,7 @@ from linkml.validator import Validator
 from linkml.validator.plugins import JsonschemaValidationPlugin
 from linkml.validator.report import ValidationResult
 from linkml_runtime import SchemaView
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from nmdc_lakehouse.snapshot_manifest import ArtifactRecord, SnapshotManifest, validate_snapshot
 
@@ -51,7 +51,7 @@ class IssueCategory(BaseModel):
 class TableValidationRecord(BaseModel):
     """Validation coverage and findings for one manifested Parquet table."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     table: str
     artifact_path: str
@@ -69,7 +69,7 @@ class TableValidationRecord(BaseModel):
 class TargetValidationReport(BaseModel):
     """Snapshot-bound, credential-free logical target validation evidence."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     report_format_version: int
     status: Literal["success", "failure"]
@@ -107,6 +107,28 @@ def _sha256(path: Path) -> str:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def packaged_target_schema_sha256() -> str:
+    """Return the digest of the target schema shipped with this installation."""
+    schema_resource = resources.files("nmdc_lakehouse").joinpath("schemas/nmdc_metadata.yaml")
+    with resources.as_file(schema_resource) as schema_path:
+        return _sha256(schema_path)
+
+
+def _target_selection_basis(schema_view: SchemaView, target_class: str) -> str:
+    if schema_view.get_class(target_class) is None:
+        raise TargetValidationError(f"Published target schema has no class {target_class!r}.")
+    identifier_slot = schema_view.get_identifier_slot(target_class)
+    return f"target-identifier:{identifier_slot.name}" if identifier_slot is not None else "canonical-row"
+
+
+def packaged_target_selection_bases(target_classes: set[str]) -> dict[str, str]:
+    """Return schema-derived row-selection bases for target classes."""
+    schema_resource = resources.files("nmdc_lakehouse").joinpath("schemas/nmdc_metadata.yaml")
+    with resources.as_file(schema_resource) as schema_path:
+        schema_view = SchemaView(str(schema_path))
+        return {name: _target_selection_basis(schema_view, name) for name in sorted(target_classes)}
 
 
 def _canonical_default(value: Any) -> str:
@@ -273,7 +295,7 @@ def _validate_table(
     parquet = pq.ParquetFile(root / artifact.path)
     identifier_slot = schema_view.get_identifier_slot(artifact.target_class)
     identifier = identifier_slot.name if identifier_slot is not None else None
-    selection_basis = f"target-identifier:{identifier}" if identifier is not None else "canonical-row"
+    selection_basis = _target_selection_basis(schema_view, artifact.target_class)
     full = requested_mode == "full" or artifact.rows <= full_table_max_rows
     if full:
         rows = _iter_rows(parquet)
@@ -408,6 +430,20 @@ def validate_target_snapshot(
             full_table_max_rows=full_table_max_rows,
             sample_rows=sample_rows,
         )
+
+
+def load_target_validation_report(path: Path) -> TargetValidationReport:
+    """Load strict snapshot-bound target validation evidence offline."""
+    document = path.expanduser()
+    if not document.is_file() or document.is_symlink():
+        raise TargetValidationError("The target validation report must be an ordinary JSON file.")
+    try:
+        report = TargetValidationReport.model_validate_json(document.read_text(encoding="utf-8"), strict=True)
+    except (OSError, UnicodeDecodeError, ValidationError) as error:
+        raise TargetValidationError("Cannot read a valid target validation report.") from error
+    if report.report_format_version != REPORT_FORMAT_VERSION:
+        raise TargetValidationError("Unsupported target validation report format version.")
+    return report
 
 
 def write_target_validation_report(output: Path, report: TargetValidationReport, *, snapshot_root: Path) -> Path:

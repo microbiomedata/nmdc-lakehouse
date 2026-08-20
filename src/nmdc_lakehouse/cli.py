@@ -369,6 +369,95 @@ def metadata_application_plan_schema_command() -> None:
     click.echo(json.dumps(metadata_application_json_schema(), indent=2, sort_keys=True))
 
 
+@cli.command("berdl-upload-plan")
+@click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
+@click.option("--bundle", "bundle_path", type=click.Path(path_type=Path, dir_okay=False), required=True)
+@click.option("--inventory", "inventory_path", type=click.Path(path_type=Path, dir_okay=False), required=True)
+@click.option("--plan", "publication_plan_path", type=click.Path(path_type=Path, dir_okay=False), required=True)
+@click.option(
+    "--metadata-plan",
+    "metadata_plan_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    required=True,
+)
+@click.option(
+    "--target-validation",
+    "target_validation_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    required=True,
+)
+@click.option("--ingest-checkout", type=click.Path(path_type=Path, file_okay=False), required=True)
+@click.option("--ingest-revision", required=True, help="Exact KBase ingest Git commit selected for staging.")
+@click.option("--tenant", required=True)
+@click.option("--dataset", required=True, help="Unique dataset name containing _staging_<suffix>.")
+@click.option("--bucket", required=True, help="Explicit S3 bucket selected for staging.")
+@click.option("--bronze-prefix", required=True)
+@click.option("--progress-key", required=True)
+@click.option("--config-key", required=True)
+@click.option("--output", type=click.Path(path_type=Path, dir_okay=False), required=True)
+def berdl_upload_plan_command(
+    snapshot_root: Path,
+    bundle_path: Path,
+    inventory_path: Path,
+    publication_plan_path: Path,
+    metadata_plan_path: Path,
+    target_validation_path: Path,
+    ingest_checkout: Path,
+    ingest_revision: str,
+    tenant: str,
+    dataset: str,
+    bucket: str,
+    bronze_prefix: str,
+    progress_key: str,
+    config_key: str,
+    output: Path,
+) -> None:
+    """Build an immutable, non-mutating BERDL staging command plan."""
+    from nmdc_lakehouse.berdl_staging import (
+        BerdlStagingPlanError,
+        plan_berdl_staging,
+        render_berdl_staging_plan,
+        write_berdl_staging_plan,
+    )
+    from nmdc_lakehouse.metadata_application import MetadataApplicationError
+    from nmdc_lakehouse.metadata_bundle import MetadataBundleError
+    from nmdc_lakehouse.publication_plan import PublicationPlanError
+    from nmdc_lakehouse.publication_preflight import PublicationPreflightError
+    from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError
+    from nmdc_lakehouse.target_validation import TargetValidationError
+
+    try:
+        plan = plan_berdl_staging(
+            snapshot_root,
+            bundle_path=bundle_path,
+            inventory_path=inventory_path,
+            publication_plan_path=publication_plan_path,
+            metadata_plan_path=metadata_plan_path,
+            target_validation_path=target_validation_path,
+            ingest_checkout=ingest_checkout,
+            ingest_revision=ingest_revision,
+            tenant=tenant,
+            dataset=dataset,
+            bucket=bucket,
+            bronze_prefix=bronze_prefix,
+            progress_key=progress_key,
+            config_key=config_key,
+        )
+        destination = write_berdl_staging_plan(output, plan)
+    except (
+        BerdlStagingPlanError,
+        MetadataApplicationError,
+        MetadataBundleError,
+        PublicationPlanError,
+        PublicationPreflightError,
+        SnapshotManifestError,
+        TargetValidationError,
+    ) as error:
+        raise click.ClickException(str(error)) from error
+    click.echo(render_berdl_staging_plan(plan))
+    click.echo(f"plan={destination}", err=True)
+
+
 @cli.command("berdl-doctor")
 @click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
 @click.option(

@@ -265,6 +265,36 @@ the maintained model and recheck its bundle and inventory identities immediately
 before rendering or applying provider-specific operations. The adapter must
 report unsupported metadata levels rather than silently omitting them.
 
+## BERDL staging command plan
+
+The BERDL destination profile can bind the reviewed portable evidence to an
+exact external implementation before any live operation. The
+`berdl-upload-plan` command re-runs publication preflight, checks the metadata
+application plan against the same snapshot and destination observation, requires
+a successful target-schema validation report with exact table coverage, and
+selects the complete manifest-owned Parquet table set. It also requires a clean
+checkout of the official `kbase/data-lakehouse-ingest` package at an explicit
+full Git revision and binds that API to the NMDC-owned adapter. BERIL Research
+Observatory is not part of this accountable ingestion boundary.
+
+The current adapter accepts only a destination inventory that identifies the
+`spark_catalog` provider and `iceberg` table format. Both values are retained in
+the immutable staging plan and its exact adapter arguments; an absent or
+incompatible destination contract cannot produce an executable-looking plan.
+
+The generated JSON records local paths and checksums for every reviewed input,
+including target validation, the selected Parquet identities, the KBase ingest
+revision, official checkout provenance, complete package-tree identity, relevant
+source hashes, and the exact plan-only argument vector. Its dataset name must use a unique
+`<name>_staging_<suffix>` form, and its object prefix must be inside the tenant's
+staging area. The output is created once and is not overwritten.
+
+This is command planning, not command execution. It does not read credentials,
+start a tunnel, invoke BERIL, upload data, create a table, apply metadata, or
+authorize a canonical change. See the
+[BERDL upload guide](berdl-upload.md#build-the-maintained-staging-command-plan)
+for the complete recipe interface.
+
 ## Staged workflow
 
 ### 1. Inventory without mutation
