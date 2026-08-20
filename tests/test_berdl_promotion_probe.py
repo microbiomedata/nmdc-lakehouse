@@ -582,3 +582,32 @@ def test_a_grant_failure_during_injection_is_not_disguised_as_expected() -> None
     injection = {step.operation: step for step in outcome.steps}[ProbeOperation.INJECTED_FAILURE_RECOVERY]
     assert injection.verdict is ProbeVerdict.INSUFFICIENT_GRANTS
     assert injection.verdict is not ProbeVerdict.FAILED_AS_EXPECTED
+
+
+def test_a_denied_retention_read_is_not_reported_as_a_missing_capability() -> None:
+    """A grant failure reading retention must not look like the platform lacking retention."""
+
+    class DeniedRetention(FakeSpark):
+        def sql(self, statement: str):
+            if statement.startswith("SHOW TBLPROPERTIES"):
+                self.statements.append(statement)
+                raise RuntimeError("INSUFFICIENT_PRIVILEGES: cannot read table properties")
+            return super().sql(statement)
+
+    outcome = _run(DeniedRetention())
+
+    step = {s.operation: s for s in outcome.steps}[ProbeOperation.SNAPSHOT_RETENTION]
+    assert step.verdict is ProbeVerdict.INSUFFICIENT_GRANTS
+    assert step.error_type == "RuntimeError"
+    assert outcome.snapshot_retention_ms is None
+    assert any("unrelated to platform capability" in q for q in outcome.unresolved_questions)
+    assert not any("not readable from table properties" in q for q in outcome.unresolved_questions)
+
+
+def test_an_absent_retention_property_is_still_a_capability_verdict() -> None:
+    outcome = _run(FakeSpark(retention=None))
+
+    step = {s.operation: s for s in outcome.steps}[ProbeOperation.SNAPSHOT_RETENTION]
+    assert step.verdict is ProbeVerdict.UNAVAILABLE_CAPABILITY
+    assert step.error_type is None
+    assert any("not readable from table properties" in q for q in outcome.unresolved_questions)

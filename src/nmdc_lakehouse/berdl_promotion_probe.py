@@ -385,19 +385,39 @@ def _create_probe_tables(spark: Any, plan: ProbePlan) -> None:
             raise BerdlPromotionProbeError(f"Cannot create the disposable probe table '{table}'.") from error
 
 
-def _retention_ms(spark: Any, table: str) -> int | None:
+def _retention_step(spark: Any, statement: str) -> tuple[ProbeStep, int | None]:
+    """Read the retention property, distinguishing a failed call from an absent property.
+
+    Swallowing the failure would report a grant or syntax problem as a missing platform
+    capability, which is the distinction this command exists to make.
+    """
     try:
-        rows = _rows(spark, f"SHOW TBLPROPERTIES {table}")
-    except Exception:
-        return None
+        rows = _rows(spark, statement)
+    except Exception as error:
+        step = ProbeStep(
+            operation=ProbeOperation.SNAPSHOT_RETENTION,
+            verdict=_classify(error),
+            statement=statement,
+            error_type=type(error).__name__,
+            error_condition=_error_condition(error),
+            detail="the retention property could not be read",
+        )
+        return step, None
+    retention: int | None = None
     for row in rows:
         values = list(row) if isinstance(row, (list, tuple)) else [row]
         if len(values) >= 2 and str(values[0]) == "history.expire.max-snapshot-age-ms":
             try:
-                return int(str(values[1]))
+                retention = int(str(values[1]))
             except ValueError:
-                return None
-    return None
+                retention = None
+            break
+    step = ProbeStep(
+        operation=ProbeOperation.SNAPSHOT_RETENTION,
+        verdict=ProbeVerdict.SUPPORTED if retention is not None else ProbeVerdict.UNAVAILABLE_CAPABILITY,
+        statement=statement,
+    )
+    return step, retention
 
 
 def run_promotion_probe(
@@ -539,17 +559,16 @@ def run_promotion_probe(
             "reason unrelated to platform capability."
         )
     else:
-        retention = _retention_ms(spark, destination_first)
-        steps.append(
-            ProbeStep(
-                operation=ProbeOperation.SNAPSHOT_RETENTION,
-                verdict=ProbeVerdict.SUPPORTED if retention is not None else ProbeVerdict.UNAVAILABLE_CAPABILITY,
-                statement=retention_statement,
-            )
-        )
-        if retention is None:
+        retention_step, retention = _retention_step(spark, retention_statement)
+        steps.append(retention_step)
+        if retention_step.verdict is ProbeVerdict.UNAVAILABLE_CAPABILITY:
             unresolved.append(
                 "Snapshot retention is not readable from table properties, so recovery time is unbounded."
+            )
+        elif retention is None:
+            unresolved.append(
+                "The retention property could not be read, so the recovery window is unknown for a reason "
+                "unrelated to platform capability."
             )
 
     state_after_recovery, unreadable_recovery = _observed_states(spark, plan.destination_namespace, plan.tables)

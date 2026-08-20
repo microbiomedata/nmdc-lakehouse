@@ -120,8 +120,14 @@ deliberately absent is not reported as unreadable; only a table that exists and
 cannot be read raises an unresolved question.
 
 `unresolved_questions` names what the run could not settle, including a rollback
-that reported success without restoring rows, and an injected failure that did
-not fail.
+that reported success without restoring rows, an injected failure that did not
+fail, and a retention property that could not be read.
+
+That last distinction matters. A retention property the platform does not have
+is `unavailable-capability`. A retention property the principal is not permitted
+to read is `insufficient-grants`, and the report says the recovery window is
+unknown for a reason unrelated to platform capability. Reporting the second as
+the first would blame the platform for a permission problem.
 
 ## After the run
 
