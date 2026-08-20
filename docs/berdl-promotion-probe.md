@@ -74,7 +74,9 @@ classified from. An `unclassified-failure` with no `error_condition` means the
 provider offered no identifier, and the statement has to be rerun by hand in the
 pod terminal to learn why.
 
-A step may also carry `independently_verified`. A call that returns without error is not evidence
+A step may also carry `independently_verified`, which is `null` when the check
+backing it could not be completed. A failed catalog listing is never recorded as
+a table being absent. A call that returns without error is not evidence
 that it did anything, so recovery is checked by reading the table back and comparing row counts, and
 the injected failure is checked by confirming the destination table it targeted does not exist.
 

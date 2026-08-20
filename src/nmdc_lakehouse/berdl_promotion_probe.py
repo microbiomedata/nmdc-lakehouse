@@ -263,11 +263,16 @@ def _snapshot_id(spark: Any, table: str) -> str | None:
     return None if value is None else str(value)
 
 
-def _table_exists(spark: Any, namespace: str, table: str) -> bool:
+def _table_exists(spark: Any, namespace: str, table: str) -> bool | None:
+    """Return whether the table exists, or None when the catalog could not be listed.
+
+    A failed listing is not an absent table. Collapsing the two would let a permission or
+    catalog failure be recorded as evidence that a table is genuinely missing.
+    """
     try:
         return bool(_rows(spark, f"SHOW TABLES IN {namespace} LIKE '{table}'"))
     except Exception:
-        return False
+        return None
 
 
 def _table_state(spark: Any, namespace: str, table: str) -> TableState:
@@ -293,7 +298,7 @@ def _unreadable_question(unreadable: Sequence[str], namespace: str) -> list[str]
 
 def _observed_state(spark: Any, namespace: str, table: str) -> TableState | None:
     """Read one table's state, or return None so a partial run can still emit a report."""
-    if not _table_exists(spark, namespace, table):
+    if _table_exists(spark, namespace, table) is not True:
         return None
     try:
         return _table_state(spark, namespace, table)
@@ -310,7 +315,11 @@ def _observed_states(spark: Any, namespace: str, tables: Sequence[str]) -> tuple
     states: list[TableState] = []
     unreadable: list[str] = []
     for table in tables:
-        if not _table_exists(spark, namespace, table):
+        present = _table_exists(spark, namespace, table)
+        if present is None:
+            unreadable.append(table)
+            continue
+        if not present:
             continue
         try:
             states.append(_table_state(spark, namespace, table))
@@ -529,22 +538,27 @@ def run_promotion_probe(
     )
     first_present = _table_exists(spark, plan.destination_namespace, first)
     second_present = _table_exists(spark, plan.destination_namespace, second)
-    injection.independently_verified = not second_present
+    injection.independently_verified = None if second_present is None else not second_present
     if injection.verdict is not ProbeVerdict.SUPPORTED and _is_missing_input(injection):
         injection.verdict = ProbeVerdict.FAILED_AS_EXPECTED
     steps.append(injection)
+    if second_present is None:
+        unresolved.append(
+            "The destination catalog could not be listed after the injected failure, so whether a partial "
+            "promotion is observable was not established."
+        )
     if injection.verdict is ProbeVerdict.SUPPORTED:
         unresolved.append(
             "The injected failure did not fail, so this run does not establish partial-promotion behavior."
         )
-    elif first_present and not second_present:
+    elif first_present is True and second_present is False:
         unresolved.append(
             "After a failure between two table mutations the destination held the first table and not the "
             "second, so a partial promotion is observable and promotion is not atomic across tables."
         )
 
     retention_statement = f"SHOW TBLPROPERTIES {destination_first}"
-    if not first_present:
+    if first_present is not True:
         steps.append(
             ProbeStep(
                 operation=ProbeOperation.SNAPSHOT_RETENTION,

@@ -611,3 +611,21 @@ def test_an_absent_retention_property_is_still_a_capability_verdict() -> None:
     assert step.verdict is ProbeVerdict.UNAVAILABLE_CAPABILITY
     assert step.error_type is None
     assert any("not readable from table properties" in q for q in outcome.unresolved_questions)
+
+
+def test_an_unlistable_catalog_is_not_recorded_as_an_absent_table() -> None:
+    """A failed listing must never become evidence that the injected failure was verified."""
+
+    class BlindCatalog(FakeSpark):
+        def sql(self, statement: str):
+            if statement.startswith("SHOW TABLES IN") and DESTINATION in statement:
+                self.statements.append(statement)
+                raise RuntimeError("INSUFFICIENT_PRIVILEGES: cannot list namespace")
+            return super().sql(statement)
+
+    outcome = _run(BlindCatalog())
+
+    injection = {s.operation: s for s in outcome.steps}[ProbeOperation.INJECTED_FAILURE_RECOVERY]
+    assert injection.independently_verified is None
+    assert any("could not be listed" in q for q in outcome.unresolved_questions)
+    assert not any("promotion is not atomic across tables" in q for q in outcome.unresolved_questions)
