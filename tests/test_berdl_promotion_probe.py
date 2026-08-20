@@ -461,3 +461,35 @@ def test_provider_error_condition_is_recorded_and_used_for_classification() -> N
     assert rename.error_condition == "INSUFFICIENT_PRIVILEGES"
     assert rename.error_type == "Denied"
     assert rename.verdict is ProbeVerdict.INSUFFICIENT_GRANTS
+
+
+def test_an_unreadable_promoted_table_still_produces_a_report() -> None:
+    """A read failure after mutation must not abort the run and discard the evidence gathered so far."""
+
+    class UnreadableSnapshots(FakeSpark):
+        def _answer(self, statement: str):
+            if statement.startswith("SELECT snapshot_id") and DESTINATION in statement:
+                raise RuntimeError("INSUFFICIENT_PRIVILEGES reading snapshots metadata")
+            return super()._answer(statement)
+
+    outcome = _run(UnreadableSnapshots())
+
+    steps = {step.operation: step for step in outcome.steps}
+    assert steps[ProbeOperation.ROLLBACK_TO_SNAPSHOT].verdict is ProbeVerdict.NOT_ATTEMPTED
+    assert steps[ProbeOperation.RECOVERY_PRECONDITION].verdict is ProbeVerdict.NOT_ATTEMPTED
+    assert any("no recovery operation could be tested" in q for q in outcome.unresolved_questions)
+    assert outcome.status in {"probe-complete", "probe-incomplete"}
+
+
+def test_rendered_documents_use_stable_key_ordering() -> None:
+    plan = _plan()
+
+    rendered = render_promotion_probe(plan)
+
+    keys = [line.split('"')[1] for line in rendered.splitlines() if line.startswith('  "')]
+    assert keys == sorted(keys)
+
+
+def test_key_ordering_does_not_change_the_plan_digest() -> None:
+    """The digest binds the model, not the rendering, so review formatting cannot invalidate authorization."""
+    assert plan_sha256(_plan()) == "8078986676b242d14503df9d28631d9a6d79be6adbbb4f302b470edf6e78c6e0"

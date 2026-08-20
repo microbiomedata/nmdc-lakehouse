@@ -270,6 +270,16 @@ def _table_state(spark: Any, namespace: str, table: str) -> TableState:
     )
 
 
+def _observed_state(spark: Any, namespace: str, table: str) -> TableState | None:
+    """Read one table's state, or return None so a partial run can still emit a report."""
+    if not _table_exists(spark, namespace, table):
+        return None
+    try:
+        return _table_state(spark, namespace, table)
+    except Exception:
+        return None
+
+
 def _observed_states(spark: Any, namespace: str, tables: Sequence[str]) -> list[TableState]:
     states: list[TableState] = []
     for table in tables:
@@ -410,11 +420,7 @@ def run_promotion_probe(
     state_after = _observed_states(spark, plan.destination_namespace, plan.tables)
 
     catalog = plan.tenant
-    promoted = (
-        _table_state(spark, plan.destination_namespace, first)
-        if _table_exists(spark, plan.destination_namespace, first)
-        else None
-    )
+    promoted = _observed_state(spark, plan.destination_namespace, first)
     if promoted is None or promoted.snapshot_id is None:
         for operation in (
             ProbeOperation.RECOVERY_PRECONDITION,
@@ -446,12 +452,13 @@ def run_promotion_probe(
                 f"CALL {catalog}.system.rollback_to_snapshot('{destination_first}', {recovery_point})",
             )
             if rollback.verdict is ProbeVerdict.SUPPORTED:
-                recovered = _table_state(spark, plan.destination_namespace, first)
-                rollback.independently_verified = recovered.row_count == promoted.row_count
+                recovered = _observed_state(spark, plan.destination_namespace, first)
+                rollback.independently_verified = recovered is not None and recovered.row_count == promoted.row_count
                 if not rollback.independently_verified:
                     unresolved.append(
                         "The rollback call reported success but the table did not return to its pre-mutation "
-                        "row count, so the recovery operation cannot be relied on."
+                        "row count, or its state could not be read back, so the recovery operation cannot be "
+                        "relied on."
                     )
             steps.append(rollback)
             steps.append(
@@ -516,7 +523,7 @@ def run_promotion_probe(
 
 def render_promotion_probe(document: ProbePlan | ProbeOutcome) -> str:
     """Render canonical reviewable JSON for stdout or a file."""
-    return json.dumps(document.model_dump(mode="json"), indent=2, sort_keys=False)
+    return json.dumps(document.model_dump(mode="json"), indent=2, sort_keys=True)
 
 
 def write_promotion_probe_outcome(path: Path, outcome: ProbeOutcome) -> Path:
