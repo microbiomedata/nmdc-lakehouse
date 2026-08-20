@@ -1,0 +1,14 @@
+# Enforces CLAUDE.md rule 8: never use a bare issue or PR number.
+#
+# level is WARNING, not error, because #NNN legitimately appears in three
+# non-GitHub contexts that RE2 cannot exclude (no lookbehind in Go regex):
+#   1. inside a correct markdown link:  [PR #490](https://github.com/.../490)
+#   2. internal cross-references:       "see item #10 above"
+#   3. rule or section numbering:       "not as hard rule #10"
+# Measured 2026-08-05: 3 true positives, 4 false, across ~10 real files.
+extends: existence
+message: "Possible bare issue/PR reference '%s'. Rule 8 wants the full URL and title. Ignore if this is an internal item or rule number, or already inside a markdown link."
+level: warning
+nonword: true
+tokens:
+  - '#\d{2,}'

@@ -1,0 +1,13 @@
+extends: existence
+message: "Throat-clearing opener: '%s'. Start with the point."
+level: error
+ignorecase: true
+tokens:
+  - "here's the thing"
+  - "here's why this matters"
+  - 'the (truth|reality) is'
+  - 'it turns out'
+  - 'let me (be clear|walk you through)'
+  - 'at its core'
+  - "it's worth noting"
+  - 'at the end of the day'
