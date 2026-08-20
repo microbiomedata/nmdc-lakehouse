@@ -32,7 +32,7 @@ class ParseException(Exception):
 
 
 class FakeSpark:
-    """A catalog that answers the probe's reads and fails statements on demand."""
+    """A small Iceberg-like catalog: tables exist or they do not, and mutations advance snapshots."""
 
     version = "3.5.1"
 
@@ -40,7 +40,21 @@ class FakeSpark:
         self.failures = failures or {}
         self.retention = retention
         self.statements: list[str] = []
+        self.tables: dict[str, int] = {}
+        self.snapshots: dict[str, int] = {}
+        self.history: dict[str, dict[int, int]] = {}
+        self.next_snapshot = 1000
         self.catalog = SimpleNamespace(listColumns=lambda _table: [SimpleNamespace(name="id", dataType="int")])
+
+    def _commit(self, table: str, rows: int) -> None:
+        self.next_snapshot += 1
+        self.tables[table] = rows
+        self.snapshots[table] = self.next_snapshot
+        self.history.setdefault(table, {})[self.next_snapshot] = rows
+
+    def _require(self, table: str) -> None:
+        if table not in self.tables:
+            raise RuntimeError(f"TABLE_OR_VIEW_NOT_FOUND: {table}")
 
     def sql(self, statement: str):
         self.statements.append(statement)
@@ -50,17 +64,75 @@ class FakeSpark:
         return SimpleNamespace(collect=lambda: self._answer(statement))
 
     def _answer(self, statement: str):
+        if statement.startswith("EXPLAIN "):
+            return [("plan",)]
+        if statement.startswith("CREATE NAMESPACE"):
+            return []
+        if statement.startswith("DROP TABLE IF EXISTS "):
+            table = statement.split()[-1]
+            self.tables.pop(table, None)
+            self.snapshots.pop(table, None)
+            return []
+        if statement.startswith("SHOW TABLES IN "):
+            namespace = statement.split()[3]
+            name = statement.split("LIKE")[1].strip().strip("'")
+            return [(namespace, name)] if f"{namespace}.{name}" in self.tables else []
+        if statement.startswith("CREATE OR REPLACE TABLE "):
+            target = statement.split()[4]
+            source = statement.rsplit(" ", 1)[-1]
+            self._require(source)
+            self._commit(target, self.tables[source])
+            return []
+        if statement.startswith("CREATE TABLE "):
+            self._commit(statement.split()[2], 0)
+            return []
+        if statement.startswith("INSERT INTO "):
+            table = statement.split()[2]
+            self._require(table)
+            added = statement.count("(") - statement.count("VALUES") + 1 if "VALUES" in statement else 1
+            self._commit(table, self.tables[table] + max(added, 1))
+            return []
+        if statement.startswith("ALTER TABLE ") and "RENAME TO" in statement:
+            source, target = statement.split()[2], statement.split()[-1]
+            self._require(source)
+            rows = self.tables.pop(source)
+            self.snapshots.pop(source, None)
+            self._commit(target, rows)
+            return []
+        if statement.startswith("CALL ") and "rollback_to_snapshot" in statement:
+            table, snapshot = _call_arguments(statement)
+            self._require(table)
+            if snapshot not in self.history.get(table, {}):
+                raise RuntimeError(f"Cannot roll back to unknown snapshot {snapshot}")
+            self._commit(table, self.history[table][snapshot])
+            return []
+        if statement.startswith("CALL ") and "set_current_snapshot" in statement:
+            table, snapshot = _call_arguments(statement)
+            self._require(table)
+            if snapshot not in self.history.get(table, {}):
+                raise RuntimeError(f"Cannot set an unknown snapshot {snapshot}")
+            return []
         if statement.startswith("SELECT snapshot_id"):
-            return [(1234567890,)]
+            table = statement.split("FROM ")[1].split(".snapshots")[0]
+            self._require(table)
+            return [(self.snapshots[table],)]
         if statement.startswith("SELECT COUNT(*)"):
-            return [(2,)]
+            table = statement.split("FROM ")[1].strip()
+            self._require(table)
+            return [(self.tables[table],)]
         if statement.startswith("SHOW TBLPROPERTIES"):
             return [] if self.retention is None else [("history.expire.max-snapshot-age-ms", self.retention)]
         if statement.startswith("SET "):
             return [("hive",)]
         if statement.startswith("SELECT current_user()"):
             return [("mamillerpa",)]
-        return []
+        raise AssertionError(f"Unexpected statement: {statement}")
+
+
+def _call_arguments(statement: str) -> tuple[str, int]:
+    inner = statement[statement.index("(") + 1 : statement.rindex(")")]
+    table, snapshot = inner.split(",")
+    return table.strip().strip("'"), int(snapshot)
 
 
 def _plan():
@@ -294,3 +366,61 @@ def test_missing_snapshot_identifier_reports_recovery_as_untested() -> None:
 def test_plan_loader_rejects_an_unreadable_file(tmp_path: Path) -> None:
     with pytest.raises(BerdlPromotionProbeError, match="Cannot read"):
         load_promotion_probe_plan(tmp_path / "absent.json")
+
+
+def test_rollback_uses_the_destination_snapshot_after_a_replacement() -> None:
+    """The recovery point must come from the promoted table, not the source it was copied from."""
+    spark = FakeSpark(failures={"RENAME TO": ParseException("mismatched input 'RENAME'")})
+
+    outcome = _run(spark)
+
+    steps = {step.operation: step for step in outcome.steps}
+    rollback = steps[ProbeOperation.ROLLBACK_TO_SNAPSHOT]
+    assert rollback.verdict is ProbeVerdict.SUPPORTED
+    assert rollback.independently_verified is True
+
+
+def test_rollback_is_verified_by_row_count_not_by_the_call_returning() -> None:
+    outcome = _run(FakeSpark())
+
+    steps = {step.operation: step for step in outcome.steps}
+    assert steps[ProbeOperation.RECOVERY_PRECONDITION].verdict is ProbeVerdict.SUPPORTED
+    assert steps[ProbeOperation.ROLLBACK_TO_SNAPSHOT].independently_verified is True
+    assert not any("did not return to its pre-mutation" in q for q in outcome.unresolved_questions)
+
+
+def test_a_rollback_that_does_not_restore_rows_is_reported_as_unreliable() -> None:
+    class LyingRollback(FakeSpark):
+        def _answer(self, statement: str):
+            if statement.startswith("CALL ") and "rollback_to_snapshot" in statement:
+                return []
+            return super()._answer(statement)
+
+    outcome = _run(LyingRollback())
+
+    steps = {step.operation: step for step in outcome.steps}
+    assert steps[ProbeOperation.ROLLBACK_TO_SNAPSHOT].independently_verified is False
+    assert any("did not return to its pre-mutation" in q for q in outcome.unresolved_questions)
+
+
+def test_injected_failure_really_fails_and_leaves_a_mixed_state() -> None:
+    spark = FakeSpark()
+
+    outcome = _run(spark)
+
+    steps = {step.operation: step for step in outcome.steps}
+    injection = steps[ProbeOperation.INJECTED_FAILURE_RECOVERY]
+    assert injection.verdict is not ProbeVerdict.SUPPORTED
+    assert injection.independently_verified is True
+    assert any("partial promotion is observable" in q for q in outcome.unresolved_questions)
+
+
+def test_setup_clears_leftovers_in_both_namespaces() -> None:
+    spark = FakeSpark()
+    spark._commit(f"{DESTINATION}.probe_first", 99)
+
+    _run(spark)
+
+    dropped = [s for s in spark.statements if s.startswith("DROP TABLE IF EXISTS")]
+    assert f"DROP TABLE IF EXISTS {DESTINATION}.probe_first" in dropped
+    assert f"DROP TABLE IF EXISTS {SOURCE}.probe_first" in dropped

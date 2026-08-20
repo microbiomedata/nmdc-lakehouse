@@ -64,6 +64,10 @@ Each attempted operation carries a verdict:
 | `unclassified-failure` | The failure matched none of the above. |
 | `not-attempted` | An earlier result made the attempt unnecessary. |
 
+A step may also carry `independently_verified`. A call that returns without error is not evidence
+that it did anything, so recovery is checked by reading the table back and comparing row counts, and
+the injected failure is checked by confirming the destination table it targeted does not exist.
+
 `unclassified-failure` is deliberate. An unrecognized error is not silently
 folded into a known cause, and any such result sets the report status to
 `probe-incomplete` so it cannot be read as a clean answer.
@@ -74,9 +78,26 @@ before mutation, after mutation, and after recovery. It does not carry provider
 exception text, connection details, credentials, or data rows. Read full
 provider errors in the pod terminal when a verdict needs interpretation.
 
-`unresolved_questions` names what the run could not settle, including a
-destination that held a readable second table while the first was mid-promotion,
-which shows a partial promotion is observable rather than atomic.
+## How recovery and partial promotion are tested
+
+The recovery point is read from the promoted destination table, not from the
+source it was copied from. A replacement creates a new table whose snapshot
+history starts fresh, so a source snapshot identifier would not exist there and
+a rollback would fail for the wrong reason.
+
+The probe then makes a second mutation on the promoted table so rollback has a
+real earlier snapshot to return to, rolls back to the recorded point, and reads
+the row count back to confirm the data actually returned.
+
+The injected failure is a genuine one. The probe attempts to promote the second
+table from a source that does not exist, so the run fails between two table
+mutations, then records which destination tables exist. A destination holding
+the first table and not the second shows that promotion is not atomic across
+tables and that a partial promotion is observable.
+
+`unresolved_questions` names what the run could not settle, including a rollback
+that reported success without restoring rows, and an injected failure that did
+not fail.
 
 ## After the run
 

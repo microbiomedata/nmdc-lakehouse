@@ -34,6 +34,7 @@ class ProbeOperation(StrEnum):
     ENVIRONMENT = "environment"
     CROSS_NAMESPACE_RENAME = "cross-namespace-rename"
     REPLACEMENT = "replacement"
+    RECOVERY_PRECONDITION = "recovery-precondition"
     ROLLBACK_TO_SNAPSHOT = "rollback-to-snapshot"
     SET_CURRENT_SNAPSHOT = "set-current-snapshot"
     INJECTED_FAILURE_RECOVERY = "injected-failure-recovery"
@@ -85,6 +86,7 @@ class ProbeStep(BaseModel):
     statement: str | None = None
     error_type: str | None = None
     detail: str | None = None
+    independently_verified: bool | None = None
 
 
 class TableState(BaseModel):
@@ -224,6 +226,13 @@ def _snapshot_id(spark: Any, table: str) -> str | None:
     return None if value is None else str(value)
 
 
+def _table_exists(spark: Any, namespace: str, table: str) -> bool:
+    try:
+        return bool(_rows(spark, f"SHOW TABLES IN {namespace} LIKE '{table}'"))
+    except Exception:
+        return False
+
+
 def _table_state(spark: Any, namespace: str, table: str) -> TableState:
     full_table = f"{namespace}.{table}"
     count = _scalar(spark, f"SELECT COUNT(*) FROM {full_table}")
@@ -283,10 +292,15 @@ def _create_probe_tables(spark: Any, plan: ProbePlan) -> None:
     except Exception as error:
         raise BerdlPromotionProbeError("Cannot create the disposable probe namespaces.") from error
     values = ", ".join(f"({index}, 'probe-{index}')" for index in range(plan.rows_per_table))
+    for namespace in (plan.source_namespace, plan.destination_namespace):
+        for table in plan.tables:
+            try:
+                _rows(spark, f"DROP TABLE IF EXISTS {namespace}.{table}")
+            except Exception as error:
+                raise BerdlPromotionProbeError(f"Cannot clear the disposable probe table '{table}'.") from error
     for table in plan.tables:
         full_table = f"{plan.source_namespace}.{table}"
         try:
-            _rows(spark, f"DROP TABLE IF EXISTS {full_table}")
             _rows(spark, f"CREATE TABLE {full_table} (id INT, label STRING) USING iceberg")
             _rows(spark, f"INSERT INTO {full_table} VALUES {values}")
         except Exception as error:
@@ -356,42 +370,80 @@ def run_promotion_probe(
 
     state_after = _observed_states(spark, plan.destination_namespace, plan.tables)
 
-    baseline = state_before[0].snapshot_id
-    if baseline is None:
-        steps.append(ProbeStep(operation=ProbeOperation.ROLLBACK_TO_SNAPSHOT, verdict=ProbeVerdict.NOT_ATTEMPTED))
-        steps.append(ProbeStep(operation=ProbeOperation.SET_CURRENT_SNAPSHOT, verdict=ProbeVerdict.NOT_ATTEMPTED))
-        unresolved.append("No Iceberg snapshot identifier was readable, so no recovery operation could be tested.")
+    catalog = plan.tenant
+    promoted = (
+        _table_state(spark, plan.destination_namespace, first)
+        if _table_exists(spark, plan.destination_namespace, first)
+        else None
+    )
+    if promoted is None or promoted.snapshot_id is None:
+        for operation in (
+            ProbeOperation.RECOVERY_PRECONDITION,
+            ProbeOperation.ROLLBACK_TO_SNAPSHOT,
+            ProbeOperation.SET_CURRENT_SNAPSHOT,
+        ):
+            steps.append(ProbeStep(operation=operation, verdict=ProbeVerdict.NOT_ATTEMPTED))
+        unresolved.append(
+            "The promoted table or its Iceberg snapshot identifier was not readable, so no recovery "
+            "operation could be tested."
+        )
     else:
-        catalog = plan.tenant
-        steps.append(
-            _attempt(
+        recovery_point = promoted.snapshot_id
+        precondition = _attempt(
+            spark,
+            ProbeOperation.RECOVERY_PRECONDITION,
+            f"INSERT INTO {destination_first} VALUES (-1, 'probe-rollback-marker')",
+            detail="a second mutation, so rollback has a real earlier snapshot to return to",
+        )
+        steps.append(precondition)
+        if precondition.verdict is not ProbeVerdict.SUPPORTED:
+            for operation in (ProbeOperation.ROLLBACK_TO_SNAPSHOT, ProbeOperation.SET_CURRENT_SNAPSHOT):
+                steps.append(ProbeStep(operation=operation, verdict=ProbeVerdict.NOT_ATTEMPTED))
+            unresolved.append("The promoted table could not be mutated, so recovery could not be tested.")
+        else:
+            rollback = _attempt(
                 spark,
                 ProbeOperation.ROLLBACK_TO_SNAPSHOT,
-                f"CALL {catalog}.system.rollback_to_snapshot('{destination_first}', {baseline})",
+                f"CALL {catalog}.system.rollback_to_snapshot('{destination_first}', {recovery_point})",
             )
-        )
-        steps.append(
-            _attempt(
-                spark,
-                ProbeOperation.SET_CURRENT_SNAPSHOT,
-                f"CALL {catalog}.system.set_current_snapshot('{destination_first}', {baseline})",
+            if rollback.verdict is ProbeVerdict.SUPPORTED:
+                recovered = _table_state(spark, plan.destination_namespace, first)
+                rollback.independently_verified = recovered.row_count == promoted.row_count
+                if not rollback.independently_verified:
+                    unresolved.append(
+                        "The rollback call reported success but the table did not return to its pre-mutation "
+                        "row count, so the recovery operation cannot be relied on."
+                    )
+            steps.append(rollback)
+            steps.append(
+                _attempt(
+                    spark,
+                    ProbeOperation.SET_CURRENT_SNAPSHOT,
+                    f"CALL {catalog}.system.set_current_snapshot('{destination_first}', {recovery_point})",
+                )
             )
-        )
 
-    injected = _attempt(
+    injection = _attempt(
         spark,
         ProbeOperation.INJECTED_FAILURE_RECOVERY,
-        f"SELECT COUNT(*) FROM {destination_second}",
-        detail=(
-            "the second table was deliberately left unpromoted; a readable count here means the destination "
-            "namespace holds a mixed-version state"
+        (
+            f"CREATE OR REPLACE TABLE {destination_second} USING iceberg "
+            f"AS SELECT * FROM {plan.source_namespace}.{second}_absent"
         ),
+        detail="deliberately sourced from a table that does not exist, to fail between two table mutations",
     )
-    steps.append(injected)
-    if injected.verdict is ProbeVerdict.SUPPORTED:
+    first_present = _table_exists(spark, plan.destination_namespace, first)
+    second_present = _table_exists(spark, plan.destination_namespace, second)
+    injection.independently_verified = not second_present
+    steps.append(injection)
+    if injection.verdict is ProbeVerdict.SUPPORTED:
         unresolved.append(
-            "The destination namespace held a readable second table while the first was mid-promotion, "
-            "so a partial promotion is observable rather than atomic."
+            "The injected failure did not fail, so this run does not establish partial-promotion behavior."
+        )
+    elif first_present and not second_present:
+        unresolved.append(
+            "After a failure between two table mutations the destination held the first table and not the "
+            "second, so a partial promotion is observable and promotion is not atomic across tables."
         )
 
     retention = _retention_ms(spark, destination_first)
