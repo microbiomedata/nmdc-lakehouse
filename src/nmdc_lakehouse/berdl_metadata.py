@@ -184,6 +184,11 @@ def load_berdl_metadata_preview(
     )
 
 
+def _plural(count: int, noun: str) -> str:
+    """Return a count with a correctly pluralised noun, since this text is read by operators."""
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
 def _default_progress(message: str) -> None:
     """Report progress on stderr, keeping stdout reserved for the parseable outcome JSON."""
     print(message, file=sys.stderr, flush=True)
@@ -266,7 +271,8 @@ def apply_berdl_staging_metadata(
     started = time.monotonic()
     applied_columns = 0
     progress(
-        f"applying descriptions to {len(plan.tables)} tables and {planned_columns} columns in {plan.staging_namespace}"
+        f"applying descriptions to {_plural(len(plan.tables), 'table')} and "
+        f"{_plural(planned_columns, 'column')} in {plan.staging_namespace}"
     )
     targets: list[AppliedMetadataTarget] = []
     for index, table in enumerate(plan.tables, start=1):
@@ -283,7 +289,7 @@ def apply_berdl_staging_metadata(
         operations = column_operations[table]
         verified_columns: list[str] = []
         if operations:
-            progress(f"[{index}/{len(plan.tables)}] {table}: applying {len(operations)} column descriptions")
+            progress(f"[{index}/{len(plan.tables)}] {table}: applying {_plural(len(operations), 'column description')}")
             report = apply_column_comments(
                 spark,
                 full_table,
@@ -306,7 +312,7 @@ def apply_berdl_staging_metadata(
         rate = applied_columns / elapsed if elapsed > 0 and applied_columns else 0.0
         estimate = f", about {remaining / rate / 60:.0f} min left" if rate > 0 and remaining else ""
         progress(
-            f"[{index}/{len(plan.tables)}] {table}: verified {len(verified_columns)} columns "
+            f"[{index}/{len(plan.tables)}] {table}: verified {_plural(len(verified_columns), 'column')} "
             f"({applied_columns}/{planned_columns} total, {elapsed / 60:.1f} min elapsed{estimate})"
         )
         targets.append(

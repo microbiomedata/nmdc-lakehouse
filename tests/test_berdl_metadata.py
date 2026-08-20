@@ -404,9 +404,9 @@ def test_application_reports_per_table_progress(tmp_path: Path) -> None:
     )
 
     joined = "\n".join(messages)
-    assert "applying descriptions to 1 tables and 1 columns" in joined
-    assert "[1/1] biosample_set: applying 1 column descriptions" in joined
-    assert "verified 1 columns" in joined
+    assert "applying descriptions to 1 table and 1 column in" in joined
+    assert "[1/1] biosample_set: applying 1 column description" in joined
+    assert "verified 1 column (" in joined
     assert "1/1 total" in joined
     assert "min elapsed" in joined
 
@@ -419,3 +419,14 @@ def test_progress_goes_to_stderr_so_stdout_stays_parseable(capsys) -> None:
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "halfway through biosample_set" in captured.err
+
+
+def test_progress_text_pluralises_correctly() -> None:
+    """Operator-facing output should not read as 1 columns."""
+    from nmdc_lakehouse.berdl_metadata import _plural
+
+    assert _plural(0, "column") == "0 columns"
+    assert _plural(1, "column") == "1 column"
+    assert _plural(2, "column") == "2 columns"
+    assert _plural(1, "column description") == "1 column description"
+    assert _plural(1393, "column description") == "1393 column descriptions"
