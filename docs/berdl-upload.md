@@ -310,10 +310,23 @@ df.write.parquet(f"s3a://cdm-lake/tenant-general-warehouse/nmdc/{prefix}/annotat
 
 **Then verify the destination holds data, not that the command returned.** The row
 counts the writing job prints say nothing about where the bytes went, and in the
-2026-08-20 run every one of them was correct. What distinguishes a real export
-from a failed one is whether `part-*` files exist under each table you wrote.
-Check the tables you exported by name, so a table that produced nothing at all is
-noticed rather than skipped, and make the check fail rather than only print.
+2026-08-20 run every one of them was correct. List the object store and check the
+tables you exported by name, so one that produced nothing at all is noticed
+rather than skipped, and make the check fail rather than only print.
+
+What a written table looks like here is worth checking before writing a check
+against it. Listing the tenant on 2026-08-21 shows single Parquet objects rather
+than the `part-*` directories a default Spark write produces:
+
+```
+30GiB   datasets/results/annotation_enzyme_commission.parquet
+46GiB   datasets/results/annotation_kegg_orthology.parquet
+2.8MiB  staging/20260820/biosample_set.parquet
+```
+
+There are no `part-` objects anywhere under `datasets/results/`. A verification
+written around `part-*` would therefore report every existing table as a failed
+export. Confirm the shape your own write produces before trusting a check on it.
 
 **Moving the data anywhere else is not documented here, deliberately.** The
 transfer mechanics live in the historical transport section below, which needs
