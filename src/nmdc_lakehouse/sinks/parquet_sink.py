@@ -44,9 +44,13 @@ _METADATA_PREFIX = "nmdc_lakehouse."
 FOOTER_METADATA_FORMAT_VERSION = "1"
 
 # Spark reads its own schema from this Parquet footer key rather than from Arrow field metadata,
-# and a field's "comment" there becomes the column comment on any table it creates from the file.
-# Emitting it means a loader that writes with Spark produces an already-described table in the one
-# commit it was making anyway, instead of one ALTER per column afterwards. See #258.
+# and a field's "comment" there is documented to become the column comment on a table Spark creates
+# from the file. Emitting it is meant to give a Spark-based loader an already-described table in the
+# one commit it was making anyway, instead of one ALTER per column afterwards.
+#
+# That this key reaches the footer with the right comments is covered by tests. That the BERDL
+# loader honours it has not been observed on a real run: #278 adds the catalog read-back, and #258
+# stays open until it passes. Do not describe the catalog side as delivered before then.
 _SPARK_SCHEMA_KEY = b"org.apache.spark.sql.parquet.row.metadata"
 
 # Arrow types this sink can produce, mapped to Spark's type names. Deliberately exhaustive over

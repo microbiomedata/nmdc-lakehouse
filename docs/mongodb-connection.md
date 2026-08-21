@@ -429,7 +429,19 @@ than a label:
 
 | Key | Meaning |
 | --- | --- |
-| `org.apache.spark.sql.parquet.row.metadata` | The file's schema as Spark reads it. Spark takes its schema for a Parquet file from this key rather than from Arrow field metadata, and a field's `comment` here becomes the column comment on any table Spark creates from the file. Carrying the slot descriptions here means a Spark-based loader produces an already-described table in the commit it was making anyway, instead of one `ALTER TABLE ... ALTER COLUMN ... COMMENT` per column afterwards. See [#258](https://github.com/microbiomedata/nmdc-lakehouse/issues/258). |
+| `org.apache.spark.sql.parquet.row.metadata` | The file's schema in the form Spark reads a Parquet schema, with each slot description carried as a field `comment`. Written so that a Spark-based loader can create an already-described table in the commit it was making anyway, rather than needing one `ALTER TABLE ... ALTER COLUMN ... COMMENT` per column afterwards. Whether the BERDL loader honours it has **not** been confirmed on a real run; see the note below. |
+
+**What is and is not established.** That this key reaches the Parquet footer, and
+that its comments match the slot descriptions, is verified by tests in this
+repository. That Spark reads it and turns those comments into catalog column
+comments is read from Spark's documented behaviour and has never been observed
+here. Until a staging run confirms it, treat the catalog side as intended rather
+than delivered: a loader that ignored this key would look identical from here,
+because staging would succeed, row counts would match, and the descriptions
+would simply be absent. The read-back check is
+[#278](https://github.com/microbiomedata/nmdc-lakehouse/issues/278), and
+[#258](https://github.com/microbiomedata/nmdc-lakehouse/issues/258) stays open,
+with `berdl-apply-metadata` still applying descriptions, until it passes.
 
 Because it is a schema, it has a consistency requirement the other keys do not:
 it must name exactly the columns the file holds. Any code that changes the field
