@@ -62,11 +62,14 @@
 # fix trades false negatives for false positives on correct writing. A non-blocking rule that flags
 # correct prose is worse than one that misses cases, because it teaches people to ignore it.
 #
-# Accepted as a known gap. The message below says what is actually checked rather than claiming an
-# expansion was found. Reopen only with a mechanism that handles those three cases.
+# Accepted as a known gap. The message below now says what is actually checked, that no
+# parenthesised form appears anywhere in the file, rather than claiming nothing was expanded, which
+# is the thing this rule cannot tell. Issue 272 said the message had already been narrowed; it had
+# not, and repeating that without opening the file is how the wrong claim survived into this
+# comment. Reopen only with a mechanism that handles the two cases above.
 # See https://github.com/microbiomedata/nmdc-lakehouse/issues/272.
 extends: conditional
-message: "'%s' is never expanded here. Spell it out on first use, or add it to the vocabulary if it needs no expansion."
+message: "'%s' has no parenthesised form anywhere in this file. Expand it on first use, or add it to the vocabulary if it needs none."
 scope: text
 ignorecase: false
 first: '\b([A-Z]{3,6})\b'
