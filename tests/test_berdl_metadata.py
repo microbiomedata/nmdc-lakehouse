@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 from click.testing import CliRunner
+from pydantic import ValidationError
 
 from nmdc_lakehouse import berdl_metadata
 from nmdc_lakehouse.berdl_metadata import (
@@ -271,6 +272,18 @@ def test_apply_writes_only_the_columns_that_differ(tmp_path: Path) -> None:
     # description is there.
     assert outcome.targets[0].columns_verified == ["collection_date", "id"]
     assert outcome.targets[0].columns_already_correct == ["id"]
+
+
+def test_a_column_description_without_a_column_cannot_be_built() -> None:
+    """Where the completeness check actually lives, tested on the input it must reject.
+
+    `MetadataOperation` validates this, so an incomplete operation cannot reach the application
+    step through any ordinary path. The matching check in `_description_operations` is a second
+    line for a model built without validation, not the primary guard, and this test names which
+    one is which so a later reader does not mistake the fallback for the enforcement.
+    """
+    with pytest.raises(ValidationError, match="require table and column targets"):
+        _operation(MetadataOperationKind.COLUMN_DESCRIPTION, "Nameless", table="biosample_set")
 
 
 def test_a_skipped_table_description_is_still_read_back(tmp_path: Path) -> None:

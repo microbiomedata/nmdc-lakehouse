@@ -106,9 +106,15 @@ def _read_model(path: Path, model: type[BaseModel], label: str) -> tuple[BaseMod
 
 def _description_operations(
     plan: MetadataApplicationPlan,
-) -> tuple[dict[str, MetadataOperation], dict[str, list[MetadataOperation]], int]:
+) -> tuple[dict[str, MetadataOperation], dict[str, list[tuple[str, str]]], int]:
+    """Split the plan into table and column descriptions, with incomplete targets rejected here.
+
+    Column descriptions come back as (column, description) pairs rather than operations, so the
+    completeness check lives in exactly one place and callers do not have to re-narrow a
+    nullable column name that this function has already refused to pass on.
+    """
     table_operations: dict[str, MetadataOperation] = {}
-    column_operations: dict[str, list[MetadataOperation]] = defaultdict(list)
+    column_operations: dict[str, list[tuple[str, str]]] = defaultdict(list)
     deferred = 0
     for operation in plan.supported_operations:
         if operation.kind == MetadataOperationKind.TABLE_DESCRIPTION:
@@ -116,9 +122,11 @@ def _description_operations(
                 raise BerdlMetadataError("A table-description operation has no table target.")
             table_operations[operation.table] = operation
         elif operation.kind == MetadataOperationKind.COLUMN_DESCRIPTION:
+            # MetadataOperation already validates this, so this is a second line for a model built
+            # without validation rather than the primary guard.
             if operation.table is None or operation.column is None:
                 raise BerdlMetadataError("A column-description operation has an incomplete target.")
-            column_operations[operation.table].append(operation)
+            column_operations[operation.table].append((operation.column, operation.value))
         else:
             deferred += 1
     return table_operations, column_operations, deferred
@@ -307,16 +315,10 @@ def apply_berdl_staging_metadata(
             # that already carries its planned description is worth a read to avoid a write. On a
             # rerun after a partial failure this is the difference between re-describing the whole
             # table and finishing the part that is left. See #258.
-            named = []
-            for item in operations:
-                if item.column is None:
-                    # A column operation without a column name cannot be applied or verified.
-                    raise BerdlMetadataError(f"A column description for '{table}' names no column.")
-                named.append((item.column, item.value))
             current = _read_column_descriptions(spark, full_table)
-            pending = [(column, value) for column, value in named if current.get(column) != value]
+            pending = [(column, value) for column, value in operations if current.get(column) != value]
             pending_columns = {column for column, _ in pending}
-            already_correct = sorted(column for column, _ in named if column not in pending_columns)
+            already_correct = sorted(column for column, _ in operations if column not in pending_columns)
             if pending:
                 progress(
                     f"[{index}/{len(plan.tables)}] {table}: applying "
@@ -339,7 +341,7 @@ def apply_berdl_staging_metadata(
             # Read back and verify every planned column, not only the ones written. Skipping a write
             # must not skip the check that the description is actually there.
             observed_columns = _read_column_descriptions(spark, full_table)
-            for column, value in named:
+            for column, value in operations:
                 if observed_columns.get(column) != value:
                     raise BerdlMetadataError(f"The column description read-back failed for '{table}.{column}'.")
                 verified_columns.append(column)
