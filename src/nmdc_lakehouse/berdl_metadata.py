@@ -68,6 +68,9 @@ class AppliedMetadataTarget(BaseModel):
     table: str
     table_description_status: Literal["verified", "not-planned"]
     columns_verified: list[str]
+    # Verified by read-back but not written on this run, because the catalog already held the
+    # planned description. Defaulted so outcomes written before this field remain readable.
+    columns_already_correct: list[str] = []
 
 
 class BerdlMetadataOutcome(BaseModel):
@@ -280,32 +283,60 @@ def apply_berdl_staging_metadata(
         table_operation = table_operations.get(table)
         table_status: Literal["verified", "not-planned"] = "not-planned"
         if table_operation is not None:
-            report = apply_table_comment(spark, full_table, table_operation.value, require_existing_table=True)
-            if report.get("status") != "success":
-                raise BerdlMetadataError(f"The table description failed for '{table}'.")
-            if _read_table_description(spark, full_table) != table_operation.value:
-                raise BerdlMetadataError(f"The table description read-back failed for '{table}'.")
-            table_status = "verified"
+            if _read_table_description(spark, full_table) == table_operation.value:
+                # Already correct, so writing it again would cost a catalog commit for no change.
+                table_status = "verified"
+            else:
+                report = apply_table_comment(spark, full_table, table_operation.value, require_existing_table=True)
+                if report.get("status") != "success":
+                    raise BerdlMetadataError(f"The table description failed for '{table}'.")
+                if _read_table_description(spark, full_table) != table_operation.value:
+                    raise BerdlMetadataError(f"The table description read-back failed for '{table}'.")
+                table_status = "verified"
         operations = column_operations[table]
         verified_columns: list[str] = []
+        already_correct: list[str] = []
         if operations:
-            progress(f"[{index}/{len(plan.tables)}] {table}: applying {_plural(len(operations), 'column description')}")
-            report = apply_column_comments(
-                spark,
-                full_table,
-                [{"column": item.column, "comment": item.value} for item in operations],
-                require_existing_table=True,
-            )
-            if report.get("status") != "success":
-                raise BerdlMetadataError(f"Column descriptions failed for '{table}'.")
+            # Each ALTER is one catalog commit that rewrites the whole schema document, so a column
+            # that already carries its planned description is worth a read to avoid a write. On a
+            # rerun after a partial failure this is the difference between re-describing the whole
+            # table and finishing the part that is left. See #258.
+            named = []
+            for item in operations:
+                if item.column is None:
+                    # A column operation without a column name cannot be applied or verified.
+                    raise BerdlMetadataError(f"A column description for '{table}' names no column.")
+                named.append((item.column, item.value))
+            current = _read_column_descriptions(spark, full_table)
+            pending = [(column, value) for column, value in named if current.get(column) != value]
+            pending_columns = {column for column, _ in pending}
+            already_correct = sorted(column for column, _ in named if column not in pending_columns)
+            if pending:
+                progress(
+                    f"[{index}/{len(plan.tables)}] {table}: applying "
+                    f"{_plural(len(pending), 'column description')}"
+                    + (f", {len(already_correct)} already correct" if already_correct else "")
+                )
+                report = apply_column_comments(
+                    spark,
+                    full_table,
+                    [{"column": column, "comment": value} for column, value in pending],
+                    require_existing_table=True,
+                )
+                if report.get("status") != "success":
+                    raise BerdlMetadataError(f"Column descriptions failed for '{table}'.")
+            else:
+                progress(
+                    f"[{index}/{len(plan.tables)}] {table}: "
+                    f"{_plural(len(already_correct), 'column description')} already correct, nothing to write"
+                )
+            # Read back and verify every planned column, not only the ones written. Skipping a write
+            # must not skip the check that the description is actually there.
             observed_columns = _read_column_descriptions(spark, full_table)
-            for operation in operations:
-                assert operation.column is not None
-                if observed_columns.get(operation.column) != operation.value:
-                    raise BerdlMetadataError(
-                        f"The column description read-back failed for '{table}.{operation.column}'."
-                    )
-                verified_columns.append(operation.column)
+            for column, value in named:
+                if observed_columns.get(column) != value:
+                    raise BerdlMetadataError(f"The column description read-back failed for '{table}.{column}'.")
+                verified_columns.append(column)
         applied_columns += len(verified_columns)
         elapsed = time.monotonic() - started
         remaining = planned_columns - applied_columns
@@ -320,6 +351,7 @@ def apply_berdl_staging_metadata(
                 table=table,
                 table_description_status=table_status,
                 columns_verified=sorted(verified_columns),
+                columns_already_correct=already_correct,
             )
         )
     return BerdlMetadataOutcome(
