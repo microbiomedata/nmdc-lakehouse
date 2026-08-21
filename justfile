@@ -116,20 +116,31 @@ prose-lint:
 # Assert that prose-lint's alert level cannot block a commit, and that errors still do.
 # Guards the invariant documented on prose-lint above. Runs offline, touches no tracked file.
 #
-# THE WARNING-ONLY FIXTURE'S TOKEN MUST STAY ALL-CAPS. Vale's speller skips an all-caps word as
-# an acronym, so `ZZZZZ` produces a warning from Mark.Undefined and nothing else. Measured
-# 2026-08-20: `ZZZZZ` exits 0 with one warning, while `zzzzz` and `Zzzzz` each exit 1 with one
-# `Vale.Spelling` error. Rewriting that token to something more readable therefore turns this
-# test into a failing one, for a reason the assertion would not explain. The exit codes are
-# measured; which speller rule skips acronyms is not, so do not rely on the mechanism beyond
-# "all-caps is skipped". Raised in review on
+# THE WARNING-ONLY FIXTURE DEPENDS ON TWO RULES, AND ON A CAPITALISATION. Both are deliberate.
+#
+# It uses Mark.BareRefWord and Mark.Undefined, chosen because both sit at warning in .vale.ini
+# with no promotion planned beside either. It deliberately does NOT use Mark.EmDash, which is at
+# warning only until its backlog is cleared: promoting it, tracked in
+# https://github.com/microbiomedata/nmdc-lakehouse/issues/264, would make this test fail while
+# the contract it asserts stayed true, and whoever hit it would have to work out that the fixture
+# rather than the behaviour had changed. Do not put an em dash back in.
+#
+# The token must stay ALL-CAPS. Vale's speller skips an all-caps word as an acronym, so `ZZZZZ`
+# yields a warning from Mark.Undefined and nothing else. Measured 2026-08-20: `ZZZZZ` exits 0
+# with one warning, while `zzzzz` and `Zzzzz` each exit 1 with a `Vale.Spelling` error. The exit
+# codes are measured; which speller rule does the skipping is not, so do not rely on the
+# mechanism beyond "all-caps is skipped". The first assertion's failure message says this too,
+# because it appears exactly when someone needs it.
+#
+# Two independent warning-severity signals rather than one, so a change to either rule leaves the
+# test still asserting something. Raised in review on
 # https://github.com/microbiomedata/nmdc-lakehouse/pull/265.
 test-prose-lint-exit:
     #!/usr/bin/env bash
     set -euo pipefail
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
     mkdir -p "$tmp/home"
-    printf '# t\n\nAlpha \xe2\x80\x94 beta and a ZZZZZ term.\n' > "$tmp/warn.md"
+    printf '# t\n\nSee issue 3366 for the ZZZZZ term.\n' > "$tmp/warn.md"
     printf '# t\n\nWe leverage a robust design.\n' > "$tmp/err.md"
     rc=0; HOME="$tmp/home" vale --config=.vale.ini --minAlertLevel=suggestion "$tmp/warn.md" >/dev/null 2>&1 || rc=$?
     [ "$rc" -eq 0 ] || { echo "prose-lint would block on a warning; exit was $rc."; \
