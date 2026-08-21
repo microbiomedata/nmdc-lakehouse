@@ -284,8 +284,8 @@ all.
 
 **A Spark write to a local path leaves no usable data on the pod filesystem.** The
 write itself does not fail, and Spark does not drop it: in a cluster each executor
-resolves the path against its own filesystem and writes its partition there. All
-the driver's directory receives are the marker files. So the data may exist,
+resolves the path against its own filesystem and writes its partition there. The
+driver's directory receives only the marker files. So the data may exist,
 scattered across executor filesystems you cannot reach, which is not a backup:
 
 ```python
@@ -334,8 +334,8 @@ test "$missing" -eq 0
 du -sh /path/to/export/*   # a coarse look only; a directory and its markers also consume blocks
 ```
 
-Run against a complete export, one that produced only markers, and one where a
-single table failed, that reports:
+When run against a complete export, one that produced only markers, and one where
+a single table failed, it reports:
 
 ```
 good   exit=0
