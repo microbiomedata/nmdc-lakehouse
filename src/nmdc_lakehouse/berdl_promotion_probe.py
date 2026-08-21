@@ -133,7 +133,10 @@ class ProbeEnvironment(BaseModel):
     spark_version: str | None
     catalog_implementation: str | None
     spark_sql_extensions: str | None
-    current_principal_present: bool
+    # Tri-state on purpose: True means a principal was reported, False means the query returned
+    # nothing, and None means it could not be read. Collapsing the last two into False would
+    # reintroduce inside the payload the ambiguity this module exists to remove.
+    current_principal_present: bool | None
 
 
 class ProbeOutcome(BaseModel):
@@ -402,12 +405,14 @@ def _environment(spark: Any) -> tuple[ProbeEnvironment, list[str]]:
     catalog_impl = _safe("catalog_implementation", lambda: _setting(spark, "spark.sql.catalogImplementation"))
     extensions = _safe("spark_sql_extensions", lambda: _setting(spark, "spark.sql.extensions"))
     # Named for the field it populates, so an unresolved question can be correlated with the payload.
+    unreadable_before_principal = len(unreadable)
     principal = _safe("current_principal_present", lambda: _scalar(spark, "SELECT current_user()"))
+    principal_unreadable = len(unreadable) > unreadable_before_principal
     environment = ProbeEnvironment(
         spark_version=str(version) if version is not None else None,
         catalog_implementation=str(catalog_impl) if catalog_impl is not None else None,
         spark_sql_extensions=str(extensions) if extensions is not None else None,
-        current_principal_present=principal is not None,
+        current_principal_present=None if principal_unreadable else principal is not None,
     )
     return environment, unreadable
 

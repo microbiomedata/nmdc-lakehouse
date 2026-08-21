@@ -852,3 +852,34 @@ def test_unreadable_environment_names_match_the_output_model() -> None:
     assert environment.spark_version is not None
     for name in unreadable:
         assert name in ProbeEnvironment.model_fields, f"{name} is not a field of ProbeEnvironment"
+
+
+def test_an_unreadable_principal_is_null_not_false() -> None:
+    """False must mean the query returned nothing, not that it could not be run."""
+    from nmdc_lakehouse.berdl_promotion_probe import _environment
+
+    class NoPrincipal(FakeSpark):
+        def sql(self, statement: str):
+            if statement.startswith("SELECT current_user()"):
+                raise RuntimeError("INSUFFICIENT_PRIVILEGES")
+            return super().sql(statement)
+
+    environment, unreadable = _environment(NoPrincipal())
+
+    assert environment.current_principal_present is None
+    assert "current_principal_present" in unreadable
+
+
+def test_a_readable_but_empty_principal_is_false_not_null() -> None:
+    from nmdc_lakehouse.berdl_promotion_probe import _environment
+
+    class EmptyPrincipal(FakeSpark):
+        def _answer(self, statement: str):
+            if statement.startswith("SELECT current_user()"):
+                return []
+            return super()._answer(statement)
+
+    environment, unreadable = _environment(EmptyPrincipal())
+
+    assert environment.current_principal_present is False
+    assert "current_principal_present" not in unreadable

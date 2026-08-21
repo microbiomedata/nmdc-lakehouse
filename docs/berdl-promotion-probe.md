@@ -92,6 +92,11 @@ unset, a retention property that is present but not an integer is
 `EXPLAIN` is recorded as no plan having been produced rather than as `EXPLAIN`
 being unsupported.
 
+`current_principal_present` is tri-state for the same reason: `true` means a
+principal was reported, `false` means the query returned nothing, and `null`
+means it could not be read. A payload that answered `false` in the last two
+cases would carry the ambiguity the rest of the report exists to remove.
+
 A call that returns without error is not evidence that it did anything, so
 recovery is checked by reading the table back and comparing row counts, and the
 injected failure is checked by confirming the destination table it targeted does
