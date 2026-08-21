@@ -276,6 +276,73 @@ upload failed with a broken pipe. If a large archive fails partway, split it, up
 the parts, reassemble in the pod, and verify the digest of the reassembled archive
 before extracting.
 
+## Getting table data back out, and the trap that eats it
+
+The direction above is workstation to pod. Going the other way, off the platform,
+has a failure that is worse than the macOS one, because it produces no error at
+all.
+
+**A Spark write to a local path leaves no usable data on the pod filesystem.** The
+write itself does not fail, and Spark does not drop it: in a cluster each executor
+resolves the path against its own filesystem and writes its partition there. The
+driver's directory receives only the marker files. So the data may exist,
+scattered across executor filesystems you cannot reach, which is not a backup:
+
+```python
+df.write.parquet("/home/<user>/backup/table.parquet")   # succeeds; nothing usable lands here
+```
+
+Observed on 2026-08-20 while exporting `nmdc.results`. The script printed a
+completed line and a correct row count for every table, and every output directory
+held 55 bytes. Seven directories, no data.
+
+That is dangerous for a backup specifically, because what a failed backup leaves
+behind is a set of plausible-looking directories with the right names. Anyone who
+then deletes the source has lost it.
+
+**Write to object storage instead**, which every executor can reach, using a
+prefix that carries a timestamp so a rerun cannot overwrite an earlier one:
+
+```python
+prefix = "exports/20260821T204900-results-backup"   # unique per run, not per day
+df.write.parquet(f"s3a://cdm-lake/tenant-general-warehouse/nmdc/{prefix}/annotation_enzyme_commission.parquet")
+```
+
+**Then verify the destination holds data, not that the command returned.** The row
+counts the writing job prints say nothing about where the bytes went, and in the
+2026-08-20 run every one of them was correct. List the object store and check the
+tables you exported by name, so one that produced nothing at all is noticed
+rather than skipped, and make the check fail rather than only print.
+
+What a written table looks like here is worth checking before writing a check
+against it. Listing the tenant on 2026-08-21 shows single Parquet objects rather
+than the single output directory of `part-*` files a default Spark write produces:
+
+```
+30GiB   datasets/results/annotation_enzyme_commission.parquet
+46GiB   datasets/results/annotation_kegg_orthology.parquet
+2.8MiB  staging/20260820/biosample_set.parquet
+```
+
+There are no `part-` objects anywhere under `datasets/results/`. A verification
+written around `part-*` would therefore report every existing table as a failed
+export. Confirm the shape your own write produces before trusting a check on it.
+
+**Moving the data anywhere else is not documented here, deliberately.** The
+transfer mechanics live in the historical transport section below, which needs
+the SOCKS tunnels and a workstation `mc`, and the maintained path has neither, as
+stated at the top of this document. The two largest tables are not viable to move
+to a workstation in any case: `annotation_kegg_orthology` is 1,831,998,811 rows
+and `annotation_enzyme_commission` is 1,231,453,377. A driver-side `collect` is
+decided by the same figures, and is viable for `annotation_statistics` at 4,815
+rows.
+
+A complete, tested export procedure needs someone to perform one. Until then this
+section records the trap and the rule, which are what cost a day on 2026-08-20,
+rather than a runbook nobody has executed.
+
+See [#250](https://github.com/microbiomedata/nmdc-lakehouse/issues/250).
+
 ## Preview and execute verified data staging
 
 Generate the plan and run its preview and execution in the same BERDL
