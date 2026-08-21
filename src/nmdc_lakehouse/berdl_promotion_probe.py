@@ -615,15 +615,18 @@ def run_promotion_probe(
                     )
                 elif recovered is None:
                     unresolved.append(
-                        "The rollback call reported success but the table's state could not be read back, so "
-                        "whether the recovery operation worked is unknown."
+                        f"The rollback call reported success but the state of table '{first}' in "
+                        f"{plan.destination_namespace} could not be read back, so whether the recovery "
+                        "operation worked is unknown."
                     )
                 else:
                     rollback.independently_verified = recovered.row_count == promoted.row_count
                     if not rollback.independently_verified:
                         unresolved.append(
-                            "The rollback call reported success but the table did not return to its "
-                            "pre-mutation row count, so the recovery operation cannot be relied on."
+                            f"The rollback call reported success but table '{first}' in "
+                            f"{plan.destination_namespace} did not return to its pre-mutation row count "
+                            f"({recovered.row_count} rather than {promoted.row_count}), so the recovery "
+                            "operation cannot be relied on."
                         )
             steps.append(rollback)
             steps.append(

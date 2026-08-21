@@ -439,6 +439,49 @@ def test_a_rollback_whose_state_cannot_be_read_back_is_unknown_not_unverified() 
     assert not any("did not return to its pre-mutation" in q for q in outcome.unresolved_questions)
 
 
+def test_every_rollback_outcome_names_the_table_and_namespace() -> None:
+    """Three outcomes, three messages; a report with several probe tables needs all of them named."""
+
+    class Destroying(FakeSpark):
+        def _answer(self, statement: str):
+            if statement.startswith("CALL ") and "rollback_to_snapshot" in statement:
+                table, _ = _call_arguments(statement)
+                self._require(table)
+                self.tables.pop(table, None)
+                self.snapshots.pop(table, None)
+                return []
+            return super()._answer(statement)
+
+    class Blind(FakeSpark):
+        rolled_back = False
+
+        def sql(self, statement: str):
+            if self.rolled_back and statement.startswith("SHOW TABLES IN"):
+                self.statements.append(statement)
+                raise RuntimeError("INSUFFICIENT_PRIVILEGES: cannot list namespace")
+            return super().sql(statement)
+
+        def _answer(self, statement: str):
+            result = super()._answer(statement)
+            if statement.startswith("CALL ") and "rollback_to_snapshot" in statement:
+                self.rolled_back = True
+            return result
+
+    class WrongCount(FakeSpark):
+        def _answer(self, statement: str):
+            if statement.startswith("CALL ") and "rollback_to_snapshot" in statement:
+                return []
+            return super()._answer(statement)
+
+    for label, spark in (("destroyed", Destroying()), ("unreadable", Blind()), ("wrong count", WrongCount())):
+        outcome = _run(spark)
+        rollback_questions = [q for q in outcome.unresolved_questions if "rollback call reported success" in q]
+        assert rollback_questions, f"{label}: no rollback question was recorded"
+        for question in rollback_questions:
+            assert "probe_first" in question, f"{label}: message does not name the table: {question}"
+            assert DESTINATION in question, f"{label}: message does not name the namespace: {question}"
+
+
 def test_the_rollback_check_lists_the_namespace_once() -> None:
     """The tri-state is already in hand; listing again costs a round-trip and double-logs. #279."""
     spark = FakeSpark()
