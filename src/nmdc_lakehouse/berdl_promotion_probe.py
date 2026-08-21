@@ -596,9 +596,16 @@ def run_promotion_probe(
             )
             if rollback.verdict is ProbeVerdict.SUPPORTED:
                 # _observed_state collapses three situations into None, and one of them is a
-                # destroyed table. Ask the tri-state directly before deciding what to report.
+                # destroyed table. Ask the tri-state directly, then read the state only when the
+                # table is actually there. Calling _observed_state here as well would list the
+                # namespace a second time and report the same permission failure twice.
                 present_after = _table_exists(spark, plan.destination_namespace, first)
-                recovered = _observed_state(spark, plan.destination_namespace, first)
+                recovered: TableState | None = None
+                if present_after is True:
+                    try:
+                        recovered = _table_state(spark, plan.destination_namespace, first)
+                    except Exception:
+                        recovered = None
                 if present_after is False:
                     rollback.verdict = ProbeVerdict.UNCLASSIFIED_FAILURE
                     rollback.independently_verified = False

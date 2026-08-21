@@ -439,6 +439,25 @@ def test_a_rollback_whose_state_cannot_be_read_back_is_unknown_not_unverified() 
     assert not any("did not return to its pre-mutation" in q for q in outcome.unresolved_questions)
 
 
+def test_the_rollback_check_lists_the_namespace_once() -> None:
+    """The tri-state is already in hand; listing again costs a round-trip and double-logs. #279."""
+    spark = FakeSpark()
+    _run(spark)
+
+    after_rollback = False
+    listings = 0
+    for statement in spark.statements:
+        if statement.startswith("CALL ") and "rollback_to_snapshot" in statement:
+            after_rollback = True
+            continue
+        if statement.startswith("CALL ") and "set_current_snapshot" in statement:
+            break
+        if after_rollback and statement.startswith("SHOW TABLES IN") and "probe_first" in statement:
+            listings += 1
+
+    assert listings == 1, f"the rollback read-back listed the namespace {listings} times"
+
+
 def test_a_table_destroyed_by_rollback_is_not_reported_as_merely_unreadable() -> None:
     """A table gone after a successful rollback is a destroyed table, not an unknown; #279."""
 
