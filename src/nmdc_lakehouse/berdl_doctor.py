@@ -114,7 +114,8 @@ def _ingest_environment_checks(checkout: Path | None, runner: CommandRunner) -> 
                 status=CheckStatus.SKIP,
                 summary="No BERIL checkout supplied, so its dedicated environment was not checked.",
                 remediation=(
-                    "Only the historical transport needs that environment. Pass --beril-checkout to check it."
+                    "Only the historical transport needs that environment. Pass --beril-checkout, or "
+                    "set BERIL_CHECKOUT, to check it."
                 ),
             )
         ]

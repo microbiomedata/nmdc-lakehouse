@@ -102,3 +102,18 @@ def test_berdl_doctor_cli_forwards_paths_and_service_checks(monkeypatch):
     assert str(captured["snapshot_root"]) == "snapshot"
     assert str(captured["checkout"]) == "beril"
     assert captured["service_checks"] == ("berdl-proxy",)
+
+
+def test_berdl_doctor_runs_without_a_beril_checkout(tmp_path, monkeypatch) -> None:
+    """The bug was `required=True` on the CLI option, so the regression test belongs at the CLI.
+
+    The library already accepted `checkout=None`, so a library-level test would not have caught
+    the original bug and would not catch someone reinstating the flag. Click exits 2 on a usage
+    error, which is what this asserts against. See #267.
+    """
+    monkeypatch.delenv("BERIL_CHECKOUT", raising=False)
+
+    result = CliRunner().invoke(cli, ["berdl-doctor", str(tmp_path / "no-such-snapshot")])
+
+    assert "Missing option" not in result.output
+    assert result.exit_code != 2, "exit 2 is Click's usage error, which is the bug this closes"
