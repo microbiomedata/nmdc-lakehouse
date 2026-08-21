@@ -276,6 +276,56 @@ upload failed with a broken pipe. If a large archive fails partway, split it, up
 the parts, reassemble in the pod, and verify the digest of the reassembled archive
 before extracting.
 
+## Getting table data back out, and the trap that eats it
+
+The direction above is workstation to pod. Going the other way, off the platform,
+has a failure that is worse than the macOS one, because it produces no error at
+all.
+
+**A Spark write to a local path in the pod produces no data.** In a cluster the
+write runs on executors, which resolve the path against their own filesystems, so
+the driver's directory receives only success markers:
+
+```python
+df.write.parquet("/home/<user>/backup/table.parquet")   # reports success, writes nothing usable
+```
+
+Observed on 2026-08-20 while exporting `nmdc.results`. The script printed a
+completed line and a correct row count for every table, and every output directory
+held 55 bytes. Seven directories, no data.
+
+That is dangerous for a backup specifically, because what a failed backup leaves
+behind is a set of plausible-looking directories with the right names. Anyone who
+then deletes the source has lost it.
+
+**Write to object storage instead**, which every executor can reach, and copy down
+from there:
+
+```python
+df.write.parquet("s3a://cdm-lake/tenant-general-warehouse/nmdc/<prefix>/table.parquet")
+```
+
+A small table can be brought to the driver first, but only when it genuinely fits
+in driver memory. `nmdc.results` does not: its largest table alone is
+1,231,453,377 rows, measured during the 2026-08-20 export.
+
+**End every export by checking the destination holds data, not that the command
+returned.** Row counts printed by the writing job say nothing about where the bytes
+went, and in the 2026-08-20 run they were all correct:
+
+```bash
+du -sh /path/to/export/*        # bytes present, not just directories
+find /path/to/export -name '*.parquet' -size +1k | head
+```
+
+For an object-store destination, list it and compare against what was written:
+
+```bash
+mc ls --recursive berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/<prefix>/
+```
+
+See [#250](https://github.com/microbiomedata/nmdc-lakehouse/issues/250).
+
 ## Preview and execute verified data staging
 
 Generate the plan and run its preview and execution in the same BERDL
