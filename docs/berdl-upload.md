@@ -40,10 +40,11 @@ capability probe both ran successfully. See
 [#244](https://github.com/microbiomedata/nmdc-lakehouse/issues/244).
 
 Nothing checks that the bucket accepts writes, not from the workstation and not
-anywhere else in this repository. `berdl-doctor` checks only that an `mc` binary
-exists and reports a version; it never contacts a bucket. Write access is
-established by the staging run itself, which writes to the bronze prefix from
-inside the pod where the object store is local. If a run fails on a write, that is the first signal, so keep
+anywhere else in this repository. `berdl-doctor` does several things, but none of
+them contact an object store: its `mc` check confirms the binary is present and
+reports a version, and stops there. Write access is established by the staging run
+itself, which writes to the bronze prefix from inside the pod where the object store
+is local. If a run fails on a write, that is the first signal, so keep
 the reviewed bronze prefix inside the tenant staging area where the pod's session
 is expected to have write access.
 
@@ -232,7 +233,7 @@ find /path/to/completed-snapshot -name '._*' -delete
 After that deletion the same snapshot validated with an identical digest, which
 confirmed the Parquet bytes themselves had transferred correctly. Naming the
 offending paths in the error is a separate behavior change, tracked in
-[#246](https://github.com/microbiomedata/nmdc-lakehouse/issues/246).
+[#270](https://github.com/microbiomedata/nmdc-lakehouse/issues/270).
 
 **Validate in the pod, before planning:**
 
