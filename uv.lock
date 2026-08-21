@@ -1591,6 +1591,7 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "deptry" },
+    { name = "diff-cover" },
     { name = "mongomock" },
     { name = "mypy" },
     { name = "pre-commit" },
@@ -1606,15 +1607,11 @@ docs = [
     { name = "mkdocstrings", extra = ["python"] },
 ]
 
-[package.dev-dependencies]
-dev = [
-    { name = "diff-cover" },
-]
-
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1" },
     { name = "deptry", marker = "extra == 'dev'", specifier = ">=0.25.1" },
+    { name = "diff-cover", marker = "extra == 'dev'", specifier = ">=9.6" },
     { name = "duckdb", specifier = ">=1.5.5" },
     { name = "linkml", specifier = ">=1.11.1" },
     { name = "linkml-runtime", specifier = ">=1.11.1" },
@@ -1647,9 +1644,6 @@ requires-dist = [
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.12.20260408" },
 ]
 provides-extras = ["dev", "docs"]
-
-[package.metadata.requires-dev]
-dev = [{ name = "diff-cover", specifier = ">=9.6" }]
 
 [[package]]
 name = "nmdc-schema"

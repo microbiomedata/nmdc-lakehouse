@@ -21,7 +21,9 @@ jobs:
         with:
           persist-credentials: false
           # The changed-line coverage gate diffs against the base branch, which a
-          # shallow clone does not contain.
+          # shallow clone does not contain. Depth 0 fetches with
+          # +refs/heads/*:refs/remotes/origin/*, so the base is already a local
+          # remote-tracking ref and the gate needs no second, unauthenticated fetch.
           fetch-depth: 0
 
       - name: Install uv
@@ -84,9 +86,7 @@ jobs:
         run: test -s coverage.xml
 
       - name: Gate changed lines on coverage
-        run: |
-          git fetch --no-tags origin "${GITHUB_BASE_REF:-main}"
-          just diff-cover "origin/${GITHUB_BASE_REF:-main}"
+        run: just diff-cover "origin/${GITHUB_BASE_REF:-main}"
 
       - name: Upload coverage report
         if: ${{ !cancelled() && hashFiles('coverage.xml') != '' }}
