@@ -115,6 +115,15 @@ prose-lint:
 
 # Assert that prose-lint's alert level cannot block a commit, and that errors still do.
 # Guards the invariant documented on prose-lint above. Runs offline, touches no tracked file.
+#
+# THE WARNING-ONLY FIXTURE'S TOKEN MUST STAY ALL-CAPS. Vale's speller skips an all-caps word as
+# an acronym, so `ZZZZZ` produces a warning from Mark.Undefined and nothing else. Measured
+# 2026-08-20: `ZZZZZ` exits 0 with one warning, while `zzzzz` and `Zzzzz` each exit 1 with one
+# `Vale.Spelling` error. Rewriting that token to something more readable therefore turns this
+# test into a failing one, for a reason the assertion would not explain. The exit codes are
+# measured; which speller rule skips acronyms is not, so do not rely on the mechanism beyond
+# "all-caps is skipped". Raised in review on
+# https://github.com/microbiomedata/nmdc-lakehouse/pull/265.
 test-prose-lint-exit:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -123,7 +132,9 @@ test-prose-lint-exit:
     printf '# t\n\nAlpha \xe2\x80\x94 beta and a ZZZZZ term.\n' > "$tmp/warn.md"
     printf '# t\n\nWe leverage a robust design.\n' > "$tmp/err.md"
     rc=0; HOME="$tmp/home" vale --config=.vale.ini --minAlertLevel=suggestion "$tmp/warn.md" >/dev/null 2>&1 || rc=$?
-    [ "$rc" -eq 0 ] || { echo "prose-lint would block on a warning; exit was $rc"; exit 1; }
+    [ "$rc" -eq 0 ] || { echo "prose-lint would block on a warning; exit was $rc."; \
+        echo "If the warn fixture's token was edited, check it is still ALL-CAPS: the speller"; \
+        echo "skips all-caps as an acronym, and any other casing is a Vale.Spelling error."; exit 1; }
     rc=0; HOME="$tmp/home" vale --config=.vale.ini --minAlertLevel=suggestion "$tmp/err.md" >/dev/null 2>&1 || rc=$?
     [ "$rc" -ne 0 ] || { echo "prose-lint did NOT block on an error; the gate is inert"; exit 1; }
     echo "prose-lint exit contract holds: warnings pass, errors fail"
