@@ -7,9 +7,9 @@
 # "ACRONYM appears" implies "(ACRONYM) appears", which is what an expansion on
 # first use looks like.
 #
-# Anything in a vocabulary accept.txt is exempt automatically. Verified against
+# Anything in the NMDC vocabulary is exempt automatically. Verified against
 # Vale 3.17.1 on 2026-08-20: BERDL and LinkML never fire because they are listed
-# in Mark/accept.txt. Use that for a project term that genuinely needs no
+# in .github/styles/config/vocabularies/NMDC/accept.txt. Use that for a project term that genuinely needs no
 # expansion. Use the list below only for vocabulary any reader here already has.
 #
 # EVERY EXCEPTION IS QUOTED ON PURPOSE. Vale's YAML parser reads a bare NULL as
@@ -25,12 +25,16 @@
 # acronym from a shouted word or a SQL keyword, and the list below is
 # necessarily incomplete.
 #
-# Run bash ~/bin/tests/vale-rules-tests.sh after editing. A conditional rule
-# that silently stops matching still reports a clean pass, which is worse than
-# having no rule, because it looks like evidence.
+# Run `just prose-lint` after editing, and check the rule still reports what you
+# expect on a file you know violates it. A conditional rule that silently stops
+# matching still reports a clean pass, which is worse than having no rule,
+# because it looks like evidence.
+# Severity is NOT set here. It is set per rule in .vale.ini, which is this repository's
+# policy and the single place to change it. A `level:` key in this file would duplicate that
+# and drift from it. Flagged by Copilot on
+# https://github.com/microbiomedata/nmdc-lakehouse/pull/265.
 extends: conditional
 message: "'%s' is never expanded here. Spell it out on first use, or add it to the vocabulary if it needs no expansion."
-level: warning
 scope: text
 ignorecase: false
 first: '\b([A-Z]{3,6})\b'

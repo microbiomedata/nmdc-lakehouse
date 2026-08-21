@@ -1,4 +1,4 @@
-# Enforces CLAUDE.md rule 8 for the form its sibling rule cannot see.
+# The same requirement, for the form its sibling rule cannot see.
 #
 # Mark/BareRef.yml matches '#\d{2,}' only. That misses the way these references are actually
 # written most of the time: "PR 3366", "issue 2950", "pull request 3230", with no hash at all.
@@ -13,9 +13,12 @@
 # The line-level URL exclusion is deliberately not attempted here. Go's RE2 has no lookahead, so
 # "PR 490 (https://...)" cannot be excluded by pattern alone. Scripts checking this should drop
 # any hit whose LINE already contains a URL, which is how the measurement above was taken.
+# Severity is NOT set here. It is set per rule in .vale.ini, which is this repository's
+# policy and the single place to change it. A `level:` key in this file would duplicate that
+# and drift from it. Flagged by Copilot on
+# https://github.com/microbiomedata/nmdc-lakehouse/pull/265.
 extends: existence
-message: "Bare reference '%s'. Rule 8 wants the full URL and title, not a number the reader has to look up."
-level: warning
+message: "Bare reference '%s'. Use the full URL and title, not a number the reader has to look up."
 nonword: true
 tokens:
   - '\b(PR|Pull [Rr]equest|pull request|[Ii]ssue)s? \d{2,}\b'

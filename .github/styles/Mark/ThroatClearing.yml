@@ -1,6 +1,9 @@
+# Severity is NOT set here. It is set per rule in .vale.ini, which is this repository's
+# policy and the single place to change it. A `level:` key in this file would duplicate that
+# and drift from it. Flagged by Copilot on
+# https://github.com/microbiomedata/nmdc-lakehouse/pull/265.
 extends: existence
 message: "Throat-clearing opener: '%s'. Start with the point."
-level: error
 ignorecase: true
 tokens:
   - "here's the thing"
