@@ -237,10 +237,19 @@ def build_publication_inventory(
             raise
         except Exception as error:
             raise PublicationInventoryError(f"Cannot inventory destination table {table!r} completely.") from error
-        entries.append({"name": table, "rows": rows, "physical_schema_sha256": schema_hash})
+        # Recorded, not just checked. The comparison above proves this table matched the reviewed
+        # label; without keeping the value, the artifact cannot show that it was ever compared.
+        entries.append(
+            {
+                "name": table,
+                "rows": rows,
+                "physical_schema_sha256": schema_hash,
+                "observed_table_format": discovered_format,
+            }
+        )
 
     return {
-        "inventory_format_version": 1,
+        "inventory_format_version": 2,
         "destination_id": destination_id,
         "observed_at": observed_at or datetime.now(UTC).isoformat(),
         "provider": provider,

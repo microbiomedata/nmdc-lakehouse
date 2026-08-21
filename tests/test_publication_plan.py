@@ -213,9 +213,12 @@ def test_inventory_rejects_malformed_counts_and_schemas(tmp_path: Path, field: s
 
 
 def test_publication_json_schemas_are_versioned() -> None:
-    for document in ("inventory", "policy", "plan"):
+    # Asserted per document rather than as one number, because they version independently:
+    # the inventory moved to 2 when DestinationTable gained observed_table_format.
+    expected = {"inventory": 2, "policy": 1, "plan": 1}
+    for document, version in expected.items():
         schema = publication_json_schema(document)  # type: ignore[arg-type]
-        assert schema["x-format-version"] == 1
+        assert schema["x-format-version"] == version
         assert schema["additionalProperties"] is False
 
 
@@ -234,7 +237,8 @@ def test_cli_schema_and_invalid_candidate_are_offline(tmp_path: Path) -> None:
     )
 
     assert schema.exit_code == 0
-    assert json.loads(schema.output)["x-format-version"] == 1
+    # This asks for the inventory schema specifically, which is at version 2.
+    assert json.loads(schema.output)["x-format-version"] == 2
     assert invalid.exit_code != 0
     assert "Snapshot root must be an existing ordinary directory" in invalid.output
 
