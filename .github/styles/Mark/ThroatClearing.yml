@@ -1,0 +1,24 @@
+# Severity is NOT set here. It is set per rule in .vale.ini, which is this repository's
+# policy and the single place to change it. A `level:` key in this file would duplicate that
+# and drift from it. Flagged by Copilot on
+# https://github.com/microbiomedata/nmdc-lakehouse/pull/265.
+# The tokens are deliberately NOT anchored to the start of the file or paragraph. These
+# phrases are filler wherever they land: "it turns out" in the middle of a pull request body
+# is the same filler it is at the top. Anchoring would make the rule miss most real instances
+# in exchange for a more literal name, which is the worse trade.
+#
+# The message therefore says "Throat-clearing", not "Throat-clearing opener". It used to say
+# opener while matching anywhere, which is a promise the pattern does not keep. Flagged by
+# Copilot on https://github.com/microbiomedata/nmdc-lakehouse/pull/265.
+extends: existence
+message: "Throat-clearing: '%s'. Start with the point."
+ignorecase: true
+tokens:
+  - "here's the thing"
+  - "here's why this matters"
+  - 'the (truth|reality) is'
+  - 'it turns out'
+  - 'let me (be clear|walk you through)'
+  - 'at its core'
+  - "it's worth noting"
+  - 'at the end of the day'

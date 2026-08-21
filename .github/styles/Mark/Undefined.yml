@@ -1,0 +1,142 @@
+# Enforces the audience half of the issue and pull request rules: a reader who was
+# not there has to be able to resolve every term.
+#
+# Vale matches text that is present, and missing context is text that is absent,
+# which looks unreachable. The conditional extension is the way around it: if the
+# first pattern matches, the second must match somewhere in the same file. So
+# "ACRONYM appears" implies "(ACRONYM) appears", which is what an expansion on
+# first use looks like.
+#
+# Anything in the NMDC vocabulary is exempt automatically. Verified against Vale
+# 3.17.1 on 2026-08-20: BERDL matches the pattern and never fires, because it is
+# listed in .github/styles/config/vocabularies/NMDC/accept.txt. Use that file for a
+# project term that genuinely needs no expansion, and the list below only for
+# vocabulary any reader here already has.
+#
+# A mixed-case term such as LinkML is exempt for a different reason and is not
+# evidence about the vocabulary at all: [A-Z]{3,6} cannot match it in the first
+# place. An earlier version of this comment cited LinkML as a vocabulary exemption,
+# which attributed the wrong cause to a correct observation. Flagged by Copilot on
+# https://github.com/microbiomedata/nmdc-lakehouse/pull/265. If you need to know
+# whether the vocabulary is doing the work, test with an all-caps term.
+#
+# EVERY EXCEPTION IS QUOTED ON PURPOSE. Vale's YAML parser reads a bare NULL as
+# null rather than a string, which makes the whole exceptions list fail to
+# unmarshal, and Vale then drops the rule and reports a clean pass with no error
+# and no warning. That cost an hour on 2026-08-20 and produced two separate
+# "measured zero hits" results that were really "the rule was not running".
+# Bare TRUE, FALSE and YES happen to survive, because Go's parser treats only
+# lowercase as booleans, but quoting all of them removes the distinction as
+# something anyone has to remember.
+#
+# This rule is deliberately not blocking, because the all-caps pattern cannot tell an
+# acronym from a shouted word or a SQL keyword, and the list below is
+# necessarily incomplete.
+#
+# Run `just prose-lint` after editing, and check the rule still reports what you
+# expect on a file you know violates it. A conditional rule that silently stops
+# matching still reports a clean pass, which is worse than having no rule,
+# because it looks like evidence.
+# Severity is NOT set here. It is set per rule in .vale.ini, which is this repository's
+# policy and the single place to change it. A `level:` key in this file would duplicate that
+# and drift from it. Flagged by Copilot on
+# https://github.com/microbiomedata/nmdc-lakehouse/pull/265.
+extends: conditional
+message: "'%s' is never expanded here. Spell it out on first use, or add it to the vocabulary if it needs no expansion."
+scope: text
+ignorecase: false
+first: '\b([A-Z]{3,6})\b'
+second: '\(([A-Z]{3,6})\)'
+exceptions:
+  # Generic technical vocabulary. A reader in this field has these already, so
+  # demanding an expansion adds noise instead of reach. Project-specific terms
+  # deliberately stay out: those are the ones a new reader cannot resolve.
+  - 'API'
+  - 'AWS'
+  - 'CLI'
+  - 'CPU'
+  - 'CSS'
+  - 'CSV'
+  - 'DDNS'
+  - 'DNS'
+  - 'ETL'
+  - 'GCP'
+  - 'GPU'
+  - 'HTML'
+  - 'HTTP'
+  - 'HTTPS'
+  - 'IDE'
+  - 'ISO'
+  - 'JSON'
+  - 'JVM'
+  - 'JWT'
+  - 'LAN'
+  - 'MFA'
+  - 'PDF'
+  - 'PNG'
+  - 'RAM'
+  - 'REST'
+  - 'RFC'
+  - 'SDK'
+  - 'SHA'
+  - 'SOCKS'
+  - 'SQL'
+  - 'SSH'
+  - 'SSL'
+  - 'SSO'
+  - 'TLS'
+  - 'TSV'
+  - 'URI'
+  - 'URL'
+  - 'UTC'
+  - 'UUID'
+  - 'VPN'
+  - 'WAN'
+  - 'XML'
+  - 'YAML'
+  - 'HEAD'
+  - 'OTP'
+  - 'PEP'
+  - 'PID'
+  - 'README'
+  - 'TCP'
+  - 'WITH'
+  - 'BFS'
+  - 'CTE'
+  - 'DDL'
+  - 'DML'
+  - 'FTP'
+  - 'INFO'
+  - 'JOIN'
+  - 'MIT'
+  - 'WSL'
+  - 'LIMIT'
+  - 'NOW'
+  - 'OFFSET'
+  - 'TOTP'
+  # Words the all-caps pattern cannot tell from an acronym: English words used
+  # for emphasis, SQL keywords, and the state labels labctl prints.
+  - 'ALL'
+  - 'AND'
+  - 'ANY'
+  - 'ARRAY'
+  - 'CAN'
+  - 'DOWN'
+  - 'FALSE'
+  - 'FIX'
+  - 'FROM'
+  - 'GET'
+  - 'NEW'
+  - 'NOT'
+  - 'NOTE'
+  - 'NULL'
+  - 'OLD'
+  - 'PUT'
+  - 'RUN'
+  - 'SELECT'
+  - 'SET'
+  - 'TODO'
+  - 'TRUE'
+  - 'WARN'
+  - 'WHERE'
+  - 'YES'

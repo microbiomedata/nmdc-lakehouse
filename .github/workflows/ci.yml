@@ -45,11 +45,18 @@ jobs:
         uses: vale-cli/vale-action@85f9f7f2c5f449ac0ae5b66662961bae3f77ca6a # v2.1.2
         with:
           version: 3.17.1
-          files: '["README.md", "docs", "scripts/README.md", "notebooks"]'
+          # Same set as `just prose-lint`. They diverged, so CI never linted CONTRIBUTING.md,
+          # AGENTS.md or this repository's pull request template while a contributor's local
+          # run did, which is a gate that disagrees with itself.
+          files: '["README.md", "CONTRIBUTING.md", "AGENTS.md", ".github/pull_request_template.md", "docs", "scripts/README.md", "notebooks"]'
           vale_flags: "--glob=**/*.md"
           filter_mode: nofilter
           fail_on_error: true
-          level: error
+          # `level:` is deliberately absent. At this pinned SHA the action never reads it: it
+          # computes reviewdog's -level from Vale's own exit code. Passing `level: error` was
+          # inert, and its presence is what convinced two readers that a severity threshold
+          # existed. Confirmed from the logged invocation of a failing run, which shows
+          # -level=info while the input said error.
 
       - name: Bootstrap development environment
         run: just bootstrap
