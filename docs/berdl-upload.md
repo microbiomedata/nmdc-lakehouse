@@ -247,9 +247,9 @@ A clean run names the digest and the artifact count:
 Validated sha256:5022cb...a316c: 53 Parquet artifact(s).
 ```
 
-Compare that digest against the one recorded locally. They must match exactly. A digest that differs means the snapshot in the pod is not the snapshot
-that was reviewed, and everything bound to it downstream is bound to the wrong
-bytes.
+Compare that digest against the one recorded locally. They must match exactly. A
+digest that differs means the snapshot in the pod is not the snapshot that was
+reviewed, and everything bound to it downstream is bound to the wrong bytes.
 
 One observation about size, from the 2026-08-20 run and specific to the client used
 there rather than to the contents API itself: a 112 MB upload succeeded and a 352 MB
