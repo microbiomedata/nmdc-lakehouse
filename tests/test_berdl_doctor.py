@@ -138,14 +138,38 @@ def test_snapshot_filesystem_error_fails_without_disclosing_error(
     assert "TOP-SECRET-SENTINEL" not in repr(report)
 
 
-def test_missing_checkout_has_actionable_failures(tmp_path: Path) -> None:
+def test_missing_checkout_is_skipped_not_failed(tmp_path: Path) -> None:
+    """The maintained pod path does not use BERIL, so its checks not applying is not a failure; #267."""
     report = _run(tmp_path, None)
 
     checkout_check = next(check for check in report.checks if check.name == "beril-checkout")
     environment_check = next(check for check in report.checks if check.name == "berdl-environment")
-    assert checkout_check.status is CheckStatus.FAIL
-    assert "BERIL_CHECKOUT" in (checkout_check.remediation or "")
-    assert environment_check.status is CheckStatus.FAIL
+    assert checkout_check.status is CheckStatus.SKIP
+    assert environment_check.status is CheckStatus.SKIP
+    # Still says how to get the check, so a historical-transport operator is not left guessing.
+    assert "--beril-checkout" in (checkout_check.remediation or "")
+    # The exit policy is asserted separately below, on a report constructed for the purpose.
+
+
+def test_a_skipped_check_does_not_make_the_doctor_exit_nonzero() -> None:
+    """SKIP has to be distinguishable from FAIL in the exit policy, not only in the text."""
+    from nmdc_lakehouse.doctor import DoctorCheck, DoctorReport
+
+    only_skips = DoctorReport(
+        checks=(
+            DoctorCheck(name="a", status=CheckStatus.PASS, summary="fine"),
+            DoctorCheck(name="b", status=CheckStatus.SKIP, summary="not applicable"),
+        )
+    )
+    with_a_failure = DoctorReport(
+        checks=(
+            DoctorCheck(name="b", status=CheckStatus.SKIP, summary="not applicable"),
+            DoctorCheck(name="c", status=CheckStatus.FAIL, summary="broken"),
+        )
+    )
+
+    assert only_skips.exit_code == 0
+    assert with_a_failure.exit_code == 1
 
 
 def test_incompatible_python_and_missing_package_fail(tmp_path: Path) -> None:

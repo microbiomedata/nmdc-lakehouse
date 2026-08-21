@@ -28,6 +28,10 @@ class CheckStatus(str, Enum):
     PASS = "PASS"
     WARN = "WARN"
     FAIL = "FAIL"
+    # A check that does not apply to how this command was invoked, as distinct from one that
+    # passed and one that failed. Reporting it as FAIL made a command look broken on a path it
+    # was not meant to serve; omitting it would hide that the check exists at all.
+    SKIP = "SKIP"
 
 
 class DotenvProblem(str, Enum):

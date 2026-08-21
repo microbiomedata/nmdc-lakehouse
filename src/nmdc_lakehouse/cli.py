@@ -631,8 +631,12 @@ def berdl_promotion_probe_command(
     "--beril-checkout",
     type=click.Path(path_type=Path, file_okay=False),
     envvar="BERIL_CHECKOUT",
-    required=True,
-    help="Explicit BERIL-research-observatory checkout to inspect.",
+    required=False,
+    default=None,
+    help=(
+        "BERIL-research-observatory checkout to inspect. Optional: the maintained pod-resident "
+        "path does not use BERIL, and its checks are reported as skipped when this is absent."
+    ),
 )
 @click.option(
     "--service-check",
@@ -644,7 +648,7 @@ def berdl_promotion_probe_command(
 def berdl_doctor(
     context: click.Context,
     snapshot_root: Path,
-    beril_checkout: Path,
+    beril_checkout: Path | None,
     service_check: tuple[str, ...],
 ) -> None:
     """Check BERDL publication readiness without changing it."""

@@ -58,24 +58,27 @@ expected to have write access, so the first write is not also the first surprise
 ## Supported readiness check
 
 `berdl-doctor` validates the completed snapshot and reports on the external
-tooling, without changing either repository or contacting BERDL. It belongs to the
-historical transport: it requires `--beril-checkout`, or `BERIL_CHECKOUT` in the
-environment, and exits with `Error: Missing option '--beril-checkout'` when neither
-is set. So it is not usable on the maintained path unless a BERIL checkout happens
-to be present, and the maintained path does not need one.
+tooling, without changing either repository or contacting BERDL. Run it on either
+path:
 
-On the maintained path, validate the snapshot on its own instead:
+```bash
+uv run --no-sync nmdc-lakehouse berdl-doctor /absolute/path/to/completed-snapshot
+```
+
+`--beril-checkout` is optional. Without it the snapshot is still validated, and the
+two checks that inspect a BERIL checkout report `SKIP` with a note saying the
+maintained path does not use one. A skipped check does not affect the exit status,
+so an operator on the maintained path is not told the doctor failed for something
+they do not need.
+
+To validate only the snapshot, with nothing else reported:
 
 ```bash
 uv run --no-sync nmdc-lakehouse validate-snapshot /absolute/path/to/completed-snapshot
 ```
 
-That command is offline, needs nothing external, and is the only part of the doctor
-that applies to both paths. Splitting the snapshot check out of the doctor so it can
-run without a BERIL checkout is tracked in
-[#267](https://github.com/microbiomedata/nmdc-lakehouse/issues/267).
-
-For a historical off-cluster run, the full doctor still applies:
+For a historical off-cluster run, supply the checkout and the two skipped checks
+become real:
 
 ```bash
 export BERIL_CHECKOUT=/path/to/BERIL-research-observatory

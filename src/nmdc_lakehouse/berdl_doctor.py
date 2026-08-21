@@ -59,9 +59,12 @@ def _checkout_check(checkout: Path | None, runner: CommandRunner) -> DoctorCheck
     if checkout is None:
         return DoctorCheck(
             name="beril-checkout",
-            status=CheckStatus.FAIL,
-            summary="No BERIL research-observatory checkout is configured.",
-            remediation=("Set BERIL_CHECKOUT to the selected checkout; the doctor will not clone or change it."),
+            status=CheckStatus.SKIP,
+            summary="No BERIL checkout supplied, so the historical off-cluster transport was not checked.",
+            remediation=(
+                "The maintained pod-resident path does not use BERIL. Pass --beril-checkout, or set "
+                "BERIL_CHECKOUT, only to check the historical transport."
+            ),
         )
     try:
         resolved = checkout.expanduser().resolve(strict=True)
@@ -108,9 +111,11 @@ def _ingest_environment_checks(checkout: Path | None, runner: CommandRunner) -> 
         return [
             DoctorCheck(
                 name="berdl-environment",
-                status=CheckStatus.FAIL,
-                summary="The dedicated BERDL environment cannot be checked without a configured checkout.",
-                remediation="Configure BERIL_CHECKOUT, then rerun the doctor.",
+                status=CheckStatus.SKIP,
+                summary="No BERIL checkout supplied, so its dedicated environment was not checked.",
+                remediation=(
+                    "Only the historical transport needs that environment. Pass --beril-checkout to check it."
+                ),
             )
         ]
     python = _environment_python(checkout.expanduser())
