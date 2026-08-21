@@ -1,6 +1,6 @@
 # A bare issue or pull request number is not a reference. Full URL and title.
 #
-# level is WARNING, not error, because #NNN legitimately appears in three
+# This rule is deliberately not blocking, because #NNN legitimately appears in three
 # non-GitHub contexts that RE2 cannot exclude (no lookbehind in Go regex):
 #   1. inside a correct markdown link:  [PR #490](https://github.com/.../490)
 #   2. internal cross-references:       "see item #10 above"

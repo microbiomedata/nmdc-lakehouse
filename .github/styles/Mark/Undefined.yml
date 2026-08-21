@@ -7,10 +7,18 @@
 # "ACRONYM appears" implies "(ACRONYM) appears", which is what an expansion on
 # first use looks like.
 #
-# Anything in the NMDC vocabulary is exempt automatically. Verified against
-# Vale 3.17.1 on 2026-08-20: BERDL and LinkML never fire because they are listed
-# in .github/styles/config/vocabularies/NMDC/accept.txt. Use that for a project term that genuinely needs no
-# expansion. Use the list below only for vocabulary any reader here already has.
+# Anything in the NMDC vocabulary is exempt automatically. Verified against Vale
+# 3.17.1 on 2026-08-20: BERDL matches the pattern and never fires, because it is
+# listed in .github/styles/config/vocabularies/NMDC/accept.txt. Use that file for a
+# project term that genuinely needs no expansion, and the list below only for
+# vocabulary any reader here already has.
+#
+# A mixed-case term such as LinkML is exempt for a different reason and is not
+# evidence about the vocabulary at all: [A-Z]{3,6} cannot match it in the first
+# place. An earlier version of this comment cited LinkML as a vocabulary exemption,
+# which attributed the wrong cause to a correct observation. Flagged by Copilot on
+# https://github.com/microbiomedata/nmdc-lakehouse/pull/265. If you need to know
+# whether the vocabulary is doing the work, test with an all-caps term.
 #
 # EVERY EXCEPTION IS QUOTED ON PURPOSE. Vale's YAML parser reads a bare NULL as
 # null rather than a string, which makes the whole exceptions list fail to
