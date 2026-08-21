@@ -306,8 +306,10 @@ df.write.parquet("s3a://cdm-lake/tenant-general-warehouse/nmdc/<prefix>/table.pa
 ```
 
 A small table can be brought to the driver first, but only when it genuinely fits
-in driver memory. `nmdc.results` does not: its largest table alone is
-1,231,453,377 rows, measured during the 2026-08-20 export.
+in driver memory. `nmdc.results` does not: one of its tables,
+`annotation_enzyme_commission`, was measured at 1,231,453,377 rows during the
+2026-08-20 export, and the other six were not counted, so treat that as a floor
+rather than the maximum.
 
 **End every export by checking the destination holds data, not that the command
 returned.** Row counts printed by the writing job say nothing about where the bytes
