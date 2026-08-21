@@ -9,6 +9,7 @@ import platform
 import re
 import subprocess
 import tempfile
+from collections.abc import Sequence
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
@@ -115,6 +116,41 @@ def _json_sha256(value: Any) -> str:
 def _physical_schema_sha256(schema: pa.Schema) -> str:
     fields = [pa.field(field.name, field.type, field.nullable) for field in schema]
     return hashlib.sha256(pa.schema(fields).serialize().to_pybytes()).hexdigest()
+
+
+_MISMATCH_NAME_LIMIT = 10
+
+
+def _describe_names(names: Sequence[str]) -> str:
+    """Name the offending files, capped, with a count of any remainder."""
+    shown = sorted(names)[:_MISMATCH_NAME_LIMIT]
+    listed = ", ".join(repr(name) for name in shown)
+    remainder = len(names) - len(shown)
+    return f"{listed} and {remainder} more" if remainder else listed
+
+
+def _contents_mismatch(expected: set[str], actual: set[str]) -> str:
+    """Say which files are missing and which are unexpected, not merely that one of those happened.
+
+    The two categories have different causes and different fixes. A missing file means an
+    incomplete transfer. An unexpected file usually means the archiving step added something, and
+    AppleDouble `._*` siblings from a macOS `tar` are the case that has actually happened. Reporting
+    only the category sent an operator looking at the manifest when the problem was the copy.
+    """
+    missing = expected - actual
+    unexpected = actual - expected
+    parts = []
+    if missing:
+        parts.append(f"missing {len(missing)}: {_describe_names(sorted(missing))}")
+    if unexpected:
+        appledouble = sorted(name for name in unexpected if name.startswith("._"))
+        parts.append(f"unexpected {len(unexpected)}: {_describe_names(sorted(unexpected))}")
+        if appledouble:
+            parts.append(
+                f"{len(appledouble)} of the unexpected files start with '._', which is what extracting a "
+                "macOS tar archive on Linux produces; re-archive with COPYFILE_DISABLE=1 or delete them"
+            )
+    return "Snapshot contents do not match the manifest: " + "; ".join(parts) + "."
 
 
 def _footer_schema_sha256(schema: pa.Schema) -> str:
@@ -407,7 +443,7 @@ def validate_snapshot(root: Path) -> SnapshotManifest:
     root_entries = list(root.iterdir())
     actual_names = {path.name for path in root_entries}
     if actual_names != expected_names:
-        raise SnapshotManifestError("Snapshot contains missing, extra, or unmanifested files.")
+        raise SnapshotManifestError(_contents_mismatch(expected_names, actual_names))
     if any(path.is_symlink() or not path.is_file() for path in root_entries):
         raise SnapshotManifestError("Snapshot entries must be ordinary files, not symlinks or directories.")
 

@@ -303,7 +303,9 @@ def test_validation_detects_extra_file(tmp_path: Path) -> None:
     write_manifest(tmp_path, build_manifest(tmp_path, metrics_path, "nmdc-production"))
     (tmp_path / "unmanifested.txt").write_text("extra", encoding="utf-8")
 
-    with pytest.raises(SnapshotManifestError, match="unmanifested"):
+    # Assert the offending name, not the category. Naming the file is the point; a category word
+    # sent an operator looking at the manifest when the problem was the copy. See #270.
+    with pytest.raises(SnapshotManifestError, match=r"unexpected 1: 'unmanifested\.txt'"):
         validate_snapshot(tmp_path)
 
 
@@ -312,8 +314,57 @@ def test_validation_detects_extra_directory(tmp_path: Path) -> None:
     write_manifest(tmp_path, build_manifest(tmp_path, metrics_path, "nmdc-production"))
     (tmp_path / "unmanifested").mkdir()
 
-    with pytest.raises(SnapshotManifestError, match="unmanifested"):
+    with pytest.raises(SnapshotManifestError, match=r"unexpected 1: 'unmanifested'"):
         validate_snapshot(tmp_path)
+
+
+def test_validation_names_a_missing_file_and_separates_it_from_an_unexpected_one(tmp_path: Path) -> None:
+    """Missing and unexpected have different causes and different fixes; #270."""
+    metrics_path = _snapshot_fixture(tmp_path)
+    manifest = build_manifest(tmp_path, metrics_path, "nmdc-production")
+    write_manifest(tmp_path, manifest)
+    gone = tmp_path / manifest.artifacts[0].path
+    gone.unlink()
+    (tmp_path / "leftover.tmp").write_text("x", encoding="utf-8")
+
+    with pytest.raises(SnapshotManifestError) as caught:
+        validate_snapshot(tmp_path)
+
+    message = str(caught.value)
+    assert f"missing 1: '{gone.name}'" in message
+    assert "unexpected 1: 'leftover.tmp'" in message
+
+
+def test_validation_explains_appledouble_siblings(tmp_path: Path) -> None:
+    """The failure that actually happened, on 2026-08-20, with the remedy in the message."""
+    metrics_path = _snapshot_fixture(tmp_path)
+    manifest = build_manifest(tmp_path, metrics_path, "nmdc-production")
+    write_manifest(tmp_path, manifest)
+    for artifact in manifest.artifacts:
+        (tmp_path / f"._{artifact.path}").write_text("resource fork", encoding="utf-8")
+
+    with pytest.raises(SnapshotManifestError, match="COPYFILE_DISABLE=1") as caught:
+        validate_snapshot(tmp_path)
+
+    message = str(caught.value)
+    assert "start with '._'" in message
+    assert "macOS tar archive on Linux" in message
+
+
+def test_validation_caps_the_names_it_lists(tmp_path: Path) -> None:
+    """A snapshot with hundreds of stray files must not produce hundreds of lines of error."""
+    metrics_path = _snapshot_fixture(tmp_path)
+    write_manifest(tmp_path, build_manifest(tmp_path, metrics_path, "nmdc-production"))
+    for index in range(25):
+        (tmp_path / f"stray{index:02d}.tmp").write_text("x", encoding="utf-8")
+
+    with pytest.raises(SnapshotManifestError) as caught:
+        validate_snapshot(tmp_path)
+
+    message = str(caught.value)
+    assert "unexpected 25:" in message, "the count is reported in full"
+    assert "and 15 more" in message, "only the first ten are named"
+    assert "stray24.tmp" not in message
 
 
 def test_validation_rejects_duplicate_artifact_paths(tmp_path: Path) -> None:
