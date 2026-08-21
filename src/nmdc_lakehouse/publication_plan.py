@@ -71,6 +71,19 @@ class DestinationTable(BaseModel):
             raise ValueError("Table names must be safe local identifiers.")
         return value
 
+    @field_validator("observed_table_format")
+    @classmethod
+    def validate_observed_format(cls, value: str | None) -> str | None:
+        """Hold the observed format to the same contract as the reviewed labels above it.
+
+        This is read from a file and copied into plans and log output, so it gets the same
+        sanitization as `provider` and `table_format` rather than being trusted because the
+        producer happened to validate it before writing.
+        """
+        if value is not None and not _SAFE_ID.fullmatch(value):
+            raise ValueError("An observed table format must be a sanitized logical label.")
+        return value
+
     @field_validator("physical_schema_sha256")
     @classmethod
     def validate_schema_hash(cls, value: str) -> str:
