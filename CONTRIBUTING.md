@@ -64,11 +64,16 @@ being discussed; a bare-reference or undefined-term alert on a document about
 those rules is expected.
 
 `MinAlertLevel` in `.vale.ini` must stay at `error`, and a non-blocking rule
-works by Vale not emitting it rather than by CI ignoring it. The Vale action
-runs with `filter_mode: nofilter` and `fail_on_error: true`, so reviewdog fails
-the build on any result it receives, of any severity. The action's `level`
-input labels annotations and is not a threshold. Lowering `MinAlertLevel` makes
-every warning a failed build.
+works by Vale not emitting it rather than by CI ignoring it.
+
+The Vale step in `.github/workflows/ci.yml` sets three inputs that matter here:
+`filter_mode: nofilter`, `fail_on_error: true`, and `level: error`. Together
+they mean reviewdog fails the build on any result it receives, whatever that
+result's severity. `level` labels the annotations it posts; it does not filter
+which results can fail the build, and the action passes no `--minAlertLevel`
+flag to Vale. So lowering `MinAlertLevel` here makes every warning a failed
+build. Observed rather than inferred: a push with `MinAlertLevel = suggestion`
+failed the `check` job with 196 results, none of them error severity.
 
 Run `just prose-lint` rather than `vale` directly. The recipe sets `HOME` to a
 scratch directory, which is what makes it match the CI configuration, and passes
