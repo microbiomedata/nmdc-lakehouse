@@ -216,13 +216,31 @@ INFO - No metadata for <coll>; no derivations  # no pre-loaded schema cache — 
 linkml-store uses the installed nmdc-schema at runtime instead of a cached metadata
 object, so this message is expected for every collection.
 
-### Step 1 — all collections except the large annotation aggregate (~5 min)
+### Step 1: every collection (~22 min), or a chosen subset (~5 min)
 
 For the measured metadata dump, use the recipe:
 
 ```bash
 just etl-collections
 ```
+
+That produces a **complete** snapshot: every collection the installed NMDC schema
+declares, including `functional_annotation_agg`, which is 53M rows and dominates
+the runtime. Complete is the default because a complete snapshot is what the
+staging planner expects, and because a snapshot missing a table the destination
+already holds forces a disposition decision later.
+
+To leave collections out, name them:
+
+```bash
+just etl-collections functional_annotation_agg
+```
+
+That takes about five minutes instead of twenty-two. The manifest records the
+skipped names, and `snapshot-manifest.json` is rejected unless the included and
+skipped sets together cover every collection the installed schema declares, so a
+partial snapshot cannot later be mistaken for a complete one. What it cannot do is
+tell you why something was skipped, so say so wherever the snapshot is used.
 
 One timestamp associates its default Parquet directory,
 `local/mongodb-metadata-<timestamp>`, with
