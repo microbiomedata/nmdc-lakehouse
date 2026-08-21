@@ -300,51 +300,33 @@ That is dangerous for a backup specifically, because what a failed backup leaves
 behind is a set of plausible-looking directories with the right names. Anyone who
 then deletes the source has lost it.
 
-**Write to object storage instead**, which every executor can reach. Give each run
-its own prefix under the tenant area so it is identifiable and does not overwrite
-an earlier one. A date alone is not enough if you rerun on the same day, so
-include a time:
+**Write to object storage instead**, which every executor can reach, using a
+prefix that carries a timestamp so a rerun cannot overwrite an earlier one:
 
 ```python
 prefix = "exports/20260821T204900-results-backup"   # unique per run, not per day
 df.write.parquet(f"s3a://cdm-lake/tenant-general-warehouse/nmdc/{prefix}/annotation_enzyme_commission.parquet")
 ```
 
-Check the object store holds what you wrote, naming the tables you exported
-rather than listing whatever arrived, so a table that produced nothing at all is
-still noticed:
+**Then verify the destination holds data, not that the command returned.** The row
+counts the writing job prints say nothing about where the bytes went, and in the
+2026-08-20 run every one of them was correct. What distinguishes a real export
+from a failed one is whether `part-*` files exist under each table you wrote.
+Check the tables you exported by name, so a table that produced nothing at all is
+noticed rather than skipped, and make the check fail rather than only print.
 
-```bash
-export PREFIX=exports/20260821T204900-results-backup
-for table in annotation_statistics checkm_statistics gtdbtk_bacterial_summary; do
-  https_proxy=http://127.0.0.1:8123 ~/bin/mc ls --recursive \
-      "berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/$PREFIX/$table.parquet/" \
-    | grep -q 'part-' || echo "MISSING OR EMPTY: $table"
-done
-```
+**Moving the data anywhere else is not documented here, deliberately.** The
+transfer mechanics live in the historical transport section below, which needs
+the SOCKS tunnels and a workstation `mc`, and the maintained path has neither, as
+stated at the top of this document. The two largest tables are not viable to move
+to a workstation in any case: `annotation_kegg_orthology` is 1,831,998,811 rows
+and `annotation_enzyme_commission` is 1,231,453,377. A driver-side `collect` is
+decided by the same figures, and is viable for `annotation_statistics` at 4,815
+rows.
 
-The `https_proxy` prefix is required on every `mc` call:
-`configure_mc.sh --berdl-proxy` sets that variable inside its own process, which
-is why the other `mc` examples in this document carry it inline.
-
-**Bringing a table down to a workstation is a per-table decision, not a bulk
-copy.** `mc cp --recursive` over a whole run would pull everything, and the
-largest tables are not viable to move or to hold: `annotation_kegg_orthology` is
-1,831,998,811 rows and `annotation_enzyme_commission` is 1,231,453,377. Those stay
-in object storage. Copy individual small tables when you need them locally, into
-a fresh directory per run so an earlier run's files cannot be mistaken for this
-one's, and remember `mc` reads a relative path as a MinIO URL so the local
-destination must be absolute:
-
-```bash
-mkdir -p "/absolute/path/export-$PREFIX"          # empty, and specific to this run
-https_proxy=http://127.0.0.1:8123 ~/bin/mc cp --recursive \
-    "berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/$PREFIX/annotation_statistics.parquet/" \
-    "/absolute/path/export-$PREFIX/annotation_statistics.parquet/"
-```
-
-A driver-side `collect` is a different question again, and the same figures decide
-it: viable for `annotation_statistics` at 4,815 rows, not for the two above.
+A complete, tested export procedure needs someone to perform one. Until then this
+section records the trap and the rule, which are what cost a day on 2026-08-20,
+rather than a runbook nobody has executed.
 
 See [#250](https://github.com/microbiomedata/nmdc-lakehouse/issues/250).
 
