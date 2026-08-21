@@ -199,8 +199,9 @@ the total by a fraction of a percent and clears the floor easily. That happened:
 `_verify_ingest_checkout` merged with no direct test while the suite reported
 85.96% total, and the suppressed review finding that reached the default branch
 landed on exactly that function. So this second gate measures only the lines the
-branch adds or changes, against `origin/main`, and reports which added lines are
-uncovered.
+branch adds or changes, against the base branch, and reports which added lines are
+uncovered. CI passes the pull request's base; `just diff-cover` defaults to
+`origin/main` and takes a different base as its argument.
 
 The two numbers differ on purpose and are not in tension. 75% is a statement
 about a codebase carrying legacy paths that predate the test suite. 90% is a
@@ -213,6 +214,10 @@ A branch that changes no Python passes it: with no measurable lines in the diff,
 
 Running it needs `coverage.xml`, so run `just test-cov` first, and needs the
 base branch present, so a shallow clone has to fetch it. CI does both.
+
+CI runs it on pull requests only. On a push to `main` there is no base branch to
+compare against, and a gate that cannot fail is worse than an absent one, because
+the green tick claims a check that did not happen.
 
 ## License
 

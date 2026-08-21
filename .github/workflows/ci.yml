@@ -85,8 +85,12 @@ jobs:
       - name: Verify coverage report
         run: test -s coverage.xml
 
+      # Pull requests only. On a push to main GITHUB_BASE_REF is empty, so the gate would compare
+      # origin/main against main, find no lines, and report a pass having checked nothing. A gate
+      # that cannot fail is worse than an absent one, because the green tick claims otherwise.
       - name: Gate changed lines on coverage
-        run: just diff-cover "origin/${GITHUB_BASE_REF:-main}"
+        if: github.event_name == 'pull_request'
+        run: just diff-cover "origin/${GITHUB_BASE_REF}"
 
       - name: Upload coverage report
         if: ${{ !cancelled() && hashFiles('coverage.xml') != '' }}
