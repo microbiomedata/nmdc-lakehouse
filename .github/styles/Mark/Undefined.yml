@@ -54,7 +54,9 @@
 # A script rule doing strict initial-letter matching was written and tested. It fires correctly on
 # `The SPQR pipeline (SPQR) ran.`, which is the gap. It also fires on genuine expansions:
 #
-#   Senate and People of Rome (SPQR)          S-a-P-o-R, and SPQR is Senatus PopulusQue Romanus
+#   Senate and People of Rome (SPQR)          S-a-P-o-R. SPQR is Senatus Populusque Romanus,
+#                                             and its Q comes from the enclitic -que inside the
+#                                             second word, not from any word initial at all
 #   NERSC multi-factor authentication (MFA)   "multi-factor" is one word covering two letters
 #
 # The second is the only real expansion in this repository's maintained prose, and initial matching
