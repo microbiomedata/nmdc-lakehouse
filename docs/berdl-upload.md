@@ -141,11 +141,15 @@ The generated command intentionally omits the live execution flag and outcome
 path. Do not add them by hand.
 
 Applying descriptions reports progress on stderr as it goes, naming the table it
-is on, the columns applied so far against the total, elapsed time, and an
-estimate of the time remaining. A description the catalog already holds is not
-written again, so a rerun after a partial failure finishes the remainder instead
-of redoing the whole table. Every planned description is still verified by
-read-back, whether or not this run wrote it. Standard output stays reserved for the parseable
+is on, the columns verified so far against the total, how many of those it
+actually wrote, elapsed time, and an estimate of the time remaining. A
+description the catalog already holds is not written again, so a rerun after a
+partial failure finishes the remainder instead of redoing the whole table. Every
+planned description is still verified by read-back, whether or not this run wrote
+it, which is why the verified and written counts differ on a rerun. The estimate
+is rated on written columns only: a skip costs a catalog read and a write costs a
+catalog commit, so counting them together would look fast while skipping and be
+wrong as soon as writing resumed. Standard output stays reserved for the parseable
 outcome JSON. Expect the run to be dominated by the widest table: descriptions
 are applied one column at a time and each is a separate catalog commit, so a
 table with over a thousand columns takes far longer than the data load it

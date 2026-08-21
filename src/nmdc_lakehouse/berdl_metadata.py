@@ -71,6 +71,9 @@ class AppliedMetadataTarget(BaseModel):
     # Verified by read-back but not written on this run, because the catalog already held the
     # planned description. Defaulted so outcomes written before this field remain readable.
     columns_already_correct: list[str] = []
+    # The same distinction for the table description, which "verified" alone cannot express.
+    # False when no table description was planned, which table_description_status already says.
+    table_description_already_correct: bool = False
 
 
 class BerdlMetadataOutcome(BaseModel):
@@ -272,7 +275,8 @@ def apply_berdl_staging_metadata(
     table_operations, column_operations, _deferred = _description_operations(plan)
     planned_columns = sum(len(column_operations[name]) for name in plan.tables)
     started = time.monotonic()
-    applied_columns = 0
+    verified_columns_total = 0
+    written_columns_total = 0
     progress(
         f"applying descriptions to {_plural(len(plan.tables), 'table')} and "
         f"{_plural(planned_columns, 'column')} in {plan.staging_namespace}"
@@ -282,17 +286,19 @@ def apply_berdl_staging_metadata(
         full_table = f"{plan.staging_namespace}.{table}"
         table_operation = table_operations.get(table)
         table_status: Literal["verified", "not-planned"] = "not-planned"
+        table_already_correct = False
         if table_operation is not None:
-            if _read_table_description(spark, full_table) == table_operation.value:
-                # Already correct, so writing it again would cost a catalog commit for no change.
-                table_status = "verified"
-            else:
+            # The probe decides whether to write. It is not the verification: the read-back below
+            # runs either way, so a skipped write is never a skipped check. Same rule as the
+            # columns, which is the point of doing it in both places rather than one.
+            table_already_correct = _read_table_description(spark, full_table) == table_operation.value
+            if not table_already_correct:
                 report = apply_table_comment(spark, full_table, table_operation.value, require_existing_table=True)
                 if report.get("status") != "success":
                     raise BerdlMetadataError(f"The table description failed for '{table}'.")
-                if _read_table_description(spark, full_table) != table_operation.value:
-                    raise BerdlMetadataError(f"The table description read-back failed for '{table}'.")
-                table_status = "verified"
+            if _read_table_description(spark, full_table) != table_operation.value:
+                raise BerdlMetadataError(f"The table description read-back failed for '{table}'.")
+            table_status = "verified"
         operations = column_operations[table]
         verified_columns: list[str] = []
         already_correct: list[str] = []
@@ -337,14 +343,19 @@ def apply_berdl_staging_metadata(
                 if observed_columns.get(column) != value:
                     raise BerdlMetadataError(f"The column description read-back failed for '{table}.{column}'.")
                 verified_columns.append(column)
-        applied_columns += len(verified_columns)
+        verified_columns_total += len(verified_columns)
+        written_columns_total += len(verified_columns) - len(already_correct)
         elapsed = time.monotonic() - started
-        remaining = planned_columns - applied_columns
-        rate = applied_columns / elapsed if elapsed > 0 and applied_columns else 0.0
+        # Rated on columns written, not columns verified. A skipped column costs a catalog read and
+        # a written one costs a catalog commit, so counting them together produces an estimate that
+        # is fast while the run is skipping and wrong as soon as it starts writing again.
+        remaining = planned_columns - verified_columns_total
+        rate = written_columns_total / elapsed if elapsed > 0 and written_columns_total else 0.0
         estimate = f", about {remaining / rate / 60:.0f} min left" if rate > 0 and remaining else ""
         progress(
             f"[{index}/{len(plan.tables)}] {table}: verified {_plural(len(verified_columns), 'column')} "
-            f"({applied_columns}/{planned_columns} total, {elapsed / 60:.1f} min elapsed{estimate})"
+            f"({verified_columns_total}/{planned_columns} verified, {written_columns_total} written, "
+            f"{elapsed / 60:.1f} min elapsed{estimate})"
         )
         targets.append(
             AppliedMetadataTarget(
@@ -352,6 +363,7 @@ def apply_berdl_staging_metadata(
                 table_description_status=table_status,
                 columns_verified=sorted(verified_columns),
                 columns_already_correct=already_correct,
+                table_description_already_correct=table_already_correct,
             )
         )
     return BerdlMetadataOutcome(
