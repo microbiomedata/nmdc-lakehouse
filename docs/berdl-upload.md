@@ -282,12 +282,14 @@ The direction above is workstation to pod. Going the other way, off the platform
 has a failure that is worse than the macOS one, because it produces no error at
 all.
 
-**A Spark write to a local path in the pod produces no data.** In a cluster the
-write runs on executors, which resolve the path against their own filesystems, so
-the driver's directory receives only success markers:
+**A Spark write to a local path leaves no usable data on the pod filesystem.** The
+write itself does not fail, and Spark does not drop it: in a cluster each executor
+resolves the path against its own filesystem and writes its partition there. What
+the driver's directory receives is the success markers. So the data may exist,
+scattered across executor filesystems you cannot reach, which is not a backup:
 
 ```python
-df.write.parquet("/home/<user>/backup/table.parquet")   # reports success, writes nothing usable
+df.write.parquet("/home/<user>/backup/table.parquet")   # succeeds; nothing usable lands here
 ```
 
 Observed on 2026-08-20 while exporting `nmdc.results`. The script printed a
@@ -299,10 +301,12 @@ behind is a set of plausible-looking directories with the right names. Anyone wh
 then deletes the source has lost it.
 
 **Write to object storage instead**, which every executor can reach, and copy down
-from there:
+from there. Use a dated export prefix under the tenant area so a run is
+identifiable and two runs cannot collide:
 
 ```python
-df.write.parquet("s3a://cdm-lake/tenant-general-warehouse/nmdc/<prefix>/table.parquet")
+prefix = "exports/20260821-results-backup"     # dated, and specific to this run
+df.write.parquet(f"s3a://cdm-lake/tenant-general-warehouse/nmdc/{prefix}/annotation_enzyme_commission.parquet")
 ```
 
 A small table can be brought to the driver first, but only when it genuinely fits
@@ -320,10 +324,19 @@ du -sh /path/to/export/*        # bytes present, not just directories
 find /path/to/export -name '*.parquet' -size +1k | head
 ```
 
-For an object-store destination, list it and compare against what was written:
+For an object-store destination, list it and compare against what was written.
+From inside the pod, where credentials are already configured:
 
 ```bash
-mc ls --recursive berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/<prefix>/
+aws s3 ls --recursive s3://cdm-lake/tenant-general-warehouse/nmdc/exports/20260821-results-backup/
+```
+
+From a workstation this needs the `berdl-minio` `mc` alias, which is set up by the
+tunnel step in the historical transport section below, and which the maintained
+path otherwise never needs. Verifying from inside the pod avoids that entirely:
+
+```bash
+mc ls --recursive berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/exports/20260821-results-backup/
 ```
 
 See [#250](https://github.com/microbiomedata/nmdc-lakehouse/issues/250).
