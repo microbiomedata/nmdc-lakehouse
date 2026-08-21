@@ -39,14 +39,19 @@ from the workstation, the full offline plan preview and a live pod-resident
 capability probe both ran successfully. See
 [#244](https://github.com/microbiomedata/nmdc-lakehouse/issues/244).
 
-Nothing checks that the bucket accepts writes, not from the workstation and not
-anywhere else in this repository. `berdl-doctor` does several things, but none of
-them contact an object store: its `mc` check confirms the binary is present and
-reports a version, and stops there. Write access is established by the staging run
-itself, which writes to the bronze prefix from inside the pod where the object store
-is local. If a run fails on a write, that is the first signal, so keep
-the reviewed bronze prefix inside the tenant staging area where the pod's session
-is expected to have write access.
+There is no standalone check that the bucket accepts writes, on either path.
+`berdl-doctor` does several things, but none of them contact an object store: its
+`mc` check confirms the binary is present and reports a version, and stops there.
+Write access is exercised by the staging run itself, which writes to the bronze
+prefix from inside the pod where the object store is local, so a permissions problem
+surfaces as a failed run rather than as a preflight result.
+
+What the run verifies afterwards is a different thing. Its outcome check compares
+destination row counts against the source Parquet and the source digest against the
+snapshot manifest, which establishes that the reviewed bytes are what landed. It
+does not re-read the written objects and compare them byte for byte. Keep the
+reviewed bronze prefix inside the tenant staging area, where the pod's session is
+expected to have write access, so the first write is not also the first surprise.
 
 ---
 
