@@ -414,6 +414,31 @@ def test_a_rollback_that_does_not_restore_rows_is_reported_as_unreliable() -> No
     assert any("did not return to its pre-mutation" in q for q in outcome.unresolved_questions)
 
 
+def test_a_rollback_whose_state_cannot_be_read_back_is_unknown_not_unverified() -> None:
+    """An unreadable read-back must not be reported as a rollback that failed to restore rows."""
+
+    class BlindAfterRollback(FakeSpark):
+        rolled_back = False
+
+        def _answer(self, statement: str):
+            if statement.startswith("CALL ") and "rollback_to_snapshot" in statement:
+                result = super()._answer(statement)
+                self.rolled_back = True
+                return result
+            if self.rolled_back and statement == f"SELECT COUNT(*) FROM {DESTINATION}.probe_first":
+                self.rolled_back = False
+                return [("not-a-number",)]
+            return super()._answer(statement)
+
+    outcome = _run(BlindAfterRollback())
+
+    rollback = {s.operation: s for s in outcome.steps}[ProbeOperation.ROLLBACK_TO_SNAPSHOT]
+    assert rollback.verdict is ProbeVerdict.SUPPORTED
+    assert rollback.independently_verified is None
+    assert any("could not be read back" in q for q in outcome.unresolved_questions)
+    assert not any("did not return to its pre-mutation" in q for q in outcome.unresolved_questions)
+
+
 def test_injected_failure_really_fails_and_leaves_a_mixed_state() -> None:
     spark = FakeSpark()
 
@@ -771,3 +796,115 @@ def test_a_syntax_failure_reading_retention_is_not_described_as_a_grant_problem(
     assert step.verdict is ProbeVerdict.UNSUPPORTED_SYNTAX
     assert any("unsupported-syntax" in q for q in outcome.unresolved_questions)
     assert not any("not readable from table properties" in q for q in outcome.unresolved_questions)
+
+
+def test_unreadable_environment_fields_are_named_not_reported_as_unset() -> None:
+    """A field that could not be read is not a field that has no value; #255."""
+
+    class BlindEnvironment(FakeSpark):
+        def sql(self, statement: str):
+            if statement.startswith("SET spark.sql.extensions"):
+                self.statements.append(statement)
+                raise RuntimeError("INSUFFICIENT_PRIVILEGES reading configuration")
+            return super().sql(statement)
+
+    outcome = _run(BlindEnvironment())
+
+    step = {s.operation: s for s in outcome.steps}[ProbeOperation.ENVIRONMENT]
+    assert step.verdict is ProbeVerdict.UNCLASSIFIED_FAILURE
+    assert "spark_sql_extensions" in (step.detail or "")
+    assert any("could not be read" in q and "spark_sql_extensions" in q for q in outcome.unresolved_questions)
+
+
+def test_a_present_but_unparseable_retention_is_not_reported_as_absent() -> None:
+    outcome = _run(FakeSpark(retention="not-a-number"))
+
+    step = {s.operation: s for s in outcome.steps}[ProbeOperation.SNAPSHOT_RETENTION]
+    assert step.verdict is ProbeVerdict.UNCLASSIFIED_FAILURE
+    assert "present but is not an integer" in (step.detail or "")
+    assert outcome.snapshot_retention_ms is None
+
+
+def test_a_failed_explain_does_not_claim_explain_is_unsupported() -> None:
+    class NoExplain(FakeSpark):
+        def sql(self, statement: str):
+            if statement.startswith("EXPLAIN "):
+                self.statements.append(statement)
+                raise RuntimeError("INSUFFICIENT_PRIVILEGES on EXPLAIN")
+            return super().sql(statement)
+
+    outcome = _run(NoExplain())
+
+    rename = {s.operation: s for s in outcome.steps}[ProbeOperation.CROSS_NAMESPACE_RENAME]
+    detail = rename.detail or ""
+    assert "no read-only plan was produced" in detail
+    assert "RuntimeError" in detail or "INSUFFICIENT" in detail
+    assert "unsupported" not in detail.lower()
+
+
+def test_every_guard_rejects_at_least_one_input_it_must_reject() -> None:
+    """The audit's second question: a guard exercised only on valid input asserts nothing."""
+    rejected = [
+        ("canonical dataset", "nmdc.nmdc_metadata", DESTINATION),
+        ("canonical substring", "nmdc.nmdc_metadata_probe_1", DESTINATION),
+        ("canonical mixed case", "nmdc.NMDC_METADATA_probe_1", DESTINATION),
+        ("no disposable marker", "nmdc.scratch_area", DESTINATION),
+        ("outside the tenant", "other.promotion_probe_1", DESTINATION),
+        ("identical namespaces", SOURCE, SOURCE),
+    ]
+    for label, source, destination in rejected:
+        with pytest.raises(BerdlPromotionProbeError, match=r".+") as caught:
+            build_promotion_probe_plan(tenant=TENANT, source_namespace=source, destination_namespace=destination)
+        assert str(caught.value), f"guard for {label} raised without a reason"
+
+
+def test_unreadable_environment_names_match_the_output_model() -> None:
+    """A name in an unresolved question must be findable in the environment payload."""
+    from nmdc_lakehouse.berdl_promotion_probe import ProbeEnvironment, _environment
+
+    class QueryBlind(FakeSpark):
+        """Fails every field read that goes through SQL; `spark_version` is an attribute and survives."""
+
+        def sql(self, statement: str):
+            if statement.startswith("SET ") or statement.startswith("SELECT current_user()"):
+                raise RuntimeError("INSUFFICIENT_PRIVILEGES")
+            return super().sql(statement)
+
+    environment, unreadable = _environment(QueryBlind())
+
+    assert unreadable, "expected the SQL-backed fields to be reported unreadable"
+    assert "spark_version" not in unreadable, "spark_version does not use SQL and should still be readable"
+    assert environment.spark_version is not None
+    for name in unreadable:
+        assert name in ProbeEnvironment.model_fields, f"{name} is not a field of ProbeEnvironment"
+
+
+def test_an_unreadable_principal_is_null_not_false() -> None:
+    """False must mean the query returned nothing, not that it could not be run."""
+    from nmdc_lakehouse.berdl_promotion_probe import _environment
+
+    class NoPrincipal(FakeSpark):
+        def sql(self, statement: str):
+            if statement.startswith("SELECT current_user()"):
+                raise RuntimeError("INSUFFICIENT_PRIVILEGES")
+            return super().sql(statement)
+
+    environment, unreadable = _environment(NoPrincipal())
+
+    assert environment.current_principal_present is None
+    assert "current_principal_present" in unreadable
+
+
+def test_a_readable_but_empty_principal_is_false_not_null() -> None:
+    from nmdc_lakehouse.berdl_promotion_probe import _environment
+
+    class EmptyPrincipal(FakeSpark):
+        def _answer(self, statement: str):
+            if statement.startswith("SELECT current_user()"):
+                return []
+            return super()._answer(statement)
+
+    environment, unreadable = _environment(EmptyPrincipal())
+
+    assert environment.current_principal_present is False
+    assert "current_principal_present" not in unreadable
