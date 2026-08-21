@@ -6,9 +6,14 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 from linkml_runtime import SchemaView
-from linkml_runtime.linkml_model import ClassDefinition
+from linkml_runtime.linkml_model import ClassDefinition, SlotDefinition
 
-from nmdc_lakehouse.sinks.parquet_sink import ParquetSink, StreamingWriter, class_def_to_arrow_schema
+from nmdc_lakehouse.sinks.parquet_sink import (
+    _SPARK_SCHEMA_KEY,
+    ParquetSink,
+    StreamingWriter,
+    class_def_to_arrow_schema,
+)
 from nmdc_lakehouse.transforms.schema_generator import (
     DEFAULT_FLATTENED_SCHEMA_ID,
     flatten_class_def,
@@ -140,7 +145,11 @@ def test_write_persists_schema_metadata_in_parquet_footer(flat_schema_view, flat
     sink.write(iter([{"id": "r1", "depth_has_numeric_value": 1.5}]), table="flat_record")
 
     schema = pq.ParquetFile(tmp_path / "flat_record.parquet").schema_arrow
-    assert schema.metadata == {
+    # `schema.metadata` builds a fresh dict on every access, so take one copy and edit that.
+    footer = dict(schema.metadata)
+    # Checked separately, because its value is a whole rendered schema rather than a label.
+    assert footer.pop(_SPARK_SCHEMA_KEY, None) is not None, "the Spark schema must reach the footer"
+    assert footer == {
         b"nmdc_lakehouse.footer_metadata_format_version": b"1",
         b"nmdc_lakehouse.table_description": b"A flattened test record.",
         b"nmdc_lakehouse.source_schema_id": b"https://example.org/test",
@@ -477,3 +486,89 @@ def test_enum_ranges_and_unknown_ranges_remain_strings() -> None:
     assert _arrow_type_for_range("FileTypeEnum", schema) == pa.string()
     assert _arrow_type_for_range("SomethingUndefined", schema) == pa.string()
     assert _arrow_type_for_range("decimal_degree", None) == pa.string()
+
+
+def test_the_footer_carries_a_spark_schema_whose_comments_are_the_slot_descriptions() -> None:
+    """Spark reads its own schema from this key, so descriptions can arrive with the data; #258."""
+    import json
+
+    class_def = ClassDefinition(
+        name="biosample_set",
+        description="A biosample table.",
+        attributes={
+            "id": SlotDefinition(name="id", range="string", description="Stable identifier", identifier=True),
+            "depth": SlotDefinition(name="depth", range="double", description="Depth in metres"),
+            "flags": SlotDefinition(name="flags", range="string", multivalued=True, description="Free-text flags"),
+            "undocumented": SlotDefinition(name="undocumented", range="integer"),
+        },
+    )
+
+    schema = class_def_to_arrow_schema(class_def)
+    spark = json.loads(schema.metadata[_SPARK_SCHEMA_KEY].decode())
+
+    assert spark["type"] == "struct"
+    by_name = {field["name"]: field for field in spark["fields"]}
+    assert by_name["id"]["metadata"]["comment"] == "Stable identifier"
+    assert by_name["depth"]["type"] == "double"
+    assert by_name["flags"]["type"] == {"type": "array", "elementType": "string", "containsNull": True}
+    assert by_name["flags"]["metadata"]["comment"] == "Free-text flags"
+    # A slot with no description carries no comment rather than an empty one, so Spark does not
+    # create a column described as "".
+    assert by_name["undocumented"]["metadata"] == {}
+    assert [field["name"] for field in spark["fields"]] == [field.name for field in schema]
+
+
+def test_the_spark_schema_survives_the_parquet_writer_into_the_footer(tmp_path) -> None:
+    """The Arrow schema is not the contract; what lands in the Parquet footer is."""
+    import json
+
+    class_def = ClassDefinition(
+        name="study_set",
+        attributes={"id": SlotDefinition(name="id", range="string", description="Stable identifier")},
+    )
+    schema = class_def_to_arrow_schema(class_def)
+    target = tmp_path / "study_set.parquet"
+    pq.write_table(pa.table({"id": pa.array(["nmdc:sty-1"], type=pa.string())}, schema=schema), target)
+
+    footer = pq.ParquetFile(target).metadata.metadata
+
+    assert _SPARK_SCHEMA_KEY in footer, "Spark reads the footer, so an Arrow-only schema would be inert"
+    parsed = json.loads(footer[_SPARK_SCHEMA_KEY].decode())
+    assert parsed["fields"][0]["metadata"]["comment"] == "Stable identifier"
+
+
+def test_an_unmapped_arrow_type_raises_rather_than_emitting_a_schema_spark_cannot_read() -> None:
+    """The mapping is exhaustive on purpose; a silent default would produce a wrong Spark schema."""
+    import pyarrow as pa_local
+    import pytest
+
+    from nmdc_lakehouse.sinks.parquet_sink import _spark_type
+
+    with pytest.raises(ValueError, match="No Spark type mapping"):
+        _spark_type(pa_local.timestamp("us"))
+
+
+def test_dropping_empty_columns_rebuilds_the_spark_schema(flat_schema_view, flat_class, tmp_path) -> None:
+    """Spark trusts this entry as the file schema, so it must never name a dropped column."""
+    import json
+
+    sink = ParquetSink(
+        tmp_path,
+        class_def=flat_class,
+        source_schema=flat_schema_view.schema,
+        source_class="FlatRecord",
+        target_schema_id=TARGET_SCHEMA_ID,
+        mapping=PRIMARY_MAPPING,
+    )
+    sink.write(iter([{"id": "r1", "depth_has_numeric_value": 1.5}]), table="flat_record", drop_empty_cols=True)
+
+    written = pq.ParquetFile(tmp_path / "flat_record.parquet")
+    columns = written.schema_arrow.names
+    spark = json.loads(written.metadata.metadata[_SPARK_SCHEMA_KEY].decode())
+
+    assert [field["name"] for field in spark["fields"]] == columns, (
+        "the Spark schema must describe the columns the file actually holds"
+    )
+    # And the surviving columns keep their descriptions, which is the point of the entry.
+    described = {field["name"]: field["metadata"].get("comment") for field in spark["fields"]}
+    assert described["id"] == "Stable record identifier."

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Any, Iterable, Iterator
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -41,6 +42,75 @@ _BASE_TO_ARROW: dict[str, pa.DataType] = {
 
 _METADATA_PREFIX = "nmdc_lakehouse."
 FOOTER_METADATA_FORMAT_VERSION = "1"
+
+# Spark reads its own schema from this Parquet footer key rather than from Arrow field metadata,
+# and a field's "comment" there is documented to become the column comment on a table Spark creates
+# from the file. Emitting it is meant to give a Spark-based loader an already-described table in the
+# one commit it was making anyway, instead of one ALTER per column afterwards.
+#
+# That this key reaches the footer with the right comments is covered by tests. That the BERDL
+# loader honours it has not been observed on a real run: #278 adds the catalog read-back, and #258
+# stays open until it passes. Do not describe the catalog side as delivered before then.
+_SPARK_SCHEMA_KEY = b"org.apache.spark.sql.parquet.row.metadata"
+
+# Arrow types this sink can produce, mapped to Spark's type names. Deliberately exhaustive over
+# _RANGE_TO_ARROW and _BASE_TO_ARROW rather than defaulting, so a new Arrow type raises here
+# instead of silently emitting a schema Spark would reject or misread.
+_ARROW_TO_SPARK_TYPE: dict[str, str] = {
+    "string": "string",
+    "int64": "long",
+    "double": "double",
+    "bool": "boolean",
+}
+
+
+def _spark_type(arrow_type: pa.DataType) -> Any:
+    """Render one Arrow type as Spark's JSON type, raising on anything unmapped."""
+    if pa.types.is_list(arrow_type):
+        return {
+            "type": "array",
+            "elementType": _spark_type(arrow_type.value_type),
+            "containsNull": True,
+        }
+    name = _ARROW_TO_SPARK_TYPE.get(str(arrow_type))
+    if name is None:
+        raise ValueError(f"No Spark type mapping for Arrow type {arrow_type!r}.")
+    return name
+
+
+def _spark_schema_json(fields: list[pa.Field], descriptions: dict[str, str | None]) -> bytes:
+    """Render the field list as a Spark StructType, carrying descriptions as column comments."""
+    rendered = {
+        "type": "struct",
+        "fields": [
+            {
+                "name": field.name,
+                "type": _spark_type(field.type),
+                "nullable": field.nullable,
+                "metadata": ({"comment": descriptions[field.name]} if descriptions.get(field.name) else {}),
+            }
+            for field in fields
+        ],
+    }
+    return json.dumps(rendered, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+
+
+def with_spark_schema(schema: pa.Schema) -> pa.Schema:
+    """Return the schema with its Spark schema entry rebuilt from the fields it actually has.
+
+    Called wherever the field list changes. Spark trusts this entry as the file schema, so a stale
+    one naming a column the file no longer contains is worse than none at all: Spark would ask for
+    data that is not there. Descriptions are read back out of each field's own Arrow metadata, so a
+    pruned schema keeps its surviving columns described without needing the LinkML class again.
+    """
+    description_key = f"{_METADATA_PREFIX}description".encode()
+    descriptions: dict[str, str | None] = {}
+    for field in schema:
+        raw = (field.metadata or {}).get(description_key)
+        descriptions[field.name] = raw.decode() if raw else None
+    metadata = dict(schema.metadata or {})
+    metadata[_SPARK_SCHEMA_KEY] = _spark_schema_json(list(schema), descriptions)
+    return schema.with_metadata(metadata)
 
 
 def _arrow_type_for_range(range_name: str, source_schema: SchemaDefinition | None) -> pa.DataType:
@@ -125,6 +195,7 @@ def class_def_to_arrow_schema(
             }
         )
         fields.append(pa.field(name, arrow_type, nullable=True, metadata=field_metadata))
+    descriptions = {name: class_def.attributes[name].description for name in names}
     schema_metadata = _encoded_metadata(
         {
             "footer_metadata_format_version": FOOTER_METADATA_FORMAT_VERSION,
@@ -137,6 +208,7 @@ def class_def_to_arrow_schema(
             "mapping": mapping,
         }
     )
+    schema_metadata[_SPARK_SCHEMA_KEY] = _spark_schema_json(fields, descriptions)
     return pa.schema(fields, metadata=schema_metadata)
 
 
@@ -290,7 +362,11 @@ class ParquetSink:
             protected = self._protected_columns()
             keep = [name for name in tbl.schema.names if name in protected or _col_has_data(tbl.column(name))]
             if len(keep) < len(tbl.schema.names):
-                pq.write_table(tbl.select(keep), out_path)
+                pruned = tbl.select(keep)
+                # select() carries the original schema metadata across, so the Spark schema would
+                # still name the dropped columns and Spark would ask for data that is not there.
+                pruned = pruned.replace_schema_metadata(dict(with_spark_schema(pruned.schema).metadata or {}))
+                pq.write_table(pruned, out_path)
 
         return total
 

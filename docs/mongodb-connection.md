@@ -415,7 +415,7 @@ Table-level keys use the `nmdc_lakehouse.` prefix:
 | `target_class` | Generated LinkML class represented by the file. |
 | `mapping` | Fully qualified identity of the row mapping used for this table. |
 
-Field-level keys use the same prefix:
+Field-level keys use the same `nmdc_lakehouse.` prefix, all four of them:
 
 | Key | Meaning |
 | --- | --- |
@@ -423,6 +423,37 @@ Field-level keys use the same prefix:
 | `linkml_range` | LinkML range used to construct the Arrow type. |
 | `identifier` | `true` only when the generated slot is an identifier. |
 | `designates_type` | `true` only when the generated slot is a type designator. |
+
+One key is not ours, and it is the only footer entry that is a schema rather
+than a label:
+
+| Key | Meaning |
+| --- | --- |
+| `org.apache.spark.sql.parquet.row.metadata` | The file's schema in the form Spark reads a Parquet schema, with each slot description carried as a field `comment`. Written so that a Spark-based loader can create an already-described table in the commit it was making anyway, rather than needing one `ALTER TABLE ... ALTER COLUMN ... COMMENT` per column afterwards. Whether the BERDL loader honours it has **not** been confirmed on a real run; see the note below. |
+
+**What is and is not established.** That this key reaches the Parquet footer, and
+that its comments match the slot descriptions, is verified by tests in this
+repository. That Spark reads it and turns those comments into catalog column
+comments is read from Spark's documented behaviour and has never been observed
+here. Until a staging run confirms it, treat the catalog side as intended rather
+than delivered: a loader that ignored this key would look identical from here,
+because staging would succeed, row counts would match, and the descriptions
+would simply be absent. The read-back check is
+[#278](https://github.com/microbiomedata/nmdc-lakehouse/issues/278), and
+[#258](https://github.com/microbiomedata/nmdc-lakehouse/issues/258) stays open,
+with `berdl-apply-metadata` still applying descriptions, until it passes.
+
+Because it is a schema, it has a consistency requirement the other keys do not:
+it must name exactly the columns the file holds. Any code that changes the field
+list has to rebuild it, which is why removing all-empty columns regenerates it
+rather than letting the original survive. A stale entry is worse than an absent
+one, because Spark would request a column the file no longer contains.
+
+`footer_schema_sha256` in the snapshot manifest is computed over **all** schema
+and field metadata, this key included, so emitting it changes every artifact's
+footer fingerprint. That is correct rather than incidental: the footer genuinely
+differs. Snapshots written before it keep validating against their own
+manifests.
 
 These footer values make an individual file interpretable before catalog
 registration. They are not a substitute for the complete target LinkML schema
