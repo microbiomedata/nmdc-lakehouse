@@ -13,7 +13,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from nmdc_lakehouse.snapshot_manifest import SnapshotManifest, validate_snapshot
 
-INVENTORY_FORMAT_VERSION: Literal[1] = 1
+# Raised from 1 when DestinationTable gained observed_table_format. Every model here forbids
+# extra fields, so any added key is a format change whether or not it has a default.
+INVENTORY_FORMAT_VERSION: Literal[2] = 2
 POLICY_FORMAT_VERSION: Literal[1] = 1
 PLAN_FORMAT_VERSION: Literal[1] = 1
 _SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
@@ -55,6 +57,11 @@ class DestinationTable(BaseModel):
     name: str
     rows: int = Field(ge=0)
     physical_schema_sha256: str
+    # The format observed on this table, as opposed to the reviewed namespace label above.
+    # The producer already reads it per table and fails closed on a mismatch; recording it turns
+    # "every table was checked" from a claim about how the command works into evidence in the
+    # artifact. Absent from a version 1 inventory, hence the default.
+    observed_table_format: str | None = None
 
     @field_validator("name")
     @classmethod
@@ -62,6 +69,19 @@ class DestinationTable(BaseModel):
         """Reject table names that cannot map to portable local artifacts."""
         if not _SAFE_TABLE.fullmatch(value):
             raise ValueError("Table names must be safe local identifiers.")
+        return value
+
+    @field_validator("observed_table_format")
+    @classmethod
+    def validate_observed_format(cls, value: str | None) -> str | None:
+        """Hold the observed format to the same contract as the reviewed labels above it.
+
+        This is read from a file and copied into plans and log output, so it gets the same
+        sanitization as `provider` and `table_format` rather than being trusted because the
+        producer happened to validate it before writing.
+        """
+        if value is not None and not _SAFE_ID.fullmatch(value):
+            raise ValueError("An observed table format must be a sanitized logical label.")
         return value
 
     @field_validator("physical_schema_sha256")
@@ -78,7 +98,11 @@ class DestinationInventory(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    inventory_format_version: Literal[1]
+    # Both accepted on read. Version 2 added observed_table_format to each table, which is
+    # optional, so a version 1 document is still valid here. Reading is widened rather than the
+    # version being left alone because these models forbid extra fields: a reader pinned to
+    # version 1 rejects a version 2 document outright, and a default does nothing to prevent that.
+    inventory_format_version: Literal[1, 2]
     destination_id: str
     observed_at: str = Field(min_length=1)
     provider: str | None = None
