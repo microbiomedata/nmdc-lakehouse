@@ -332,11 +332,12 @@ is large enough to pass a size filter even when the directory holds nothing but
 `_SUCCESS`. That is the exact failure this section is about, so a verification
 that can report it as success is worse than none.
 
-The signature of a failed export is a `table.parquet` directory containing only
-`_SUCCESS`, with no `part-*.parquet` files inside it. Judge it on whether those
-files exist rather than on a byte figure: a directory plus an empty marker still
-consumes blocks, and how many depends on the filesystem, which is the trap this
-paragraph exists to avoid.
+The signature of a failed export is a `table.parquet` directory holding only
+marker files, `_SUCCESS` being the usual one, with no `part-*.parquet` inside it.
+Judge it on whether those data files exist rather than on a byte figure: a
+directory plus markers still consumes blocks, how many depends on the filesystem,
+and which markers appear depends on the write. The absence of `part-*` is the
+part that holds in every case.
 
 For an object-store destination, list it and compare against what was written:
 
@@ -345,9 +346,11 @@ mc ls --recursive berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/exports/202
 ```
 
 `mc` is the object-store client this repository supports and the one
-`berdl-doctor` checks for. From a workstation it needs the `berdl-minio` alias,
-which the tunnel step in the historical transport section below configures, and
-which the maintained path otherwise never needs.
+`berdl-doctor` checks for. It needs the `berdl-minio` alias wherever it runs. On a
+workstation the tunnel step in the historical transport section below configures
+that alias, and the maintained path otherwise never needs it. How the alias is
+provided inside the pod has not been verified here, so check `mc alias list`
+before relying on it there.
 
 See [#250](https://github.com/microbiomedata/nmdc-lakehouse/issues/250).
 
