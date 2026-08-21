@@ -24,6 +24,14 @@ jobs:
           # shallow clone does not contain. Depth 0 fetches with
           # +refs/heads/*:refs/remotes/origin/*, so the base is already a local
           # remote-tracking ref and the gate needs no second, unauthenticated fetch.
+          #
+          # Deliberately unconditional, though the gate runs on pull requests only.
+          # Measured on this repository: the full-history checkout takes 2.66s in a 325s
+          # job, and a conditional would save only the depth-0-versus-depth-1 difference,
+          # on merges to main. Against that, the obvious expression
+          # ${{ github.event_name == 'pull_request' && 0 || 1 }} always yields 1, because
+          # 0 is falsy here, which would give every pull request a shallow clone and turn
+          # the gate into a silent no-op on exactly the runs it exists for.
           fetch-depth: 0
 
       - name: Install uv
