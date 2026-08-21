@@ -595,8 +595,18 @@ def run_promotion_probe(
                 f"CALL {catalog}.system.rollback_to_snapshot('{destination_first}', {recovery_point})",
             )
             if rollback.verdict is ProbeVerdict.SUPPORTED:
+                # _observed_state collapses three situations into None, and one of them is a
+                # destroyed table. Ask the tri-state directly before deciding what to report.
+                present_after = _table_exists(spark, plan.destination_namespace, first)
                 recovered = _observed_state(spark, plan.destination_namespace, first)
-                if recovered is None:
+                if present_after is False:
+                    rollback.verdict = ProbeVerdict.UNCLASSIFIED_FAILURE
+                    rollback.independently_verified = False
+                    unresolved.append(
+                        f"The rollback call reported success but table '{first}' no longer exists in "
+                        f"{plan.destination_namespace}, so the recovery operation destroyed it."
+                    )
+                elif recovered is None:
                     unresolved.append(
                         "The rollback call reported success but the table's state could not be read back, so "
                         "whether the recovery operation worked is unknown."

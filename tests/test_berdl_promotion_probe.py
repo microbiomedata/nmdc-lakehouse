@@ -439,6 +439,56 @@ def test_a_rollback_whose_state_cannot_be_read_back_is_unknown_not_unverified() 
     assert not any("did not return to its pre-mutation" in q for q in outcome.unresolved_questions)
 
 
+def test_a_table_destroyed_by_rollback_is_not_reported_as_merely_unreadable() -> None:
+    """A table gone after a successful rollback is a destroyed table, not an unknown; #279."""
+
+    class DestroyingRollback(FakeSpark):
+        def _answer(self, statement: str):
+            if statement.startswith("CALL ") and "rollback_to_snapshot" in statement:
+                table, _ = _call_arguments(statement)
+                self._require(table)
+                # The call reports success and the table is gone: the outcome the probe exists for.
+                self.tables.pop(table, None)
+                self.snapshots.pop(table, None)
+                return []
+            return super()._answer(statement)
+
+    outcome = _run(DestroyingRollback())
+
+    rollback = {s.operation: s for s in outcome.steps}[ProbeOperation.ROLLBACK_TO_SNAPSHOT]
+    assert rollback.independently_verified is False
+    assert rollback.verdict is ProbeVerdict.UNCLASSIFIED_FAILURE
+    assert any("no longer exists" in q and "destroyed it" in q for q in outcome.unresolved_questions)
+    # And it must not be reported as the softer, unrelated outcome.
+    assert not any("could not be read back" in q for q in outcome.unresolved_questions)
+
+
+def test_an_unreadable_catalog_after_rollback_is_still_only_unknown() -> None:
+    """The genuinely unknown case must stay unknown rather than being called destruction."""
+
+    class BlindAfterRollback(FakeSpark):
+        rolled_back = False
+
+        def sql(self, statement: str):
+            if self.rolled_back and statement.startswith("SHOW TABLES IN"):
+                self.statements.append(statement)
+                raise RuntimeError("INSUFFICIENT_PRIVILEGES: cannot list namespace")
+            return super().sql(statement)
+
+        def _answer(self, statement: str):
+            result = super()._answer(statement)
+            if statement.startswith("CALL ") and "rollback_to_snapshot" in statement:
+                self.rolled_back = True
+            return result
+
+    outcome = _run(BlindAfterRollback())
+
+    rollback = {s.operation: s for s in outcome.steps}[ProbeOperation.ROLLBACK_TO_SNAPSHOT]
+    assert rollback.independently_verified is None
+    assert any("could not be read back" in q for q in outcome.unresolved_questions)
+    assert not any("destroyed it" in q for q in outcome.unresolved_questions)
+
+
 def test_injected_failure_really_fails_and_leaves_a_mixed_state() -> None:
     spark = FakeSpark()
 
