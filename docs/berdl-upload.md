@@ -322,14 +322,25 @@ returned.** Row counts printed by the writing job say nothing about where the by
 went, and in the 2026-08-20 run they were all correct:
 
 ```bash
-# Fails when the export produced no data files. `find` alone exits 0 either way,
-# so the test is what makes this usable as a check rather than as something to read.
+# Exits non-zero when any table produced no data files, so it can gate a script.
+# `find` alone exits 0 either way, and so does a bare `|| echo`, since echo succeeds.
+missing=0
 for table in /path/to/export/*; do
   test -n "$(find "$table" -type f -name 'part-*' -print -quit)" \
-    || echo "NO DATA: $table"
+    || { echo "NO DATA: $table"; missing=1; }
 done
+test "$missing" -eq 0
 
 du -sh /path/to/export/*   # a coarse look only; a directory and its markers also consume blocks
+```
+
+Run against a complete export, one that produced only markers, and one where a
+single table failed, that reports:
+
+```
+good   exit=0
+bad    exit=1   NO DATA: /path/to/export/t1.parquet
+mixed  exit=1   NO DATA: /path/to/export/t2.parquet
 ```
 
 `-type f` matters. Spark writes each table as a **directory** at the path you give
