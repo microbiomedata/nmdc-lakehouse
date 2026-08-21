@@ -66,21 +66,29 @@ those rules is expected.
 `MinAlertLevel` in `.vale.ini` must stay at `error`, and a non-blocking rule
 works by Vale not emitting it rather than by CI ignoring it.
 
-The Vale step in `.github/workflows/ci.yml` sets three inputs that matter here:
-`filter_mode: nofilter`, `fail_on_error: true`, and `level: error`. Together
-they mean reviewdog fails the build on any result it receives, whatever that
-result's severity. `level` labels the annotations it posts; it does not filter
-which results can fail the build, and the action passes no `--minAlertLevel`
-flag to Vale. So lowering `MinAlertLevel` here makes every warning a failed
-build. Observed rather than inferred: a push with `MinAlertLevel = suggestion`
-failed the `check` job with 196 results, none of them error severity.
+The Vale step in `.github/workflows/ci.yml` sets `filter_mode: nofilter` and
+`fail_on_error: true`. With the `github-pr-annotations` reporter that step uses,
+those resolve to fail-on-any: the build fails on one alert of any severity. The
+error-only behaviour people expect from `fail_on_error` belongs to the
+`github-check` and `github-pr-check` reporters, which this workflow does not
+use. The action also passes no `--minAlertLevel` to Vale, so `MinAlertLevel`
+above decides what Vale prints, and everything Vale prints can fail the build.
+
+Lowering `MinAlertLevel` therefore makes every warning a failed build. Observed
+rather than inferred: a push with `MinAlertLevel = suggestion` failed the
+`check` job with 196 annotations, none of them error severity.
+
+There is deliberately no `level:` input on that step. At the pinned action SHA
+it is never read; the action derives reviewdog's `-level` from Vale's own exit
+code. It was present and inert, and its presence convinced two readers that a
+severity threshold existed.
 
 Run `just prose-lint` rather than `vale` directly. The recipe sets `HOME` to a
-scratch directory, which is what makes it match the CI configuration, and passes
+scratch directory, which is what stops a personal Vale configuration on the
+machine leaking in; without it a local run can report problems CI will not, or
+miss the vocabulary CI uses. It lints the same file set as CI, and passes
 `--minAlertLevel=suggestion` so warnings and suggestions stay visible to you
-without reaching CI. A bare `vale` invocation merges any personal Vale
-configuration on the machine and can report problems CI will not, or miss the
-vocabulary CI uses.
+without reaching CI.
 
 ## Describe and review the change
 
