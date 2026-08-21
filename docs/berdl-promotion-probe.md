@@ -84,6 +84,14 @@ a table being absent, and a rollback whose row count could not be read back
 afterwards is `null` rather than `false`, because `false` there would claim the
 rollback ran and left the table wrong.
 
+The rollback check separates three outcomes rather than two, because one of them
+is destruction. If the table is gone after a rollback that reported success, the
+step is `unclassified-failure` with `independently_verified` set to `false` and
+an unresolved question naming the table, since that is the worst thing this probe
+can find. If the catalog cannot be read afterwards, the outcome is genuinely
+unknown and is reported as such. Only a table that is present with the wrong row
+count is the ordinary "recovery cannot be relied on" case.
+
 The report distinguishes three things that are easy to conflate, and does so
 everywhere rather than only where it was convenient: a value the platform does
 not have, a value the principal may not read, and a value that could not be

@@ -595,18 +595,38 @@ def run_promotion_probe(
                 f"CALL {catalog}.system.rollback_to_snapshot('{destination_first}', {recovery_point})",
             )
             if rollback.verdict is ProbeVerdict.SUPPORTED:
-                recovered = _observed_state(spark, plan.destination_namespace, first)
-                if recovered is None:
+                # _observed_state collapses three situations into None, and one of them is a
+                # destroyed table. Ask the tri-state directly, then read the state only when the
+                # table is actually there. Calling _observed_state here as well would list the
+                # namespace a second time and report the same permission failure twice.
+                present_after = _table_exists(spark, plan.destination_namespace, first)
+                recovered: TableState | None = None
+                if present_after is True:
+                    try:
+                        recovered = _table_state(spark, plan.destination_namespace, first)
+                    except Exception:
+                        recovered = None
+                if present_after is False:
+                    rollback.verdict = ProbeVerdict.UNCLASSIFIED_FAILURE
+                    rollback.independently_verified = False
                     unresolved.append(
-                        "The rollback call reported success but the table's state could not be read back, so "
-                        "whether the recovery operation worked is unknown."
+                        f"The rollback call reported success but table '{first}' no longer exists in "
+                        f"{plan.destination_namespace}, so the recovery operation destroyed it."
+                    )
+                elif recovered is None:
+                    unresolved.append(
+                        f"The rollback call reported success but the state of table '{first}' in "
+                        f"{plan.destination_namespace} could not be read back, so whether the recovery "
+                        "operation worked is unknown."
                     )
                 else:
                     rollback.independently_verified = recovered.row_count == promoted.row_count
                     if not rollback.independently_verified:
                         unresolved.append(
-                            "The rollback call reported success but the table did not return to its "
-                            "pre-mutation row count, so the recovery operation cannot be relied on."
+                            f"The rollback call reported success but table '{first}' in "
+                            f"{plan.destination_namespace} did not return to its pre-mutation row count "
+                            f"({recovered.row_count} rather than {promoted.row_count}), so the recovery "
+                            "operation cannot be relied on."
                         )
             steps.append(rollback)
             steps.append(
