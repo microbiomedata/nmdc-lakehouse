@@ -132,7 +132,7 @@ def _describe_names(names: Sequence[str]) -> str:
 def _contents_mismatch(expected: set[str], actual: set[str]) -> str:
     """Say which files are missing and which are unexpected, not merely that one of those happened.
 
-    The three categories have different causes and different fixes. A missing file means an
+    The two categories have different causes and different fixes. A missing file means an
     incomplete transfer. An unexpected file usually means the archiving step added something, and
     AppleDouble `._*` siblings from a macOS `tar` are the case that has actually happened. Reporting
     only the category sent an operator looking at the manifest when the problem was the copy.
@@ -143,11 +143,11 @@ def _contents_mismatch(expected: set[str], actual: set[str]) -> str:
     if missing:
         parts.append(f"missing {len(missing)}: {_describe_names(sorted(missing))}")
     if unexpected:
-        applesingle = sorted(name for name in unexpected if name.startswith("._"))
+        appledouble = sorted(name for name in unexpected if name.startswith("._"))
         parts.append(f"unexpected {len(unexpected)}: {_describe_names(sorted(unexpected))}")
-        if applesingle:
+        if appledouble:
             parts.append(
-                f"{len(applesingle)} of the unexpected files start with '._', which is what extracting a "
+                f"{len(appledouble)} of the unexpected files start with '._', which is what extracting a "
                 "macOS tar archive on Linux produces; re-archive with COPYFILE_DISABLE=1 or delete them"
             )
     return "Snapshot contents do not match the manifest: " + "; ".join(parts) + "."

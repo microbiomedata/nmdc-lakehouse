@@ -229,18 +229,18 @@ them and the visible directory listing looks correct. On 2026-08-20 a 52-artifac
 snapshot arrived in the pod with 54 extra `._*` files and nothing looked wrong until
 validation ran.
 
-`validate-snapshot` catches it, fails closed, and names what it found:
+`validate-snapshot` catches it, fails closed, and names what it found. Verbatim,
+from a snapshot with two such siblings planted:
 
 ```
-Error: Snapshot contents do not match the manifest: unexpected 54: '._biosample_set.parquet',
-'._etl-metrics.json', ... and 44 more; 54 of the unexpected files start with '._', which is what
-extracting a macOS tar archive on Linux produces; re-archive with COPYFILE_DISABLE=1 or delete them.
+Error: Snapshot contents do not match the manifest: unexpected 2: '._instrument_set.parquet', '._study_set.parquet'; 2 of the unexpected files start with '._', which is what extracting a macOS tar archive on Linux produces; re-archive with COPYFILE_DISABLE=1 or delete them.
 ```
 
-Missing and unexpected files are reported separately, because they have different
-causes: missing means an incomplete transfer, unexpected usually means the
-archiving step added something. At most ten names are listed per category, with a
-count of the rest.
+The message is a single line however many files are involved. Missing and
+unexpected are reported separately, because they have different causes: missing
+means an incomplete transfer, unexpected usually means the archiving step added
+something. At most ten names appear per category, followed by `and N more`, so
+the real 54-sibling case reads the same way with a longer list.
 
 To clear AppleDouble siblings that are already in place:
 
