@@ -29,6 +29,11 @@ from nmdc_lakehouse.metadata_application import (
     MetadataOperationKind,
 )
 
+# Bumped from 1 when AppliedMetadataTarget gained columns_already_correct and
+# table_description_already_correct. Every model here forbids extra fields, so any added key
+# is a format change whether or not it has a default.
+METADATA_OUTCOME_FORMAT_VERSION: Literal[2] = 2
+
 
 class BerdlMetadataError(ValueError):
     """Raised when staging metadata cannot be applied and verified safely."""
@@ -75,13 +80,21 @@ class AppliedMetadataTarget(BaseModel):
     # False when no table description was planned, which table_description_status already says.
     table_description_already_correct: bool = False
 
+    # Both of the fields above are absent from a version 1 outcome, hence the defaults. They are
+    # what the outcome format version was raised for.
+
 
 class BerdlMetadataOutcome(BaseModel):
     """Credential-free evidence of staging table and column metadata read-back."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    outcome_format_version: Literal[1]
+    # Both accepted on read. Version 2 added the two already-correct fields on each target, which
+    # are optional, so a version 1 document is still fully valid under this model. Reading is
+    # widened rather than the version being left alone, because BerdlMetadataOutcome forbids extra
+    # fields: a reader pinned to version 1 rejects a version 2 document outright, and an optional
+    # field with a default does nothing to prevent that. Writing emits the constant below.
+    outcome_format_version: Literal[1, 2]
     status: Literal["metadata-verified"]
     snapshot_id: str
     destination_id: str
@@ -369,7 +382,7 @@ def apply_berdl_staging_metadata(
             )
         )
     return BerdlMetadataOutcome(
-        outcome_format_version=1,
+        outcome_format_version=METADATA_OUTCOME_FORMAT_VERSION,
         status="metadata-verified",
         snapshot_id=staging.snapshot_id,
         destination_id=staging.destination_id,

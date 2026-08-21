@@ -274,6 +274,38 @@ def test_apply_writes_only_the_columns_that_differ(tmp_path: Path) -> None:
     assert outcome.targets[0].columns_already_correct == ["id"]
 
 
+def test_a_version_one_outcome_still_parses_and_new_outcomes_declare_version_two() -> None:
+    """Every model here forbids extra fields, so an added key is a format change, default or not."""
+    from nmdc_lakehouse.berdl_metadata import METADATA_OUTCOME_FORMAT_VERSION
+
+    v1 = {
+        "outcome_format_version": 1,
+        "status": "metadata-verified",
+        "snapshot_id": SNAPSHOT_ID,
+        "destination_id": "berdl-production",
+        "staging_namespace": "nmdc.metadata_staging_20260820",
+        "staging_outcome_sha256": "6" * 64,
+        "metadata_plan_sha256": "5" * 64,
+        "deferred_namespace_operations": 1,
+        "targets": [
+            {
+                "table": "biosample_set",
+                "table_description_status": "verified",
+                "columns_verified": ["id"],
+            }
+        ],
+    }
+
+    parsed = BerdlMetadataOutcome.model_validate(v1, strict=True)
+
+    assert parsed.outcome_format_version == 1
+    assert parsed.targets[0].columns_already_correct == []
+    assert parsed.targets[0].table_description_already_correct is False
+    # And the fields that motivated the bump are rejected under the old version's shape only by
+    # the version number, not by the model, which is exactly why the number had to change.
+    assert METADATA_OUTCOME_FORMAT_VERSION == 2
+
+
 def test_a_column_description_without_a_column_cannot_be_built() -> None:
     """Where the completeness check actually lives, tested on the input it must reject.
 
