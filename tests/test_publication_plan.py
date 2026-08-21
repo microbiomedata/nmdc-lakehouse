@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from pydantic import ValidationError
 
 from nmdc_lakehouse.cli import cli
 from nmdc_lakehouse.publication_plan import (
@@ -212,10 +213,28 @@ def test_inventory_rejects_malformed_counts_and_schemas(tmp_path: Path, field: s
         load_destination_inventory(path)
 
 
+@pytest.mark.parametrize("value", ["", "iceberg; rm -rf /", "ice\nberg", "a" * 300])
+def test_an_unsafe_observed_format_is_rejected(value: str) -> None:
+    """It is read from a file and copied into plans and logs, so it gets the same contract."""
+    with pytest.raises(ValidationError):
+        DestinationTable(name="t", rows=0, physical_schema_sha256="a" * 64, observed_table_format=value)
+
+
+def test_a_safe_observed_format_and_an_absent_one_are_both_accepted() -> None:
+    described = DestinationTable(name="t", rows=0, physical_schema_sha256="a" * 64, observed_table_format="iceberg")
+    version_one = DestinationTable(name="t", rows=0, physical_schema_sha256="a" * 64)
+
+    assert described.observed_table_format == "iceberg"
+    assert version_one.observed_table_format is None
+
+
 def test_publication_json_schemas_are_versioned() -> None:
-    for document in ("inventory", "policy", "plan"):
+    # Asserted per document rather than as one number, because they version independently:
+    # the inventory moved to 2 when DestinationTable gained observed_table_format.
+    expected = {"inventory": 2, "policy": 1, "plan": 1}
+    for document, version in expected.items():
         schema = publication_json_schema(document)  # type: ignore[arg-type]
-        assert schema["x-format-version"] == 1
+        assert schema["x-format-version"] == version
         assert schema["additionalProperties"] is False
 
 
@@ -234,7 +253,8 @@ def test_cli_schema_and_invalid_candidate_are_offline(tmp_path: Path) -> None:
     )
 
     assert schema.exit_code == 0
-    assert json.loads(schema.output)["x-format-version"] == 1
+    # This asks for the inventory schema specifically, which is at version 2.
+    assert json.loads(schema.output)["x-format-version"] == 2
     assert invalid.exit_code != 0
     assert "Snapshot root must be an existing ordinary directory" in invalid.output
 

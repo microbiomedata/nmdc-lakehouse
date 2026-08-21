@@ -108,6 +108,44 @@ def test_inventory_fails_closed_on_table_format_mismatch(monkeypatch: pytest.Mon
         )
 
 
+def test_the_inventory_records_the_format_it_observed_on_each_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Checking a value and keeping it are different things; the artifact is the surviving record."""
+    _patch_discovery(monkeypatch, {"biosample_set": "iceberg", "study_set": "iceberg"})
+
+    inventory = audit.build_publication_inventory(
+        FakeSpark({"biosample_set": FakeFrame(1, "a"), "study_set": FakeFrame(2, "b")}),
+        "nmdc_metadata",
+        destination_id="nmdc-production",
+        provider="spark_catalog",
+        table_format="iceberg",
+        metadata_capabilities=["namespace", "table", "column"],
+    )
+
+    assert inventory["inventory_format_version"] == 2
+    observed = {entry["name"]: entry["observed_table_format"] for entry in inventory["tables"]}
+    assert observed == {"biosample_set": "iceberg", "study_set": "iceberg"}
+
+
+def test_a_version_one_inventory_still_parses() -> None:
+    """These models forbid extra fields, so a reader pinned to 1 would reject a 2; both are read."""
+    from nmdc_lakehouse.publication_plan import DestinationInventory
+
+    v1 = {
+        "inventory_format_version": 1,
+        "destination_id": "nmdc-production",
+        "observed_at": "2026-08-20T12:05:00+00:00",
+        "provider": "spark_catalog",
+        "table_format": "iceberg",
+        "metadata_capabilities": [],
+        "tables": [{"name": "study_set", "rows": 1, "physical_schema_sha256": "a" * 64}],
+    }
+
+    parsed = DestinationInventory.model_validate(v1, strict=True)
+
+    assert parsed.inventory_format_version == 1
+    assert parsed.tables[0].observed_table_format is None
+
+
 def test_a_partially_migrated_namespace_cannot_produce_an_inventory(monkeypatch: pytest.MonkeyPatch) -> None:
     """The mixed case, which is the one #248 is about, and which the single-table tests miss.
 
