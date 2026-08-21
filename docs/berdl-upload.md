@@ -284,8 +284,8 @@ all.
 
 **A Spark write to a local path leaves no usable data on the pod filesystem.** The
 write itself does not fail, and Spark does not drop it: in a cluster each executor
-resolves the path against its own filesystem and writes its partition there. What
-the driver's directory receives is the success markers. So the data may exist,
+resolves the path against its own filesystem and writes its partition there. All
+the driver's directory receives are the marker files. So the data may exist,
 scattered across executor filesystems you cannot reach, which is not a backup:
 
 ```python
@@ -301,11 +301,12 @@ behind is a set of plausible-looking directories with the right names. Anyone wh
 then deletes the source has lost it.
 
 **Write to object storage instead**, which every executor can reach, and copy down
-from there. Use a dated export prefix under the tenant area so a run is
-identifiable and two runs cannot collide:
+from there. Give each run its own prefix under the tenant area so it is
+identifiable and does not overwrite an earlier one. A date alone is not enough if
+you rerun on the same day, so include a time:
 
 ```python
-prefix = "exports/20260821-results-backup"     # dated, and specific to this run
+prefix = "exports/20260821T204900-results-backup"   # unique per run, not per day
 df.write.parquet(f"s3a://cdm-lake/tenant-general-warehouse/nmdc/{prefix}/annotation_enzyme_commission.parquet")
 ```
 
@@ -325,11 +326,12 @@ du -sh /path/to/export/*                              # bytes present, not just 
 find /path/to/export -type f -name '*.parquet' | head  # actual data files, not the directory
 ```
 
-`-type f` matters. Spark writes each table as a **directory** named `table.parquet`
-containing `part-*.snappy.parquet` files, so a `find` without it matches the
+`-type f` matters. Spark writes each table as a **directory** at the path you give
+it, containing `part-*` data files whose codec varies with configuration, so a
+`find` without it matches the
 directory entry itself, whose size is filesystem-dependent and on the pod's ext4
-is large enough to pass a size filter even when the directory holds nothing but
-`_SUCCESS`. That is the exact failure this section is about, so a verification
+is large enough to pass a size filter even when the directory holds no data at
+all. That is the exact failure this section is about, so a verification
 that can report it as success is worse than none.
 
 The signature of a failed export is a `table.parquet` directory holding only
