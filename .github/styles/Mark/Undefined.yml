@@ -64,6 +64,13 @@
 # fix trades false negatives for false positives on correct writing. A non-blocking rule that flags
 # correct prose is worse than one that misses cases, because it teaches people to ignore it.
 #
+# The remediation has to name the parentheses, not just say "expand it". Writing the term out
+# without them leaves the rule firing, so a reader who followed the earlier wording would have
+# done the right thing for a reader and still failed the check. Verified: "The Zed Query Quality
+# Program is our ZQQP effort." fires, and "The Zed Query Quality Program (ZQQP) is our effort."
+# does not. Flagged by Copilot on
+# https://github.com/microbiomedata/nmdc-lakehouse/pull/284, after that pull request had merged.
+#
 # Accepted as a known gap. The message below now says what is actually checked, that no
 # parenthesised form appears anywhere in the file, rather than claiming nothing was expanded, which
 # is the thing this rule cannot tell. Issue 272 said the message had already been narrowed; it had
@@ -71,7 +78,7 @@
 # comment. Reopen only with a mechanism that handles the two cases above.
 # See https://github.com/microbiomedata/nmdc-lakehouse/issues/272.
 extends: conditional
-message: "'%s' has no parenthesised form anywhere in this file. Expand it on first use, or add it to the vocabulary if it needs none."
+message: "'%s' has no parenthesised form anywhere in this file. Write the term out with the acronym in parentheses after it, as in 'Zed Query Quality Program (ZQQP)', or add it to the vocabulary if it needs none."
 scope: text
 ignorecase: false
 first: '\b([A-Z]{3,6})\b'
