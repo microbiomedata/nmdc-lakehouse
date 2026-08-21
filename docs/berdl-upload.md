@@ -320,9 +320,19 @@ returned.** Row counts printed by the writing job say nothing about where the by
 went, and in the 2026-08-20 run they were all correct:
 
 ```bash
-du -sh /path/to/export/*        # bytes present, not just directories
-find /path/to/export -name '*.parquet' -size +1k | head
+du -sh /path/to/export/*                              # bytes present, not just directories
+find /path/to/export -type f -name '*.parquet' | head  # actual data files, not the directory
 ```
+
+`-type f` matters. Spark writes each table as a **directory** named `table.parquet`
+containing `part-*.snappy.parquet` files, so a `find` without it matches the
+directory entry itself, whose size is filesystem-dependent and on the pod's ext4
+is large enough to pass a size filter even when the directory holds nothing but
+`_SUCCESS`. That is the exact failure this section is about, so a verification
+that can report it as success is worse than none.
+
+The signature of a failed export is a `table.parquet` directory containing only
+`_SUCCESS`, and `du` shows it as `0B` against tens of megabytes for a real one.
 
 For an object-store destination, list it and compare against what was written.
 From inside the pod, where credentials are already configured:
