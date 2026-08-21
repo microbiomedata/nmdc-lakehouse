@@ -596,13 +596,18 @@ def run_promotion_probe(
             )
             if rollback.verdict is ProbeVerdict.SUPPORTED:
                 recovered = _observed_state(spark, plan.destination_namespace, first)
-                rollback.independently_verified = recovered is not None and recovered.row_count == promoted.row_count
-                if not rollback.independently_verified:
+                if recovered is None:
                     unresolved.append(
-                        "The rollback call reported success but the table did not return to its pre-mutation "
-                        "row count, or its state could not be read back, so the recovery operation cannot be "
-                        "relied on."
+                        "The rollback call reported success but the table's state could not be read back, so "
+                        "whether the recovery operation worked is unknown."
                     )
+                else:
+                    rollback.independently_verified = recovered.row_count == promoted.row_count
+                    if not rollback.independently_verified:
+                        unresolved.append(
+                            "The rollback call reported success but the table did not return to its "
+                            "pre-mutation row count, so the recovery operation cannot be relied on."
+                        )
             steps.append(rollback)
             steps.append(
                 _attempt(

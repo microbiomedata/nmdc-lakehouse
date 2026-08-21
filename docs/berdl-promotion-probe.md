@@ -80,7 +80,9 @@ rerun by hand in the pod terminal to learn why.
 
 A step may also carry `independently_verified`, which is `null` when the check
 backing it could not be completed. A failed catalog listing is never recorded as
-a table being absent.
+a table being absent, and a rollback whose row count could not be read back
+afterwards is `null` rather than `false`, because `false` there would claim the
+rollback ran and left the table wrong.
 
 The report distinguishes three things that are easy to conflate, and does so
 everywhere rather than only where it was convenient: a value the platform does

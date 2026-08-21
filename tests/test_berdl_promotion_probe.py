@@ -414,6 +414,31 @@ def test_a_rollback_that_does_not_restore_rows_is_reported_as_unreliable() -> No
     assert any("did not return to its pre-mutation" in q for q in outcome.unresolved_questions)
 
 
+def test_a_rollback_whose_state_cannot_be_read_back_is_unknown_not_unverified() -> None:
+    """An unreadable read-back must not be reported as a rollback that failed to restore rows."""
+
+    class BlindAfterRollback(FakeSpark):
+        rolled_back = False
+
+        def _answer(self, statement: str):
+            if statement.startswith("CALL ") and "rollback_to_snapshot" in statement:
+                result = super()._answer(statement)
+                self.rolled_back = True
+                return result
+            if self.rolled_back and statement == f"SELECT COUNT(*) FROM {DESTINATION}.probe_first":
+                self.rolled_back = False
+                return [("not-a-number",)]
+            return super()._answer(statement)
+
+    outcome = _run(BlindAfterRollback())
+
+    rollback = {s.operation: s for s in outcome.steps}[ProbeOperation.ROLLBACK_TO_SNAPSHOT]
+    assert rollback.verdict is ProbeVerdict.SUPPORTED
+    assert rollback.independently_verified is None
+    assert any("could not be read back" in q for q in outcome.unresolved_questions)
+    assert not any("did not return to its pre-mutation" in q for q in outcome.unresolved_questions)
+
+
 def test_injected_failure_really_fails_and_leaves_a_mixed_state() -> None:
     spark = FakeSpark()
 
