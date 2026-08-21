@@ -168,6 +168,7 @@ operational-command inventory.
 | `just lock`         | Refresh `uv.lock`                                |
 | `just lint-just`    | Check canonical justfile syntax and formatting   |
 | `just prose-lint`   | Spell-check maintained Markdown with Vale        |
+| `just test-prose-lint-exit` | Prove the prose gate blocks on errors and not on warnings |
 | `just shellcheck`   | Lint safely rendered Bash recipes                 |
 | `just actionlint`   | Check GitHub Actions workflows and run blocks     |
 | `just lint`         | ruff check + format check                        |
@@ -176,19 +177,48 @@ operational-command inventory.
 | `just typecheck`    | `mypy src`                                       |
 | `just test`         | pytest                                           |
 | `just test-cov`     | pytest with the configured floor and coverage XML|
+| `just diff-cover`   | Coverage of lines this branch adds or changes     |
 | `just build`        | Build sdist + wheel via `uv build`               |
 | `just test-dist`    | Build and test archives in isolated Python 3.13  |
 | `just docs-build`   | Build the MkDocs site (requires `install-all`)   |
-| `just check`        | just, prose, shell, workflow, Python, type, tests  |
+| `just check`        | just, prose, prose gate, shell, workflow, Python, deps, type, schema, tests, coverage |
 
 ### Coverage policy
 
-The enforced package floor is 75%. It was raised on 2026-08-18 after the
-Python 3.13 suite exceeded 76% coverage. The initial ratchet was 71.462%:
-parent commit `ada7f3f` covered 606 of 848 statements on 2026-08-17. The two
-live-MongoDB integration tests remain explicitly skipped. Raise `fail_under`
-as focused tests improve coverage; do not lower it merely to merge a
-regression.
+Two separate gates, measuring different things. Neither replaces the other.
+
+**Total floor, 75%, `fail_under` in `pyproject.toml`.** It was raised on
+2026-08-18 after the Python 3.13 suite exceeded 76% coverage. The initial
+ratchet was 71.462%: parent commit `ada7f3f` covered 606 of 848 statements on
+2026-08-17. The two live-MongoDB integration tests remain explicitly skipped.
+Raise `fail_under` as focused tests improve coverage; do not lower it merely to
+merge a regression.
+
+**Changed-line floor, 90%, `just diff-cover`.** The total floor cannot protect
+new code. A wholly untested function arriving in a well-tested codebase moves
+the total by a fraction of a percent and clears the floor easily. That happened:
+`_verify_ingest_checkout` merged with no direct test while the suite reported
+85.96% total, and the suppressed review finding that reached the default branch
+landed on exactly that function. So this second gate measures only the lines the
+branch adds or changes, against the base branch, and reports which added lines are
+uncovered. CI passes the pull request's base; `just diff-cover` defaults to
+`origin/main` and takes a different base as its argument.
+
+The two numbers differ on purpose and are not in tension. 75% is a statement
+about a codebase carrying legacy paths that predate the test suite. 90% is a
+statement about code being written now, where there is no such excuse. The
+changed-line gate never asks for coverage of unchanged lines, so raising it does
+not create work on files nobody touched.
+
+A branch that changes no Python passes it: with no measurable lines in the diff,
+`diff-cover` reports nothing to score and succeeds.
+
+Running it needs `coverage.xml`, so run `just test-cov` first, and needs the
+base branch present, so a shallow clone has to fetch it. CI does both.
+
+CI runs it on pull requests only. On a push to `main` there is no base branch to
+compare against, and a gate that cannot fail is worse than an absent one, because
+the green tick claims a check that did not happen.
 
 ## License
 

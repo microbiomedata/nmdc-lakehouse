@@ -204,6 +204,15 @@ test-cov:
     uv run pytest --cov=nmdc_lakehouse --cov-report=term-missing --cov-report=xml
     uv run coverage report
 
+# Gate lines added or changed against a base branch on direct test coverage.
+# Separate from the total floor in pyproject: the total floor protects the codebase
+# as it stands, and cannot notice an untested function arriving in a large tested
+# codebase. This measures only what the change touches. Requires coverage.xml, so
+# run `just test-cov` first, and requires the base branch to be fetched.
+diff-cover BASE="origin/main":
+    @test -s coverage.xml || { echo "coverage.xml is missing or empty; run 'just test-cov' first" >&2; exit 1; }
+    uv run diff-cover coverage.xml --compare-branch="{{ BASE }}" --fail-under=90 --show-uncovered
+
 # Run only integration tests (require live DBs).
 test-integration:
     ENABLE_DB_TESTS=true uv run pytest -m integration
@@ -317,7 +326,7 @@ test-dist:
     bash scripts/check_distribution.sh
 
 # Run the deterministic local quality checks.
-check: lint-just prose-lint test-prose-lint-exit shellcheck actionlint lint deps-lint typecheck check-flat-schema test-cov
+check: lint-just prose-lint test-prose-lint-exit shellcheck actionlint lint deps-lint typecheck check-flat-schema test-cov diff-cover
 
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
 # See scripts/README.md for details. These recipes shell out to utilities under
