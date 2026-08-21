@@ -240,11 +240,18 @@ cli *ARGS:
 run-job JOB *ARGS:
     uv run nmdc-lakehouse run-job {{ JOB }} {{ ARGS }}
 
-# Convert all schema collections except functional_annotation_agg to Parquet (~5 min).
-# Requires the GCP SSH tunnel to be open — see docs/mongodb-connection.md.
+# Dump MongoDB collections to Parquet and manifest the result.
+#
+# Complete by default (~22 min): every collection the installed schema declares, including
+# functional_annotation_agg, which is 53M rows and dominates the runtime. Name collections to
+# leave out for a faster partial run, for example
+# `just etl-collections functional_annotation_agg` (~5 min). The manifest records what was
+# skipped, so a partial snapshot cannot be mistaken for a complete one later.
+#
+# Requires the GCP SSH tunnel to be open, see docs/mongodb-connection.md.
 # Defaults Parquet to local/mongodb-metadata-<timestamp> unless LAKEHOUSE_ROOT is set.
 # Writes a matching local log plus metrics and a manifest inside the snapshot.
-etl-collections:
+etl-collections *SKIP:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p local
@@ -264,13 +271,25 @@ etl-collections:
     echo "Logging to $log"
     echo "Writing metrics to $metrics"
     echo "Recording validated source identity in the snapshot manifest"
+    skip_args=()
+    for collection in {{ SKIP }}; do
+      skip_args+=(--skip "$collection")
+    done
+    if [[ ${#skip_args[@]} -eq 0 ]]; then
+      echo "Dumping every collection. This includes functional_annotation_agg, which is"
+      echo "53M+ rows and dominates the runtime; name collections to skip if that is not wanted."
+    else
+      echo "Skipping: {{ SKIP }}"
+    fi
     time uv run nmdc-lakehouse run-job all-collections \
-      --skip functional_annotation_agg --metrics "$metrics" 2>&1 | tee "$log"
+      "${skip_args[@]+"${skip_args[@]}"}" --metrics "$metrics" 2>&1 | tee "$log"
     uv run nmdc-lakehouse create-snapshot-manifest "$LAKEHOUSE_ROOT" \
       --metrics "$metrics" --source-label "$source_label"
     uv run nmdc-lakehouse validate-snapshot "$LAKEHOUSE_ROOT"
 
-# Convert functional_annotation_agg to Parquet via direct pymongo (~17 min, 54.8M records).
+# Convert functional_annotation_agg alone to Parquet via direct pymongo (~17 min, 54.8M records).
+# `just etl-collections` already includes this collection; use this recipe only to redo that one
+# collection without redumping the rest, which produces no manifest on its own.
 # Requires the GCP SSH tunnel to be open — see docs/mongodb-connection.md.
 # Run inside screen or tmux so the job survives terminal close.
 # Logs to local/etl-annotations-<timestamp>.log
