@@ -300,93 +300,51 @@ That is dangerous for a backup specifically, because what a failed backup leaves
 behind is a set of plausible-looking directories with the right names. Anyone who
 then deletes the source has lost it.
 
-**Write to object storage instead**, which every executor can reach, and copy down
-from there. Give each run its own prefix under the tenant area so it is
-identifiable and does not overwrite an earlier one. A date alone is not enough if
-you rerun on the same day, so include a time:
+**Write to object storage instead**, which every executor can reach. Give each run
+its own prefix under the tenant area so it is identifiable and does not overwrite
+an earlier one. A date alone is not enough if you rerun on the same day, so
+include a time:
 
 ```python
 prefix = "exports/20260821T204900-results-backup"   # unique per run, not per day
 df.write.parquet(f"s3a://cdm-lake/tenant-general-warehouse/nmdc/{prefix}/annotation_enzyme_commission.parquet")
 ```
 
-A small table can be brought to the driver first, but only when it genuinely fits
-in driver memory. `nmdc.results` does not. All seven tables were counted during
-the 2026-08-20 export, and the two largest are `annotation_kegg_orthology` at
-1,831,998,811 rows and `annotation_enzyme_commission` at 1,231,453,377. The
-smallest, `annotation_statistics`, is 4,815 rows, so the right answer differs by
-table and the size has to be checked rather than assumed.
-
-**End every export by checking the destination holds data, not that the command
-returned.** Row counts printed by the writing job say nothing about where the bytes
-went, and in the 2026-08-20 run they were all correct:
+Check the object store holds what you wrote, naming the tables you exported
+rather than listing whatever arrived, so a table that produced nothing at all is
+still noticed:
 
 ```bash
-# Exits non-zero when any table produced no data files, so it can gate a script.
-# `find` alone exits 0 either way, and so does a bare `|| echo`, since echo succeeds.
-missing=0
-for table in /path/to/export/*; do
-  test -n "$(find "$table" -type f -name 'part-*' -print -quit)" \
-    || { echo "NO DATA: $table"; missing=1; }
+export PREFIX=exports/20260821T204900-results-backup
+for table in annotation_statistics checkm_statistics gtdbtk_bacterial_summary; do
+  https_proxy=http://127.0.0.1:8123 ~/bin/mc ls --recursive \
+      "berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/$PREFIX/$table.parquet/" \
+    | grep -q 'part-' || echo "MISSING OR EMPTY: $table"
 done
-test "$missing" -eq 0
-
-du -sh /path/to/export/*   # a coarse look only; a directory and its markers also consume blocks
 ```
 
-When run against a complete export, one that produced only markers, and one where
-a single table failed, it reports:
+The `https_proxy` prefix is required on every `mc` call:
+`configure_mc.sh --berdl-proxy` sets that variable inside its own process, which
+is why the other `mc` examples in this document carry it inline.
 
-```
-good   exit=0
-bad    exit=1   NO DATA: /path/to/export/t1.parquet
-mixed  exit=1   NO DATA: /path/to/export/t2.parquet
-```
-
-`-type f` matters. Spark writes each table as a **directory** at the path you give
-it, containing `part-*` data files whose exact names depend on how compression is
-configured, so a `find` without it matches the
-directory entry itself, whose size is filesystem-dependent and on the pod's ext4
-is large enough to pass a size filter even when the directory holds no data at
-all. That is the exact failure this section is about, so a verification
-that can report it as success is worse than none.
-
-The signature of a failed export is a `table.parquet` directory holding only
-marker files, `_SUCCESS` being the usual one, with no `part-*.parquet` inside it.
-Judge it on whether those data files exist rather than on a byte figure: a
-directory plus markers still consumes blocks, how many depends on the filesystem,
-and which markers appear depends on the write. The absence of `part-*` is the
-part that holds in every case.
-
-**Then copy it down.** The write above puts the data in object storage; nothing
-has reached a local disk yet, which is what the check below inspects. From a
-workstation, using the same form as the upload example further down this
-document:
+**Bringing a table down to a workstation is a per-table decision, not a bulk
+copy.** `mc cp --recursive` over a whole run would pull everything, and the
+largest tables are not viable to move or to hold: `annotation_kegg_orthology` is
+1,831,998,811 rows and `annotation_enzyme_commission` is 1,231,453,377. Those stay
+in object storage. Copy individual small tables when you need them locally, into
+a fresh directory per run so an earlier run's files cannot be mistaken for this
+one's, and remember `mc` reads a relative path as a MinIO URL so the local
+destination must be absolute:
 
 ```bash
+mkdir -p "/absolute/path/export-$PREFIX"          # empty, and specific to this run
 https_proxy=http://127.0.0.1:8123 ~/bin/mc cp --recursive \
-    "berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/exports/20260821T204900-results-backup/" \
-    /path/to/export/
+    "berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/$PREFIX/annotation_statistics.parquet/" \
+    "/absolute/path/export-$PREFIX/annotation_statistics.parquet/"
 ```
 
-The `https_proxy` prefix is required on every `mc` invocation.
-`configure_mc.sh --berdl-proxy` sets that variable inside its own process only, so
-it does not persist into your shell, which is why the other `mc` examples here
-carry the same prefix. `mc` also reads relative paths as MinIO URLs, so the local
-destination has to be absolute.
-
-To check the object store itself rather than the local copy:
-
-```bash
-https_proxy=http://127.0.0.1:8123 ~/bin/mc ls --recursive \
-    "berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/exports/20260821T204900-results-backup/"
-```
-
-`mc` is the object-store client this repository supports and the one
-`berdl-doctor` checks for. It needs the `berdl-minio` alias and the tunnel, both
-configured by the historical transport section below, which the maintained path
-otherwise never needs. How the alias is provided inside the pod has not been
-verified here, so check `mc alias list` before relying on it there.
+A driver-side `collect` is a different question again, and the same figures decide
+it: viable for `annotation_statistics` at 4,815 rows, not for the two above.
 
 See [#250](https://github.com/microbiomedata/nmdc-lakehouse/issues/250).
 
