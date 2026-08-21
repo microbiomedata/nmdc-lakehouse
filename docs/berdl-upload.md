@@ -232,23 +232,27 @@ them and the visible directory listing looks correct. On 2026-08-20 a 52-artifac
 snapshot arrived in the pod with 54 extra `._*` files and nothing looked wrong until
 validation ran.
 
-`validate-snapshot` catches it and fails closed:
+`validate-snapshot` catches it, fails closed, and names what it found. Verbatim,
+from a snapshot with two such siblings planted:
 
 ```
-Error: Snapshot contains missing, extra, or unmanifested files.
+Error: Snapshot contents do not match the manifest: unexpected 2: '._instrument_set.parquet', '._study_set.parquet'; 2 of the unexpected files start with '._', which is what extracting a macOS tar archive on Linux produces; re-archive with COPYFILE_DISABLE=1 or delete them.
 ```
 
-The message names the category, not the files. If you see it after a transfer from
-macOS, check for AppleDouble siblings first:
+The message is a single line however many files are involved. Missing and
+unexpected are reported separately, because they have different causes: missing
+means an incomplete transfer, unexpected usually means the archiving step added
+something. At most ten names appear per category, followed by `and N more`, so
+the real 54-sibling case reads the same way with a longer list.
+
+To clear AppleDouble siblings that are already in place:
 
 ```bash
 find /path/to/completed-snapshot -name '._*' -delete
 ```
 
 After that deletion the same snapshot validated with an identical digest, which
-confirmed the Parquet bytes themselves had transferred correctly. Naming the
-offending paths in the error is a separate behavior change, tracked in
-[#270](https://github.com/microbiomedata/nmdc-lakehouse/issues/270).
+confirmed the Parquet bytes themselves had transferred correctly.
 
 **Validate in the pod, before planning:**
 
