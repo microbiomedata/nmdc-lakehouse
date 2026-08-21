@@ -108,6 +108,29 @@ def test_inventory_fails_closed_on_table_format_mismatch(monkeypatch: pytest.Mon
         )
 
 
+def test_a_partially_migrated_namespace_cannot_produce_an_inventory(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The mixed case, which is the one #248 is about, and which the single-table tests miss.
+
+    `list_tables` is sorted, so `biosample_set` matches the reviewed format and is accepted before
+    `study_set` is reached. The failure therefore proves the per-table check runs inside the loop
+    rather than once on the first table.
+    """
+    _patch_discovery(monkeypatch, {"biosample_set": "iceberg", "study_set": "delta"})
+
+    with pytest.raises(
+        audit.PublicationInventoryError,
+        match="'study_set' reports table format 'delta', not reviewed table format 'iceberg'",
+    ):
+        audit.build_publication_inventory(
+            FakeSpark({"biosample_set": FakeFrame(1, "a"), "study_set": FakeFrame(2, "b")}),
+            "nmdc_metadata",
+            destination_id="nmdc-production",
+            provider="spark_catalog",
+            table_format="iceberg",
+            metadata_capabilities=["namespace", "table", "column"],
+        )
+
+
 def test_inventory_rejects_table_name_outside_planner_contract(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_discovery(monkeypatch, {"_temporary": "delta"})
 
