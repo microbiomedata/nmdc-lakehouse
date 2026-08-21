@@ -329,33 +329,6 @@ and environment are reasonably similar.
 
 ### Snapshot manifest
 
-### What the Parquet footer carries
-
-Every Parquet file this pipeline writes carries its own documentation in the
-footer, under two kinds of key.
-
-Keys prefixed `nmdc_lakehouse.` are this repository's own contract, covering the
-footer contract version, the table description, source and target schema
-identifiers and versions, source and target classes, and the mapping identity.
-Each field additionally carries `nmdc_lakehouse.description`, `linkml_range`,
-and identifier or type-designator flags. These are what
-`footer_schema_sha256` is computed over.
-
-One key is not ours: `org.apache.spark.sql.parquet.row.metadata`. Spark reads
-its schema for a Parquet file from that key rather than from Arrow field
-metadata, and a field's `comment` there becomes the column comment on any table
-Spark creates from the file. Emitting it means a Spark-based loader produces an
-already-described table in the commit it was making anyway, instead of one
-`ALTER TABLE ... ALTER COLUMN ... COMMENT` per column afterwards. See
-[#258](https://github.com/microbiomedata/nmdc-lakehouse/issues/258).
-
-That key is a **schema**, not a label, which makes it the one footer entry with
-a consistency requirement: it must name exactly the columns the file holds. Any
-code that changes the field list has to rebuild it, which is why
-`--drop-empty-cols` regenerates it after pruning rather than letting the
-original survive. A stale entry is worse than an absent one, because Spark would
-request a column the file no longer contains.
-
 `snapshot-manifest.json` is the immutable completion marker for one portable
 full snapshot. Manifest format version 1 records:
 
@@ -442,7 +415,7 @@ Table-level keys use the `nmdc_lakehouse.` prefix:
 | `target_class` | Generated LinkML class represented by the file. |
 | `mapping` | Fully qualified identity of the row mapping used for this table. |
 
-Field-level keys use the same prefix:
+Field-level keys use the same `nmdc_lakehouse.` prefix, all four of them:
 
 | Key | Meaning |
 | --- | --- |
@@ -450,6 +423,25 @@ Field-level keys use the same prefix:
 | `linkml_range` | LinkML range used to construct the Arrow type. |
 | `identifier` | `true` only when the generated slot is an identifier. |
 | `designates_type` | `true` only when the generated slot is a type designator. |
+
+One key is not ours, and it is the only footer entry that is a schema rather
+than a label:
+
+| Key | Meaning |
+| --- | --- |
+| `org.apache.spark.sql.parquet.row.metadata` | The file's schema as Spark reads it. Spark takes its schema for a Parquet file from this key rather than from Arrow field metadata, and a field's `comment` here becomes the column comment on any table Spark creates from the file. Carrying the slot descriptions here means a Spark-based loader produces an already-described table in the commit it was making anyway, instead of one `ALTER TABLE ... ALTER COLUMN ... COMMENT` per column afterwards. See [#258](https://github.com/microbiomedata/nmdc-lakehouse/issues/258). |
+
+Because it is a schema, it has a consistency requirement the other keys do not:
+it must name exactly the columns the file holds. Any code that changes the field
+list has to rebuild it, which is why removing all-empty columns regenerates it
+rather than letting the original survive. A stale entry is worse than an absent
+one, because Spark would request a column the file no longer contains.
+
+`footer_schema_sha256` in the snapshot manifest is computed over **all** schema
+and field metadata, this key included, so emitting it changes every artifact's
+footer fingerprint. That is correct rather than incidental: the footer genuinely
+differs. Snapshots written before it keep validating against their own
+manifests.
 
 These footer values make an individual file interpretable before catalog
 registration. They are not a substitute for the complete target LinkML schema
