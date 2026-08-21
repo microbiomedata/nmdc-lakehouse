@@ -91,6 +91,24 @@ def _spark_schema_json(fields: list[pa.Field], descriptions: dict[str, str | Non
     return json.dumps(rendered, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
 
 
+def with_spark_schema(schema: pa.Schema) -> pa.Schema:
+    """Return the schema with its Spark schema entry rebuilt from the fields it actually has.
+
+    Called wherever the field list changes. Spark trusts this entry as the file schema, so a stale
+    one naming a column the file no longer contains is worse than none at all: Spark would ask for
+    data that is not there. Descriptions are read back out of each field's own Arrow metadata, so a
+    pruned schema keeps its surviving columns described without needing the LinkML class again.
+    """
+    description_key = f"{_METADATA_PREFIX}description".encode()
+    descriptions: dict[str, str | None] = {}
+    for field in schema:
+        raw = (field.metadata or {}).get(description_key)
+        descriptions[field.name] = raw.decode() if raw else None
+    metadata = dict(schema.metadata or {})
+    metadata[_SPARK_SCHEMA_KEY] = _spark_schema_json(list(schema), descriptions)
+    return schema.with_metadata(metadata)
+
+
 def _arrow_type_for_range(range_name: str, source_schema: SchemaDefinition | None) -> pa.DataType:
     """Map a LinkML range to an Arrow type, resolving custom types through their base.
 
@@ -340,7 +358,11 @@ class ParquetSink:
             protected = self._protected_columns()
             keep = [name for name in tbl.schema.names if name in protected or _col_has_data(tbl.column(name))]
             if len(keep) < len(tbl.schema.names):
-                pq.write_table(tbl.select(keep), out_path)
+                pruned = tbl.select(keep)
+                # select() carries the original schema metadata across, so the Spark schema would
+                # still name the dropped columns and Spark would ask for data that is not there.
+                pruned = pruned.replace_schema_metadata(dict(with_spark_schema(pruned.schema).metadata or {}))
+                pq.write_table(pruned, out_path)
 
         return total
 

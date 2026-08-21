@@ -546,3 +546,29 @@ def test_an_unmapped_arrow_type_raises_rather_than_emitting_a_schema_spark_canno
 
     with pytest.raises(ValueError, match="No Spark type mapping"):
         _spark_type(pa_local.timestamp("us"))
+
+
+def test_dropping_empty_columns_rebuilds_the_spark_schema(flat_schema_view, flat_class, tmp_path) -> None:
+    """Spark trusts this entry as the file schema, so it must never name a dropped column."""
+    import json
+
+    sink = ParquetSink(
+        tmp_path,
+        class_def=flat_class,
+        source_schema=flat_schema_view.schema,
+        source_class="FlatRecord",
+        target_schema_id=TARGET_SCHEMA_ID,
+        mapping=PRIMARY_MAPPING,
+    )
+    sink.write(iter([{"id": "r1", "depth_has_numeric_value": 1.5}]), table="flat_record", drop_empty_cols=True)
+
+    written = pq.ParquetFile(tmp_path / "flat_record.parquet")
+    columns = written.schema_arrow.names
+    spark = json.loads(written.metadata.metadata[_SPARK_SCHEMA_KEY].decode())
+
+    assert [field["name"] for field in spark["fields"]] == columns, (
+        "the Spark schema must describe the columns the file actually holds"
+    )
+    # And the surviving columns keep their descriptions, which is the point of the entry.
+    described = {field["name"]: field["metadata"].get("comment") for field in spark["fields"]}
+    assert described["id"] == "Stable record identifier."
