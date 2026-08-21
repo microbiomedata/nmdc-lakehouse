@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 from click.testing import CliRunner
+from pydantic import ValidationError
 
 from nmdc_lakehouse import berdl_metadata
 from nmdc_lakehouse.berdl_metadata import (
@@ -178,6 +179,252 @@ def test_apply_requires_exact_catalog_readback(tmp_path: Path) -> None:
         "checkout": tmp_path,
         "revision": "a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3",
     }
+
+
+def test_apply_does_not_rewrite_descriptions_the_catalog_already_holds(tmp_path: Path) -> None:
+    """Each write is a catalog commit, so a correct description must not be written again; #258."""
+    descriptions = {"nmdc.metadata_staging_20260820.biosample_set": "NMDC biosamples"}
+    columns = {"id": "Stable biosample identifier"}
+    written_tables: list[str] = []
+    written_columns: list[str] = []
+
+    class Catalog:
+        def getTable(self, name):
+            return SimpleNamespace(description=descriptions.get(name))
+
+        def listColumns(self, _name):
+            return [SimpleNamespace(name="id", description=columns.get("id"))]
+
+    spark = SimpleNamespace(catalog=Catalog())
+
+    def apply_table(_spark, table, value, **_kwargs):
+        written_tables.append(table)
+        descriptions[table] = value
+        return {"status": "success"}
+
+    def apply_columns(_spark, _table, schema, **_kwargs):
+        written_columns.extend(item["column"] for item in schema)
+        columns.update({item["column"]: item["comment"] for item in schema})
+        return {"status": "success"}
+
+    preview = build_berdl_metadata_preview(
+        _plan(), _staging(), metadata_plan_sha256="5" * 64, staging_outcome_sha256="6" * 64
+    )
+    outcome = apply_berdl_staging_metadata(
+        _plan(),
+        _staging(),
+        preview,
+        ingest_checkout=tmp_path,
+        runtime=lambda _checkout: (spark, apply_table, apply_columns),
+        checkout_verifier=lambda _checkout, _revision: None,
+    )
+
+    assert written_tables == [], "the table description was already correct and was rewritten anyway"
+    assert written_columns == [], "the column description was already correct and was rewritten anyway"
+    assert outcome.status == "metadata-verified"
+    assert outcome.targets[0].table_description_status == "verified"
+    assert outcome.targets[0].columns_verified == ["id"]
+    assert outcome.targets[0].columns_already_correct == ["id"]
+
+
+def test_apply_writes_only_the_columns_that_differ(tmp_path: Path) -> None:
+    """A rerun after a partial failure must finish the remainder, not redo the whole table."""
+    plan = _plan()
+    plan.supported_operations.append(
+        _operation(
+            MetadataOperationKind.COLUMN_DESCRIPTION,
+            "Collection date",
+            table="biosample_set",
+            column="collection_date",
+        )
+    )
+    columns = {"id": "Stable biosample identifier", "collection_date": None}
+    written_columns: list[str] = []
+
+    class Catalog:
+        def getTable(self, name):
+            return SimpleNamespace(description="NMDC biosamples")
+
+        def listColumns(self, _name):
+            return [SimpleNamespace(name=name, description=value) for name, value in columns.items()]
+
+    spark = SimpleNamespace(catalog=Catalog())
+
+    def apply_columns(_spark, _table, schema, **_kwargs):
+        written_columns.extend(item["column"] for item in schema)
+        columns.update({item["column"]: item["comment"] for item in schema})
+        return {"status": "success"}
+
+    preview = build_berdl_metadata_preview(
+        plan, _staging(), metadata_plan_sha256="5" * 64, staging_outcome_sha256="6" * 64
+    )
+    outcome = apply_berdl_staging_metadata(
+        plan,
+        _staging(),
+        preview,
+        ingest_checkout=tmp_path,
+        runtime=lambda _checkout: (spark, lambda *_a, **_k: {"status": "success"}, apply_columns),
+        checkout_verifier=lambda _checkout, _revision: None,
+    )
+
+    assert written_columns == ["collection_date"], "only the column whose description was wrong should be written"
+    # Both are still verified: skipping a write must never skip the read-back that proves the
+    # description is there.
+    assert outcome.targets[0].columns_verified == ["collection_date", "id"]
+    assert outcome.targets[0].columns_already_correct == ["id"]
+
+
+def test_a_version_one_outcome_still_parses_and_new_outcomes_declare_version_two() -> None:
+    """Every model here forbids extra fields, so an added key is a format change, default or not."""
+    from nmdc_lakehouse.berdl_metadata import METADATA_OUTCOME_FORMAT_VERSION
+
+    v1 = {
+        "outcome_format_version": 1,
+        "status": "metadata-verified",
+        "snapshot_id": SNAPSHOT_ID,
+        "destination_id": "berdl-production",
+        "staging_namespace": "nmdc.metadata_staging_20260820",
+        "staging_outcome_sha256": "6" * 64,
+        "metadata_plan_sha256": "5" * 64,
+        "deferred_namespace_operations": 1,
+        "targets": [
+            {
+                "table": "biosample_set",
+                "table_description_status": "verified",
+                "columns_verified": ["id"],
+            }
+        ],
+    }
+
+    parsed = BerdlMetadataOutcome.model_validate(v1, strict=True)
+
+    assert parsed.outcome_format_version == 1
+    assert parsed.targets[0].columns_already_correct == []
+    assert parsed.targets[0].table_description_already_correct is False
+    # And the fields that motivated the bump are rejected under the old version's shape only by
+    # the version number, not by the model, which is exactly why the number had to change.
+    assert METADATA_OUTCOME_FORMAT_VERSION == 2
+
+
+def test_a_column_description_without_a_column_cannot_be_built() -> None:
+    """Where the completeness check actually lives, tested on the input it must reject.
+
+    `MetadataOperation` validates this, so an incomplete operation cannot reach the application
+    step through any ordinary path. The matching check in `_description_operations` is a second
+    line for a model built without validation, not the primary guard, and this test names which
+    one is which so a later reader does not mistake the fallback for the enforcement.
+    """
+    with pytest.raises(ValidationError, match="require table and column targets"):
+        _operation(MetadataOperationKind.COLUMN_DESCRIPTION, "Nameless", table="biosample_set")
+
+
+def test_a_skipped_table_description_is_still_read_back(tmp_path: Path) -> None:
+    """The probe decides whether to write; it is not the verification. Same rule as the columns."""
+    reads: list[str] = []
+    # Correct on the probe, changed by the time the read-back runs, which is what a concurrent
+    # writer looks like from here.
+    values = iter(["NMDC biosamples", "something else"])
+
+    class Catalog:
+        def getTable(self, name):
+            reads.append(name)
+            return SimpleNamespace(description=next(values, "something else"))
+
+        def listColumns(self, _name):
+            return [SimpleNamespace(name="id", description="Stable biosample identifier")]
+
+    spark = SimpleNamespace(catalog=Catalog())
+
+    def apply_table(*_args, **_kwargs):
+        raise AssertionError("the table description was already correct and must not be rewritten")
+
+    preview = build_berdl_metadata_preview(
+        _plan(), _staging(), metadata_plan_sha256="5" * 64, staging_outcome_sha256="6" * 64
+    )
+    with pytest.raises(BerdlMetadataError, match="table description read-back failed"):
+        apply_berdl_staging_metadata(
+            _plan(),
+            _staging(),
+            preview,
+            ingest_checkout=tmp_path,
+            runtime=lambda _checkout: (spark, apply_table, lambda *_a, **_k: {"status": "success"}),
+            checkout_verifier=lambda _checkout, _revision: None,
+        )
+
+    assert len(reads) == 2, "the probe and the read-back must be two separate reads"
+
+
+def test_the_outcome_distinguishes_a_written_table_description_from_a_skipped_one(tmp_path: Path) -> None:
+    """ "verified" alone cannot tell a resumed run from a fresh one for a table-level plan."""
+
+    def run(existing: str | None):
+        stored = {"nmdc.metadata_staging_20260820.biosample_set": existing}
+
+        class Catalog:
+            def getTable(self, name):
+                return SimpleNamespace(description=stored.get(name))
+
+            def listColumns(self, _name):
+                return [SimpleNamespace(name="id", description="Stable biosample identifier")]
+
+        def apply_table(_spark, table, value, **_kwargs):
+            stored[table] = value
+            return {"status": "success"}
+
+        spark = SimpleNamespace(catalog=Catalog())
+        preview = build_berdl_metadata_preview(
+            _plan(), _staging(), metadata_plan_sha256="5" * 64, staging_outcome_sha256="6" * 64
+        )
+        return apply_berdl_staging_metadata(
+            _plan(),
+            _staging(),
+            preview,
+            ingest_checkout=tmp_path,
+            runtime=lambda _checkout: (spark, apply_table, lambda *_a, **_k: {"status": "success"}),
+            checkout_verifier=lambda _checkout, _revision: None,
+        )
+
+    written = run(None)
+    skipped = run("NMDC biosamples")
+
+    assert written.targets[0].table_description_status == "verified"
+    assert skipped.targets[0].table_description_status == "verified"
+    assert written.targets[0].table_description_already_correct is False
+    assert skipped.targets[0].table_description_already_correct is True
+
+
+def test_progress_rates_the_run_on_columns_written_not_columns_verified(tmp_path: Path) -> None:
+    """A skip costs a read and a write costs a commit, so counting them together misreports both."""
+    messages: list[str] = []
+
+    class Catalog:
+        def getTable(self, _name):
+            return SimpleNamespace(description="NMDC biosamples")
+
+        def listColumns(self, _name):
+            return [SimpleNamespace(name="id", description="Stable biosample identifier")]
+
+    spark = SimpleNamespace(catalog=Catalog())
+    preview = build_berdl_metadata_preview(
+        _plan(), _staging(), metadata_plan_sha256="5" * 64, staging_outcome_sha256="6" * 64
+    )
+    apply_berdl_staging_metadata(
+        _plan(),
+        _staging(),
+        preview,
+        ingest_checkout=tmp_path,
+        runtime=lambda _checkout: (
+            spark,
+            lambda *_a, **_k: {"status": "success"},
+            lambda *_a, **_k: {"status": "success"},
+        ),
+        checkout_verifier=lambda _checkout, _revision: None,
+        progress=messages.append,
+    )
+
+    summary = next(m for m in messages if "verified" in m and "written" in m)
+    assert "1/1 verified" in summary
+    assert "0 written" in summary, f"an all-skipped run must not report written work: {summary}"
 
 
 def test_apply_rejects_a_preview_from_different_inputs(tmp_path: Path) -> None:
@@ -407,7 +654,8 @@ def test_application_reports_per_table_progress(tmp_path: Path) -> None:
     assert "applying descriptions to 1 table and 1 column in" in joined
     assert "[1/1] biosample_set: applying 1 column description" in joined
     assert "verified 1 column (" in joined
-    assert "1/1 total" in joined
+    assert "1/1 verified" in joined
+    assert "1 written" in joined
     assert "min elapsed" in joined
 
 
