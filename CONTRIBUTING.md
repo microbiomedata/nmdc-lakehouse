@@ -66,13 +66,14 @@ those rules is expected.
 `MinAlertLevel` in `.vale.ini` must stay at `error`, and a non-blocking rule
 works by Vale not emitting it rather than by CI ignoring it.
 
-The Vale step in `.github/workflows/ci.yml` sets `filter_mode: nofilter` and
-`fail_on_error: true`. With the `github-pr-annotations` reporter that step uses,
-those resolve to fail-on-any: the build fails on one alert of any severity. The
-error-only behaviour people expect from `fail_on_error` belongs to the
-`github-check` and `github-pr-check` reporters, which this workflow does not
-use. The action also passes no `--minAlertLevel` to Vale, so `MinAlertLevel`
-above decides what Vale prints, and everything Vale prints can fail the build.
+The Vale step in `.github/workflows/ci.yml` sets `fail_on_error: true`. The
+action installs reviewdog 0.17.0, and at that version `-fail-on-error` returns 1
+if any result is reported, with no severity threshold: its own flag
+documentation reads "Returns 1 as exit code if any errors/warnings found in
+input". Later reviewdog versions branch on the reporter; 0.17.0 does not, so
+pin the version when repeating this. The action also passes no
+`--minAlertLevel` to Vale, so `MinAlertLevel` above decides what Vale prints,
+and everything Vale prints can fail the build.
 
 Lowering `MinAlertLevel` therefore makes every warning a failed build. Observed
 rather than inferred: a push with `MinAlertLevel = suggestion` failed the
