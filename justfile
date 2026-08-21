@@ -240,16 +240,17 @@ cli *ARGS:
 run-job JOB *ARGS:
     uv run nmdc-lakehouse run-job {{ JOB }} {{ ARGS }}
 
-# Convert all schema collections except functional_annotation_agg to Parquet (~5 min).
-# Requires the GCP SSH tunnel to be open — see docs/mongodb-connection.md.
+# Dump MongoDB collections to Parquet and manifest the result.
+#
+# Complete by default (~22 min): every collection the installed schema declares, including
+# functional_annotation_agg, which is 53M rows and dominates the runtime. Name collections to
+# leave out for a faster partial run, for example
+# `just etl-collections functional_annotation_agg` (~5 min). The manifest records what was
+# skipped, so a partial snapshot cannot be mistaken for a complete one later.
+#
+# Requires the GCP SSH tunnel to be open, see docs/mongodb-connection.md.
 # Defaults Parquet to local/mongodb-metadata-<timestamp> unless LAKEHOUSE_ROOT is set.
 # Writes a matching local log plus metrics and a manifest inside the snapshot.
-# Dump every MongoDB collection to Parquet and manifest the result.
-#
-# Complete by default. Pass collection names to leave out, for example
-# `just etl-collections functional_annotation_agg`, which is much faster but produces a
-# snapshot the staging planner will treat as partial. The manifest records what was
-# skipped, so a partial snapshot cannot be mistaken for a complete one later.
 etl-collections *SKIP:
     #!/usr/bin/env bash
     set -euo pipefail
