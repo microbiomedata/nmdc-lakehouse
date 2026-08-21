@@ -322,8 +322,14 @@ returned.** Row counts printed by the writing job say nothing about where the by
 went, and in the 2026-08-20 run they were all correct:
 
 ```bash
-du -sh /path/to/export/*                              # bytes present, not just directories
-find /path/to/export -type f -name 'part-*' -print -quit  # a data file exists, exits cleanly
+# Fails when the export produced no data files. `find` alone exits 0 either way,
+# so the test is what makes this usable as a check rather than as something to read.
+for table in /path/to/export/*; do
+  test -n "$(find "$table" -type f -name 'part-*' -print -quit)" \
+    || echo "NO DATA: $table"
+done
+
+du -sh /path/to/export/*   # a coarse look only; a directory and its markers also consume blocks
 ```
 
 `-type f` matters. Spark writes each table as a **directory** at the path you give
