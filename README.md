@@ -176,6 +176,7 @@ operational-command inventory.
 | `just typecheck`    | `mypy src`                                       |
 | `just test`         | pytest                                           |
 | `just test-cov`     | pytest with the configured floor and coverage XML|
+| `just diff-cover`   | Coverage of lines this branch adds or changes     |
 | `just build`        | Build sdist + wheel via `uv build`               |
 | `just test-dist`    | Build and test archives in isolated Python 3.13  |
 | `just docs-build`   | Build the MkDocs site (requires `install-all`)   |
@@ -183,12 +184,35 @@ operational-command inventory.
 
 ### Coverage policy
 
-The enforced package floor is 75%. It was raised on 2026-08-18 after the
-Python 3.13 suite exceeded 76% coverage. The initial ratchet was 71.462%:
-parent commit `ada7f3f` covered 606 of 848 statements on 2026-08-17. The two
-live-MongoDB integration tests remain explicitly skipped. Raise `fail_under`
-as focused tests improve coverage; do not lower it merely to merge a
-regression.
+Two separate gates, measuring different things. Neither replaces the other.
+
+**Total floor, 75%, `fail_under` in `pyproject.toml`.** It was raised on
+2026-08-18 after the Python 3.13 suite exceeded 76% coverage. The initial
+ratchet was 71.462%: parent commit `ada7f3f` covered 606 of 848 statements on
+2026-08-17. The two live-MongoDB integration tests remain explicitly skipped.
+Raise `fail_under` as focused tests improve coverage; do not lower it merely to
+merge a regression.
+
+**Changed-line floor, 90%, `just diff-cover`.** The total floor cannot protect
+new code. A wholly untested function arriving in a well-tested codebase moves
+the total by a fraction of a percent and clears the floor easily. That happened:
+`_verify_ingest_checkout` merged with no direct test while the suite reported
+85.96% total, and the suppressed review finding that reached the default branch
+landed on exactly that function. So this second gate measures only the lines the
+branch adds or changes, against `origin/main`, and reports which added lines are
+uncovered.
+
+The two numbers differ on purpose and are not in tension. 75% is a statement
+about a codebase carrying legacy paths that predate the test suite. 90% is a
+statement about code being written now, where there is no such excuse. The
+changed-line gate never asks for coverage of unchanged lines, so raising it does
+not create work on files nobody touched.
+
+A branch that changes no Python passes it: with no measurable lines in the diff,
+`diff-cover` reports nothing to score and succeeds.
+
+Running it needs `coverage.xml`, so run `just test-cov` first, and needs the
+base branch present, so a shallow clone has to fetch it. CI does both.
 
 ## License
 

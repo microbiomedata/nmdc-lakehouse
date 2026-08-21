@@ -143,3 +143,8 @@ show_missing = true
 python_version = "3.13"
 warn_unused_ignores = true
 ignore_missing_imports = true
+
+[dependency-groups]
+dev = [
+    "diff-cover>=9.6",
+]
