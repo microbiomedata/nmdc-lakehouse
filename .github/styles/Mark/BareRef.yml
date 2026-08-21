@@ -1,0 +1,17 @@
+# A bare issue or pull request number is not a reference. Full URL and title.
+#
+# This rule is deliberately not blocking, because #NNN legitimately appears in three
+# non-GitHub contexts that RE2 cannot exclude (no lookbehind in Go regex):
+#   1. inside a correct markdown link:  [PR #490](https://github.com/.../490)
+#   2. internal cross-references:       "see item #10 above"
+#   3. rule or section numbering:       "not as hard rule #10"
+# Measured 2026-08-05: 3 true positives, 4 false, across ~10 real files.
+# Severity is NOT set here. It is set per rule in .vale.ini, which is this repository's
+# policy and the single place to change it. A `level:` key in this file would duplicate that
+# and drift from it. Flagged by Copilot on
+# https://github.com/microbiomedata/nmdc-lakehouse/pull/265.
+extends: existence
+message: "Possible bare issue/PR reference '%s'. Use the full URL and title. Ignore if this is an internal item or a section number, or already inside a markdown link."
+nonword: true
+tokens:
+  - '#\d{2,}'

@@ -94,11 +94,61 @@ clean:
 lint-just:
     just --fmt --check
 
-# Spell-check maintained prose with the repository-owned Vale configuration.
-# Isolate HOME so a contributor's global Vale configuration cannot affect it.
+# Lint maintained prose with the repository-owned Vale configuration.
+#
+# HOME is isolated so a contributor's global Vale configuration cannot affect the result.
+# Without it, Vale merges ~/Library/Application Support/vale (or the XDG equivalent) into
+# every run, and a local pass would say nothing about CI.
+#
+# --minAlertLevel=suggestion is DISPLAY ONLY and is safe to keep here even though the
+# repository currently carries 93 warnings and 103 suggestions. Vale's exit status keys on
+# errors alone; MinAlertLevel governs what is printed, not what fails. Measured 2026-08-20
+# on this tree: this recipe exits 0 with those 196 alerts present, and exits 1 as soon as one
+# error-level alert appears. So neither this recipe nor the pre-commit hook that calls it can
+# block a commit on a warning or a suggestion. `just test-prose-lint-exit` asserts both
+# directions, because the invariant is load-bearing and not obvious: a reader who assumes
+# Vale exits on whatever it prints concludes the opposite, which is how it was queried in
+# review on https://github.com/microbiomedata/nmdc-lakehouse/pull/265.
 prose-lint:
     mkdir -p .vale-home
-    HOME="$PWD/.vale-home" vale --config=.vale.ini --glob='**/*.md' README.md CONTRIBUTING.md AGENTS.md .github/pull_request_template.md docs scripts/README.md notebooks
+    HOME="$PWD/.vale-home" vale --config=.vale.ini --minAlertLevel=suggestion --glob='**/*.md' README.md CONTRIBUTING.md AGENTS.md .github/pull_request_template.md docs scripts/README.md notebooks
+
+# Assert that prose-lint's alert level cannot block a commit, and that errors still do.
+# Guards the invariant documented on prose-lint above. Runs offline, touches no tracked file.
+#
+# THE WARNING-ONLY FIXTURE DEPENDS ON TWO RULES, AND ON A CAPITALISATION. Both are deliberate.
+#
+# It uses Mark.BareRefWord and Mark.Undefined, chosen because both sit at warning in .vale.ini
+# with no promotion planned beside either. It deliberately does NOT use Mark.EmDash, which is at
+# warning only until its backlog is cleared: promoting it, tracked in
+# https://github.com/microbiomedata/nmdc-lakehouse/issues/264, would make this test fail while
+# the contract it asserts stayed true, and whoever hit it would have to work out that the fixture
+# rather than the behaviour had changed. Do not put an em dash back in.
+#
+# The token must stay ALL-CAPS. Vale's speller skips an all-caps word as an acronym, so `ZZZZZ`
+# yields a warning from Mark.Undefined and nothing else. Measured 2026-08-20: `ZZZZZ` exits 0
+# with one warning, while `zzzzz` and `Zzzzz` each exit 1 with a `Vale.Spelling` error. The exit
+# codes are measured; which speller rule does the skipping is not, so do not rely on the
+# mechanism beyond "all-caps is skipped". The first assertion's failure message says this too,
+# because it appears exactly when someone needs it.
+#
+# Two independent warning-severity signals rather than one, so a change to either rule leaves the
+# test still asserting something. Raised in review on
+# https://github.com/microbiomedata/nmdc-lakehouse/pull/265.
+test-prose-lint-exit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    mkdir -p "$tmp/home"
+    printf '# t\n\nSee issue 3366 for the ZZZZZ term.\n' > "$tmp/warn.md"
+    printf '# t\n\nWe leverage a robust design.\n' > "$tmp/err.md"
+    rc=0; HOME="$tmp/home" vale --config=.vale.ini --minAlertLevel=suggestion "$tmp/warn.md" >/dev/null 2>&1 || rc=$?
+    [ "$rc" -eq 0 ] || { echo "prose-lint would block on a warning; exit was $rc."; \
+        echo "If the warn fixture's token was edited, check it is still ALL-CAPS: the speller"; \
+        echo "skips all-caps as an acronym, and any other casing is a Vale.Spelling error."; exit 1; }
+    rc=0; HOME="$tmp/home" vale --config=.vale.ini --minAlertLevel=suggestion "$tmp/err.md" >/dev/null 2>&1 || rc=$?
+    [ "$rc" -ne 0 ] || { echo "prose-lint did NOT block on an error; the gate is inert"; exit 1; }
+    echo "prose-lint exit contract holds: warnings pass, errors fail"
 
 # Dry-render one recipe with explicitly safe values, then lint without executing it.
 [private]
@@ -276,7 +326,7 @@ test-dist:
     bash scripts/check_distribution.sh
 
 # Run the deterministic local quality checks.
-check: lint-just prose-lint shellcheck actionlint lint deps-lint typecheck check-flat-schema test-cov diff-cover
+check: lint-just prose-lint test-prose-lint-exit shellcheck actionlint lint deps-lint typecheck check-flat-schema test-cov diff-cover
 
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
 # See scripts/README.md for details. These recipes shell out to utilities under

@@ -168,6 +168,7 @@ operational-command inventory.
 | `just lock`         | Refresh `uv.lock`                                |
 | `just lint-just`    | Check canonical justfile syntax and formatting   |
 | `just prose-lint`   | Spell-check maintained Markdown with Vale        |
+| `just test-prose-lint-exit` | Prove the prose gate blocks on errors and not on warnings |
 | `just shellcheck`   | Lint safely rendered Bash recipes                 |
 | `just actionlint`   | Check GitHub Actions workflows and run blocks     |
 | `just lint`         | ruff check + format check                        |
@@ -180,7 +181,7 @@ operational-command inventory.
 | `just build`        | Build sdist + wheel via `uv build`               |
 | `just test-dist`    | Build and test archives in isolated Python 3.13  |
 | `just docs-build`   | Build the MkDocs site (requires `install-all`)   |
-| `just check`        | just, prose, shell, workflow, Python, deps, type, schema, tests, coverage |
+| `just check`        | just, prose, prose gate, shell, workflow, Python, deps, type, schema, tests, coverage |
 
 ### Coverage policy
 

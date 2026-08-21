@@ -52,6 +52,45 @@ not make documentation less precise merely to satisfy it. When a correct
 project term triggers Vale, add a narrow entry to the repository vocabulary or
 use a justified local exception.
 
+Rules carry different levels and only errors fail CI. `Mark.Jargon` and
+`Mark.ThroatClearing` are errors because the repository has none of them.
+`Mark.EmDash` is a warning while a backlog is cleared, `Mark.BareRef` is a
+suggestion until it can exclude references that already carry a URL, and
+`Mark.Undefined` is a warning that flags an acronym never expanded in the same
+file. For that last one, either expand the term on first use or add it to the
+NMDC vocabulary, which is a deliberate statement that this audience needs no
+expansion. Vale matches text, so it cannot tell a term being used from a term
+being discussed; a bare-reference or undefined-term alert on a document about
+those rules is expected.
+
+`MinAlertLevel` in `.vale.ini` must stay at `error`, and a non-blocking rule
+works by Vale not emitting it rather than by CI ignoring it.
+
+The Vale step in `.github/workflows/ci.yml` sets `fail_on_error: true`. The
+action installs reviewdog 0.17.0, and at that version `-fail-on-error` returns 1
+if any result is reported, with no severity threshold: its own flag
+documentation reads "Returns 1 as exit code if any errors/warnings found in
+input". Later reviewdog versions branch on the reporter; 0.17.0 does not, so
+pin the version when repeating this. The action also passes no
+`--minAlertLevel` to Vale, so `MinAlertLevel` above decides what Vale prints,
+and everything Vale prints can fail the build.
+
+Lowering `MinAlertLevel` therefore makes every warning a failed build. Observed
+rather than inferred: a push with `MinAlertLevel = suggestion` failed the
+`check` job with 196 annotations, none of them error severity.
+
+There is deliberately no `level:` input on that step. At the pinned action SHA
+it is never read; the action derives reviewdog's `-level` from Vale's own exit
+code. It was present and inert, and its presence convinced two readers that a
+severity threshold existed.
+
+Run `just prose-lint` rather than `vale` directly. The recipe sets `HOME` to a
+scratch directory, which is what stops a personal Vale configuration on the
+machine leaking in; without it a local run can report problems CI will not, or
+miss the vocabulary CI uses. It lints the same file set as CI, and passes
+`--minAlertLevel=suggestion` so warnings and suggestions stay visible to you
+without reaching CI.
+
 ## Describe and review the change
 
 Use a concise, specific, imperative pull request title. The description should
