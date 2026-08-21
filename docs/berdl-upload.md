@@ -316,7 +316,7 @@ rather than skipped, and make the check fail rather than only print.
 
 What a written table looks like here is worth checking before writing a check
 against it. Listing the tenant on 2026-08-21 shows single Parquet objects rather
-than the `part-*` directories a default Spark write produces:
+than the single output directory of `part-*` files a default Spark write produces:
 
 ```
 30GiB   datasets/results/annotation_enzyme_commission.parquet
