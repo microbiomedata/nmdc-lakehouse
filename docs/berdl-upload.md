@@ -323,12 +323,12 @@ went, and in the 2026-08-20 run they were all correct:
 
 ```bash
 du -sh /path/to/export/*                              # bytes present, not just directories
-find /path/to/export -type f -name '*.parquet' | head  # actual data files, not the directory
+find /path/to/export -type f -name 'part-*' -print -quit  # a data file exists, exits cleanly
 ```
 
 `-type f` matters. Spark writes each table as a **directory** at the path you give
-it, containing `part-*` data files whose codec varies with configuration, so a
-`find` without it matches the
+it, containing `part-*` data files whose exact names depend on how compression is
+configured, so a `find` without it matches the
 directory entry itself, whose size is filesystem-dependent and on the pod's ext4
 is large enough to pass a size filter even when the directory holds no data at
 all. That is the exact failure this section is about, so a verification
@@ -344,7 +344,7 @@ part that holds in every case.
 For an object-store destination, list it and compare against what was written:
 
 ```bash
-mc ls --recursive berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/exports/20260821-results-backup/
+mc ls --recursive berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/exports/20260821T204900-results-backup/
 ```
 
 `mc` is the object-store client this repository supports and the one
