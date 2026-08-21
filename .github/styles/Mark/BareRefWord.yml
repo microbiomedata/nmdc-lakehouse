@@ -6,7 +6,7 @@
 # file containing 30 bare references of this form.
 #
 # Precision here is much better than for the hash form, because the false-positive cases that
-# forced BareRef down to warning do not arise. There is no "see PR #10 above" equivalent: an
+# keep BareRef non-blocking do not arise. There is no "see PR #10 above" equivalent: an
 # internal cross-reference is written "item 10" or "section 3", not "PR 10", and rule and section
 # numbering does not use the words PR, issue or pull request.
 #

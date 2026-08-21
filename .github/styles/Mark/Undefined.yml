@@ -29,7 +29,7 @@
 # lowercase as booleans, but quoting all of them removes the distinction as
 # something anyone has to remember.
 #
-# level is warning, not error, because the all-caps pattern cannot tell an
+# This rule is deliberately not blocking, because the all-caps pattern cannot tell an
 # acronym from a shouted word or a SQL keyword, and the list below is
 # necessarily incomplete.
 #
