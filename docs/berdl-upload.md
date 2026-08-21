@@ -1,29 +1,81 @@
 # Uploading `lakehouse/` Parquet output to BERDL
 
-> **Historical mechanics only:** this guide records the April 2026 transport and
-> ingest path. Do not use it by itself to overwrite or replace live tables. Its
-> fixed dataset name, table count, and Delta verification examples are not the
-> current replacement contract. Any replacement must follow the reviewed plan
-> and approval checkpoints in the
-> [portable publication contract](publication-contract.md), discover the live
-> catalog/provider, and classify every candidate and live table.
+This document contains two different things, and reading one for the other wastes
+time. The boundary is the "Historical off-cluster transport" heading:
 
-This is the off-cluster path: `etl-collections`/`etl-annotations` already produced
-local Parquet under `LAKEHOUSE_ROOT` (see the configuration table in `README.md`).
-This document covers getting that output into BERDL Silver as `nmdc_nmdc_linkml_store`.
+- **Everything above it is the maintained path.** It runs inside a BERDL
+  JupyterHub pod, uses the reviewed plan commands in this repository, and is what
+  a current staging load follows.
+- **Everything below it is the April 2026 record.** It is kept for provenance. Do
+  not use it by itself to overwrite or replace live tables. Its fixed dataset
+  name, table count, Delta verification examples, and prerequisites belong to that
+  run, not to the maintained path.
 
-**Status:** verified working end-to-end 2026-04-25 (see [#51](https://github.com/microbiomedata/nmdc-lakehouse/issues/51)), but as a manual
-workaround: SSH access to the tunnel host was blocked at the time, so the actual
-run happened on-cluster via JupyterHub instead of following the steps below start
-to finish. The steps themselves (1-7) were validated; step 8 was substituted with
-an on-cluster notebook run. Re-verify steps 8-9 the next time this runs off-cluster.
+Any replacement must follow the reviewed plan and approval checkpoints in the
+[portable publication contract](publication-contract.md), discover the live
+catalog and provider, and classify every candidate and live table.
+
+## What the maintained path requires
+
+`etl-collections` and `etl-annotations` have already produced local Parquet under
+`LAKEHOUSE_ROOT` (see the configuration table in `README.md`), and that output has
+been assembled into a completed snapshot with a manifest.
+
+From there, `berdl-upload-plan`, `berdl-upload`, `berdl-apply-metadata`, and the
+destination-inventory script all run **inside a BERDL JupyterHub pod**, where MinIO
+and Spark are local. That path needs:
+
+- a running pod and a valid KBase session for it,
+- this repository checked out in the pod,
+- a clean checkout of [`kbase/data-lakehouse-ingest`](https://github.com/kbase/data-lakehouse-ingest)
+  in the pod at the reviewed revision,
+- the completed snapshot and every reviewed evidence file present in the pod,
+- the hub contents API, or the notebook file browser, to get them there.
+
+It does **not** need SSH access to `login1.berkeley.kbase.us`, the SOCKS tunnels,
+or a workstation-side `mc`. Those belong to the historical transport and are listed
+under it. Verified on 2026-08-20: with the tunnels down and the bastion unreachable
+from the workstation, the full offline plan preview and a live pod-resident
+capability probe both ran successfully. See
+[#244](https://github.com/microbiomedata/nmdc-lakehouse/issues/244).
+
+There is no standalone check that the bucket accepts writes, on either path.
+`berdl-doctor` does several things, but none of them contact an object store: its
+`mc` check confirms the binary is present and reports a version, and stops there.
+Write access is exercised by the staging run itself, which writes to the bronze
+prefix from inside the pod where the object store is local, so a permissions problem
+surfaces as a failed run rather than as a preflight result.
+
+What the run verifies afterwards is a different thing. Its outcome check compares
+destination row counts against the source Parquet and the source digest against the
+snapshot manifest, which establishes that the reviewed bytes are what landed. It
+does not re-read the written objects and compare them byte for byte. Keep the
+reviewed bronze prefix inside the tenant staging area, where the pod's session is
+expected to have write access, so the first write is not also the first surprise.
 
 ---
 
 ## Supported readiness check
 
-Before following any historical transport step, validate the completed snapshot
-and the external tooling without changing either repository or contacting BERDL:
+`berdl-doctor` validates the completed snapshot and reports on the external
+tooling, without changing either repository or contacting BERDL. It belongs to the
+historical transport: it requires `--beril-checkout`, or `BERIL_CHECKOUT` in the
+environment, and exits with `Error: Missing option '--beril-checkout'` when neither
+is set. So it is not usable on the maintained path unless a BERIL checkout happens
+to be present, and the maintained path does not need one.
+
+On the maintained path, validate the snapshot on its own instead:
+
+```bash
+uv run --no-sync nmdc-lakehouse validate-snapshot /absolute/path/to/completed-snapshot
+```
+
+That command is offline, needs nothing external, and is the only part of the doctor
+that applies to both paths. Splitting the snapshot check out of the doctor so it can
+run without a BERIL checkout is tracked in
+[#267](https://github.com/microbiomedata/nmdc-lakehouse/issues/267).
+
+For a historical off-cluster run, the full doctor still applies:
 
 ```bash
 export BERIL_CHECKOUT=/path/to/BERIL-research-observatory
@@ -155,6 +207,67 @@ are applied one column at a time and each is a separate catalog commit, so a
 table with over a thousand columns takes far longer than the data load it
 describes. See
 [#258](https://github.com/microbiomedata/nmdc-lakehouse/issues/258).
+
+## Move the snapshot and evidence into the pod
+
+`berdl-upload-plan` binds absolute paths and `berdl-upload` runs in the pod, so the
+completed snapshot and every reviewed evidence file have to be in the pod
+filesystem first. Transfer happens over the JupyterHub contents API, either through
+the notebook file browser or through a client that speaks to it. The SOCKS tunnels
+play no part in this and do not need to be up.
+
+**Archive the snapshot on macOS with `COPYFILE_DISABLE=1`, or it will arrive
+corrupted:**
+
+```bash
+COPYFILE_DISABLE=1 tar -czf snapshot.tar.gz -C /path/to/parent completed-snapshot
+```
+
+Plain `tar -czf` on macOS stores extended attributes. Extracting on Linux
+materializes them as AppleDouble `._*` siblings, one per file. A plain `ls` hides
+them and the visible directory listing looks correct. On 2026-08-20 a 52-artifact
+snapshot arrived in the pod with 54 extra `._*` files and nothing looked wrong until
+validation ran.
+
+`validate-snapshot` catches it and fails closed:
+
+```
+Error: Snapshot contains missing, extra, or unmanifested files.
+```
+
+The message names the category, not the files. If you see it after a transfer from
+macOS, check for AppleDouble siblings first:
+
+```bash
+find /path/to/completed-snapshot -name '._*' -delete
+```
+
+After that deletion the same snapshot validated with an identical digest, which
+confirmed the Parquet bytes themselves had transferred correctly. Naming the
+offending paths in the error is a separate behavior change, tracked in
+[#270](https://github.com/microbiomedata/nmdc-lakehouse/issues/270).
+
+**Validate in the pod, before planning:**
+
+```bash
+uv run --no-sync nmdc-lakehouse validate-snapshot /absolute/path/to/completed-snapshot
+```
+
+A clean run names the digest and the artifact count:
+
+```
+Validated sha256:5022cb...a316c: 53 Parquet artifact(s).
+```
+
+Compare that digest against the one recorded locally. They must match exactly. A
+digest that differs means the snapshot in the pod is not the snapshot that was
+reviewed, and everything bound to it downstream is bound to the wrong bytes.
+
+One observation about size, from the 2026-08-20 run and specific to the client used
+there rather than to the contents API itself: a 112 MB upload succeeded and a 352 MB
+upload failed with a broken pipe. If a large archive fails partway, split it, upload
+the parts, reassemble in the pod, and verify the digest of the reassembled archive
+before extracting.
 
 ## Preview and execute verified data staging
 
@@ -311,9 +424,25 @@ not treat a previous inventory as the current live state.
 
 ---
 
-## Prerequisites, obtain before doing anything else
+## Historical off-cluster transport
 
-### 1. Python 3.13 environment
+Everything from here to the end of the document is the April 2026 record. It was
+verified working end-to-end on 2026-04-25 (see
+[#51](https://github.com/microbiomedata/nmdc-lakehouse/issues/51)) but as a manual
+workaround: SSH access to the tunnel host was blocked at the time, so the actual run
+happened on-cluster through JupyterHub instead of following these steps start to
+finish. Steps 1 to 7 were validated; step 8 was substituted with an on-cluster
+notebook run. Steps 8 and 9 would need re-verifying if this ever ran off-cluster
+again.
+
+It moved local Parquet into BERDL Silver as `nmdc_nmdc_linkml_store`. The maintained
+path above replaces it and needs none of what follows.
+
+### Prerequisites for the historical transport
+
+These five belong to this section only. The maintained path does not use them.
+
+#### 1. Python 3.13 environment
 
 `data-lakehouse-ingest` requires Python >= 3.13, which may not be your system default.
 
@@ -322,7 +451,7 @@ uv python install 3.13
 uv venv .venv-berdl --python 3.13 --seed
 ```
 
-### 2. Ingest packages
+#### 2. Ingest packages
 
 From [`kbaseincubator/BERIL-research-observatory`](https://github.com/kbaseincubator/BERIL-research-observatory):
 
@@ -336,7 +465,7 @@ environment. Run them only when provisioning that checkout. Do not ignore a
 failed verification; `just berdl-doctor` must subsequently find both required
 distributions in `.venv-berdl`.
 
-### 3. MinIO client (`mc`)
+#### 3. MinIO client (`mc`)
 
 ```bash
 mkdir -p ~/bin
@@ -344,21 +473,22 @@ curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o ~/bin/mc   # ma
 chmod +x ~/bin/mc
 ```
 
-### 4. KBase auth token
+#### 4. KBase auth token
 
 `berdl-remote` reads `KBASE_AUTH_TOKEN`. Obtain and refresh it through the
 supported KBase authentication workflow. Keep it in the process environment or
 an untracked `.env`; never copy it into documentation, logs, or tracked files.
 
-### 5. SSH access to `login1.berkeley.kbase.us`
+#### 5. SSH access to `login1.berkeley.kbase.us`
 
-Required for the tunnels in the next section. This blocked the 2026-04-25 run
-entirely. If you don't have an account there yet, ask in `#ber_lakehouse` before
-starting anything else in this doc.
+Required for the tunnels in the next section, and for nothing else. This blocked
+the 2026-04-25 run entirely. It does not block the maintained path, which never
+contacts the bastion. If you need it for a historical off-cluster run and do not have
+an account, ask in `#ber_lakehouse`.
 
 ---
 
-## Per-session: open the tunnels and configure `mc`
+### Per-session: open the tunnels and configure `mc`
 
 **Everything from this point through "Run the ingest notebook" runs from a
 [`kbaseincubator/BERIL-research-observatory`](https://github.com/kbaseincubator/BERIL-research-observatory)
@@ -397,7 +527,7 @@ to `http://127.0.0.1:8123` and configures the `berdl-minio` `mc` alias.
 
 ---
 
-## Preflight
+### Preflight
 
 ```bash
 source .venv-berdl/bin/activate
@@ -409,7 +539,7 @@ python scripts/ingest_preflight.py \
 
 All 13 tables should show as single-batch.
 
-## Upload metadata
+### Upload metadata
 
 ```bash
 https_proxy=http://127.0.0.1:8123 ~/bin/mc cp --recursive \
@@ -419,7 +549,7 @@ https_proxy=http://127.0.0.1:8123 ~/bin/mc cp --recursive \
 
 `mc` interprets relative paths as MinIO URLs. Always use absolute local paths.
 
-## Run the ingest notebook
+### Run the ingest notebook
 
 The notebook itself isn't checked into either repo. It's a
 [file attachment on issue #51](https://github.com/user-attachments/files/27073485/nmdc_linkml_store_ingest.ipynb),
@@ -440,7 +570,7 @@ https_proxy=http://127.0.0.1:8123 ~/bin/mc cat \
     "berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/datasets/nmdc_linkml_store/_ingest_progress.jsonl"
 ```
 
-## Verify in BERDL SQL
+### Verify in BERDL SQL
 
 ```sql
 SHOW TABLES IN nmdc_nmdc_linkml_store;
@@ -450,7 +580,7 @@ SELECT COUNT(*) FROM nmdc_nmdc_linkml_store.functional_annotation_agg;
 
 ---
 
-## Known gotchas
+### Known gotchas
 
 - **`verify_ingest` reports MISMATCH for every table.** Not a real failure. It counts
   line breaks in source files, which is meaningless for binary Parquet. Trust the
@@ -460,7 +590,7 @@ SELECT COUNT(*) FROM nmdc_nmdc_linkml_store.functional_annotation_agg;
 - **`MODE=overwrite`** makes repeated runs idempotent, safe to re-run after a fresh
   `etl-collections`.
 
-## Paths
+### Paths
 
 - Bronze: `s3a://cdm-lake/tenant-general-warehouse/nmdc/datasets/nmdc_linkml_store/`
 - Silver: `s3a://cdm-lake/tenant-sql-warehouse/nmdc/nmdc_nmdc_linkml_store.db`
