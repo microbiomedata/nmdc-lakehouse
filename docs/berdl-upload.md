@@ -358,18 +358,35 @@ directory plus markers still consumes blocks, how many depends on the filesystem
 and which markers appear depends on the write. The absence of `part-*` is the
 part that holds in every case.
 
-For an object-store destination, list it and compare against what was written:
+**Then copy it down.** The write above puts the data in object storage; nothing
+has reached a local disk yet, which is what the check below inspects. From a
+workstation, using the same form as the upload example further down this
+document:
 
 ```bash
-mc ls --recursive berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/exports/20260821T204900-results-backup/
+https_proxy=http://127.0.0.1:8123 ~/bin/mc cp --recursive \
+    "berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/exports/20260821T204900-results-backup/" \
+    /path/to/export/
+```
+
+The `https_proxy` prefix is required on every `mc` invocation.
+`configure_mc.sh --berdl-proxy` sets that variable inside its own process only, so
+it does not persist into your shell, which is why the other `mc` examples here
+carry the same prefix. `mc` also reads relative paths as MinIO URLs, so the local
+destination has to be absolute.
+
+To check the object store itself rather than the local copy:
+
+```bash
+https_proxy=http://127.0.0.1:8123 ~/bin/mc ls --recursive \
+    "berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/exports/20260821T204900-results-backup/"
 ```
 
 `mc` is the object-store client this repository supports and the one
-`berdl-doctor` checks for. It needs the `berdl-minio` alias wherever it runs. On a
-workstation the tunnel step in the historical transport section below configures
-that alias, and the maintained path otherwise never needs it. How the alias is
-provided inside the pod has not been verified here, so check `mc alias list`
-before relying on it there.
+`berdl-doctor` checks for. It needs the `berdl-minio` alias and the tunnel, both
+configured by the historical transport section below, which the maintained path
+otherwise never needs. How the alias is provided inside the pod has not been
+verified here, so check `mc alias list` before relying on it there.
 
 See [#250](https://github.com/microbiomedata/nmdc-lakehouse/issues/250).
 
