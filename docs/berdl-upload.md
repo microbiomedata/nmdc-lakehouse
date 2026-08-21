@@ -333,22 +333,21 @@ is large enough to pass a size filter even when the directory holds nothing but
 that can report it as success is worse than none.
 
 The signature of a failed export is a `table.parquet` directory containing only
-`_SUCCESS`, and `du` shows it as `0B` against tens of megabytes for a real one.
+`_SUCCESS`, with no `part-*.parquet` files inside it. Judge it on whether those
+files exist rather than on a byte figure: a directory plus an empty marker still
+consumes blocks, and how many depends on the filesystem, which is the trap this
+paragraph exists to avoid.
 
-For an object-store destination, list it and compare against what was written.
-From inside the pod, where credentials are already configured:
-
-```bash
-aws s3 ls --recursive s3://cdm-lake/tenant-general-warehouse/nmdc/exports/20260821-results-backup/
-```
-
-From a workstation this needs the `berdl-minio` `mc` alias, which is set up by the
-tunnel step in the historical transport section below, and which the maintained
-path otherwise never needs. Verifying from inside the pod avoids that entirely:
+For an object-store destination, list it and compare against what was written:
 
 ```bash
 mc ls --recursive berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/exports/20260821-results-backup/
 ```
+
+`mc` is the object-store client this repository supports and the one
+`berdl-doctor` checks for. From a workstation it needs the `berdl-minio` alias,
+which the tunnel step in the historical transport section below configures, and
+which the maintained path otherwise never needs.
 
 See [#250](https://github.com/microbiomedata/nmdc-lakehouse/issues/250).
 
