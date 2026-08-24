@@ -112,9 +112,9 @@ The Silver side tables cover the same ground under different names:
 ## Multi-hop traversal: biosample_to_workflow_run
 
 For variable-depth queries (Biosample to / from any WorkflowExecution),
-use the precomputed table `nmdc_metadata.biosample_to_workflow_run`,
+use the precomputed table `nmdc_metadata.biosample_to_workflow_run`;
 see [`biosample_to_workflow_run.md`](biosample_to_workflow_run.md).
 Plain equi-join, no recursion at the consumer side.
 
 Ingesting the runtime-maintained `alldocs` MongoDB collection was considered
-and rejected, see [`decisions/alldocs-not-ingested.md`](decisions/alldocs-not-ingested.md).
+and rejected; see [`decisions/alldocs-not-ingested.md`](decisions/alldocs-not-ingested.md).

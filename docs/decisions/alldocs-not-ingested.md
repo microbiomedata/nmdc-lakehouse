@@ -10,7 +10,7 @@ The `alldocs` MongoDB collection maintained by nmdc-runtime will **not** be
 ingested into BERDL Silver managed tables (Delta at the time of this decision;
 the current provider must be discovered at publication time). Graph traversal queries
 (biosample → annotation, annotation → biosample, etc.) are served by a derived
-table built from the existing schema-driven Silver side tables,
+table built from the existing schema-driven Silver side tables;
 see [`biosample_to_workflow_run.md`](../biosample_to_workflow_run.md).
 
 ## What alldocs is

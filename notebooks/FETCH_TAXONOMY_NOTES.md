@@ -29,7 +29,7 @@ Pull the URL manifest from the BERDL Hive catalog over **Spark Connect** (`get_s
   ```python
   import inspect
   assert "marker_string_from_latest_version" in inspect.getsource(my_function), \
-      "Kernel has STALE my_function, re-run its defining cell."
+      "Kernel has STALE my_function; re-run its defining cell."
   ```
   This caught several "stale kernel" cycles that would otherwise burn 5 minutes downloading before failing.
 - When iterating, watch for **duplicate cells** in the file. NotebookEdit's `cell_id` is positional in the Read output, not stable in the JSON. Verify with `python -c "import json; nb = json.load(open('foo.ipynb')); ..."` rather than assuming the edit landed where intended.

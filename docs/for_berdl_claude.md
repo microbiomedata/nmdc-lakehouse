@@ -81,7 +81,7 @@ pair and works through any query interface (Spark, Trino, REST API) with a
 plain equi-join.
 
 Ingesting the runtime-maintained `alldocs` MongoDB collection was considered
-and rejected, see [`decisions/alldocs-not-ingested.md`](decisions/alldocs-not-ingested.md).
+and rejected; see [`decisions/alldocs-not-ingested.md`](decisions/alldocs-not-ingested.md).
 
 ## Loading a new data product into `nmdc_results`
 
@@ -164,7 +164,7 @@ for tbl in ("workflow_execution_set_was_informed_by",
 
 ## Other BERDL namespaces with NMDC-relevant data
 
-`nmdc_arkin` (Arkin group, **read only, do not write**) is queryable via `spark.sql()` like any other registered namespace. It contains annotation term tables (GO, EC, MetaCyc, COG names populated; KEGG names empty, see Known gaps), Arkin-curated NMDC study/file metadata, taxonomy gold-standard tables, omics result tables (NOM, metabolomics, proteomics, metatranscriptomics, lipidomics), and embeddings. Treat it as a reference source for awareness; whether to join against it in production queries is a judgment call outside the scope of this doc.
+`nmdc_arkin` (Arkin group, **read only, do not write**) is queryable via `spark.sql()` like any other registered namespace. It contains annotation term tables (GO, EC, MetaCyc, COG names populated; KEGG names empty; see Known gaps), Arkin-curated NMDC study/file metadata, taxonomy gold-standard tables, omics result tables (NOM, metabolomics, proteomics, metatranscriptomics, lipidomics), and embeddings. Treat it as a reference source for awareness; whether to join against it in production queries is a judgment call outside the scope of this doc.
 
 `nmdc_ref_data` does not yet exist but is the intended home for reference tables we build and maintain, for example Pfam term definitions (see issue #100), and potentially other ontology/vocabulary tables that can be freely redistributed.
 
