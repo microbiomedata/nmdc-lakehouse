@@ -53,11 +53,13 @@ project term triggers Vale, add a narrow entry to the repository vocabulary or
 use a justified local exception.
 
 Rules carry different levels and only errors fail CI. `Mark.Jargon`,
-`Mark.ThroatClearing` and `Mark.EmDash` are errors because the repository has
-none of them. `Mark.EmDash` was a warning until its backlog was cleared on
-2026-08-24, which is the sequence a new rule should follow here: land it at
-warning, clear what it finds, then promote, so it never starts blocking work its
-author did not cause. `Mark.BareRef` is a
+`Mark.ThroatClearing` and `Mark.EmDash` are errors because the maintained prose
+Vale checks has none of them. That is a claim about the linted set, not the
+repository: 149 em dashes remain in 31 files Vale never reads, mostly notebooks,
+scripts and Python source. `Mark.EmDash` was a warning until the prose backlog was
+cleared on 2026-08-24, which is the sequence a new rule should follow here: land
+it at warning, clear what it finds, then promote, so it never starts blocking
+work its author did not cause. `Mark.BareRef` is a
 suggestion until it can exclude references that already carry a URL, and
 `Mark.Undefined` is a warning that flags an acronym never expanded in the same
 file. For that last one, either expand the term on first use or add it to the
