@@ -44,6 +44,8 @@ on the next rebuild — no config change required.
 
 ### All taxa detected in a biosample (Kraken2)
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```sql
 SELECT k.rank, k.name, k.taxid, k.pct_clade
 FROM   nmdc_metadata.biosample_to_workflow_run b2wr
@@ -56,6 +58,8 @@ ORDER BY k.pct_clade DESC
 
 ### All biosamples with a given taxon (GTDBTK)
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```sql
 SELECT DISTINCT b2wr.biosample_id
 FROM   nmdc_results.gtdbtk_bacterial_summary g
@@ -66,6 +70,8 @@ WHERE  g.classification LIKE '%p__Bacteroidota%'
 
 ### All genes (KO annotations) for a biosample
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```sql
 SELECT ko.gene_id, ko.annotation_id, ko.ncbi_taxid
 FROM   nmdc_metadata.biosample_to_workflow_run b2wr
@@ -77,6 +83,8 @@ WHERE  b2wr.biosample_id = 'nmdc:bsm-11-xyz'
 ### Filter by workflow type when you only need one method
 
 Add to any query:
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```sql
 AND  b2wr.workflow_type = 'nmdc:ReadBasedTaxonomyAnalysis'
 ```

@@ -107,17 +107,18 @@ like a tested one, is what this prevents: `docs/berdl-upload.md` exists because 
 Spark write to a local path silently produced no backup, and five rounds of review
 on the change that documented it were spent on claims nobody had checked.
 
-Mark the block you changed. `docs/procedure-baseline.json` records the blocks that
-predate the rule; do not edit it by hand.
+Mark the block you changed. There is no exemption list and nothing to regenerate:
+every runnable block under `docs/` carries a marker, so the only way to satisfy
+the check is to say which kind your block is.
 
-Marking a grandfathered block changes its hash, so its old entry is left with
-nothing to spend and the check reports it. That is expected, and `just
-prune-doc-baseline` is the way to clear it. Pruning can only shrink the baseline,
-so it cannot exempt anything you have just written.
+A `verified` marker must carry a date, because that is the claim worth holding to
+a format. "verified: ok" asserts something with nothing behind it, which is the
+failure this exists to prevent. An `unverified` marker concedes rather than
+claims, so it needs only a reason and somewhere it is tracked.
 
-Do not reach for `--write-baseline` to clear a failure. It grandfathers every
-undeclared block in the tree, including the one that tripped the check, which is a
-gate switching itself off. It refuses to do so without `--force` for that reason.
+Most of the existing markers say `unverified`, which is the honest state: nobody
+has recorded running those procedures. Changing one to `verified` means you ran
+it and wrote down what came back.
 
 A block with no language, or a data language such as `json` or `text`, is inert
 and needs nothing. Any other language is treated as runnable, including one nobody

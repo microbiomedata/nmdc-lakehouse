@@ -157,32 +157,20 @@ test-prose-lint-exit:
 # inferred from unrelated observations. Reviewers caught that five times and the repository caught
 # it zero times, which is the gap this closes.
 #
-# A block passes by carrying either marker above it. `verified` records a run; `unverified` states
-# that it has not been run and where that is tracked. Both pass, because forcing execution is not
-# possible from a workstation for most of these, and an honestly labelled unrun procedure is not
-# the failure. The failure is an unrun procedure that reads like a tested one.
+# A block passes by carrying either marker above it. `verified` records a run and must carry a
+# date; `unverified` states that it has not been run and where that is tracked. Both pass, because
+# forcing execution is not possible from a workstation for most of these. The failure is an unrun
+# procedure that reads like a tested one.
 #
 # CI does not run `just check`; .github/workflows/ci.yml invokes each recipe as its own step, so
 # both of these are listed there individually. A gate that only `just check` runs is a gate CI does
 # not have.
 #
-# Blocks that predate the rule are grandfathered in docs/procedure-baseline.json by file and
-# content hash, with a count of how many undeclared copies each file may keep. Content-only
-# baselines were the first design and were wrong: docs/berdl-upload.md already repeats its
-# validate-snapshot block, so any new block could have passed by copying it. Editing one changes
-# its hash and brings it under the rule, which is the point: the blocks being changed are the
-# blocks being claimed about. Do not add baseline entries by hand.
+# There is no exemption list. One was tried, grandfathering the blocks that predated the rule by
+# content hash, and it produced seven distinct defects across eight rounds of review, each a way
+# for the check to stop applying. All 81 were declared instead.
 doc-procedures:
-    uv run python scripts/python/doc_procedures.py docs --baseline docs/procedure-baseline.json
-
-# Drop doc-procedure baseline entries the tree no longer needs.
-#
-# Run this after marking a grandfathered block. Marking changes its hash, which leaves its old
-# entry with nothing to spend, and `doc-procedures` reports that. Pruning takes the minimum of
-# each recorded allowance and what is actually undeclared now, so it can only shrink the baseline.
-# It cannot exempt anything you have just written, which is exactly what regenerating would do.
-prune-doc-baseline:
-    uv run python scripts/python/doc_procedures.py docs --baseline docs/procedure-baseline.json --prune-baseline
+    uv run python scripts/python/doc_procedures.py docs
 
 # Assert that doc-procedures can actually fail. Runs offline, touches no tracked file.
 #
@@ -196,9 +184,9 @@ test-doc-procedures-exit:
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
     printf 'intro\n\n```bash\necho hi\n```\n' > "$tmp/undeclared.md"
     printf 'intro\n\n<!-- unverified: fixture, never run -->\n```bash\necho hi\n```\n' > "$tmp/declared.md"
-    rc=0; uv run --no-sync python scripts/python/doc_procedures.py "$tmp/undeclared.md" --baseline "$tmp/absent.json" >/dev/null 2>&1 || rc=$?
+    rc=0; uv run --no-sync python scripts/python/doc_procedures.py "$tmp/undeclared.md" >/dev/null 2>&1 || rc=$?
     [ "$rc" -ne 0 ] || { echo "doc-procedures did NOT fail on an undeclared block; the gate is inert"; exit 1; }
-    rc=0; uv run --no-sync python scripts/python/doc_procedures.py "$tmp/declared.md" --baseline "$tmp/absent.json" >/dev/null 2>&1 || rc=$?
+    rc=0; uv run --no-sync python scripts/python/doc_procedures.py "$tmp/declared.md" >/dev/null 2>&1 || rc=$?
     [ "$rc" -eq 0 ] || { echo "doc-procedures blocked a declared block; exit was $rc"; exit 1; }
     echo "doc-procedures exit contract holds: undeclared fails, declared passes"
 
