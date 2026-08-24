@@ -175,7 +175,7 @@ def _marker_before(tokens: Sequence[Token], index: int) -> str | None:
     if previous.type != "html_block":
         return None
     content = previous.content.strip()
-    if _EMBEDDED_FENCE.search(content):
+    if _encloses_a_fence(content):
         return None
     match = _MARKER.match(content)
     return match.group("kind").lower() if match else None
@@ -215,12 +215,27 @@ def iter_blocks(text: str, path: Path) -> list[ProcedureBlock]:
 #: check at the same time, so a typo would hide a procedure rather than flag it.
 _MARKER_START = re.compile(r"^<!--\s*(verified|unverified)\s*:", re.IGNORECASE)
 
-#: A fence delimiter at the start of a line. A marker whose text contains one has
-#: swallowed a code block: the comment runs past it to a later "-->", so Markdown
-#: emits no fence and the block is invisible. Matching the marker across newlines
-#: is what let that pass as a well-formed declaration, so it is rejected here and
-#: reported rather than being read as a longer description.
-_EMBEDDED_FENCE = re.compile(r"^ {0,3}(?:`{3,}|~{3,})", re.MULTILINE)
+
+def _encloses_a_fence(comment: str) -> bool:
+    """Return whether an HTML comment has swallowed a fenced block.
+
+    The comment runs past the fence to a later close, so Markdown emits no fence
+    token and the block is invisible. Matching the marker across newlines is what
+    let that pass as a well-formed declaration with a long description.
+
+    The comment's inner text is handed to the same parser rather than matched for
+    delimiters. A regular expression here found only top-level fences, so a fence
+    inside a block quote or a list, whose lines begin with ">" or with spaces, was
+    missed again. That is the mistake this whole change is about, repeated one
+    level down.
+    """
+    inner = comment
+    for opening, closing in (("<!--", ""), ("", "-->")):
+        if opening and inner.startswith(opening):
+            inner = inner[len(opening) :]
+        if closing and inner.endswith(closing):
+            inner = inner[: -len(closing)]
+    return any(token.type == "fence" for token in _PARSER.parse(inner))
 
 
 def malformed_markers(text: str, path: Path) -> list[tuple[int, str]]:
@@ -232,7 +247,7 @@ def malformed_markers(text: str, path: Path) -> list[tuple[int, str]]:
         content = token.content.strip()
         if not _MARKER_START.match(content):
             continue
-        if _EMBEDDED_FENCE.search(content):
+        if _encloses_a_fence(content):
             line = token.map[0] + 1 if token.map else 0
             found.append(
                 (

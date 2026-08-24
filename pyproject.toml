@@ -58,7 +58,7 @@ dev = [
     "pre-commit>=4.6.2",
     "shellcheck-py==0.11.0.1",
     "types-PyYAML>=6.0.12.20260408",
-    # CommonMark tokeniser for nmdc_lakehouse.doc_procedures, which is a repository
+    # CommonMark tokeniser for scripts/python/doc_procedures.py, which is a repository
     # check rather than part of the pipeline. Declared rather than relied on through
     # rich, and used rather than hand-written: review found seven ways a hand-rolled
     # fence scanner diverged from Markdown, each a way the gate could be silent.

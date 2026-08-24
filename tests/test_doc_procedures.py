@@ -577,3 +577,25 @@ def test_a_marker_that_swallowed_a_block_declares_nothing_after_it(tmp_path: Pat
     blocks = scan([tmp_path])
     assert [block.marker for block in blocks] == [None]
     assert len(offending(blocks, {})) == 1
+
+
+@pytest.mark.parametrize(
+    "container,body",
+    [
+        ("block quote", "> ```bash\n> rm -rf /important\n> ```"),
+        ("list item", "  - step\n\n    ```bash\n    rm -rf /important\n    ```"),
+        ("top level", "```bash\nrm -rf /important\n```"),
+    ],
+)
+def test_a_marker_enclosing_a_fence_in_any_container_is_caught(tmp_path: Path, container: str, body: str) -> None:
+    """Detecting the enclosed fence with a pattern found only top-level ones.
+
+    A fence inside a block quote or a list has lines starting with ">" or with
+    spaces, so a delimiter match missed it and the marker was accepted as a
+    declaration with a long description, hiding the block. The comment's inner
+    text goes through the same parser now, which is the rule this repository
+    just wrote down.
+    """
+    _write(tmp_path, f"<!-- verified: ok\n{body}\n-->\n" + UNMARKED)
+    assert len(scan_malformed([tmp_path])) == 1
+    assert main([str(tmp_path), "--baseline", str(tmp_path / "absent.json")]) == 1
