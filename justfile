@@ -119,7 +119,7 @@ prose-lint:
 # THE WARNING-ONLY FIXTURE DEPENDS ON TWO RULES, AND ON A CAPITALISATION. Both are deliberate.
 #
 # It uses Mark.BareRefWord and Mark.Undefined, chosen because both sit at warning in .vale.ini
-# with no promotion planned beside either. It deliberately does NOT use Mark.EmDash, which was
+# with no promotion planned for either. It deliberately does NOT use Mark.EmDash, which was
 # promoted from warning to error on 2026-08-24 once its backlog was cleared,
 # https://github.com/microbiomedata/nmdc-lakehouse/issues/264. An em dash in the warning fixture
 # would now be an error and would fail this test while the contract it asserts stayed true, and
