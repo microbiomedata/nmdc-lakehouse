@@ -18,6 +18,7 @@ import pytest
 from nmdc_lakehouse.doc_procedures import (
     BASELINE_FORMAT_VERSION,
     MARKER_LOOKBACK,
+    BaselineFormatError,
     ProcedureBlock,
     fingerprint,
     iter_blocks,
@@ -45,7 +46,7 @@ def test_rejects_an_undeclared_runnable_block(tmp_path: Path) -> None:
     _write(tmp_path, UNMARKED)
     blocks = scan([tmp_path])
     assert len(blocks) == 1
-    assert offending(blocks, set()) == blocks
+    assert offending(blocks, {}) == blocks
     assert main([str(tmp_path), "--baseline", str(tmp_path / "absent.json")]) == 1
 
 
@@ -54,7 +55,7 @@ def test_rejects_every_undeclared_block_not_just_the_first(tmp_path: Path) -> No
     _write(tmp_path, UNMARKED + "\nmore\n\n```python\nprint(1)\n```\n")
     blocks = scan([tmp_path])
     assert len(blocks) == 2
-    assert len(offending(blocks, set())) == 2
+    assert len(offending(blocks, {})) == 2
 
 
 @pytest.mark.parametrize("text,marker", [(VERIFIED, "verified"), (UNVERIFIED, "unverified")])
@@ -63,7 +64,7 @@ def test_either_marker_declares_a_block(tmp_path: Path, text: str, marker: str) 
     _write(tmp_path, text)
     blocks = scan([tmp_path])
     assert [block.marker for block in blocks] == [marker]
-    assert offending(blocks, set()) == []
+    assert offending(blocks, {}) == []
     assert main([str(tmp_path), "--baseline", str(tmp_path / "absent.json")]) == 0
 
 
@@ -71,13 +72,13 @@ def test_a_marker_too_far_above_does_not_count(tmp_path: Path) -> None:
     """A marker separated by more than the lookback belongs to something else."""
     filler = "\n".join(f"line {index}" for index in range(MARKER_LOOKBACK + 1))
     _write(tmp_path, f"<!-- verified: 2026-08-24 -->\n{filler}\n```bash\necho hi\n```\n")
-    assert offending(scan([tmp_path]), set()) != []
+    assert offending(scan([tmp_path]), {}) != []
 
 
 def test_blank_lines_do_not_consume_the_lookback(tmp_path: Path) -> None:
     """Markdown separates a comment from a fence by a blank line; that must still count."""
     _write(tmp_path, "<!-- verified: 2026-08-24 ran it -->\n\n\n```bash\necho hi\n```\n")
-    assert offending(scan([tmp_path]), set()) == []
+    assert offending(scan([tmp_path]), {}) == []
 
 
 def test_a_block_with_no_language_is_inert(tmp_path: Path) -> None:
@@ -131,12 +132,14 @@ def test_the_baseline_records_its_format_version(tmp_path: Path) -> None:
     write_baseline(baseline_path, scan([tmp_path]))
     document = json.loads(baseline_path.read_text(encoding="utf-8"))
     assert document["baseline_format_version"] == BASELINE_FORMAT_VERSION
-    assert len(document["occurrences"]) == 1
+    block = scan([tmp_path])[0]
+    assert document["allowances"] == {block.allowance_key: 1}
+    assert block.allowance_key.endswith(f"a.md::{block.fingerprint}")
 
 
 def test_an_absent_baseline_grandfathers_nothing(tmp_path: Path) -> None:
     """A missing file must not read as permission."""
-    assert load_baseline(tmp_path / "nope.json") == set()
+    assert load_baseline(tmp_path / "nope.json") == {}
 
 
 def test_fingerprint_ignores_trailing_whitespace_only() -> None:
@@ -167,7 +170,7 @@ def test_a_marker_does_not_carry_to_the_next_block(tmp_path: Path) -> None:
     _write(tmp_path, VERIFIED + "```bash\necho two\n```\n")
     blocks = scan([tmp_path])
     assert [block.marker for block in blocks] == ["verified", None]
-    assert len(offending(blocks, set())) == 1
+    assert len(offending(blocks, {})) == 1
 
 
 def test_a_new_copy_of_a_grandfathered_block_still_fails(tmp_path: Path) -> None:
@@ -203,7 +206,7 @@ def test_the_report_says_what_was_measured(tmp_path: Path) -> None:
     """A failure naming one presumed cause misleads when the count moves the other way."""
     _write(tmp_path, UNMARKED + "\n" + VERIFIED)
     blocks = scan([tmp_path])
-    message = report(blocks, set())
+    message = report(blocks, {})
     assert "2 runnable blocks" in message
     assert "1 verified" in message
     assert "1 undeclared" in message
@@ -213,7 +216,7 @@ def test_the_report_says_what_was_measured(tmp_path: Path) -> None:
 def test_a_clean_report_still_states_the_counts(tmp_path: Path) -> None:
     """Silence on success hides a check that stopped finding anything."""
     _write(tmp_path, VERIFIED)
-    message = report(scan([tmp_path]), set())
+    message = report(scan([tmp_path]), {})
     assert "1 runnable blocks" in message
     assert "declares neither" not in message
 
@@ -229,7 +232,7 @@ def test_write_baseline_mode_exits_zero_and_creates_the_file(tmp_path: Path) -> 
 
 def test_location_is_a_clickable_reference() -> None:
     """Reviewers act on path:line, not on a bare filename."""
-    block = ProcedureBlock(Path("docs/berdl-upload.md"), 317, "python", "abc", None, 0)
+    block = ProcedureBlock(Path("docs/berdl-upload.md"), 317, "python", "abc", None)
     assert block.location == "docs/berdl-upload.md:317"
 
 
@@ -243,3 +246,50 @@ def test_iter_blocks_reports_the_fence_line(tmp_path: Path) -> None:
     """The reported line must land on the fence, not on the body."""
     blocks = iter_blocks(UNMARKED, Path("a.md"))
     assert [block.line for block in blocks] == [3]
+
+
+def test_a_copy_prepended_above_the_original_is_still_caught(tmp_path: Path) -> None:
+    """The hole a repeat-index baseline had: the copy inherited the exemption.
+
+    Keying on file and body with a count carries no position, so it does not
+    matter whether the copy lands above or below the block it was copied from.
+    """
+    path = _write(tmp_path, "intro\n\n" + UNMARKED)
+    baseline_path = tmp_path / "baseline.json"
+    write_baseline(baseline_path, scan([tmp_path]))
+    baseline = load_baseline(baseline_path)
+
+    path.write_text("intro\n\n" + UNMARKED + "\nmiddle\n\n" + UNMARKED, encoding="utf-8")
+    assert len(offending(scan([tmp_path]), baseline)) == 1
+
+
+def test_prose_mentioning_a_marker_is_not_a_declaration(tmp_path: Path) -> None:
+    """A document explaining the convention must not thereby satisfy it."""
+    _write(tmp_path, "Write <!-- verified: date and result --> above the fence.\n\n" + UNMARKED)
+    assert len(offending(scan([tmp_path]), {})) == 1
+
+
+def test_a_marker_wrapped_over_several_lines_still_declares(tmp_path: Path) -> None:
+    """Real markers cite a URL and wrap; the whole paragraph is read."""
+    marker = "<!-- unverified: needs a pod terminal,\n     tracked in issue 136 -->\n"
+    _write(tmp_path, marker + "```bash\necho hi\n```\n")
+    assert offending(scan([tmp_path]), {}) == []
+
+
+def test_an_unknown_baseline_version_raises_rather_than_being_trusted(tmp_path: Path) -> None:
+    """Silently reading an unrecognised format is the failure this check exists to catch."""
+    stale = tmp_path / "stale.json"
+    stale.write_text(
+        json.dumps({"baseline_format_version": BASELINE_FORMAT_VERSION - 1, "occurrences": []}),
+        encoding="utf-8",
+    )
+    with pytest.raises(BaselineFormatError):
+        load_baseline(stale)
+
+
+def test_a_baseline_with_no_version_raises(tmp_path: Path) -> None:
+    """A hand-written file with no version is not a format this build understands."""
+    stale = tmp_path / "stale.json"
+    stale.write_text(json.dumps({"allowances": {}}), encoding="utf-8")
+    with pytest.raises(BaselineFormatError):
+        load_baseline(stale)

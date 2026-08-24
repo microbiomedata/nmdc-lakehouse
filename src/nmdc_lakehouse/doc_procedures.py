@@ -20,13 +20,21 @@ Both pass. The point is not to force execution, which is often impossible from a
 workstation, but to stop an unrun procedure from reading like a tested one.
 
 Blocks that already existed when this check landed are grandfathered in a
-baseline file. A baseline entry identifies an *occurrence*, by file, content hash
-and which repeat within that file it is, rather than identifying content alone.
-Content alone was the first design and it was wrong: `docs/berdl-upload.md`
-already repeats its `validate-snapshot` block at lines 77 and 260, so a hash-only
-baseline would have let any new block pass by copying the body of a grandfathered
-one. Identifying occurrences costs a re-baseline when a document is renamed,
-which is visible and rare, and buys a rule that a copy cannot walk around.
+baseline file, which records **how many undeclared copies of a given body a given
+file is allowed to keep**. Anything past that allowance has to be marked.
+
+Two earlier designs were wrong and are worth recording so they are not tried
+again. Keying on content alone let any new block pass by copying the body of a
+grandfathered one, which was reachable rather than theoretical:
+`docs/berdl-upload.md` already repeats its `validate-snapshot` block at lines 77
+and 260. Keying on content plus a repeat index then let a copy *prepended* before
+the grandfathered occurrence take over its identity and push the original to a
+new one, so the exemption moved to the new block. Counting is immune to both,
+because it does not care where in the file anything sits.
+
+The allowance is per file, so a copy pasted into a second document is new and
+must be marked. Renaming a document costs a re-baseline, which is visible and
+rare.
 
 Editing a grandfathered block changes its hash and brings it under the rule,
 which is the behaviour we want: the blocks being changed are the ones being
@@ -46,20 +54,22 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-BASELINE_FORMAT_VERSION = 2
+BASELINE_FORMAT_VERSION = 3
 
 #: Languages whose blocks are instructions to run something, rather than output,
 #: data, or a schema excerpt. A block with no language is treated as inert,
 #: because that is how pasted output is written throughout these documents.
 RUNNABLE_LANGUAGES = frozenset({"bash", "console", "python", "py", "sh", "shell", "sql", "zsh"})
 
-#: How many non-blank lines above a fence are searched for a marker. The search
-#: also stops at the first fence it meets, so a marker cannot be inherited from
-#: the block above.
-MARKER_LOOKBACK = 4
+#: How many lines of the paragraph above a fence are read. A marker may wrap over
+#: several lines, so this is not one line; it is a cap so a long document is not
+#: scanned backwards without limit.
+MARKER_LOOKBACK = 12
 
 _FENCE = re.compile(r"^(?P<indent>\s*)(?P<ticks>`{3,}|~{3,})(?P<info>.*)$")
-_MARKER = re.compile(r"<!--\s*(?P<kind>verified|unverified)\s*:", re.IGNORECASE)
+#: Anchored at the start of the paragraph, so prose that merely mentions a marker
+#: ("write <!-- verified: ... --> above the fence") is not itself a declaration.
+_MARKER = re.compile(r"^<!--\s*(?P<kind>verified|unverified)\s*:", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -71,7 +81,6 @@ class ProcedureBlock:
     language: str
     fingerprint: str
     marker: str | None
-    ordinal: int = 0
 
     @property
     def location(self) -> str:
@@ -79,9 +88,14 @@ class ProcedureBlock:
         return f"{self.path}:{self.line}"
 
     @property
-    def identity(self) -> str:
-        """Return the baseline key for this occurrence."""
-        return f"{self.path.as_posix()}::{self.fingerprint}::{self.ordinal}"
+    def allowance_key(self) -> str:
+        """Return the baseline key: which file, and which body.
+
+        Deliberately carries no position. An earlier version keyed on the repeat
+        index too, which let a copy prepended above a grandfathered block take
+        over its exemption and push the original out of it.
+        """
+        return f"{self.path.as_posix()}::{self.fingerprint}"
 
 
 def fingerprint(body: str, language: str = "") -> str:
@@ -99,31 +113,28 @@ def fingerprint(body: str, language: str = "") -> str:
 def _marker_above(lines: Sequence[str], fence_index: int) -> str | None:
     """Return the marker kind declared above ``fence_index``, or None.
 
-    The scan stops at the first fence it meets, so the marker on one block is
-    never read as covering the block after it.
+    Reads the paragraph immediately above the fence, skipping blank lines, and
+    requires that paragraph to *be* a marker comment rather than to mention one.
+    The scan stops at a fence, so the marker on one block is never read as
+    covering the block after it.
     """
-    seen = 0
-    for index in range(fence_index - 1, -1, -1):
-        raw = lines[index]
-        if _FENCE.match(raw):
+    index = fence_index - 1
+    while index >= 0 and not lines[index].strip():
+        index -= 1
+    paragraph: list[str] = []
+    while index >= 0 and lines[index].strip() and len(paragraph) < MARKER_LOOKBACK:
+        if _FENCE.match(lines[index]):
             return None
-        line = raw.strip()
-        if not line:
-            continue
-        match = _MARKER.search(line)
-        if match:
-            return match.group("kind").lower()
-        seen += 1
-        if seen >= MARKER_LOOKBACK:
-            return None
-    return None
+        paragraph.append(lines[index].strip())
+        index -= 1
+    match = _MARKER.match(" ".join(reversed(paragraph)))
+    return match.group("kind").lower() if match else None
 
 
 def iter_blocks(text: str, path: Path) -> list[ProcedureBlock]:
     """Return every runnable fenced block in ``text``, in document order."""
     lines = text.splitlines()
     blocks: list[ProcedureBlock] = []
-    seen: Counter[str] = Counter()
     index = 0
     while index < len(lines):
         opening = _FENCE.match(lines[index])
@@ -147,18 +158,15 @@ def iter_blocks(text: str, path: Path) -> list[ProcedureBlock]:
             cursor += 1
         name = info[0].lower() if info else ""
         if name in RUNNABLE_LANGUAGES:
-            digest = fingerprint("\n".join(body), name)
             blocks.append(
                 ProcedureBlock(
                     path=path,
                     line=index + 1,
                     language=name,
-                    fingerprint=digest,
+                    fingerprint=fingerprint("\n".join(body), name),
                     marker=_marker_above(lines, index),
-                    ordinal=seen[digest],
                 )
             )
-            seen[digest] += 1
         index = cursor + 1
     return blocks
 
@@ -182,40 +190,73 @@ def scan(paths: Iterable[Path]) -> list[ProcedureBlock]:
     return blocks
 
 
-def load_baseline(path: Path) -> set[str]:
-    """Return the grandfathered occurrence identities, or an empty set when absent."""
+class BaselineFormatError(RuntimeError):
+    """Raised when a baseline file is not a format this version understands."""
+
+
+def load_baseline(path: Path) -> dict[str, int]:
+    """Return the per-file undeclared allowances, or an empty mapping when absent.
+
+    A version this build does not understand is an error rather than something to
+    read optimistically. Silently trusting an unknown format is how a stale
+    baseline would exempt blocks nobody meant to exempt, which is the same shape
+    as the failure this whole check exists to catch.
+    """
     if not path.exists():
-        return set()
+        return {}
     document = json.loads(path.read_text(encoding="utf-8"))
-    return set(document.get("occurrences", []))
+    found = document.get("baseline_format_version")
+    if found != BASELINE_FORMAT_VERSION:
+        raise BaselineFormatError(
+            f"{path} declares baseline_format_version {found!r} and this build reads "
+            f"{BASELINE_FORMAT_VERSION}. Regenerate it with --write-baseline, after "
+            f"checking that the blocks it exempts are still ones you mean to exempt."
+        )
+    return {str(key): int(value) for key, value in document.get("allowances", {}).items()}
 
 
 def write_baseline(path: Path, blocks: Iterable[ProcedureBlock]) -> None:
-    """Record the occurrences of ``blocks`` as grandfathered."""
-    occurrences = sorted({block.identity for block in blocks})
+    """Record how many undeclared copies of each body each file may keep."""
+    counts: Counter[str] = Counter(block.allowance_key for block in blocks)
     document = {
         "baseline_format_version": BASELINE_FORMAT_VERSION,
         "comment": (
-            "Runnable doc blocks that predate the verification-marker rule, keyed by "
-            "path, content hash and repeat index. Do not add entries by hand: mark "
-            "the block instead."
+            "Undeclared runnable doc blocks that predate the verification-marker "
+            "rule. Each key is '<path>::<hash of language and body>'; each value is "
+            "how many undeclared copies that file may keep. Do not add entries by "
+            "hand: mark the block instead."
         ),
-        "occurrences": occurrences,
+        "allowances": dict(sorted(counts.items())),
     }
     path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
 
 
-def offending(blocks: Iterable[ProcedureBlock], baseline: set[str]) -> list[ProcedureBlock]:
-    """Return blocks that declare nothing and are not grandfathered."""
-    return [block for block in blocks if block.marker is None and block.identity not in baseline]
+def offending(blocks: Iterable[ProcedureBlock], baseline: dict[str, int]) -> list[ProcedureBlock]:
+    """Return undeclared blocks beyond what their file is allowed to keep.
+
+    Position plays no part. Whether a copy is pasted above or below the block it
+    was copied from, the file now holds more undeclared copies of that body than
+    the baseline recorded, and the surplus is what gets reported.
+    """
+    remaining = dict(baseline)
+    surplus: list[ProcedureBlock] = []
+    for block in blocks:
+        if block.marker is not None:
+            continue
+        key = block.allowance_key
+        if remaining.get(key, 0) > 0:
+            remaining[key] -= 1
+        else:
+            surplus.append(block)
+    return surplus
 
 
-def report(blocks: Sequence[ProcedureBlock], baseline: set[str]) -> str:
+def report(blocks: Sequence[ProcedureBlock], baseline: dict[str, int]) -> str:
     """Return a message naming what was measured, not a presumed cause."""
     bad = offending(blocks, baseline)
     counts = {
         "runnable blocks": len(blocks),
-        "grandfathered": sum(1 for b in blocks if b.identity in baseline),
+        "grandfathered": sum(1 for b in blocks if b.marker is None) - len(bad),
         "verified": sum(1 for b in blocks if b.marker == "verified"),
         "unverified": sum(1 for b in blocks if b.marker == "unverified"),
         "undeclared": len(bad),
@@ -248,9 +289,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     blocks = scan(args.paths or [Path("docs")])
     if args.write_baseline:
-        grandfathered = offending(blocks, set())
+        grandfathered = offending(blocks, {})
         write_baseline(args.baseline, grandfathered)
-        print(f"wrote {args.baseline} with {len(grandfathered)} grandfathered occurrences")
+        print(f"wrote {args.baseline} with {len(grandfathered)} grandfathered blocks")
         return 0
     baseline = load_baseline(args.baseline)
     print(report(blocks, baseline))
