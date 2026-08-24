@@ -17,7 +17,6 @@ import pytest
 
 from nmdc_lakehouse.doc_procedures import (
     BASELINE_FORMAT_VERSION,
-    MARKER_LOOKBACK,
     BaselineFormatError,
     ProcedureBlock,
     fingerprint,
@@ -27,6 +26,8 @@ from nmdc_lakehouse.doc_procedures import (
     offending,
     report,
     scan,
+    scan_malformed,
+    stale_allowances,
     write_baseline,
 )
 
@@ -68,11 +69,60 @@ def test_either_marker_declares_a_block(tmp_path: Path, text: str, marker: str) 
     assert main([str(tmp_path), "--baseline", str(tmp_path / "absent.json")]) == 0
 
 
-def test_a_marker_too_far_above_does_not_count(tmp_path: Path) -> None:
-    """A marker separated by more than the lookback belongs to something else."""
-    filler = "\n".join(f"line {index}" for index in range(MARKER_LOOKBACK + 1))
-    _write(tmp_path, f"<!-- verified: 2026-08-24 -->\n{filler}\n```bash\necho hi\n```\n")
+def test_a_marker_separated_by_prose_does_not_count(tmp_path: Path) -> None:
+    """A marker with something else between it and the fence belongs to that."""
+    _write(
+        tmp_path,
+        "<!-- verified: 2026-08-24 ran it -->\n\nA paragraph in between.\n\n```bash\necho hi\n```\n",
+    )
     assert offending(scan([tmp_path]), {}) != []
+
+
+def test_an_over_indented_line_cannot_close_a_block(tmp_path: Path) -> None:
+    """Markdown allows at most three spaces before a fence; a scanner that allowed
+    any indentation stopped early, so commands after it fell outside the hash."""
+    plain = iter_blocks("```bash\necho one\n```\n", Path("a.md"))[0]
+    injected = iter_blocks("```bash\necho one\n    ```\necho INJECTED\n```\n", Path("a.md"))[0]
+    assert plain.fingerprint != injected.fingerprint
+
+
+def test_a_varying_quote_prefix_does_not_swallow_the_next_block(tmp_path: Path) -> None:
+    """The space after ``>`` is optional per line, so requiring it to match exactly
+    missed a valid close and let a marked block absorb an undeclared one."""
+    _write(
+        tmp_path,
+        "> <!-- verified: 2026-08-24 ran it -->\n> ```bash\n> echo hi\n>```\n\n```bash\necho UNDECLARED\n```\n",
+    )
+    blocks = scan([tmp_path])
+    assert len(blocks) == 2
+    assert [block.marker for block in blocks] == ["verified", None]
+
+
+def test_a_longer_fence_may_quote_a_shorter_one(tmp_path: Path) -> None:
+    """A block that contains a fence is one block, not two."""
+    _write(tmp_path, "````bash\n```\necho hi\n````\n")
+    assert len(scan([tmp_path])) == 1
+
+
+def test_an_allowance_whose_body_vanished_is_reported(tmp_path: Path) -> None:
+    """An exemption must be attached to something that exists.
+
+    Editing a grandfathered block into a new marked body left its entry behind
+    with nothing to spend it on, and a later unmarked copy of the old body could
+    spend it. The stale entry is now an error telling you to regenerate.
+    """
+    path = _write(tmp_path, "intro\n\n" + UNMARKED)
+    baseline_path = tmp_path / "baseline.json"
+    write_baseline(baseline_path, scan([tmp_path]))
+    baseline = load_baseline(baseline_path)
+    assert stale_allowances(scan([tmp_path]), baseline) == []
+
+    path.write_text(
+        "<!-- verified: 2026-08-24 ran it -->\n```bash\necho replacement\n```\n",
+        encoding="utf-8",
+    )
+    assert len(stale_allowances(scan([tmp_path]), baseline)) == 1
+    assert main([str(tmp_path), "--baseline", str(baseline_path)]) == 1
 
 
 def test_blank_lines_do_not_consume_the_lookback(tmp_path: Path) -> None:
@@ -388,7 +438,6 @@ def test_marking_the_only_grandfathered_copy_is_still_fine(tmp_path: Path) -> No
 @pytest.mark.parametrize(
     "marker",
     [
-        "<!-- verified:",
         "<!-- unverified: -->",
         "<!-- verified:    -->",
         "<!-- verified: ok --> and then some prose",
@@ -429,3 +478,31 @@ def test_quoting_a_block_does_not_change_its_fingerprint(tmp_path: Path) -> None
     plain = iter_blocks("```bash\necho hi\n```\n", Path("a.md"))[0]
     quoted = iter_blocks("> ```bash\n> echo hi\n> ```\n", Path("a.md"))[0]
     assert plain.fingerprint == quoted.fingerprint
+
+
+def test_an_unclosed_marker_is_reported_rather_than_silently_hiding_a_block(
+    tmp_path: Path,
+) -> None:
+    """CommonMark reads an unclosed comment as running to the next close.
+
+    So `<!-- verified:` with no `-->` turns the fence below it into comment text.
+    The block stops being a block, in the rendered document as well as here, and
+    a typo would hide a procedure rather than fail it. That is reported on its own
+    terms instead of being counted as an undeclared block, because it is not one.
+    """
+    _write(tmp_path, "<!-- verified:\n```bash\necho hi\n```\n")
+    assert scan([tmp_path]) == []
+    assert len(scan_malformed([tmp_path])) == 1
+    assert main([str(tmp_path), "--baseline", str(tmp_path / "absent.json")]) == 1
+
+
+def test_a_well_formed_marker_is_not_reported_as_malformed(tmp_path: Path) -> None:
+    """The guard must not fire on the thing it is meant to allow."""
+    _write(tmp_path, VERIFIED)
+    assert scan_malformed([tmp_path]) == []
+
+
+def test_an_ordinary_html_comment_is_not_a_malformed_marker(tmp_path: Path) -> None:
+    """Documents contain comments that have nothing to do with this rule."""
+    _write(tmp_path, "<!-- a note to the reader -->\n" + UNMARKED)
+    assert scan_malformed([tmp_path]) == []

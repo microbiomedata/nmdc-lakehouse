@@ -44,6 +44,12 @@ dependencies = [
     "python-dotenv>=1.0",
     # Used by notebooks/fetch_*.ipynb retry logic and scripts/download_to_cache.py
     "tenacity>=8.0",
+    # CommonMark tokeniser for nmdc_lakehouse.doc_procedures. Declared rather than
+    # relied on through rich, and used rather than hand-written: seven review rounds
+    # on https://github.com/microbiomedata/nmdc-lakehouse/pull/288 found seven ways a
+    # hand-rolled fence scanner diverged from Markdown, each one a way the gate could
+    # be silent.
+    "markdown-it-py>=3.0",
 ]
 
 [project.optional-dependencies]

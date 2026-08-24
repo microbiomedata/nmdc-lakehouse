@@ -54,6 +54,9 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from markdown_it import MarkdownIt
+from markdown_it.token import Token
+
 BASELINE_FORMAT_VERSION = 3
 
 #: Languages whose blocks are data, output or configuration rather than
@@ -94,27 +97,6 @@ INERT_LANGUAGES = frozenset(
         "yaml",
         "yml",
     }
-)
-
-#: How many lines of the paragraph above a fence are read. A marker may wrap over
-#: several lines, so this is not one line; it is a cap so a long document is not
-#: scanned backwards without limit.
-MARKER_LOOKBACK = 12
-
-_FENCE = re.compile(r"^(?P<indent>\s*)(?P<ticks>`{3,}|~{3,})(?P<info>.*)$")
-#: Markdown container prefix: block quote markers and the spaces around them. A
-#: fence inside a block quote is a real fence, and was invisible while the fence
-#: pattern allowed only whitespace before the delimiter, so an undeclared command
-#: written as "> ```bash" passed the gate.
-_CONTAINER = re.compile(r"^[ \t]*(?:>[ \t]?)+")
-#: Matches the whole paragraph, so it must *be* a marker rather than start like
-#: one. Anchoring only the start accepted prose that merely mentions a marker, an
-#: unterminated `<!-- verified:`, an empty `<!-- unverified: -->`, and a closed
-#: comment followed by unrelated prose. A declaration has to be a complete comment
-#: with something said in it.
-_MARKER = re.compile(
-    r"^<!--\s*(?P<kind>verified|unverified)\s*:\s*(?P<detail>\S.*?)\s*-->$",
-    re.IGNORECASE,
 )
 
 
@@ -160,87 +142,88 @@ def fingerprint(body: str, language: str = "") -> str:
     return hashlib.sha256(f"{language}\n{body}".encode()).hexdigest()
 
 
-def _strip_prefix(line: str, prefix: str) -> str:
-    """Return ``line`` without ``prefix``, when it carries exactly that prefix."""
-    if prefix and line.startswith(prefix):
-        return line[len(prefix) :]
-    if prefix and not line.strip():
-        return line
-    return line
+#: Anchored at both ends, so a declaration must *be* a marker comment rather than
+#: start like one or merely contain one. An unterminated ``<!-- verified:``, an
+#: empty ``<!-- unverified: -->`` and a closed comment trailed by prose all failed
+#: to be rejected while this was anchored only at the start.
+_MARKER = re.compile(
+    r"^<!--\s*(?P<kind>verified|unverified)\s*:\s*(?P<detail>\S.*?)\s*-->$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+#: CommonMark tokeniser. Hand-written fence matching was tried and abandoned: it
+#: diverged from Markdown in seven distinct ways that review had to find, and every
+#: one of them was a way for a runnable block to go unseen rather than unflagged.
+#: An over-indented line was read as a closing fence, so commands after it fell
+#: outside the hash. A block quote's optional space after ``>`` was required to be
+#: identical on every line, so a valid close was missed and the block swallowed the
+#: next one. Neither is exotic Markdown; both are things a person would type.
+_PARSER = MarkdownIt("commonmark")
 
 
-def _marker_above(lines: Sequence[str], fence_index: int, prefix: str = "") -> str | None:
-    """Return the marker kind declared above ``fence_index``, or None.
+def _marker_before(tokens: Sequence[Token], index: int) -> str | None:
+    """Return the marker kind declared immediately above ``tokens[index]``.
 
-    Reads the paragraph immediately above the fence, skipping blank lines, and
-    requires that paragraph to *be* a marker comment rather than to mention one.
-    The scan stops at a fence, so the marker on one block is never read as
-    covering the block after it.
+    The token before a fence is the block that precedes it, whatever container
+    they sit in, so this needs no notion of quoting or indentation. A paragraph
+    of prose is a ``paragraph_close`` and therefore declares nothing, which is
+    what stops a document explaining the convention from satisfying it.
     """
-    index = fence_index - 1
-    while index >= 0 and not _strip_prefix(lines[index], prefix).strip():
-        index -= 1
-    paragraph: list[str] = []
-    while index >= 0 and len(paragraph) < MARKER_LOOKBACK:
-        candidate = _strip_prefix(lines[index], prefix)
-        if not candidate.strip():
-            break
-        if _FENCE.match(candidate):
-            return None
-        paragraph.append(candidate.strip())
-        index -= 1
-    match = _MARKER.match(" ".join(reversed(paragraph)))
+    if index == 0:
+        return None
+    previous = tokens[index - 1]
+    if previous.type != "html_block":
+        return None
+    match = _MARKER.match(previous.content.strip())
     return match.group("kind").lower() if match else None
 
 
 def iter_blocks(text: str, path: Path) -> list[ProcedureBlock]:
     """Return every runnable fenced block in ``text``, in document order.
 
-    A fence may sit inside a block quote. The prefix is taken from the opening
-    fence line and removed from that block's own body and marker only, so a body
-    line beginning with ``>`` inside an ordinary fence stays exactly as written.
-    Rewriting every line unconditionally was wrong: it made ``output.txt`` and
-    ``> output.txt`` hash the same, and those are different commands.
+    Fences come from a CommonMark parser, so indentation rules, block quotes,
+    nesting and fence lengths are its problem rather than this module's. The body
+    is whatever the parser says the block contains, hashed exactly.
     """
-    lines = text.splitlines()
+    tokens = _PARSER.parse(text)
     blocks: list[ProcedureBlock] = []
-    index = 0
-    while index < len(lines):
-        container = _CONTAINER.match(lines[index])
-        prefix = container.group(0) if container else ""
-        opening = _FENCE.match(lines[index][len(prefix) :])
-        if opening is None:
-            index += 1
+    for index, token in enumerate(tokens):
+        if token.type != "fence":
             continue
-        ticks = opening.group("ticks")
-        info = opening.group("info").strip().split(maxsplit=1)
-        body: list[str] = []
-        cursor = index + 1
-        while cursor < len(lines):
-            candidate = _strip_prefix(lines[cursor], prefix)
-            closing = _FENCE.match(candidate)
-            if (
-                closing is not None
-                and closing.group("ticks")[0] == ticks[0]
-                and len(closing.group("ticks")) >= len(ticks)
-                and not closing.group("info").strip()
-            ):
-                break
-            body.append(candidate)
-            cursor += 1
-        name = info[0].lower() if info else ""
-        if name not in INERT_LANGUAGES:
-            blocks.append(
-                ProcedureBlock(
-                    path=path,
-                    line=index + 1,
-                    language=name,
-                    fingerprint=fingerprint("\n".join(body), name),
-                    marker=_marker_above(lines, index, prefix),
-                )
+        info = token.info.strip().split(maxsplit=1)
+        language = info[0].lower() if info else ""
+        if language in INERT_LANGUAGES:
+            continue
+        blocks.append(
+            ProcedureBlock(
+                path=path,
+                line=token.map[0] + 1 if token.map else 0,
+                language=language,
+                fingerprint=fingerprint(token.content, language),
+                marker=_marker_before(tokens, index),
             )
-        index = cursor + 1
+        )
     return blocks
+
+
+#: Starts like a marker. Used to catch one that never closes, which CommonMark
+#: treats as a comment running to the next "-->" and which therefore swallows any
+#: fence beneath it. The document renders wrong and the block disappears from this
+#: check at the same time, so a typo would hide a procedure rather than flag it.
+_MARKER_START = re.compile(r"^<!--\s*(verified|unverified)\s*:", re.IGNORECASE)
+
+
+def malformed_markers(text: str, path: Path) -> list[tuple[int, str]]:
+    """Return ``(line, text)`` for marker comments that are not well formed."""
+    found: list[tuple[int, str]] = []
+    for token in _PARSER.parse(text):
+        if token.type != "html_block":
+            continue
+        content = token.content.strip()
+        if _MARKER_START.match(content) and not _MARKER.match(content):
+            line = token.map[0] + 1 if token.map else 0
+            found.append((line, content.splitlines()[0]))
+    return found
 
 
 def _relative(path: Path) -> Path:
@@ -251,15 +234,30 @@ def _relative(path: Path) -> Path:
         return path
 
 
+def _markdown_files(paths: Iterable[Path]) -> list[Path]:
+    """Return every Markdown file named by ``paths``, directories expanded."""
+    files: list[Path] = []
+    for target in paths:
+        files.extend(sorted(target.rglob("*.md")) if target.is_dir() else [target])
+    return files
+
+
 def scan(paths: Iterable[Path]) -> list[ProcedureBlock]:
     """Return every runnable block across ``paths``, which may name files or directories."""
     blocks: list[ProcedureBlock] = []
-    for target in paths:
-        files = sorted(target.rglob("*.md")) if target.is_dir() else [target]
-        for markdown in files:
-            found = iter_blocks(markdown.read_text(encoding="utf-8"), _relative(markdown))
-            blocks.extend(found)
+    for markdown in _markdown_files(paths):
+        blocks.extend(iter_blocks(markdown.read_text(encoding="utf-8"), _relative(markdown)))
     return blocks
+
+
+def scan_malformed(paths: Iterable[Path]) -> list[str]:
+    """Return a location and text for every malformed marker across ``paths``."""
+    found: list[str] = []
+    for markdown in _markdown_files(paths):
+        text = markdown.read_text(encoding="utf-8")
+        for line, snippet in malformed_markers(text, _relative(markdown)):
+            found.append(f"{_relative(markdown)}:{line}  {snippet}")
+    return found
 
 
 class BaselineFormatError(RuntimeError):
@@ -334,6 +332,20 @@ def offending(blocks: Iterable[ProcedureBlock], baseline: dict[str, int]) -> lis
     return surplus
 
 
+def stale_allowances(blocks: Iterable[ProcedureBlock], baseline: dict[str, int]) -> list[str]:
+    """Return baseline entries whose body no longer appears in their file.
+
+    An allowance outlived its block. Edit a grandfathered block into something
+    new and marked, and its old entry stayed in the baseline with nothing to
+    spend it on; adding a fresh unmarked copy of the old body then spent it and
+    passed. An exemption has to be attached to something that exists, so a
+    baseline that no longer describes the tree is an error telling you to
+    regenerate it rather than a set of spare permissions.
+    """
+    present = {block.allowance_key for block in blocks}
+    return sorted(key for key in baseline if key not in present)
+
+
 def report(blocks: Sequence[ProcedureBlock], baseline: dict[str, int]) -> str:
     """Return a message naming what was measured, not a presumed cause."""
     bad = offending(blocks, baseline)
@@ -382,7 +394,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     baseline = load_baseline(args.baseline)
     print(report(blocks, baseline))
-    return 1 if offending(blocks, baseline) else 0
+    malformed = scan_malformed(args.paths or [Path("docs")])
+    if malformed:
+        print(f"\n{len(malformed)} marker comments are not closed, so Markdown reads")
+        print("everything below them as comment, including any fence:")
+        for entry in malformed:
+            print(f"  {entry}")
+    stale = stale_allowances(blocks, baseline)
+    if stale:
+        print(
+            f"\n{len(stale)} baseline entries no longer match any block, so they are exemptions with nothing to exempt:"
+        )
+        for key in stale:
+            print(f"  {key}")
+        print("\nRegenerate with --write-baseline after checking the change was intended.")
+    return 1 if offending(blocks, baseline) or stale or malformed else 0
 
 
 if __name__ == "__main__":  # pragma: no cover
