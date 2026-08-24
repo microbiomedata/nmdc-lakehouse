@@ -58,6 +58,11 @@ dev = [
     "pre-commit>=4.6.2",
     "shellcheck-py==0.11.0.1",
     "types-PyYAML>=6.0.12.20260408",
+    # CommonMark tokeniser for scripts/python/doc_procedures.py, which is a repository
+    # check rather than part of the pipeline. Declared rather than relied on through
+    # rich, and used rather than hand-written: review found seven ways a hand-rolled
+    # fence scanner diverged from Markdown, each a way the gate could be silent.
+    "markdown-it-py>=3.0",
 ]
 docs = [
     "mkdocs>=1.6",
@@ -126,6 +131,10 @@ DEP001 = ["berdl_notebook_utils", "data_lakehouse_ingest", "pyspark"]
 # These packages provide optional backends or constrain transitive LinkML APIs;
 # they are intentional even though this repository does not import them.
 DEP002 = ["linkml", "psycopg", "pyiceberg", "sqlalchemy"]
+# scripts/python holds repository checks rather than pipeline code, so a dev-only
+# import there is correct. markdown-it-py backs the doc-procedure gate and has no
+# business in a runtime install.
+DEP004 = ["markdown_it"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

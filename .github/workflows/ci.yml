@@ -94,6 +94,12 @@ jobs:
       - name: Typecheck
         run: just typecheck
 
+      - name: Check doc procedures declare whether anyone ran them
+        run: just doc-procedures
+
+      - name: Verify the doc-procedure gate can fail
+        run: just test-doc-procedures-exit
+
       - name: Test
         run: just test-cov
 

@@ -63,6 +63,8 @@ crash an in-kernel fetch):
 
 ### Look up domain hits by Pfam accession
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```sql
 SELECT p.gene_id, p.score, p.e_value, t.name, t.description
 FROM   nmdc_results.pfam_annotation_gff p
@@ -74,6 +76,8 @@ LIMIT  20
 
 ### All Pfam domains in a biosample
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```sql
 SELECT p.pfam_accession, t.name, t.description, COUNT(*) AS n_hits
 FROM   nmdc_metadata.biosample_to_workflow_run b2wr
@@ -86,6 +90,8 @@ ORDER BY n_hits DESC
 
 ### Co-occurrence demo: siderophore + iron-reductase in the same workflow run
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```sql
 SELECT DISTINCT a.workflow_run_id
 FROM   nmdc_results.pfam_annotation_gff a
