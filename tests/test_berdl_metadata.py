@@ -55,7 +55,7 @@ def _plan() -> MetadataApplicationPlan:
         source_namespace="nmdc_metadata",
         destination_id="berdl-production",
         destination_observed_at="2026-08-20T12:05:00+00:00",
-        destination_provider="spark_catalog",
+        destination_provider="nmdc",
         destination_table_format="iceberg",
         destination_metadata_capabilities=[
             MetadataCapability.NAMESPACE,
@@ -132,7 +132,16 @@ def test_preview_rejects_a_non_iceberg_destination() -> None:
     plan = _plan()
     plan.destination_table_format = "delta"
 
-    with pytest.raises(BerdlMetadataError, match="Spark Iceberg"):
+    with pytest.raises(BerdlMetadataError, match="Iceberg destination in the staged catalog"):
+        build_berdl_metadata_preview(plan, _staging(), metadata_plan_sha256="5" * 64, staging_outcome_sha256="6" * 64)
+
+
+def test_preview_rejects_a_provider_naming_another_catalog() -> None:
+    """The label must name the catalog of the namespace that was actually staged."""
+    plan = _plan()
+    plan.destination_provider = "spark_catalog"
+
+    with pytest.raises(BerdlMetadataError, match="Iceberg destination in the staged catalog"):
         build_berdl_metadata_preview(plan, _staging(), metadata_plan_sha256="5" * 64, staging_outcome_sha256="6" * 64)
 
 

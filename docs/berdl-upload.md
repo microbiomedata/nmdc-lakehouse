@@ -202,8 +202,9 @@ the selected revision, and requires an official KBase GitHub remote. It then cre
 credential-free JSON plan containing local evidence paths, checksums, and the
 exact plan-only adapter argument vector. It rejects canonical-looking dataset
 names and object prefixes outside the tenant staging area. It also requires and
-records the reviewed `spark_catalog` provider and `iceberg` table format used by
-the selected official ingest path; missing or incompatible labels fail closed.
+records a reviewed `provider` naming the destination catalog, together with the
+`iceberg` table format used by the selected official ingest path; a label that
+names a different catalog than the staging namespace fails closed.
 BERIL Research
 Observatory remains an optional operator resource and is not a runtime or
 release dependency of this workflow.
@@ -567,16 +568,29 @@ The offline publication planner requires current evidence from the selected
 destination. Run the maintained audit script from a repository checkout in a
 BERDL JupyterHub terminal, where `berdl_notebook_utils` is available. Supply
 observed provider and table-format labels rather than copying the historical
-Delta values from this guide:
+Delta values from this guide.
 
-<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
-     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
+**Name the catalog, in both places.** The namespace must be written
+`<catalog>.<namespace>`, and `--provider` must be that same catalog. A bare
+namespace resolves in whatever catalog the session is currently pointed at, and
+nothing in the inventory records which one that was, so the artifact cannot show
+where it looked. The script now refuses both a bare namespace and a provider
+that names a different catalog than the one being read.
+
+For NMDC the Iceberg catalog is `nmdc` and the live metadata namespace is
+`nmdc.metadata`. `spark_catalog` is the legacy Hive catalog holding the Delta
+copy, covered in
+https://github.com/microbiomedata/nmdc-lakehouse/issues/248.
+
+<!-- verified: run in the BERDL pod on 2026-08-24, producing the 49-table
+     inventory used by the staging run in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/136 -->
 ```bash
-python scripts/python/audit_database_metadata.py CURRENT_NAMESPACE \
+python scripts/python/audit_database_metadata.py nmdc.metadata \
   --publication-inventory /path/to/nmdc-metadata-destination-inventory.json \
   --destination-id nmdc-production \
-  --provider CURRENT_PROVIDER \
-  --table-format CURRENT_TABLE_FORMAT \
+  --provider nmdc \
+  --table-format iceberg \
   --metadata-capability namespace \
   --metadata-capability table \
   --metadata-capability column

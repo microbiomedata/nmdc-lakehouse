@@ -56,8 +56,8 @@ def _validated_plan(args: argparse.Namespace) -> dict[str, object]:
     namespace = f"{args.tenant}.{args.dataset}"
     if args.staging_namespace != namespace:
         raise AdapterConfigurationError("staging namespace must exactly match <tenant>.<dataset>")
-    if args.destination_provider != "spark_catalog" or args.destination_table_format != "iceberg":
-        raise AdapterConfigurationError("BERDL staging requires the spark_catalog provider and Iceberg table format")
+    if args.destination_provider != args.tenant or args.destination_table_format != "iceberg":
+        raise AdapterConfigurationError("destination provider must name the tenant catalog, in the Iceberg format")
     prefix = _object_key(args.bronze_prefix, "bronze prefix") + "/"
     progress_key = _object_key(args.progress_key, "progress key")
     config_key = _object_key(args.config_key, "config key")
@@ -118,7 +118,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--tenant", required=True)
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--staging-namespace", required=True)
-    parser.add_argument("--destination-provider", choices=("spark_catalog",), required=True)
+    parser.add_argument("--destination-provider", required=True)
     parser.add_argument("--destination-table-format", choices=("iceberg",), required=True)
     parser.add_argument("--mode", choices=("overwrite",), required=True)
     parser.add_argument("--bucket", required=True)

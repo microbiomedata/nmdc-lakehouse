@@ -83,7 +83,7 @@ def test_inventory_rejects_invalid_capabilities(
     with pytest.raises(audit.PublicationInventoryError, match=message):
         audit.build_publication_inventory(
             FakeSpark({"biosample_set": FakeFrame(1, "a")}),
-            "nmdc_metadata",
+            "spark_catalog.nmdc_metadata",
             destination_id="nmdc-production",
             provider="spark_catalog",
             table_format="delta",
@@ -100,7 +100,7 @@ def test_inventory_fails_closed_on_table_format_mismatch(monkeypatch: pytest.Mon
     ):
         audit.build_publication_inventory(
             FakeSpark({"biosample_set": FakeFrame(1, "a")}),
-            "nmdc_metadata",
+            "spark_catalog.nmdc_metadata",
             destination_id="nmdc-production",
             provider="spark_catalog",
             table_format="delta",
@@ -114,7 +114,7 @@ def test_the_inventory_records_the_format_it_observed_on_each_table(monkeypatch:
 
     inventory = audit.build_publication_inventory(
         FakeSpark({"biosample_set": FakeFrame(1, "a"), "study_set": FakeFrame(2, "b")}),
-        "nmdc_metadata",
+        "spark_catalog.nmdc_metadata",
         destination_id="nmdc-production",
         provider="spark_catalog",
         table_format="iceberg",
@@ -161,7 +161,7 @@ def test_a_partially_migrated_namespace_cannot_produce_an_inventory(monkeypatch:
     ):
         audit.build_publication_inventory(
             FakeSpark({"biosample_set": FakeFrame(1, "a"), "study_set": FakeFrame(2, "b")}),
-            "nmdc_metadata",
+            "spark_catalog.nmdc_metadata",
             destination_id="nmdc-production",
             provider="spark_catalog",
             table_format="iceberg",
@@ -175,7 +175,7 @@ def test_inventory_rejects_table_name_outside_planner_contract(monkeypatch: pyte
     with pytest.raises(audit.PublicationInventoryError, match="cannot be represented by the planner contract"):
         audit.build_publication_inventory(
             FakeSpark({"_temporary": FakeFrame(1, "a")}),
-            "nmdc_metadata",
+            "spark_catalog.nmdc_metadata",
             destination_id="nmdc-production",
             provider="spark_catalog",
             table_format="delta",
@@ -189,7 +189,7 @@ def test_inventory_rejects_trailing_newline_in_table_name(monkeypatch: pytest.Mo
     with pytest.raises(ValueError, match="unsafe table"):
         audit.build_publication_inventory(
             FakeSpark({}),
-            "nmdc_metadata",
+            "spark_catalog.nmdc_metadata",
             destination_id="nmdc-production",
             provider="spark_catalog",
             table_format="delta",
@@ -205,7 +205,7 @@ def test_inventory_wraps_table_failure_without_exposing_exception(monkeypatch: p
     ) as error:
         audit.build_publication_inventory(
             FakeSpark({}),
-            "nmdc_metadata",
+            "spark_catalog.nmdc_metadata",
             destination_id="nmdc-production",
             provider="spark_catalog",
             table_format="delta",
@@ -285,4 +285,34 @@ def test_inventory_rejects_unsafe_qualified_database(value: str) -> None:
             provider="spark_catalog",
             table_format="delta",
             metadata_capabilities=["table"],
+        )
+
+
+def test_inventory_rejects_a_provider_naming_another_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The exact drift found on 2026-08-24: tables read from `nmdc`, labeled `spark_catalog`."""
+    _patch_discovery(monkeypatch, {"biosample_set": "iceberg"})
+
+    with pytest.raises(audit.PublicationInventoryError, match="does not name the catalog 'nmdc'"):
+        audit.build_publication_inventory(
+            FakeSpark({"biosample_set": FakeFrame(1, "a")}),
+            "nmdc.metadata",
+            destination_id="nmdc-production",
+            provider="spark_catalog",
+            table_format="iceberg",
+            metadata_capabilities=["namespace", "table", "column"],
+        )
+
+
+def test_inventory_rejects_an_unqualified_database(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unqualified name resolves in the session's current catalog, which is never recorded."""
+    _patch_discovery(monkeypatch, {"biosample_set": "iceberg"})
+
+    with pytest.raises(audit.PublicationInventoryError, match="must be catalog-qualified"):
+        audit.build_publication_inventory(
+            FakeSpark({"biosample_set": FakeFrame(1, "a")}),
+            "nmdc_metadata",
+            destination_id="nmdc-production",
+            provider="nmdc_metadata",
+            table_format="iceberg",
+            metadata_capabilities=["namespace", "table", "column"],
         )
