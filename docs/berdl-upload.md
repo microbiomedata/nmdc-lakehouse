@@ -301,10 +301,15 @@ behind is a set of plausible-looking directories with the right names. Anyone wh
 then deletes the source has lost it.
 
 **Write to object storage instead**, which every executor can reach, using a
-prefix that carries a timestamp so a rerun cannot overwrite an earlier one:
+prefix that carries a timestamp so a rerun cannot overwrite an earlier one. Keep
+it under the tenant staging area: `berdl_staging.py` rejects a bronze prefix
+outside `tenant-general-warehouse/<tenant>/staging/`, and a listing of the tenant
+on 2026-08-21 shows `datasets`, `projects`, `shared` and `staging` and no
+`exports`, so a top-level export prefix is an unverified permission boundary
+rather than an established one:
 
 ```python
-prefix = "exports/20260821T204900-results-backup"   # unique per run, not per day
+prefix = "staging/exports/20260821T204900-results-backup"   # unique per run, not per day
 df.write.parquet(f"s3a://cdm-lake/tenant-general-warehouse/nmdc/{prefix}/annotation_enzyme_commission.parquet")
 ```
 
@@ -331,11 +336,12 @@ export. Confirm the shape your own write produces before trusting a check on it.
 **Moving the data anywhere else is not documented here, deliberately.** The
 transfer mechanics live in the historical transport section below, which needs
 the SOCKS tunnels and a workstation `mc`, and the maintained path has neither, as
-stated at the top of this document. The two largest tables are not viable to move
-to a workstation in any case: `annotation_kegg_orthology` is 1,831,998,811 rows
-and `annotation_enzyme_commission` is 1,231,453,377. A driver-side `collect` is
-decided by the same figures, and is viable for `annotation_statistics` at 4,815
-rows.
+stated at the top of this document. Several tables are far too large to move to a
+workstation in any case. `pfam_annotation_gff` is 2,684,369,000 rows,
+`annotation_kegg_orthology` is 1,831,998,811 and `annotation_enzyme_commission`
+is 1,231,453,377, and those are the ones that happen to have been measured rather
+than a ranking. A driver-side `collect` is decided by the same figures, and is
+viable for something like `annotation_statistics` at 4,815 rows.
 
 A complete, tested export procedure needs someone to perform one. Until then this
 section records the trap and the rule, which are what cost a day on 2026-08-20,
