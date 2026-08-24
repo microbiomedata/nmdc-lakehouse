@@ -5,7 +5,9 @@ time. The boundary is the "Historical off-cluster transport" heading:
 
 - **Everything above it is the maintained path.** It runs inside a BERDL
   JupyterHub pod, uses the reviewed plan commands in this repository, and is what
-  a current staging load follows.
+  a current staging load follows. One section above the boundary is an exception
+  and says so in its heading: "Getting table data back out" is unverified, because
+  no reviewed command performs an export and nobody has run the one it shows.
 - **Everything below it is the April 2026 record.** It is kept for provenance. Do
   not use it by itself to overwrite or replace live tables. Its fixed dataset
   name, table count, Delta verification examples, and prerequisites belong to that
@@ -276,7 +278,7 @@ upload failed with a broken pipe. If a large archive fails partway, split it, up
 the parts, reassemble in the pod, and verify the digest of the reassembled archive
 before extracting.
 
-## Getting table data back out, and the trap that eats it
+## Getting table data back out, and the trap that eats it (unverified)
 
 The direction above is workstation to pod. Going the other way, off the platform,
 has a failure that is worse than the macOS one, because it produces no error at
@@ -379,9 +381,16 @@ which depends on row width, nested and binary values, and per-object overhead. `
 4,815 rows is a candidate for one, not a case for one. Measure the bytes and
 compare them against the driver's available memory before choosing that route.
 
+**This section is not part of the maintained path**, despite sitting above the
+boundary, because no reviewed plan command performs an export. The trap below was
+observed. The export guidance is manual and nobody has run it end to end, so
+treat it as a starting point that still needs verifying, not as a capability this
+repository offers.
+
 A complete, tested export procedure needs someone to perform one. Until then this
 section records the trap and the rule, which are what cost a day on 2026-08-20,
-rather than a runbook nobody has executed.
+rather than a runbook nobody has executed. Tracked in
+https://github.com/microbiomedata/nmdc-lakehouse/issues/250.
 
 See [#250](https://github.com/microbiomedata/nmdc-lakehouse/issues/250).
 
