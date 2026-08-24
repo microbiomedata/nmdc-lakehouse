@@ -323,19 +323,26 @@ counts the writing job prints say nothing about where the bytes went, and in the
 tables you exported by name, so one that produced nothing at all is noticed
 rather than skipped, and make the check fail rather than only print.
 
-What a written table looks like here is worth checking before writing a check
-against it. Listing the tenant on 2026-08-21 shows single Parquet objects rather
-than the single output directory of `part-*` files a default Spark write produces:
+**Check the prefix your run wrote, not a layout you assume.** Two different
+layouts already coexist in this tenant, because two different tools produced
+them. Listing it on 2026-08-21 shows single objects:
 
 ```
 30GiB   datasets/results/annotation_enzyme_commission.parquet
 46GiB   datasets/results/annotation_kegg_orthology.parquet
-2.8MiB  staging/20260820/biosample_set.parquet
 ```
 
-There are no `part-` objects anywhere under `datasets/results/`. A verification
-written around `part-*` would therefore report every existing table as a failed
-export. Confirm the shape your own write produces before trusting a check on it.
+Those are single-file uploads, written by `mc.fput_object` from a locally built
+Parquet file (`notebooks/ingest_ko_ec_annotations.ipynb` cell 8 and
+`notebooks/ingest_pfam_gff.ipynb` cell 8). They are not the output of the
+`df.write.parquet` above, which is Spark's directory writer and produces a
+directory of `part-*` objects instead. Nobody has run that write here, so this
+document has no observation of its output to show you.
+
+So a check hard-coded to either shape misreads the other, and neither shape can
+be inferred from what happens to be sitting in the tenant already. List the exact
+prefix the run just wrote, confirm each table you asked for is present under it,
+and make the check fail rather than only print.
 
 **Moving the data anywhere else is not documented here, deliberately.** The
 transfer mechanics live in the historical transport section below, which needs
@@ -344,8 +351,11 @@ stated at the top of this document. Several tables are far too large to move to 
 workstation in any case. `pfam_annotation_gff` is 2,684,369,000 rows,
 `annotation_kegg_orthology` is 1,831,998,811 and `annotation_enzyme_commission`
 is 1,231,453,377, and those are the ones that happen to have been measured rather
-than a ranking. A driver-side `collect` is decided by the same figures, and is
-viable for something like `annotation_statistics` at 4,815 rows.
+than a ranking. A driver-side `collect` is not decided by row count at all: what
+has to fit is the size the rows take up once loaded into the driver's memory,
+which depends on row width, nested and binary values, and per-object overhead. `annotation_statistics` at
+4,815 rows is a candidate for one, not a case for one. Measure the bytes and
+compare them against the driver's available memory before choosing that route.
 
 A complete, tested export procedure needs someone to perform one. Until then this
 section records the trap and the rule, which are what cost a day on 2026-08-20,
