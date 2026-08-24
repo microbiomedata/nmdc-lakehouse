@@ -166,11 +166,12 @@ test-prose-lint-exit:
 # both of these are listed there individually. A gate that only `just check` runs is a gate CI does
 # not have.
 #
-# Blocks that predate the rule are grandfathered in docs/procedure-baseline.json by file, content
-# hash and repeat index. Content alone was the first design and it was wrong: docs/berdl-upload.md
-# already repeats its validate-snapshot block, so any new block could have passed by copying it.
-# Editing one changes its hash and brings it under the rule, which is the point: the blocks being
-# changed are the blocks being claimed about. Do not add baseline entries by hand.
+# Blocks that predate the rule are grandfathered in docs/procedure-baseline.json by file and
+# content hash, with a count of how many undeclared copies each file may keep. Content-only
+# baselines were the first design and were wrong: docs/berdl-upload.md already repeats its
+# validate-snapshot block, so any new block could have passed by copying it. Editing one changes
+# its hash and brings it under the rule, which is the point: the blocks being changed are the
+# blocks being claimed about. Do not add baseline entries by hand.
 doc-procedures:
     uv run python -m nmdc_lakehouse.doc_procedures docs --baseline docs/procedure-baseline.json
 
