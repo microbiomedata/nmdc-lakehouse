@@ -150,6 +150,42 @@ test-prose-lint-exit:
     [ "$rc" -ne 0 ] || { echo "prose-lint did NOT block on an error; the gate is inert"; exit 1; }
     echo "prose-lint exit contract holds: warnings pass, errors fail"
 
+# Require every runnable fenced block in docs/ to say whether anyone has run it.
+#
+# Five review rounds on https://github.com/microbiomedata/nmdc-lakehouse/pull/285 traced to one
+# cause: the document described a procedure nobody had executed, and the claims around it were
+# inferred from unrelated observations. Reviewers caught that five times and the repository caught
+# it zero times, which is the gap this closes.
+#
+# A block passes by carrying either marker above it. `verified` records a run; `unverified` states
+# that it has not been run and where that is tracked. Both pass, because forcing execution is not
+# possible from a workstation for most of these, and an honestly labelled unrun procedure is not
+# the failure. The failure is an unrun procedure that reads like a tested one.
+#
+# Blocks that predate the rule are grandfathered by content hash in docs/procedure-baseline.json.
+# Editing one changes its hash and brings it under the rule, which is the point: the blocks being
+# changed are the blocks being claimed about. Do not add baseline entries by hand.
+doc-procedures:
+    uv run python -m nmdc_lakehouse.doc_procedures docs --baseline docs/procedure-baseline.json
+
+# Assert that doc-procedures can actually fail. Runs offline, touches no tracked file.
+#
+# A guard tested only on input it must accept asserts nothing, and this repository has shipped
+# that twice: a prose-lint call that could not match Vale's singular "1 error", and an export
+# check that iterated its destination so a wholly absent table passed. So this asserts both
+# directions against a fixture, never against docs/.
+test-doc-procedures-exit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    printf 'intro\n\n```bash\necho hi\n```\n' > "$tmp/undeclared.md"
+    printf 'intro\n\n<!-- unverified: fixture, never run -->\n```bash\necho hi\n```\n' > "$tmp/declared.md"
+    rc=0; uv run python -m nmdc_lakehouse.doc_procedures "$tmp/undeclared.md" --baseline "$tmp/absent.json" >/dev/null 2>&1 || rc=$?
+    [ "$rc" -ne 0 ] || { echo "doc-procedures did NOT fail on an undeclared block; the gate is inert"; exit 1; }
+    rc=0; uv run python -m nmdc_lakehouse.doc_procedures "$tmp/declared.md" --baseline "$tmp/absent.json" >/dev/null 2>&1 || rc=$?
+    [ "$rc" -eq 0 ] || { echo "doc-procedures blocked a declared block; exit was $rc"; exit 1; }
+    echo "doc-procedures exit contract holds: undeclared fails, declared passes"
+
 # Dry-render one recipe with explicitly safe values, then lint without executing it.
 [private]
 _shellcheck-recipe RECIPE:
@@ -345,7 +381,7 @@ test-dist:
     bash scripts/check_distribution.sh
 
 # Run the deterministic local quality checks.
-check: lint-just prose-lint test-prose-lint-exit shellcheck actionlint lint deps-lint typecheck check-flat-schema test-cov diff-cover
+check: lint-just prose-lint test-prose-lint-exit doc-procedures test-doc-procedures-exit shellcheck actionlint lint deps-lint typecheck check-flat-schema test-cov diff-cover
 
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
 # See scripts/README.md for details. These recipes shell out to utilities under
