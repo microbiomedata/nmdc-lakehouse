@@ -99,11 +99,17 @@ def test_tilde_fences_and_indented_fences_are_found(tmp_path: Path) -> None:
     assert len(scan([tmp_path])) == 2
 
 
-def test_a_longer_fence_inside_a_block_does_not_close_it(tmp_path: Path) -> None:
-    """A block that quotes a fence must not be split into two."""
-    _write(tmp_path, "````bash\necho '```'\necho hi\n````\n")
+def test_a_shorter_fence_at_line_start_does_not_close_a_longer_block(tmp_path: Path) -> None:
+    """A block quoting a fence on its own line must not be split into two.
+
+    The fixture puts the inner backticks at the start of a line on purpose. An
+    earlier version wrote them inside `echo \'```\'`, which cannot match the fence
+    pattern, so the test passed without exercising anything.
+    """
+    _write(tmp_path, "````bash\n```\necho hi\n````\n")
     blocks = scan([tmp_path])
     assert len(blocks) == 1
+    assert blocks[0].language == "bash"
 
 
 def test_the_baseline_grandfathers_and_an_edit_revokes_it(tmp_path: Path) -> None:
@@ -125,7 +131,7 @@ def test_the_baseline_records_its_format_version(tmp_path: Path) -> None:
     write_baseline(baseline_path, scan([tmp_path]))
     document = json.loads(baseline_path.read_text(encoding="utf-8"))
     assert document["baseline_format_version"] == BASELINE_FORMAT_VERSION
-    assert len(document["fingerprints"]) == 1
+    assert len(document["occurrences"]) == 1
 
 
 def test_an_absent_baseline_grandfathers_nothing(tmp_path: Path) -> None:
@@ -133,10 +139,64 @@ def test_an_absent_baseline_grandfathers_nothing(tmp_path: Path) -> None:
     assert load_baseline(tmp_path / "nope.json") == set()
 
 
-def test_fingerprint_ignores_trailing_whitespace_only(tmp_path: Path) -> None:
+def test_fingerprint_ignores_trailing_whitespace_only() -> None:
     """Reindenting a command changes it; a stray trailing space does not."""
     assert fingerprint("echo hi  \n") == fingerprint("echo hi\n")
     assert fingerprint("echo hi") != fingerprint("  echo hi")
+
+
+def test_fingerprint_covers_the_language() -> None:
+    """Retagging a grandfathered block is a change to what it claims to be."""
+    assert fingerprint("echo hi", "bash") != fingerprint("echo hi", "python")
+
+
+def test_retagging_a_grandfathered_block_revokes_it(tmp_path: Path) -> None:
+    """The hole this closes: bash to python kept the hash and passed unmarked."""
+    path = _write(tmp_path, UNMARKED)
+    baseline_path = tmp_path / "baseline.json"
+    write_baseline(baseline_path, scan([tmp_path]))
+    baseline = load_baseline(baseline_path)
+    assert offending(scan([tmp_path]), baseline) == []
+
+    path.write_text(UNMARKED.replace("```bash", "```python"), encoding="utf-8")
+    assert offending(scan([tmp_path]), baseline) != []
+
+
+def test_a_marker_does_not_carry_to_the_next_block(tmp_path: Path) -> None:
+    """The scan stops at a fence, so one block's marker never covers the block after it."""
+    _write(tmp_path, VERIFIED + "```bash\necho two\n```\n")
+    blocks = scan([tmp_path])
+    assert [block.marker for block in blocks] == ["verified", None]
+    assert len(offending(blocks, set())) == 1
+
+
+def test_a_new_copy_of_a_grandfathered_block_still_fails(tmp_path: Path) -> None:
+    """docs/berdl-upload.md already repeats a block, so copying one must not be a way in."""
+    path = _write(tmp_path, UNMARKED)
+    baseline_path = tmp_path / "baseline.json"
+    write_baseline(baseline_path, scan([tmp_path]))
+    baseline = load_baseline(baseline_path)
+
+    path.write_text(UNMARKED + "\n" + UNMARKED, encoding="utf-8")
+    bad = offending(scan([tmp_path]), baseline)
+    assert len(bad) == 1, "the second occurrence is new and must be caught"
+
+
+def test_a_copy_in_another_file_is_not_grandfathered(tmp_path: Path) -> None:
+    """A baseline entry grandfathers one occurrence in one file, not the content."""
+    _write(tmp_path, UNMARKED)
+    baseline_path = tmp_path / "baseline.json"
+    write_baseline(baseline_path, scan([tmp_path]))
+    baseline = load_baseline(baseline_path)
+
+    _write(tmp_path, UNMARKED, name="elsewhere.md")
+    assert len(offending(scan([tmp_path]), baseline)) == 1
+
+
+def test_sql_is_runnable(tmp_path: Path) -> None:
+    """Maintained docs run SELECT statements from sql fences, e.g. docs/pfam_annotation_gff.md."""
+    _write(tmp_path, "intro\n\n```sql\nSELECT count(*) FROM t\n```\n")
+    assert [block.language for block in scan([tmp_path])] == ["sql"]
 
 
 def test_the_report_says_what_was_measured(tmp_path: Path) -> None:
@@ -169,7 +229,7 @@ def test_write_baseline_mode_exits_zero_and_creates_the_file(tmp_path: Path) -> 
 
 def test_location_is_a_clickable_reference() -> None:
     """Reviewers act on path:line, not on a bare filename."""
-    block = ProcedureBlock(Path("docs/berdl-upload.md"), 317, "python", "abc", None)
+    block = ProcedureBlock(Path("docs/berdl-upload.md"), 317, "python", "abc", None, 0)
     assert block.location == "docs/berdl-upload.md:317"
 
 

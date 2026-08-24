@@ -162,7 +162,13 @@ test-prose-lint-exit:
 # possible from a workstation for most of these, and an honestly labelled unrun procedure is not
 # the failure. The failure is an unrun procedure that reads like a tested one.
 #
-# Blocks that predate the rule are grandfathered by content hash in docs/procedure-baseline.json.
+# CI does not run `just check`; .github/workflows/ci.yml invokes each recipe as its own step, so
+# both of these are listed there individually. A gate that only `just check` runs is a gate CI does
+# not have.
+#
+# Blocks that predate the rule are grandfathered in docs/procedure-baseline.json by file, content
+# hash and repeat index. Content alone was the first design and it was wrong: docs/berdl-upload.md
+# already repeats its validate-snapshot block, so any new block could have passed by copying it.
 # Editing one changes its hash and brings it under the rule, which is the point: the blocks being
 # changed are the blocks being claimed about. Do not add baseline entries by hand.
 doc-procedures:
@@ -180,9 +186,9 @@ test-doc-procedures-exit:
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
     printf 'intro\n\n```bash\necho hi\n```\n' > "$tmp/undeclared.md"
     printf 'intro\n\n<!-- unverified: fixture, never run -->\n```bash\necho hi\n```\n' > "$tmp/declared.md"
-    rc=0; uv run python -m nmdc_lakehouse.doc_procedures "$tmp/undeclared.md" --baseline "$tmp/absent.json" >/dev/null 2>&1 || rc=$?
+    rc=0; uv run --no-sync python -m nmdc_lakehouse.doc_procedures "$tmp/undeclared.md" --baseline "$tmp/absent.json" >/dev/null 2>&1 || rc=$?
     [ "$rc" -ne 0 ] || { echo "doc-procedures did NOT fail on an undeclared block; the gate is inert"; exit 1; }
-    rc=0; uv run python -m nmdc_lakehouse.doc_procedures "$tmp/declared.md" --baseline "$tmp/absent.json" >/dev/null 2>&1 || rc=$?
+    rc=0; uv run --no-sync python -m nmdc_lakehouse.doc_procedures "$tmp/declared.md" --baseline "$tmp/absent.json" >/dev/null 2>&1 || rc=$?
     [ "$rc" -eq 0 ] || { echo "doc-procedures blocked a declared block; exit was $rc"; exit 1; }
     echo "doc-procedures exit contract holds: undeclared fails, declared passes"
 
