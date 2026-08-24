@@ -1,4 +1,4 @@
-# pfam_annotation_gff — per-gene Pfam domain hits from NMDC workflows
+# pfam_annotation_gff: per-gene Pfam domain hits from NMDC workflows
 
 ## Purpose
 
@@ -12,9 +12,9 @@ human-readable names and descriptions, and to
 
 | Column | Type | Description |
 |---|---|---|
-| `workflow_run_id` | string | `was_generated_by` from the source data object — joins to `nmdc_metadata.workflow_execution_set` and `biosample_to_workflow_run` |
+| `workflow_run_id` | string | `was_generated_by` from the source data object. Joins to `nmdc_metadata.workflow_execution_set` and `biosample_to_workflow_run` |
 | `gene_id` | string | Annotated gene / CDS identifier (NMDC `nmdc:wfmgan-*` style or JGI `Ga0500553_*` style) |
-| `pfam_accession` | string | Version-less Pfam ID (e.g. `PF02992`) — joins to `nmdc_ref_data.pfam_terms.pfam_id` |
+| `pfam_accession` | string | Version-less Pfam ID (e.g. `PF02992`). Joins to `nmdc_ref_data.pfam_terms.pfam_id` |
 | `start` | int | Alignment start on the gene |
 | `end` | int | Alignment end on the gene |
 | `score` | float | HMMER bit score |
@@ -40,22 +40,22 @@ gene_id  source  pfam_accession  start  end  score  .  .  ID=...;Name=...;e-valu
 
 The constant `source` column ("HMMER 3.1b2 (February 2015)"), strand and phase
 placeholders ("."), and the `ID=` / `Name=` / `fake_percent_id=` attributes are
-not stored — they are constants, derivable, or redundant with `pfam_terms`.
+not stored, being constants, derivable, or redundant with `pfam_terms`.
 
 ## Generation
 
 Four-stage pipeline (matching the KO/EC pattern, since 650 GB of HTTP would
 crash an in-kernel fetch):
 
-1. `notebooks/fetch_pfam_gff.ipynb` — queries `data_object_set` and writes
+1. `notebooks/fetch_pfam_gff.ipynb` queries `data_object_set` and writes
    `loaded_pfam_gff/manifest.csv`. Drops zero-byte placeholder files.
-2. `scripts/download_to_cache.py` — runs in a terminal under `nohup`, downloads
+2. `scripts/download_to_cache.py` runs in a terminal under `nohup`, downloads
    all GFFs in parallel to `loaded_pfam_gff/raw_cache/` (~650 GB on disk,
    resumable).
-3. `notebooks/parse_pfam_gff.ipynb` — streaming parse with
+3. `notebooks/parse_pfam_gff.ipynb` does a streaming parse with
    `pyarrow.ParquetWriter` (~500 MB raw text per RowGroup) → one Parquet at
    `loaded_pfam_gff/pfam_annotation_gff.parquet`.
-4. `notebooks/ingest_pfam_gff.ipynb` — uploads to MinIO Bronze and registers
+4. `notebooks/ingest_pfam_gff.ipynb` uploads to MinIO Bronze and registers
    `nmdc_results.pfam_annotation_gff` as a managed table. Refuses to clobber an
    existing copy unless `FORCE_OVERWRITE = True` (a re-load takes hours).
 

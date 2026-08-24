@@ -1,4 +1,4 @@
-# pfam_terms — Pfam family definitions reference table
+# pfam_terms: Pfam family definitions reference table
 
 ## Purpose
 
@@ -10,7 +10,7 @@ contains a `pfam_accession` column (e.g. `nmdc_results.pfam_annotation_gff`, iss
 
 | Column | Type | Description |
 |---|---|---|
-| `pfam_id` | string | Pfam accession without version (e.g. `PF00001`) — join key |
+| `pfam_id` | string | Pfam accession without version (e.g. `PF00001`). Join key |
 | `name` | string | Short name (e.g. `7tm_1`) |
 | `description` | string | Human-readable description |
 | `clan_id` | string (nullable) | Clan accession (e.g. `CL0192`); null if no clan |
@@ -21,22 +21,22 @@ contains a `pfam_accession` column (e.g. `nmdc_results.pfam_annotation_gff`, iss
 `Pfam-A.clans.tsv.gz` from the EBI/InterPro Pfam FTP site:
 `https://ftp.ebi.ac.uk/pub/databases/Pfam/current_release/Pfam-A.clans.tsv.gz`
 
-License: CC0 — openly redistributable. ~27,500 entries covering all active Pfam families,
+License: CC0, openly redistributable. ~27,500 entries covering all active Pfam families,
 with and without clan assignments.
 
 ## Namespace
 
-`nmdc_ref_data` — the BERDL Silver namespace for reference/ontology tables owned by the
+`nmdc_ref_data`, the BERDL Silver namespace for reference/ontology tables owned by the
 NMDC lakehouse. Distinct from `nmdc_metadata` (schema-driven NMDC MongoDB collections) and
 `nmdc_results` (workflow output files). All term/ontology tables land here.
 
-Do not write to `nmdc_arkin` or any other tenant's namespace — they are read-only for this pipeline (see [architecture.md](architecture.md#logical-data-group-policy)).
+Do not write to `nmdc_arkin` or any other tenant's namespace. They are read-only for this pipeline (see [architecture.md](architecture.md#logical-data-group-policy)).
 
 ## Generation
 
 `notebooks/load_pfam_terms.ipynb` generates and registers this table. Re-run after each
 Pfam release to pick up new or updated family entries. The accession format is version-less
-(`PF00001`, not `PF00001.23`) — this matches the format used by NMDC Pfam GFF files.
+(`PF00001`, not `PF00001.23`), which matches the format used by NMDC Pfam GFF files.
 
 ## Example queries
 

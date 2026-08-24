@@ -10,7 +10,7 @@ The `alldocs` MongoDB collection maintained by nmdc-runtime will **not** be
 ingested into BERDL Silver managed tables (Delta at the time of this decision;
 the current provider must be discovered at publication time). Graph traversal queries
 (biosample → annotation, annotation → biosample, etc.) are served by a derived
-table built from the existing schema-driven Silver side tables —
+table built from the existing schema-driven Silver side tables,
 see [`biosample_to_workflow_run.md`](../biosample_to_workflow_run.md).
 
 ## What alldocs is
@@ -25,15 +25,15 @@ uses it for transitive traversal.
 A flat union of every entity with adjacency arrays looks attractive for a
 lakehouse: one ingestion job, one wide table, "all" graph edges in one place.
 The original plan (PR #98) was to flatten alldocs into three Silver Delta
-tables — `nmdc_graph_nodes`, `nmdc_graph_nodes_type_ancestors`,
-`nmdc_graph_edges` — and use them for arbitrary multi-hop queries.
+tables (`nmdc_graph_nodes`, `nmdc_graph_nodes_type_ancestors`,
+`nmdc_graph_edges`) and use them for arbitrary multi-hop queries.
 
 ## Why we rejected it
 
 ### 1. Undefined upstream/downstream semantics
 
 `_upstream` and `_downstream` are computed by `nmdc-runtime` from a
-domain-curated, hand-coded list of slots in `ops.py` — not from any property
+domain-curated, hand-coded list of slots in `ops.py`, not from any property
 in the NMDC schema. Whether a given relationship counts as "upstream" or
 "downstream" is a runtime convention that was never formally specified or
 versioned. `Study.associated_studies` ends up as upstream by convention, with
@@ -52,7 +52,7 @@ linked by `has_input` are indistinguishable from two entities linked by
 
 This makes it impossible to distinguish material-flow edges from
 metadata-association edges without consulting the entity types on both ends
-and re-deriving the slot via schema knowledge — at which point we're better
+and re-deriving the slot via schema knowledge, at which point we're better
 off using the typed Silver side tables directly.
 
 ### 3. Multi-hop traversal still requires recursion
@@ -61,7 +61,7 @@ alldocs is a 1-hop adjacency index, not a transitive closure. A biosample →
 annotation query still needs `WITH RECURSIVE` (or equivalent iterative walk).
 The Linked Instances API hides this by running `$graphLookup` server-side,
 but the underlying collection does not pre-materialize the closure. Putting
-alldocs in Silver does not buy us multi-hop traversal — it just gives us a
+alldocs in Silver does not buy us multi-hop traversal: it just gives us a
 larger, less-typed edge table than we already have.
 
 ## What we use instead
@@ -78,7 +78,7 @@ preserve the source class (each carries a `parent_id` typed to a known
 collection), and together cover every edge needed to walk from a Biosample
 to any WorkflowExecution and back.
 
-A precomputed managed table — `nmdc_metadata.biosample_to_workflow_run` —
+A precomputed managed table, `nmdc_metadata.biosample_to_workflow_run`,
 collapses the variable-depth bipartite chain into one row per
 (biosample, workflow run) pair, with boolean flags recording which
 MaterialProcessing classes appeared in the path. This table works through

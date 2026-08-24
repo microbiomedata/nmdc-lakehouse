@@ -3,7 +3,7 @@
 ## Summary
 
 Spark 4.0.1 cannot execute `WITH RECURSIVE` in either Spark Connect or classic
-standalone mode — both fail with `No plan for UnionLoop` (a Spark planner bug).
+standalone mode. Both fail with `No plan for UnionLoop` (a Spark planner bug).
 
 Trino, which is available in every BERDL notebook via `get_trino_connection()`,
 supports `WITH RECURSIVE` natively and reads the same managed Iceberg tables
@@ -25,7 +25,7 @@ biosamples, regardless of chain depth:
 ## Helper pattern (alternative to `biosample_to_workflow_run`)
 
 For most queries, prefer the precomputed `nmdc_metadata.biosample_to_workflow_run`
-table — it requires no recursion at the consumer side and is what the peek
+table: it requires no recursion at the consumer side and is what the peek
 notebooks now use. The Trino `WITH RECURSIVE` pattern below is documented as
 an on-the-fly alternative for ad-hoc exploration where the precomputed table
 is not yet available or when you want to traverse a path it doesn't cover.
@@ -76,7 +76,7 @@ def workflows_to_biosamples_bulk(conn, workflow_run_ids, max_depth=15):
 ## End-to-end: KO hits per biosample (two-step approach)
 
 Combining the annotation table scan and the recursive walk into a single
-`WITH RECURSIVE` query causes `TOO_MANY_REQUESTS_FAILED` — the Trino worker
+`WITH RECURSIVE` query causes `TOO_MANY_REQUESTS_FAILED`. The Trino worker
 node crashes under the combined load. Split into two steps instead:
 
 ```python
@@ -84,7 +84,7 @@ import time, pandas as pd
 
 TARGET_KO = 'KO:K00001'
 
-# Step 1: flat scan — annotation table only, no recursion
+# Step 1: flat scan, annotation table only, no recursion
 t0 = time.monotonic()
 cur = conn.cursor()
 cur.execute(f"""
