@@ -5,7 +5,9 @@ time. The boundary is the "Historical off-cluster transport" heading:
 
 - **Everything above it is the maintained path.** It runs inside a BERDL
   JupyterHub pod, uses the reviewed plan commands in this repository, and is what
-  a current staging load follows.
+  a current staging load follows. One section above the boundary is an exception
+  and says so in its heading: "Getting table data back out" is unverified, because
+  no reviewed command performs an export and nobody has run the one it shows.
 - **Everything below it is the April 2026 record.** It is kept for provenance. Do
   not use it by itself to overwrite or replace live tables. Its fixed dataset
   name, table count, Delta verification examples, and prerequisites belong to that
@@ -275,6 +277,142 @@ there rather than to the contents API itself: a 112 MB upload succeeded and a 35
 upload failed with a broken pipe. If a large archive fails partway, split it, upload
 the parts, reassemble in the pod, and verify the digest of the reassembled archive
 before extracting.
+
+## Getting table data back out, and the trap that eats it (unverified)
+
+The direction above is workstation to pod. Going the other way, off the platform,
+has a failure that is worse than the macOS one, because it produces no error at
+all.
+
+**A Spark write to a local path leaves no usable data on the pod filesystem.** The
+write itself does not fail, and Spark does not drop it: in a cluster each executor
+resolves the path against its own filesystem and writes its partition there. The
+driver's directory receives only the marker files. So the data may exist,
+scattered across executor filesystems you cannot reach, which is not a backup:
+
+<!-- verified: 2026-08-20 run against nmdc.results; every table printed a
+     completed line and a correct row count, and no usable data landed. -->
+```python
+df.write.parquet("/home/<user>/backup/table.parquet")   # succeeds; nothing usable lands here
+```
+
+Observed on 2026-08-20 while exporting `nmdc.results`. The script printed a
+completed line and a correct row count for every table, and every output directory
+held 55 bytes. Seven directories, no data.
+
+That is dangerous for a backup specifically, because what a failed backup leaves
+behind is a set of plausible-looking directories with the right names. Anyone who
+then deletes the source has lost it.
+
+**Write to object storage instead**, which every executor can reach, using a
+prefix that carries a timestamp so a rerun cannot overwrite an earlier one. Keep
+it under the tenant staging area: `berdl_staging.py` rejects a bronze prefix
+outside `tenant-general-warehouse/<tenant>/staging/`, and a listing of the tenant
+on 2026-08-21 shows `datasets`, `projects`, `shared` and `staging` and no
+`exports`, so a top-level export prefix is an unverified permission boundary
+rather than an established one:
+
+<!-- unverified: the identifier generation was run, producing 500 distinct
+     values inside one second, but nobody has run this write against the tenant.
+     A tested export procedure is tracked in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/250 -->
+```python
+from datetime import UTC, datetime
+from uuid import uuid4
+
+# Generated when this runs, so copying the snippet cannot reuse an earlier run's
+# path. The random suffix matters: a timestamp alone resolves to one second, so
+# two exports started in the same second would share a prefix.
+run = f"{datetime.now(UTC):%Y%m%dT%H%M%S}-{uuid4().hex[:8]}"
+prefix = f"staging/exports/{run}-results-backup"
+df.write.parquet(f"s3a://cdm-lake/tenant-general-warehouse/nmdc/{prefix}/annotation_enzyme_commission.parquet")
+```
+
+**Then verify the destination holds data, not that the command returned.** The row
+counts the writing job prints say nothing about where the bytes went, and in the
+2026-08-20 run every one of them was correct. List the object store and check the
+tables you exported by name, so one that produced nothing at all is noticed
+rather than skipped, and make the check fail rather than only print.
+
+**Check the prefix your run wrote, not a layout you assume.** Listing the tenant
+on 2026-08-21 shows single objects:
+
+```
+30GiB   datasets/results/annotation_enzyme_commission.parquet
+46GiB   datasets/results/annotation_kegg_orthology.parquet
+```
+
+Both are single-file uploads written by `mc.fput_object` from a locally built
+Parquet file. Both come from `notebooks/ingest_ko_ec_annotations.ipynb`, which
+names the two tables in cell 6 and uploads them in cell 8. They are not the output of the
+`df.write.parquet` above, which is Spark's directory writer and produces a
+directory of `part-*` objects instead. Nobody has run that write here, so this
+document has no observation of its output to show you.
+
+Single objects are the only layout observed in this tenant. The Spark layout is
+expected rather than observed, and this document does not claim otherwise. That
+is the reason not to hard-code a check to either shape: one is unverified here,
+and the other describes objects a different tool produced. List the exact prefix
+the run just wrote, and make the check fail rather than only print.
+
+**Check bytes, not names.** A name appearing in a listing is not data. Spark's
+writer creates a `_SUCCESS` marker, and a prefix holding that and nothing else
+lists exactly like a prefix holding a table. So sum the size of the data objects
+under each expected prefix, ignoring `_SUCCESS` and any other zero-byte marker,
+and require that sum to be greater than zero for every table you asked for.
+
+Non-zero bytes are not proof of a usable table either: a truncated or partially
+committed write also has a size. Parse every Parquet footer under the prefix and
+confirm each reports the schema you asked for. Note that Spark's directory writer
+puts one footer in every `part-` object rather than one per table, so this is a
+check on all of them, not on a single file.
+
+**Valid parts still do not mean a complete table.** A partly committed write
+leaves a subset of perfectly readable parts, and every content check above passes
+on that subset. Compare the row count read back from the destination against the
+source, and require it rather than offering it as a stronger option.
+
+That is a minimum, not a proof. Equal counts establish matching cardinality and
+nothing about which rows arrived: a duplicated or wrong row set of the right size
+passes it with the right schema. Treat it as the floor an export has to clear
+before anyone looks further, not as evidence the contents are correct.
+`src/nmdc_lakehouse/berdl_staging.py` models that comparison in
+`UpstreamTableVerification` at line 155 and performs it at lines 872 to 873,
+which is the standard a staged table is already held to.
+
+**None of this authorizes deleting a source, even when every check passes.** The
+export lands in the tenant's own staging area, on the same platform as the table
+it came from, and the next paragraph says no off-platform transfer is documented
+here. A second copy beside the first is not an independent backup, so it does not
+carry a deletion. Whatever its parts parse as, treat it as a staging artifact
+until someone has performed and recorded a transfer off the platform, which is
+tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/250.
+
+**Moving the data anywhere else is not documented here, deliberately.** The
+transfer mechanics live in the historical transport section below, which needs
+the SOCKS tunnels and a workstation `mc`, and the maintained path has neither, as
+stated at the top of this document. Several tables are far too large to move to a
+workstation in any case. `pfam_annotation_gff` is 2,684,369,000 rows,
+`annotation_kegg_orthology` is 1,831,998,811 and `annotation_enzyme_commission`
+is 1,231,453,377, and those are the ones that happen to have been measured rather
+than a ranking. A driver-side `collect` is not decided by row count at all: what
+has to fit is the size the rows take up once loaded into the driver's memory,
+which depends on row width, nested and binary values, and per-object overhead. `annotation_statistics` at
+4,815 rows is a candidate for one, not a case for one. Measure the bytes and
+compare them against the driver's available memory before choosing that route.
+
+**This section is not part of the maintained path**, despite sitting above the
+boundary, because no reviewed plan command performs an export. The trap above was
+observed. The export guidance is manual and nobody has run it end to end, so
+treat it as a starting point that still needs verifying, not as a capability this
+repository offers.
+
+A complete, tested export procedure needs someone to perform one. Until then this
+section records the trap and the rule, which are what cost a day on 2026-08-20,
+rather than a runbook nobody has executed. Tracked in
+https://github.com/microbiomedata/nmdc-lakehouse/issues/250.
+
+See [#250](https://github.com/microbiomedata/nmdc-lakehouse/issues/250).
 
 ## Preview and execute verified data staging
 
