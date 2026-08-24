@@ -7,7 +7,7 @@ the gateway key) and a personal MongoDB account on the NMDC prod instance.
 
 ---
 
-## Prerequisites — obtain before doing anything else
+## Prerequisites: obtain before doing anything else
 
 These steps involve waiting on other people or systems; start them early.
 
@@ -40,7 +40,7 @@ will be prompted for a password + OTP on every SSH command.
 
 Each developer gets a personal MongoDB username and password. Ask the NMDC
 infrastructure team (currently Eric Cavanna or Patrick Kalita) in the NMDC Slack
-`#infra-admin` channel. Note which database(s) you need access to — for lakehouse
+`#infra-admin` channel. Note which database(s) you need access to. For lakehouse
 ETL work that is the `nmdc` database.
 
 ---
@@ -78,7 +78,7 @@ The tunnel also closes when the terminal exits.
 # 1. Refresh the NERSC SSH key (prompts for NERSC password + OTP)
 sshproxy -u <your-nersc-username>
 
-# 2. Open the SSH tunnel — leave this terminal open while you work
+# 2. Open the SSH tunnel, and leave this terminal open while you work
 ssh -i ~/.ssh/jump-dev.microbiomedata.org.private_key \
     -L 27124:runtime-api-mongodb-headless.nmdc-prod.svc.cluster.local:27017 \
     -o ServerAliveInterval=60 \
@@ -103,7 +103,7 @@ Edit `.env`:
 
 ```dotenv
 MONGO_HOST=localhost
-MONGO_PORT=27124              # tunnel port — not the MongoDB default 27017
+MONGO_PORT=27124              # tunnel port, not the MongoDB default 27017
 MONGO_DBNAME=nmdc
 MONGO_USERNAME=<your-mongodb-username>
 MONGO_PASSWORD=<your-mongodb-password>
@@ -121,7 +121,7 @@ The `nmdc-lakehouse` CLI loads `.env` via pydantic-settings (`env_file=".env"`).
 Both mechanisms read the same file; exported shell variables take precedence over
 `.env` in both cases.
 
-> **Never commit `.env`** — it is git-ignored. Credentials stay local.
+> **Never commit `.env`.** It is git-ignored. Credentials stay local.
 
 ---
 
@@ -221,7 +221,7 @@ Each collection going through linkml-store produces three INFO lines that look a
 ```
 INFO - Initializing databases        # linkml-store opening a fresh client
 INFO - Attaching nmdc                # connecting to the nmdc database
-INFO - No metadata for <coll>; no derivations  # no pre-loaded schema cache — expected
+INFO - No metadata for <coll>; no derivations  # no pre-loaded schema cache, expected
 ```
 
 `"No metadata … no derivations"` does **not** mean the collection is empty or missing.
@@ -501,7 +501,7 @@ under [#146](https://github.com/microbiomedata/nmdc-lakehouse/issues/146).
 Footer metadata is structural only. It never includes credentials, connection
 strings, source documents, or production values.
 
-### Step 2 — functional annotation aggregate (~17 min)
+### Step 2: functional annotation aggregate (~17 min)
 
 <!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
      that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
@@ -516,6 +516,6 @@ uv run nmdc-lakehouse run-job functional_annotation_agg
 ```bash
 uv run nmdc-lakehouse run-job biosample_set
 uv run nmdc-lakehouse run-job study_set
-# etc. — use `list-jobs` to see all registered names
+# etc. Use `list-jobs` to see all registered names
 uv run nmdc-lakehouse list-jobs
 ```

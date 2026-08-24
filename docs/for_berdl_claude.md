@@ -7,17 +7,17 @@ JupyterHub environment, working with `nmdc_metadata` and `nmdc_results`.
 
 Two Spark databases are registered:
 
-**`nmdc_metadata`** — schema-driven Silver tables, one per NMDC MongoDB
+**`nmdc_metadata`**: schema-driven Silver tables, one per NMDC MongoDB
 collection plus side tables for multivalued slots. See
 [`nmdc_metadata_tables.md`](nmdc_metadata_tables.md) for the full table list
 and join patterns.
 
-**`nmdc_results`** — per-gene annotation tables loaded from NERSC workflow
+**`nmdc_results`**: per-gene annotation tables loaded from NERSC workflow
 output files:
-- `annotation_kegg_orthology` — one row per (gene, KO term)
-- `annotation_enzyme_commission` — one row per (gene, EC number)
-- `centrifuge_output_report_file` — Centrifuge per-(taxon, workflow_run) summary report with fields `numReads`, `abundance`, etc. (see `peek_read_taxonomy_links.ipynb`)
-- `annotation_statistics` — 17 per-run QC metrics: sequence counts/lengths, gene-type counts (CDS, tRNA, ncRNA, rRNA, CRISPR), coding density, genes-per-Mbp (see `peek_ko_ec_links.ipynb` §9)
+- `annotation_kegg_orthology`, one row per (gene, KO term)
+- `annotation_enzyme_commission`, one row per (gene, EC number)
+- `centrifuge_output_report_file`, the Centrifuge per-(taxon, workflow_run) summary report with fields `numReads`, `abundance`, etc. (see `peek_read_taxonomy_links.ipynb`)
+- `annotation_statistics`, 17 per-run QC metrics: sequence counts/lengths, gene-type counts (CDS, tRNA, ncRNA, rRNA, CRISPR), coding density, genes-per-Mbp (see `peek_ko_ec_links.ipynb` §9)
 
 ## Anchor columns on annotation tables
 
@@ -58,7 +58,7 @@ LIMIT 100
 ```
 
 **No `LATERAL VIEW EXPLODE` is needed.** `workflow_execution_set_was_informed_by`
-is a side table with one row per (workflow run, data generation) pair — it is
+is a side table with one row per (workflow run, data generation) pair. It is
 already flat.
 
 The same pattern works for EC: replace `annotation_kegg_orthology` with
@@ -71,8 +71,8 @@ handle the most common traversals through explicit side tables. For paths that
 cross multiple collection types or require arbitrary-depth traversal, the side
 tables require knowing the sequence of hops in advance.
 
-For the most common multi-hop case — Biosample to / from any WorkflowExecution
-that produced annotations, taxonomy, MAGs, or other results — use the
+For the most common multi-hop case, Biosample to or from any WorkflowExecution
+that produced annotations, taxonomy, MAGs, or other results, use the
 precomputed table `nmdc_metadata.biosample_to_workflow_run`. See
 [`biosample_to_workflow_run.md`](biosample_to_workflow_run.md). It collapses the
 variable-depth bipartite chain (Biosample → MaterialProcessing → ProcessedSample
@@ -81,19 +81,19 @@ pair and works through any query interface (Spark, Trino, REST API) with a
 plain equi-join.
 
 Ingesting the runtime-maintained `alldocs` MongoDB collection was considered
-and rejected — see [`decisions/alldocs-not-ingested.md`](decisions/alldocs-not-ingested.md).
+and rejected; see [`decisions/alldocs-not-ingested.md`](decisions/alldocs-not-ingested.md).
 
 ## Loading a new data product into `nmdc_results`
 
 If your task is to add a Silver table for a data product the loaders already
 support but BERDL hasn't ingested yet (e.g. Centrifuge per issue #94, GTDBTK
 Archaeal per issue #95), use the existing on-pod two-phase pattern. The
-ingest notebook's default behavior is now agent-safe — it auto-discovers
+ingest notebook's default behavior is now agent-safe: it auto-discovers
 parquets in `SOURCE_DIR` and skips any whose stem is already registered in
 `nmdc_results`. Still, scope the **fetch** to only the missing types so you
 don't re-parse parquets you don't need.
 
-**Step 1 — preflight: list what's already in `nmdc_results`**
+**Step 1, preflight: list what's already in `nmdc_results`**
 
 <!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
      that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
@@ -102,9 +102,9 @@ existing = sorted(r.tableName for r in spark.sql("SHOW TABLES IN nmdc_results").
 print(existing)
 ```
 
-If your target table is already there, stop — there is nothing to load.
+If your target table is already there, stop, because there is nothing to load.
 
-**Step 2 — fetch only the missing types**
+**Step 2: fetch only the missing types**
 
 `fetch_taxonomy_summaries.ipynb` honors the `TAXONOMY_TYPES` env var
 (comma-separated, exact match against entries in `_DEFAULT_TARGET_TYPES`):
@@ -116,9 +116,9 @@ export TAXONOMY_TYPES="Centrifuge output report file"
 ```
 
 The on-disk raw cache (`loaded_taxonomy/raw_cache/`) means re-running with the
-full default list is recoverable but wasteful — narrow the scope.
+full default list is recoverable but wasteful, so narrow the scope.
 
-**Step 3 — ingest with the safety net engaged**
+**Step 3: ingest with the safety net engaged**
 
 `ingest_taxonomy_summaries.ipynb` auto-discovers `*.parquet` files under
 `SOURCE_DIR` and skips any whose stem already appears in
@@ -133,7 +133,7 @@ FORCE_OVERWRITE = {"gtdbtk_bacterial_summary"}
 
 The default empty set is the agent-safe default.
 
-**Step 4 — verify**
+**Step 4: verify**
 
 Re-run the preflight from Step 1 and confirm the new table is present.
 
@@ -164,13 +164,13 @@ for tbl in ("workflow_execution_set_was_informed_by",
 
 ## Other BERDL namespaces with NMDC-relevant data
 
-`nmdc_arkin` (Arkin group — **read only, do not write**) is queryable via `spark.sql()` like any other registered namespace. It contains annotation term tables (GO, EC, MetaCyc, COG names populated; KEGG names empty — see Known gaps), Arkin-curated NMDC study/file metadata, taxonomy gold-standard tables, omics result tables (NOM, metabolomics, proteomics, metatranscriptomics, lipidomics), and embeddings. Treat it as a reference source for awareness; whether to join against it in production queries is a judgment call outside the scope of this doc.
+`nmdc_arkin` (Arkin group, **read only, do not write**) is queryable via `spark.sql()` like any other registered namespace. It contains annotation term tables (GO, EC, MetaCyc, COG names populated; KEGG names empty; see Known gaps), Arkin-curated NMDC study/file metadata, taxonomy gold-standard tables, omics result tables (NOM, metabolomics, proteomics, metatranscriptomics, lipidomics), and embeddings. Treat it as a reference source for awareness; whether to join against it in production queries is a judgment call outside the scope of this doc.
 
-`nmdc_ref_data` does not yet exist but is the intended home for reference tables we build and maintain — e.g. Pfam term definitions (see issue #100), and potentially other ontology/vocabulary tables that can be freely redistributed.
+`nmdc_ref_data` does not yet exist but is the intended home for reference tables we build and maintain, for example Pfam term definitions (see issue #100), and potentially other ontology/vocabulary tables that can be freely redistributed.
 
 ## Known gaps
 
-**KEGG term names are unavailable.** `nmdc_arkin.kegg_ko_terms` has IDs but empty `name`/`description` fields everywhere — likely due to KEGG's [redistribution license](https://www.kegg.jp/kegg/legal.html), though this doc does not confirm the exact loader/source reason. Queries against `annotation_kegg_orthology` return bare `KO:Kxxxxx` identifiers only. If human-readable names are needed, hit the KEGG API at query time (subject to rate limiting). Do not write into `nmdc_arkin`.
+**KEGG term names are unavailable.** `nmdc_arkin.kegg_ko_terms` has IDs but empty `name`/`description` fields everywhere, likely due to KEGG's [redistribution license](https://www.kegg.jp/kegg/legal.html), though this doc does not confirm the exact loader/source reason. Queries against `annotation_kegg_orthology` return bare `KO:Kxxxxx` identifiers only. If human-readable names are needed, hit the KEGG API at query time (subject to rate limiting). Do not write into `nmdc_arkin`.
 
 ## KO prefix translation (annotation tables vs functional_annotation_agg)
 
@@ -184,5 +184,5 @@ To cross-check counts:
 'KEGG.ORTHOLOGY:' || SUBSTRING(annotation_id, 4)  AS faa_gene_function_id
 ```
 
-EC terms have no equivalent in `functional_annotation_agg` — only in
+EC terms have no equivalent in `functional_annotation_agg`, only in
 `annotation_enzyme_commission`.

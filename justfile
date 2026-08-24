@@ -119,11 +119,12 @@ prose-lint:
 # THE WARNING-ONLY FIXTURE DEPENDS ON TWO RULES, AND ON A CAPITALISATION. Both are deliberate.
 #
 # It uses Mark.BareRefWord and Mark.Undefined, chosen because both sit at warning in .vale.ini
-# with no promotion planned beside either. It deliberately does NOT use Mark.EmDash, which is at
-# warning only until its backlog is cleared: promoting it, tracked in
-# https://github.com/microbiomedata/nmdc-lakehouse/issues/264, would make this test fail while
-# the contract it asserts stayed true, and whoever hit it would have to work out that the fixture
-# rather than the behaviour had changed. Do not put an em dash back in.
+# with no promotion planned for either. It deliberately does NOT use Mark.EmDash, which was
+# promoted from warning to error on 2026-08-24 once its backlog was cleared,
+# https://github.com/microbiomedata/nmdc-lakehouse/issues/264. An em dash in the warning fixture
+# would now be an error and would fail this test while the contract it asserts stayed true, and
+# whoever hit it would have to work out that the fixture rather than the behaviour had changed.
+# Do not put an em dash back in.
 #
 # The token must stay ALL-CAPS. Vale's speller skips an all-caps word as an acronym, so `ZZZZZ`
 # yields a warning from Mark.Undefined and nothing else. Measured 2026-08-20: `ZZZZZ` exits 0

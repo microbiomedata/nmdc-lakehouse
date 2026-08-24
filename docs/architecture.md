@@ -87,10 +87,10 @@ sanitized rule, path, and count categories rather than source values.
 The package currently writes an interchange artifact and reserves its intended
 managed-table interface:
 
-- `ParquetSink` — implemented for local files. Each logical primary or side
+- `ParquetSink`, implemented for local files. Each logical primary or side
   table becomes one `{table}.parquet` file containing streamed row groups; it
   is neither a partitioned dataset nor an object-store writer.
-- `IcebergSink` — planned. Its `write()` method currently raises
+- `IcebergSink`, planned. Its `write()` method currently raises
   `NotImplementedError`. Iceberg is one possible destination adapter, not the
   required or preferred publication path.
 
@@ -108,7 +108,7 @@ Genomic sequences and other bulk payloads are **not** inlined. They are
 represented by `BigDataRef` records (URI, size, checksum, media type)
 that live alongside the flattened metadata rows.
 
-## Data taxonomy — what this pipeline covers
+## Data taxonomy: what this pipeline covers
 
 The target architecture covers four NMDC data categories. The maintained
 package job currently implements MongoDB metadata extraction; result-file and
@@ -122,9 +122,9 @@ inferred from an earlier deployment.
 
 | Logical group | Contents | Source |
 |---|---|---|
-| `nmdc_metadata` | Schema-driven tables from the 19 NMDC MongoDB collections in the reviewed `Database.slots` snapshot. | NMDC MongoDB → `linkml-store` source adapter → `nmdc_lakehouse.transforms` schema-driven flattening (with `functional_annotation_agg` as a special-case raw-`pymongo` loader for performance — see #48). |
+| `nmdc_metadata` | Schema-driven tables from the 19 NMDC MongoDB collections in the reviewed `Database.slots` snapshot. | NMDC MongoDB → `linkml-store` source adapter → `nmdc_lakehouse.transforms` schema-driven flattening (with `functional_annotation_agg` as a special-case raw-`pymongo` loader for performance; see #48). |
 | `nmdc_results` | Tables derived from workflow output files (per-gene annotations, taxonomy summaries). | NERSC files referenced by `data_object_set` URLs |
-| `nmdc_ref_data` | Reference / ontology tables loaded from external sources. | Pfam terms, GO/EC where redistributable, etc. KEGG term names are excluded — see #103 (KEGG redistribution license). |
+| `nmdc_ref_data` | Reference / ontology tables loaded from external sources. | Pfam terms, GO/EC where redistributable, etc. KEGG term names are excluded; see #103 (KEGG redistribution license). |
 
 In the BERDL destination profile, these groups are managed Silver namespaces.
 `nmdc_arkin` (Gazi's tenant) and other non-NMDC tenants are **read-only** for
@@ -141,7 +141,7 @@ They are schema-directed, authoritative, and bounded in size
 (largest is `functional_annotation_agg` at ~54M rows). MongoDB → schema-driven
 flattening → portable Parquet snapshot → destination publication.
 
-**Derived aggregates** → `nmdc_metadata` (gray zone — loaded, but not ground truth)
+**Derived aggregates** → `nmdc_metadata` (gray zone: loaded, but not ground truth)
 `functional_annotation_agg` lives in MongoDB but is a pre-aggregated summary of
 GFF file content. It is a query convenience layer; the per-gene detail lives in
 the workflow output files. Loading it here is correct, but users should know it
@@ -160,9 +160,9 @@ permissible value used to dispatch a loader; that value lines up with
 External term and hierarchy tables loaded to support joins from `nmdc_results`
 back to canonical IDs (e.g. `pfam_terms.pfam_id` joins to
 `nmdc_results.pfam_annotation_gff.pfam_accession`). Not part of the NMDC data
-model — owned by this pipeline only in the sense that we maintain the loader.
+model, owned by this pipeline only in the sense that we maintain the loader.
 
-## Normalization decisions — primary tables vs side tables
+## Normalization decisions: primary tables vs side tables
 
 Every multivalued slot in the NMDC schema falls into one of three categories,
 each handled differently:
@@ -185,7 +185,7 @@ table is the correct relational form for joins; the ARRAY column supports simple
 Lists of embedded objects (`mags_list`, `chem_administration`, `organism_count`,
 `agrochem_addition`, etc.). These cannot be represented in the primary flat table
 without data loss. Each becomes a **child side table** (flattened object rows with
-`parent_id`). There is no redundancy — the side table is the only representation.
+`parent_id`). There is no redundancy: the side table is the only representation.
 
 ### Recursive side tables
 Six cases in the current NMDC schema have inlined child classes that themselves
@@ -217,7 +217,7 @@ statement, not evidence that this repository connects to every engine:
 |---|---|---|
 | DuckDB | ✅ native | `UNNEST()`, `array_contains()` |
 | Spark with a compatible managed-table format | ✅ native | `EXPLODE()`, `array_contains()` |
-| Parquet (file format) | ✅ `pa.list_()` | — |
+| Parquet (file format) | ✅ `pa.list_()` | n/a |
 
 ## Jobs and the runner (`nmdc_lakehouse.jobs`, `nmdc_lakehouse.cli`)
 

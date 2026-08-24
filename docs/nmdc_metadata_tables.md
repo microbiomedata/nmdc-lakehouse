@@ -31,7 +31,7 @@ Joining `parent_id = data_generation_set.id` gives you the biosample IDs for a
 sequencing run.
 
 **Do not use `LATERAL VIEW EXPLODE` on primary table array columns when a side
-table exists — the side table is the correct relational form and avoids the
+table exists: the side table is the correct relational form and avoids the
 Spark overhead of exploding a repeated field.**
 
 ## Key tables
@@ -48,7 +48,7 @@ Spark overhead of exploding a repeated field.**
 | `workflow_execution_set_has_output` | `parent_id` → output data object ID |
 | `data_object_set` | File records: URL, MD5, size, `data_object_type` |
 | `study_set` | Studies with PI name, title, DOIs |
-| `functional_annotation_agg` | Precomputed `(was_generated_by, gene_function_id, count)` — KEGG.ORTHOLOGY, PFAM, COG only; no EC |
+| `functional_annotation_agg` | Precomputed `(was_generated_by, gene_function_id, count)`. KEGG.ORTHOLOGY, PFAM, COG only; no EC |
 
 ## The annotation → biosample join chain
 
@@ -112,9 +112,9 @@ The Silver side tables cover the same ground under different names:
 ## Multi-hop traversal: biosample_to_workflow_run
 
 For variable-depth queries (Biosample to / from any WorkflowExecution),
-use the precomputed table `nmdc_metadata.biosample_to_workflow_run` —
+use the precomputed table `nmdc_metadata.biosample_to_workflow_run`;
 see [`biosample_to_workflow_run.md`](biosample_to_workflow_run.md).
 Plain equi-join, no recursion at the consumer side.
 
 Ingesting the runtime-maintained `alldocs` MongoDB collection was considered
-and rejected — see [`decisions/alldocs-not-ingested.md`](decisions/alldocs-not-ingested.md).
+and rejected; see [`decisions/alldocs-not-ingested.md`](decisions/alldocs-not-ingested.md).

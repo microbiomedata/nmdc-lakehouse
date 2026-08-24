@@ -21,17 +21,17 @@ before re-architecting into `src/nmdc_lakehouse/{sources,transforms,sinks,jobs}/
 These four copied scripts live directly under `scripts/` (not
 `scripts/python/`):
 
-- `flatten_nmdc_collections.py` — reads NMDC MongoDB collections (`biosample_set`,
+- `flatten_nmdc_collections.py` reads NMDC MongoDB collections (`biosample_set`,
   `study_set`), flattens nested structures (underscore-joined field names,
   pipe-joined arrays), enriches environmental triad CURIEs via `oaklib`
   (envo/pato/uberon), and writes `flattened_*` collections back into MongoDB.
-- `export_duckdb_to_parquet.py` — exports every table in a DuckDB file to
+- `export_duckdb_to_parquet.py` exports every table in a DuckDB file to
   an individual Parquet file (ZSTD).
-- `export_flattened_gold_to_csv.py` — legacy GOLD-oriented utility copied from
+- `export_flattened_gold_to_csv.py` is a legacy GOLD-oriented utility copied from
   EMA. It defaults to a `gold_metadata` MongoDB database, but its implementation
   generically exports collections selected by a prefix. It is not registered as
   an `nmdc-lakehouse` job and is not evidence of a supported GOLD integration.
-- `mongodb_connection.py` — `get_mongo_client()` helper used by the CSV
+- `mongodb_connection.py` holds the `get_mongo_client()` helper used by the CSV
   exporter. Supports merging credentials from an env file into a URI.
 
 ## Upstream provenance
@@ -55,8 +55,8 @@ Already covered by the project dependencies in `pyproject.toml`
 `tqdm`, `linkml-runtime`, `oaklib`, `python-dotenv`.
 
 External CLI tools required by the justfile recipes (not Python deps):
-- `mongoexport` / `mongosh` — MongoDB Database Tools
-- `duckdb` — DuckDB CLI
+- `mongoexport` / `mongosh`, from MongoDB Database Tools
+- `duckdb`, the DuckDB CLI
 
 ## Prerequisites
 
@@ -95,7 +95,7 @@ Override via `NMDC_EXPORT_DIR`, `NMDC_PARQUET_DIR`, `NMDC_CSV_DIR`,
   logging, and uses `skip`/`limit` pagination (slow on large collections).
 - `flatten_nmdc_collections.py` writes results back to MongoDB as
   intermediate `flattened_*` collections rather than going straight to
-  Parquet — DuckDB/Parquet export is a separate step.
+  Parquet. DuckDB/Parquet export is a separate step.
 - `mongodb_connection.py` expects `MONGO_USER` (not `MONGO_USERNAME`) in the
   env file when merging credentials into a URI.
 - Scripts are invoked as standalone files (`uv run python scripts/...`)

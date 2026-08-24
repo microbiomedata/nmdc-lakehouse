@@ -1,10 +1,10 @@
-# biosample_to_workflow_run — precomputed provenance table
+# biosample_to_workflow_run: precomputed provenance table
 
 ## Purpose
 
 `nmdc_metadata.biosample_to_workflow_run` maps every NMDC biosample to every
 workflow run that produced results from it (or from derived material), across
-**all workflow types** — annotation, read-based taxonomy, MAG analysis, and
+**all workflow types**: annotation, read-based taxonomy, MAG analysis, and
 others. It is the universal join bridge between biosample identity and any
 `nmdc_results` table.
 
@@ -38,7 +38,7 @@ regardless of workflow type.
 All types present in `nmdc_metadata.workflow_execution_set` at build time.
 Run the preflight cell in `notebooks/build_biosample_to_workflow_run.ipynb`
 to see the current breakdown. New workflow types are picked up automatically
-on the next rebuild — no config change required.
+on the next rebuild, with no config change required.
 
 ## Example queries
 
@@ -93,7 +93,7 @@ AND  b2wr.workflow_type = 'nmdc:ReadBasedTaxonomyAnalysis'
 
 `notebooks/build_biosample_to_workflow_run.ipynb` generates and registers this
 table. Run it once after each NMDC data load. The notebook uses an iterative
-BFS walk over `nmdc_metadata.graph_edges` — one flat JOIN per hop level,
+BFS walk over `nmdc_metadata.graph_edges`, one flat JOIN per hop level,
 avoiding Trino's 150-stage `WITH RECURSIVE` limit. `graph_edges` is created
 or replaced as a managed table in Step 0 and persists in `nmdc_metadata` after
 the notebook completes; refresh it whenever the underlying Silver provenance
@@ -106,7 +106,7 @@ The result is written directly to Silver via
 
 ### When NMDC data is reloaded
 
-Re-run `notebooks/build_biosample_to_workflow_run.ipynb`. Fully derived — no
+Re-run `notebooks/build_biosample_to_workflow_run.ipynb`. Fully derived, so no
 manual editing required.
 
 ### When a new MaterialProcessing subclass is added to the NMDC schema
@@ -118,7 +118,7 @@ build notebook before rebuilding.
 ### When a new workflow type is added to NMDC
 
 No action required. The build notebook selects all workflow types without
-filtering — new types appear automatically in the rebuilt table.
+filtering, so new types appear automatically in the rebuilt table.
 
 ### When a new nmdc_results table is ingested (e.g., Centrifuge)
 
