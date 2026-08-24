@@ -56,10 +56,45 @@ from pathlib import Path
 
 BASELINE_FORMAT_VERSION = 3
 
-#: Languages whose blocks are instructions to run something, rather than output,
-#: data, or a schema excerpt. A block with no language is treated as inert,
-#: because that is how pasted output is written throughout these documents.
-RUNNABLE_LANGUAGES = frozenset({"bash", "console", "python", "py", "sh", "shell", "sql", "zsh"})
+#: Languages whose blocks are data, output or configuration rather than
+#: instructions to run something. Everything else carrying a language tag is
+#: treated as runnable, including tags nobody here has used yet.
+#:
+#: A denylist on purpose. An allowlist of runnable languages made every unlisted
+#: language invisible: a new undeclared ``javascript`` fence produced no block at
+#: all and passed in silence. Getting an inert language wrong costs a spurious
+#: marker on a data block, which a reviewer sees. Getting a runnable one wrong
+#: costs nothing being checked, which nobody sees.
+#:
+#: A fence with no language stays inert, because that is how pasted output is
+#: written throughout these documents: 102 of the 187 fences under docs/ carry no
+#: tag at all.
+INERT_LANGUAGES = frozenset(
+    {
+        "",
+        "cfg",
+        "csv",
+        "diff",
+        "dotenv",
+        "env",
+        "html",
+        "ini",
+        "json",
+        "jsonl",
+        "log",
+        "markdown",
+        "md",
+        "output",
+        "properties",
+        "text",
+        "toml",
+        "tsv",
+        "txt",
+        "xml",
+        "yaml",
+        "yml",
+    }
+)
 
 #: How many lines of the paragraph above a fence are read. A marker may wrap over
 #: several lines, so this is not one line; it is a cap so a long document is not
@@ -110,18 +145,31 @@ class ProcedureBlock:
 
 
 def fingerprint(body: str, language: str = "") -> str:
-    """Return a stable hash of a block's language and content.
+    """Return a stable hash of a block's language and its content, byte for byte.
 
-    Trailing whitespace on a line is noise. Leading whitespace is an edit to the
-    command, so it counts. The language counts too: retagging a grandfathered
-    block from ``bash`` to ``python`` is a change to what it claims to be.
+    Nothing about the body is normalised. An earlier version stripped trailing
+    whitespace as noise, which it is not: in a shell, a backslash followed by a
+    space stops escaping the newline, so appending a space to a continuation line
+    changes what the command does while leaving the text looking identical.
+    ``docs/berdl-upload.md`` alone has 52 continuation lines. Any edit that could
+    change behaviour has to change the hash.
+
+    The language counts too, since retagging a block from ``bash`` to ``python``
+    is a change to what it claims to be.
     """
-    # strip("\n") only: a leading space is an edit to the command, not noise.
-    normalized = "\n".join(line.rstrip() for line in body.splitlines()).strip("\n")
-    return hashlib.sha256(f"{language}\n{normalized}".encode()).hexdigest()
+    return hashlib.sha256(f"{language}\n{body}".encode()).hexdigest()
 
 
-def _marker_above(lines: Sequence[str], fence_index: int) -> str | None:
+def _strip_prefix(line: str, prefix: str) -> str:
+    """Return ``line`` without ``prefix``, when it carries exactly that prefix."""
+    if prefix and line.startswith(prefix):
+        return line[len(prefix) :]
+    if prefix and not line.strip():
+        return line
+    return line
+
+
+def _marker_above(lines: Sequence[str], fence_index: int, prefix: str = "") -> str | None:
     """Return the marker kind declared above ``fence_index``, or None.
 
     Reads the paragraph immediately above the fence, skipping blank lines, and
@@ -130,35 +178,37 @@ def _marker_above(lines: Sequence[str], fence_index: int) -> str | None:
     covering the block after it.
     """
     index = fence_index - 1
-    while index >= 0 and not lines[index].strip():
+    while index >= 0 and not _strip_prefix(lines[index], prefix).strip():
         index -= 1
     paragraph: list[str] = []
-    while index >= 0 and lines[index].strip() and len(paragraph) < MARKER_LOOKBACK:
-        if _FENCE.match(lines[index]):
+    while index >= 0 and len(paragraph) < MARKER_LOOKBACK:
+        candidate = _strip_prefix(lines[index], prefix)
+        if not candidate.strip():
+            break
+        if _FENCE.match(candidate):
             return None
-        paragraph.append(lines[index].strip())
+        paragraph.append(candidate.strip())
         index -= 1
     match = _MARKER.match(" ".join(reversed(paragraph)))
     return match.group("kind").lower() if match else None
 
 
-def _uncontain(line: str) -> str:
-    """Return ``line`` without any Markdown block quote prefix."""
-    return _CONTAINER.sub("", line, count=1)
-
-
 def iter_blocks(text: str, path: Path) -> list[ProcedureBlock]:
     """Return every runnable fenced block in ``text``, in document order.
 
-    Block quote prefixes are removed before anything is matched, so a fence, its
-    body and its marker are read the same inside a quote as outside one. Line
-    numbers still refer to the original text.
+    A fence may sit inside a block quote. The prefix is taken from the opening
+    fence line and removed from that block's own body and marker only, so a body
+    line beginning with ``>`` inside an ordinary fence stays exactly as written.
+    Rewriting every line unconditionally was wrong: it made ``output.txt`` and
+    ``> output.txt`` hash the same, and those are different commands.
     """
-    lines = [_uncontain(line) for line in text.splitlines()]
+    lines = text.splitlines()
     blocks: list[ProcedureBlock] = []
     index = 0
     while index < len(lines):
-        opening = _FENCE.match(lines[index])
+        container = _CONTAINER.match(lines[index])
+        prefix = container.group(0) if container else ""
+        opening = _FENCE.match(lines[index][len(prefix) :])
         if opening is None:
             index += 1
             continue
@@ -167,7 +217,8 @@ def iter_blocks(text: str, path: Path) -> list[ProcedureBlock]:
         body: list[str] = []
         cursor = index + 1
         while cursor < len(lines):
-            closing = _FENCE.match(lines[cursor])
+            candidate = _strip_prefix(lines[cursor], prefix)
+            closing = _FENCE.match(candidate)
             if (
                 closing is not None
                 and closing.group("ticks")[0] == ticks[0]
@@ -175,17 +226,17 @@ def iter_blocks(text: str, path: Path) -> list[ProcedureBlock]:
                 and not closing.group("info").strip()
             ):
                 break
-            body.append(lines[cursor])
+            body.append(candidate)
             cursor += 1
         name = info[0].lower() if info else ""
-        if name in RUNNABLE_LANGUAGES:
+        if name not in INERT_LANGUAGES:
             blocks.append(
                 ProcedureBlock(
                     path=path,
                     line=index + 1,
                     language=name,
                     fingerprint=fingerprint("\n".join(body), name),
-                    marker=_marker_above(lines, index),
+                    marker=_marker_above(lines, index, prefix),
                 )
             )
         index = cursor + 1
@@ -265,6 +316,10 @@ def offending(blocks: Iterable[ProcedureBlock], baseline: dict[str, int]) -> lis
     the new text. Byte-identical blocks cannot be told apart, so the rule is that a
     body's copies in one file are declared together or not at all.
     """
+    # Materialised first: this function makes two passes, and a generator argument
+    # was exhausted by the first, so offending(iter(scan(...))) reported nothing to
+    # fix however many undeclared blocks there were.
+    blocks = list(blocks)
     declared: Counter[str] = Counter(block.allowance_key for block in blocks if block.marker is not None)
     remaining = {key: max(0, count - declared[key]) for key, count in baseline.items()}
     surplus: list[ProcedureBlock] = []

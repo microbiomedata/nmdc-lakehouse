@@ -142,10 +142,42 @@ def test_an_absent_baseline_grandfathers_nothing(tmp_path: Path) -> None:
     assert load_baseline(tmp_path / "nope.json") == {}
 
 
-def test_fingerprint_ignores_trailing_whitespace_only() -> None:
-    """Reindenting a command changes it; a stray trailing space does not."""
-    assert fingerprint("echo hi  \n") == fingerprint("echo hi\n")
+def test_fingerprint_treats_trailing_whitespace_as_significant() -> None:
+    """A stray trailing space is not noise in a shell.
+
+    This test asserted the opposite until review pointed out why that was wrong:
+    a backslash followed by a space stops escaping the newline, so appending a
+    space to a continuation line changes what the command does while the text
+    looks identical. docs/berdl-upload.md alone has 52 continuation lines.
+    """
+    assert fingerprint("echo hi  \n") != fingerprint("echo hi\n")
     assert fingerprint("echo hi") != fingerprint("  echo hi")
+
+
+def test_a_trailing_space_after_a_continuation_changes_the_hash() -> None:
+    """The concrete case, spelled out, because the abstract one reads as pedantry."""
+    joined = "cmd \\\n  arg"
+    broken = "cmd \\   \n  arg"
+    assert fingerprint(joined, "bash") != fingerprint(broken, "bash")
+
+
+def test_an_unknown_language_is_runnable(tmp_path: Path) -> None:
+    """An allowlist made every unlisted language invisible rather than checked."""
+    _write(tmp_path, "```javascript\nrmEverything()\n```\n")
+    assert len(offending(scan([tmp_path]), {})) == 1
+
+
+def test_a_body_line_starting_with_a_redirect_is_not_a_quote(tmp_path: Path) -> None:
+    """Stripping '>' from every line made two different commands hash the same."""
+    plain = iter_blocks("```bash\ncat a\noutput.txt\n```\n", Path("a.md"))[0]
+    redirect = iter_blocks("```bash\ncat a\n> output.txt\n```\n", Path("a.md"))[0]
+    assert plain.fingerprint != redirect.fingerprint
+
+
+def test_offending_accepts_a_generator(tmp_path: Path) -> None:
+    """Two passes over an Iterable argument silently reported nothing to fix."""
+    _write(tmp_path, UNMARKED)
+    assert len(offending(iter(scan([tmp_path])), {})) == 1
 
 
 def test_fingerprint_covers_the_language() -> None:
