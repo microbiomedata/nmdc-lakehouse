@@ -369,11 +369,16 @@ check on all of them, not on a single file.
 
 **Valid parts still do not mean a complete table.** A partly committed write
 leaves a subset of perfectly readable parts, and every content check above passes
-on that subset. The only check that establishes completeness is comparing the row
-count read back from the destination against the source, so require it, and treat
-it as the gate rather than as a stronger option. `src/nmdc_lakehouse/berdl_staging.py:155`
-defines that comparison and `:873` raises when the counts disagree, which is the
-standard a staged table is already held to.
+on that subset. Compare the row count read back from the destination against the
+source, and require it rather than offering it as a stronger option.
+
+That is a minimum, not a proof. Equal counts establish matching cardinality and
+nothing about which rows arrived: a duplicated or wrong row set of the right size
+passes it with the right schema. Treat it as the floor an export has to clear
+before anyone looks further, not as evidence the contents are correct.
+`src/nmdc_lakehouse/berdl_staging.py` models that comparison in
+`UpstreamTableVerification` at line 155 and performs it at lines 872 to 873,
+which is the standard a staged table is already held to.
 
 **None of this authorizes deleting a source, even when every check passes.** The
 export lands in the tenant's own staging area, on the same platform as the table
