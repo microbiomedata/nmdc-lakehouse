@@ -288,6 +288,8 @@ resolves the path against its own filesystem and writes its partition there. The
 driver's directory receives only the marker files. So the data may exist,
 scattered across executor filesystems you cannot reach, which is not a backup:
 
+<!-- verified: 2026-08-20 run against nmdc.results; every table printed a
+     completed line and a correct row count, and no usable data landed. -->
 ```python
 df.write.parquet("/home/<user>/backup/table.parquet")   # succeeds; nothing usable lands here
 ```
@@ -308,6 +310,10 @@ on 2026-08-21 shows `datasets`, `projects`, `shared` and `staging` and no
 `exports`, so a top-level export prefix is an unverified permission boundary
 rather than an established one:
 
+<!-- unverified: the identifier generation was run, producing 500 distinct
+     values inside one second, but nobody has run this write against the tenant.
+     A tested export procedure is tracked in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/250 -->
 ```python
 from datetime import UTC, datetime
 from uuid import uuid4
