@@ -67,9 +67,15 @@ RUNNABLE_LANGUAGES = frozenset({"bash", "console", "python", "py", "sh", "shell"
 MARKER_LOOKBACK = 12
 
 _FENCE = re.compile(r"^(?P<indent>\s*)(?P<ticks>`{3,}|~{3,})(?P<info>.*)$")
-#: Anchored at the start of the paragraph, so prose that merely mentions a marker
-#: ("write <!-- verified: ... --> above the fence") is not itself a declaration.
-_MARKER = re.compile(r"^<!--\s*(?P<kind>verified|unverified)\s*:", re.IGNORECASE)
+#: Matches the whole paragraph, so it must *be* a marker rather than start like
+#: one. Anchoring only the start accepted prose that merely mentions a marker, an
+#: unterminated `<!-- verified:`, an empty `<!-- unverified: -->`, and a closed
+#: comment followed by unrelated prose. A declaration has to be a complete comment
+#: with something said in it.
+_MARKER = re.compile(
+    r"^<!--\s*(?P<kind>verified|unverified)\s*:\s*(?P<detail>\S.*?)\s*-->$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -237,8 +243,15 @@ def offending(blocks: Iterable[ProcedureBlock], baseline: dict[str, int]) -> lis
     Position plays no part. Whether a copy is pasted above or below the block it
     was copied from, the file now holds more undeclared copies of that body than
     the baseline recorded, and the surplus is what gets reported.
+
+    Marking an occurrence spends its file's allowance for that body rather than
+    stepping aside from it. Without that, marking the original and prepending an
+    unmarked copy left the undeclared count unchanged and moved the exemption onto
+    the new text. Byte-identical blocks cannot be told apart, so the rule is that a
+    body's copies in one file are declared together or not at all.
     """
-    remaining = dict(baseline)
+    declared: Counter[str] = Counter(block.allowance_key for block in blocks if block.marker is not None)
+    remaining = {key: max(0, count - declared[key]) for key, count in baseline.items()}
     surplus: list[ProcedureBlock] = []
     for block in blocks:
         if block.marker is not None:

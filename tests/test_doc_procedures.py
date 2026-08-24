@@ -319,3 +319,51 @@ def test_a_single_block_is_not_reported_in_the_plural(tmp_path: Path) -> None:
     message = report(scan([tmp_path]), {})
     assert "1 runnable block," in message
     assert "1 runnable blocks" not in message
+
+
+def test_marking_one_copy_does_not_free_the_allowance_for_another(tmp_path: Path) -> None:
+    """Marking spends the allowance rather than stepping aside from it.
+
+    Without that, the exemption was transferable: mark the grandfathered block,
+    prepend an identical unmarked copy, and the undeclared count was unchanged
+    while the exemption had moved onto new text. Byte-identical blocks cannot be
+    told apart, so copies of one body in one file are declared together or not
+    at all.
+    """
+    path = _write(tmp_path, "intro\n\n" + UNMARKED)
+    baseline_path = tmp_path / "baseline.json"
+    write_baseline(baseline_path, scan([tmp_path]))
+    baseline = load_baseline(baseline_path)
+
+    path.write_text(
+        "intro\n\n" + UNMARKED + "\n<!-- verified: 2026-08-24 ran it -->\n" + UNMARKED,
+        encoding="utf-8",
+    )
+    assert len(offending(scan([tmp_path]), baseline)) == 1
+
+
+def test_marking_the_only_grandfathered_copy_is_still_fine(tmp_path: Path) -> None:
+    """Declaring a grandfathered block must not be punished."""
+    path = _write(tmp_path, "intro\n\n" + UNMARKED)
+    baseline_path = tmp_path / "baseline.json"
+    write_baseline(baseline_path, scan([tmp_path]))
+    baseline = load_baseline(baseline_path)
+
+    path.write_text("<!-- verified: 2026-08-24 ran it -->\n" + UNMARKED, encoding="utf-8")
+    assert offending(scan([tmp_path]), baseline) == []
+
+
+@pytest.mark.parametrize(
+    "marker",
+    [
+        "<!-- verified:",
+        "<!-- unverified: -->",
+        "<!-- verified:    -->",
+        "<!-- verified: ok --> and then some prose",
+        "some prose and then <!-- verified: ok -->",
+    ],
+)
+def test_a_malformed_marker_declares_nothing(tmp_path: Path, marker: str) -> None:
+    """A declaration is a complete comment with something said in it."""
+    _write(tmp_path, marker + "\n" + UNMARKED)
+    assert len(offending(scan([tmp_path]), {})) == 1
