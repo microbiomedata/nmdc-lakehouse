@@ -55,8 +55,10 @@ use a justified local exception.
 Rules carry different levels and only errors fail CI. `Mark.Jargon`,
 `Mark.ThroatClearing` and `Mark.EmDash` are errors because the maintained prose
 Vale checks has none of them. That is a claim about the linted set, not the
-repository: 149 em dashes remain in 31 files Vale never reads, mostly notebooks,
-scripts and Python source. `Mark.EmDash` was a warning until the prose backlog was
+repository: 149 em dash characters, on 142 lines, remain in 31 files Vale never
+reads, mostly notebooks, scripts and Python source. Count occurrences with
+`grep -o '\u2014' | wc -l`, since `grep -c` counts matching lines and seven of
+those files carry two on one line. `Mark.EmDash` was a warning until the prose backlog was
 cleared on 2026-08-24, which is the sequence a new rule should follow here: land
 it at warning, clear what it finds, then promote, so it never starts blocking
 work its author did not cause. `Mark.BareRef` is a
