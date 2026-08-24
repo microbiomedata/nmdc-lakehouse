@@ -480,9 +480,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.write_baseline:
         proposed = dict(Counter(block.allowance_key for block in offending(blocks, {})))
-        existing = load_baseline(args.baseline) if args.baseline.exists() else {}
+        # Adoption is the case where no baseline file exists yet. After that, any
+        # widening needs --force, including from an empty baseline: an emptied file
+        # is the normal result of --prune-baseline dropping the last exemption, and
+        # testing the mapping for truth rather than the file for existence let that
+        # state re-grandfather everything.
+        adopting = not args.baseline.exists()
+        existing = {} if adopting else load_baseline(args.baseline)
         added = added_by(existing, proposed)
-        if added and existing and not args.force:
+        if added and not adopting and not args.force:
             print(
                 f"refusing to write {args.baseline}: it would newly exempt "
                 f"{len(added)} block(s) that are not exempt today."

@@ -654,3 +654,29 @@ def test_added_by_names_only_what_grows(tmp_path: Path) -> None:
     assert added_by({"a": 1}, {"a": 2}) == ["a"]
     assert added_by({"a": 2}, {"a": 1}) == []
     assert added_by({}, {"b": 1}) == ["b"]
+
+
+def test_an_emptied_baseline_still_blocks_a_widening_regenerate(tmp_path: Path) -> None:
+    """An empty mapping is falsy, and empty is exactly what pruning produces.
+
+    So the guard added for the recovery path failed in the state that path leaves
+    behind: prune the last exemption, then regenerate, and every undeclared block
+    is grandfathered again. The guard keys on whether the file exists, because
+    adoption is the only case with no file at all.
+    """
+    path = _write(tmp_path, "```bash\necho original\n```\n")
+    baseline_path = tmp_path / "baseline.json"
+    assert main([str(tmp_path), "--baseline", str(baseline_path), "--write-baseline"]) == 0
+
+    path.write_text("<!-- verified: 2026-08-24 ran it -->\n```bash\necho original\n```\n", encoding="utf-8")
+    assert main([str(tmp_path), "--baseline", str(baseline_path), "--prune-baseline"]) == 0
+    assert load_baseline(baseline_path) == {}
+
+    path.write_text(
+        "<!-- verified: 2026-08-24 ran it -->\n```bash\necho original\n```\n\n" + UNMARKED,
+        encoding="utf-8",
+    )
+    assert main([str(tmp_path), "--baseline", str(baseline_path), "--write-baseline"]) == 1
+    assert load_baseline(baseline_path) == {}
+    assert main([str(tmp_path), "--baseline", str(baseline_path), "--write-baseline", "--force"]) == 0
+    assert load_baseline(baseline_path) != {}
