@@ -28,7 +28,7 @@ from scripts.python.doc_procedures import (
 
 UNMARKED = "intro\n\n```bash\necho hi\n```\n"
 VERIFIED = "intro\n\n<!-- verified: 2026-08-24 ran it, printed hi -->\n```bash\necho hi\n```\n"
-UNVERIFIED = "intro\n\n<!-- unverified: needs a pod terminal -->\n```bash\necho hi\n```\n"
+UNVERIFIED = "intro\n\n<!-- unverified: needs a pod terminal, see #136 -->\n```bash\necho hi\n```\n"
 
 
 def _write(directory: Path, text: str, name: str = "a.md") -> Path:
@@ -207,7 +207,7 @@ def test_prose_mentioning_a_marker_is_not_a_declaration(tmp_path: Path) -> None:
 
 def test_a_marker_wrapped_over_several_lines_still_declares(tmp_path: Path) -> None:
     """Real markers cite a URL and wrap; the whole paragraph is read."""
-    marker = "<!-- unverified: needs a pod terminal,\n     tracked in issue 136 -->\n"
+    marker = "<!-- unverified: needs a pod terminal,\n     tracked in #136 -->\n"
     _write(tmp_path, marker + "```bash\necho hi\n```\n")
     assert undeclared(scan([tmp_path])) == []
 
@@ -352,7 +352,7 @@ def test_a_verified_marker_without_a_date_is_rejected(tmp_path: Path) -> None:
     """
     assert marker_fault("<!-- verified: ok -->") is not None
     assert marker_fault("<!-- verified: 2026-08-24 ran it, 53 tables -->") is None
-    assert marker_fault("<!-- unverified: needs a pod terminal -->") is None
+    assert marker_fault("<!-- unverified: needs a pod terminal, see #136 -->") is None
 
     _write(tmp_path, "<!-- verified: ok -->\n```bash\necho hi\n```\n")
     blocks = scan([tmp_path])
@@ -360,3 +360,26 @@ def test_a_verified_marker_without_a_date_is_rejected(tmp_path: Path) -> None:
     assert len(undeclared(blocks)) == 1
     assert len(scan_malformed([tmp_path])) == 1
     assert main([str(tmp_path)]) == 1
+
+
+def test_a_verified_marker_naming_an_impossible_date_is_rejected() -> None:
+    """The shape is not the value: 2026-99-99 looks like a date and is not one."""
+    assert marker_fault("<!-- verified: 2026-99-99 ran it -->") is not None
+    assert marker_fault("<!-- verified: 2026-02-30 ran it -->") is not None
+    assert marker_fault("<!-- verified: 2026-08-24 ran it -->") is None
+
+
+def test_an_unverified_marker_must_say_where_it_is_tracked() -> None:
+    """Otherwise it records that nobody ran it and gives no way to find out more.
+
+    The instructions have always asked for it, so the choice was to enforce it or
+    stop advertising it. A URL or a bare issue reference both count.
+    """
+    assert marker_fault("<!-- unverified: needs a pod terminal -->") is not None
+    assert marker_fault("<!-- unverified: needs a pod, see #136 -->") is None
+    assert (
+        marker_fault(
+            "<!-- unverified: needs a pod, see https://github.com/microbiomedata/nmdc-lakehouse/issues/136 -->"
+        )
+        is None
+    )

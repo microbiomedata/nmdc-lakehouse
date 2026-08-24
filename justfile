@@ -183,7 +183,7 @@ test-doc-procedures-exit:
     set -euo pipefail
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
     printf 'intro\n\n```bash\necho hi\n```\n' > "$tmp/undeclared.md"
-    printf 'intro\n\n<!-- unverified: fixture, never run -->\n```bash\necho hi\n```\n' > "$tmp/declared.md"
+    printf 'intro\n\n<!-- unverified: fixture, never run, see #287 -->\n```bash\necho hi\n```\n' > "$tmp/declared.md"
     rc=0; uv run --no-sync python scripts/python/doc_procedures.py "$tmp/undeclared.md" >/dev/null 2>&1 || rc=$?
     [ "$rc" -ne 0 ] || { echo "doc-procedures did NOT fail on an undeclared block; the gate is inert"; exit 1; }
     rc=0; uv run --no-sync python scripts/python/doc_procedures.py "$tmp/declared.md" >/dev/null 2>&1 || rc=$?

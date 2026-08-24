@@ -40,6 +40,7 @@ import re
 import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 from markdown_it import MarkdownIt
@@ -95,8 +96,14 @@ _MARKER = re.compile(
 #: Starts like a marker. Used to tell a malformed declaration from ordinary prose.
 _MARKER_START = re.compile(r"^<!--\s*(verified|unverified)\s*:", re.IGNORECASE)
 
-#: An ISO date somewhere in a ``verified`` marker's detail.
+#: A date-shaped run somewhere in a ``verified`` marker's detail. Shape only; the
+#: value is then parsed, because 2026-99-99 has the shape and is not a date.
 _DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+
+#: Somewhere the work is tracked, required of an ``unverified`` marker. A URL or a
+#: bare issue reference both count. Without this the marker says only that nobody
+#: ran it, which leaves a reader no way to find out whether that is still true.
+_TRACKER = re.compile(r"https?://\S+|#\d+", re.IGNORECASE)
 
 #: CommonMark tokeniser. Hand-written fence matching was tried and abandoned: it
 #: diverged from Markdown in seven ways review had to find, and every one was a
@@ -146,8 +153,17 @@ def marker_fault(comment: str) -> str | None:
         if not comment.endswith("-->"):
             return "closed, then followed by more text in the same block"
         return "closed but says nothing after the colon"
-    if match.group("kind").lower() == "verified" and not _DATE.search(match.group("detail")):
-        return "claims verified without a date; say when it was run and what came back"
+    kind, detail = match.group("kind").lower(), match.group("detail")
+    if kind == "verified":
+        found = _DATE.search(detail)
+        if found is None:
+            return "claims verified without a date; say when it was run and what came back"
+        try:
+            date.fromisoformat(found.group(0))
+        except ValueError:
+            return f"names {found.group(0)}, which is not a real date"
+    elif not _TRACKER.search(detail):
+        return "says nobody ran it without saying where that is tracked; add an issue URL"
     return None
 
 
