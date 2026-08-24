@@ -562,3 +562,18 @@ def test_a_marker_enclosing_a_block_hides_it_and_is_reported(tmp_path: Path) -> 
     assert scan([tmp_path]) == []
     assert len(scan_malformed([tmp_path])) == 1
     assert main([str(tmp_path), "--baseline", str(tmp_path / "absent.json")]) == 1
+
+
+def test_a_marker_that_swallowed_a_block_declares_nothing_after_it(tmp_path: Path) -> None:
+    """The comment closes, so the next fence is real. It must not inherit the marker.
+
+    Otherwise hiding one command inside a marker would also silently declare the
+    command after it, which turns one concealed block into two.
+    """
+    _write(
+        tmp_path,
+        "<!-- verified: ok\n```bash\nrm -rf /important\n```\n-->\n\n```bash\necho real\n```\n",
+    )
+    blocks = scan([tmp_path])
+    assert [block.marker for block in blocks] == [None]
+    assert len(offending(blocks, {})) == 1
