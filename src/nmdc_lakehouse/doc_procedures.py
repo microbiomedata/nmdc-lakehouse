@@ -67,6 +67,11 @@ RUNNABLE_LANGUAGES = frozenset({"bash", "console", "python", "py", "sh", "shell"
 MARKER_LOOKBACK = 12
 
 _FENCE = re.compile(r"^(?P<indent>\s*)(?P<ticks>`{3,}|~{3,})(?P<info>.*)$")
+#: Markdown container prefix: block quote markers and the spaces around them. A
+#: fence inside a block quote is a real fence, and was invisible while the fence
+#: pattern allowed only whitespace before the delimiter, so an undeclared command
+#: written as "> ```bash" passed the gate.
+_CONTAINER = re.compile(r"^[ \t]*(?:>[ \t]?)+")
 #: Matches the whole paragraph, so it must *be* a marker rather than start like
 #: one. Anchoring only the start accepted prose that merely mentions a marker, an
 #: unterminated `<!-- verified:`, an empty `<!-- unverified: -->`, and a closed
@@ -137,9 +142,19 @@ def _marker_above(lines: Sequence[str], fence_index: int) -> str | None:
     return match.group("kind").lower() if match else None
 
 
+def _uncontain(line: str) -> str:
+    """Return ``line`` without any Markdown block quote prefix."""
+    return _CONTAINER.sub("", line, count=1)
+
+
 def iter_blocks(text: str, path: Path) -> list[ProcedureBlock]:
-    """Return every runnable fenced block in ``text``, in document order."""
-    lines = text.splitlines()
+    """Return every runnable fenced block in ``text``, in document order.
+
+    Block quote prefixes are removed before anything is matched, so a fence, its
+    body and its marker are read the same inside a quote as outside one. Line
+    numbers still refer to the original text.
+    """
+    lines = [_uncontain(line) for line in text.splitlines()]
     blocks: list[ProcedureBlock] = []
     index = 0
     while index < len(lines):

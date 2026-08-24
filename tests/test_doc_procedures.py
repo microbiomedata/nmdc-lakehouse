@@ -367,3 +367,33 @@ def test_a_malformed_marker_declares_nothing(tmp_path: Path, marker: str) -> Non
     """A declaration is a complete comment with something said in it."""
     _write(tmp_path, marker + "\n" + UNMARKED)
     assert len(offending(scan([tmp_path]), {})) == 1
+
+
+def test_a_fence_inside_a_block_quote_is_found(tmp_path: Path) -> None:
+    """A quoted fence is a real fence, and was invisible to the gate."""
+    _write(tmp_path, "intro\n\n> ```bash\n> rm -rf /important\n> ```\n")
+    blocks = scan([tmp_path])
+    assert [block.language for block in blocks] == ["bash"]
+    assert len(offending(blocks, {})) == 1
+
+
+def test_a_marker_inside_a_block_quote_declares_its_block(tmp_path: Path) -> None:
+    """Reading the fence but not the marker would fail every quoted block."""
+    _write(
+        tmp_path,
+        "> <!-- verified: 2026-08-24 ran it -->\n> ```bash\n> echo hi\n> ```\n",
+    )
+    assert offending(scan([tmp_path]), {}) == []
+
+
+def test_a_nested_block_quote_is_found(tmp_path: Path) -> None:
+    """One level of quoting is not a special case worth hard-coding."""
+    _write(tmp_path, "> > ```bash\n> > echo hi\n> > ```\n")
+    assert len(offending(scan([tmp_path]), {})) == 1
+
+
+def test_quoting_a_block_does_not_change_its_fingerprint(tmp_path: Path) -> None:
+    """The command is the same command; the quote is presentation."""
+    plain = iter_blocks("```bash\necho hi\n```\n", Path("a.md"))[0]
+    quoted = iter_blocks("> ```bash\n> echo hi\n> ```\n", Path("a.md"))[0]
+    assert plain.fingerprint == quoted.fingerprint
