@@ -344,8 +344,15 @@ document has no observation of its output to show you.
 
 So a check hard-coded to either shape misreads the other, and neither shape can
 be inferred from what happens to be sitting in the tenant already. List the exact
-prefix the run just wrote, confirm each table you asked for is present under it,
-and make the check fail rather than only print.
+prefix the run just wrote, and make the check fail rather than only print.
+
+**Check bytes, not names.** A name appearing in a listing is not data. Spark's
+writer creates a `_SUCCESS` marker, and a prefix holding that and nothing else
+lists exactly like a prefix holding a table. So sum the size of the data objects
+under each expected prefix, ignoring `_SUCCESS` and any other zero-byte marker,
+and require that sum to be greater than zero for every table you asked for.
+Reading the row count back and comparing it against the source is stronger again,
+and is what `berdl_staging.py` already requires of a staged table.
 
 **Moving the data anywhere else is not documented here, deliberately.** The
 transfer mechanics live in the historical transport section below, which needs
