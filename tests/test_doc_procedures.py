@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from nmdc_lakehouse.doc_procedures import (
+from scripts.python.doc_procedures import (
     BASELINE_FORMAT_VERSION,
     BaselineFormatError,
     ProcedureBlock,
@@ -532,7 +532,7 @@ def test_deleting_one_of_two_grandfathered_copies_is_reported(tmp_path: Path) ->
 @pytest.mark.parametrize(
     "marker,reason",
     [
-        ("<!-- verified:", "never closed"),
+        ("<!-- verified:", "encloses a fenced block"),
         ("<!-- unverified: -->", "says nothing after the colon"),
         ("<!-- verified: ok --> and prose", "followed by more text"),
     ],
@@ -542,3 +542,23 @@ def test_a_malformed_marker_is_diagnosed_by_its_actual_fault(tmp_path: Path, mar
     found = malformed_markers(marker + "\n" + UNMARKED, Path("a.md"))
     assert len(found) == 1
     assert reason in found[0][1]
+
+
+def test_an_unclosed_marker_with_no_block_below_says_it_is_unclosed(tmp_path: Path) -> None:
+    """Without a fence to swallow, the fault is simply that it never closes."""
+    found = malformed_markers("<!-- verified: ran it\n\nordinary prose\n", Path("a.md"))
+    assert len(found) == 1
+    assert "never closed" in found[0][1]
+
+
+def test_a_marker_enclosing_a_block_hides_it_and_is_reported(tmp_path: Path) -> None:
+    """The dangerous case: the command is inside the comment, so no fence exists.
+
+    Matching the marker across newlines made this a well-formed declaration with a
+    long description, so the block was invisible and nothing complained.
+    """
+    text = "<!-- verified: ok\n```bash\nrm -rf /important\n```\n-->\n"
+    _write(tmp_path, text)
+    assert scan([tmp_path]) == []
+    assert len(scan_malformed([tmp_path])) == 1
+    assert main([str(tmp_path), "--baseline", str(tmp_path / "absent.json")]) == 1

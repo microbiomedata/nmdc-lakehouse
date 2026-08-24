@@ -174,7 +174,10 @@ def _marker_before(tokens: Sequence[Token], index: int) -> str | None:
     previous = tokens[index - 1]
     if previous.type != "html_block":
         return None
-    match = _MARKER.match(previous.content.strip())
+    content = previous.content.strip()
+    if _EMBEDDED_FENCE.search(content):
+        return None
+    match = _MARKER.match(content)
     return match.group("kind").lower() if match else None
 
 
@@ -212,6 +215,13 @@ def iter_blocks(text: str, path: Path) -> list[ProcedureBlock]:
 #: check at the same time, so a typo would hide a procedure rather than flag it.
 _MARKER_START = re.compile(r"^<!--\s*(verified|unverified)\s*:", re.IGNORECASE)
 
+#: A fence delimiter at the start of a line. A marker whose text contains one has
+#: swallowed a code block: the comment runs past it to a later "-->", so Markdown
+#: emits no fence and the block is invisible. Matching the marker across newlines
+#: is what let that pass as a well-formed declaration, so it is rejected here and
+#: reported rather than being read as a longer description.
+_EMBEDDED_FENCE = re.compile(r"^ {0,3}(?:`{3,}|~{3,})", re.MULTILINE)
+
 
 def malformed_markers(text: str, path: Path) -> list[tuple[int, str]]:
     """Return ``(line, text)`` for marker comments that are not well formed."""
@@ -220,7 +230,19 @@ def malformed_markers(text: str, path: Path) -> list[tuple[int, str]]:
         if token.type != "html_block":
             continue
         content = token.content.strip()
-        if not _MARKER_START.match(content) or _MARKER.match(content):
+        if not _MARKER_START.match(content):
+            continue
+        if _EMBEDDED_FENCE.search(content):
+            line = token.map[0] + 1 if token.map else 0
+            found.append(
+                (
+                    line,
+                    f"{content.splitlines()[0]}   (encloses a fenced block, which "
+                    f"Markdown reads as comment, so that block is invisible)",
+                )
+            )
+            continue
+        if _MARKER.match(content):
             continue
         if "-->" not in content:
             reason = "never closed, so Markdown reads everything below it as comment"

@@ -173,7 +173,7 @@ test-prose-lint-exit:
 # its hash and brings it under the rule, which is the point: the blocks being changed are the
 # blocks being claimed about. Do not add baseline entries by hand.
 doc-procedures:
-    uv run python -m nmdc_lakehouse.doc_procedures docs --baseline docs/procedure-baseline.json
+    uv run python scripts/python/doc_procedures.py docs --baseline docs/procedure-baseline.json
 
 # Assert that doc-procedures can actually fail. Runs offline, touches no tracked file.
 #
@@ -187,9 +187,9 @@ test-doc-procedures-exit:
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
     printf 'intro\n\n```bash\necho hi\n```\n' > "$tmp/undeclared.md"
     printf 'intro\n\n<!-- unverified: fixture, never run -->\n```bash\necho hi\n```\n' > "$tmp/declared.md"
-    rc=0; uv run --no-sync python -m nmdc_lakehouse.doc_procedures "$tmp/undeclared.md" --baseline "$tmp/absent.json" >/dev/null 2>&1 || rc=$?
+    rc=0; uv run --no-sync python scripts/python/doc_procedures.py "$tmp/undeclared.md" --baseline "$tmp/absent.json" >/dev/null 2>&1 || rc=$?
     [ "$rc" -ne 0 ] || { echo "doc-procedures did NOT fail on an undeclared block; the gate is inert"; exit 1; }
-    rc=0; uv run --no-sync python -m nmdc_lakehouse.doc_procedures "$tmp/declared.md" --baseline "$tmp/absent.json" >/dev/null 2>&1 || rc=$?
+    rc=0; uv run --no-sync python scripts/python/doc_procedures.py "$tmp/declared.md" --baseline "$tmp/absent.json" >/dev/null 2>&1 || rc=$?
     [ "$rc" -eq 0 ] || { echo "doc-procedures blocked a declared block; exit was $rc"; exit 1; }
     echo "doc-procedures exit contract holds: undeclared fails, declared passes"
 
