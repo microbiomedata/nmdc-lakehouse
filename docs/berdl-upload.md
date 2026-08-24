@@ -309,7 +309,11 @@ on 2026-08-21 shows `datasets`, `projects`, `shared` and `staging` and no
 rather than an established one:
 
 ```python
-prefix = "staging/exports/20260821T204900-results-backup"   # unique per run, not per day
+from datetime import UTC, datetime
+
+# Generated when this runs, so copying the snippet cannot reuse an earlier run's path.
+run = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+prefix = f"staging/exports/{run}-results-backup"
 df.write.parquet(f"s3a://cdm-lake/tenant-general-warehouse/nmdc/{prefix}/annotation_enzyme_commission.parquet")
 ```
 
