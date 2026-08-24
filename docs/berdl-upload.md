@@ -326,9 +326,8 @@ counts the writing job prints say nothing about where the bytes went, and in the
 tables you exported by name, so one that produced nothing at all is noticed
 rather than skipped, and make the check fail rather than only print.
 
-**Check the prefix your run wrote, not a layout you assume.** Two different
-layouts already coexist in this tenant, because two different tools produced
-them. Listing it on 2026-08-21 shows single objects:
+**Check the prefix your run wrote, not a layout you assume.** Listing the tenant
+on 2026-08-21 shows single objects:
 
 ```
 30GiB   datasets/results/annotation_enzyme_commission.parquet
@@ -342,15 +341,22 @@ names the two tables in cell 6 and uploads them in cell 8. They are not the outp
 directory of `part-*` objects instead. Nobody has run that write here, so this
 document has no observation of its output to show you.
 
-So a check hard-coded to either shape misreads the other, and neither shape can
-be inferred from what happens to be sitting in the tenant already. List the exact
-prefix the run just wrote, and make the check fail rather than only print.
+Single objects are the only layout observed in this tenant. The Spark layout is
+expected rather than observed, and this document does not claim otherwise. That
+is the reason not to hard-code a check to either shape: one is unverified here,
+and the other describes objects a different tool produced. List the exact prefix
+the run just wrote, and make the check fail rather than only print.
 
 **Check bytes, not names.** A name appearing in a listing is not data. Spark's
 writer creates a `_SUCCESS` marker, and a prefix holding that and nothing else
 lists exactly like a prefix holding a table. So sum the size of the data objects
 under each expected prefix, ignoring `_SUCCESS` and any other zero-byte marker,
 and require that sum to be greater than zero for every table you asked for.
+
+Non-zero bytes still are not proof of a usable table: a truncated or partially
+committed write also has a size. Open each expected table's Parquet footer and
+confirm it parses and reports the schema you asked for before you treat the
+export as safe to delete a source against.
 Reading the row count back and comparing it against the source is stronger again,
 and is what `berdl_staging.py` already requires of a staged table.
 
