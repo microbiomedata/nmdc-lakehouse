@@ -56,9 +56,18 @@ Rules carry different levels and only errors fail CI. `Mark.Jargon`,
 `Mark.ThroatClearing` and `Mark.EmDash` are errors because the maintained prose
 Vale checks has none of them. That is a claim about the linted set, not the
 repository: 149 em dash characters, on 142 lines, remain in 31 files Vale never
-reads, mostly notebooks, scripts and Python source. Count occurrences with
-`grep -o '\u2014' | wc -l`, since `grep -c` counts matching lines and seven of
-those files carry two on one line. `Mark.EmDash` was a warning until the prose backlog was
+reads, mostly notebooks, scripts and Python source. Count occurrences rather
+than lines, because `grep -c` counts matching lines and seven of those files
+carry two on one line:
+
+```bash
+git ls-files -z | xargs -0 grep -o $'\u2014' | wc -l   # bash or zsh
+```
+
+The escape rather than the character itself is deliberate. Vale would allow a
+literal em dash there, since it skips fenced blocks and inline code spans, but a
+file that documents this count must not add to it: with the character written
+out, the command returns 150 here instead of 149. `Mark.EmDash` was a warning until the prose backlog was
 cleared on 2026-08-24, which is the sequence a new rule should follow here: land
 it at warning, clear what it finds, then promote, so it never starts blocking
 work its author did not cause. `Mark.BareRef` is a
