@@ -63,6 +63,8 @@ expected to have write access, so the first write is not also the first surprise
 tooling, without changing either repository or contacting BERDL. Run it on either
 path:
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 uv run --no-sync nmdc-lakehouse berdl-doctor /absolute/path/to/completed-snapshot
 ```
@@ -75,6 +77,8 @@ they do not need.
 
 To validate only the snapshot, with nothing else reported:
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 uv run --no-sync nmdc-lakehouse validate-snapshot /absolute/path/to/completed-snapshot
 ```
@@ -82,6 +86,8 @@ uv run --no-sync nmdc-lakehouse validate-snapshot /absolute/path/to/completed-sn
 For a historical off-cluster run, supply the checkout and the two skipped checks
 become real:
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 export BERIL_CHECKOUT=/path/to/BERIL-research-observatory
 export BERDL_DESTINATION_ID=nmdc-production
@@ -93,6 +99,8 @@ just berdl-doctor /absolute/path/to/completed-snapshot
 If `just` stops while parsing a malformed repository `.env`, bypass its dotenv
 loading so the doctor can report the sanitized configuration failure itself:
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 uv run --no-sync nmdc-lakehouse berdl-doctor \
   /absolute/path/to/completed-snapshot
@@ -117,6 +125,8 @@ After generating and reviewing the snapshot-bound metadata bundle, fresh live
 inventory, and disposition plan, generate the provider-neutral metadata
 application plan for the explicitly selected staging namespace:
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 just metadata-application-plan \
   /absolute/path/to/metadata-bundle.json \
@@ -136,6 +146,8 @@ the bundle and inventory identities before applying the plan.
 Then run the destination-neutral artifact gate from the `nmdc-lakehouse`
 checkout:
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 just publication-preflight /absolute/path/to/completed-snapshot \
   /absolute/path/to/metadata-bundle.json \
@@ -155,6 +167,8 @@ them to a clean checkout of the official
 [`kbase/data-lakehouse-ingest`](https://github.com/kbase/data-lakehouse-ingest)
 package at the exact revision selected for staging:
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 just berdl-upload-plan \
   /path/to/completed-snapshot \
@@ -224,6 +238,8 @@ play no part in this and do not need to be up.
 **Archive the snapshot on macOS with `COPYFILE_DISABLE=1`, or it will arrive
 corrupted:**
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 COPYFILE_DISABLE=1 tar -czf snapshot.tar.gz -C /path/to/parent completed-snapshot
 ```
@@ -249,6 +265,8 @@ the real 54-sibling case reads the same way with a longer list.
 
 To clear AppleDouble siblings that are already in place:
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 find /path/to/completed-snapshot -name '._*' -delete
 ```
@@ -258,6 +276,8 @@ confirmed the Parquet bytes themselves had transferred correctly.
 
 **Validate in the pod, before planning:**
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 uv run --no-sync nmdc-lakehouse validate-snapshot /absolute/path/to/completed-snapshot
 ```
@@ -423,6 +443,8 @@ snapshot and all reviewed evidence must therefore be available in that pod.
 Start the Spark Connect sidecar with `get_spark_session()` in a notebook before
 using the pod terminal for a long-running execution. Preview is the default:
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 just berdl-upload \
   /path/to/berdl-staging-plan.json \
@@ -444,6 +466,8 @@ example, use `sha256sum` on Linux or `shasum -a 256` on macOS. Execute the same
 plan with both that digest and the snapshot ID printed in the plan as explicit,
 plan-bound authorization:
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 just berdl-upload \
   /path/to/berdl-staging-plan.json \
@@ -495,6 +519,8 @@ Those remain separate work in
 After staging has a `data-verified` outcome, preview the table and column
 description operations bound to it:
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 just berdl-apply-metadata \
   /path/to/metadata-application-plan.json \
@@ -523,6 +549,8 @@ where those concepts do not apply.
 The default check is offline. To make one bounded TCP probe of the separately
 managed local BERDL proxy, opt in:
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 just berdl-doctor /absolute/path/to/completed-snapshot \
   --service-check berdl-proxy
@@ -541,6 +569,8 @@ BERDL JupyterHub terminal, where `berdl_notebook_utils` is available. Supply
 observed provider and table-format labels rather than copying the historical
 Delta values from this guide:
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 python scripts/python/audit_database_metadata.py CURRENT_NAMESPACE \
   --publication-inventory /path/to/nmdc-metadata-destination-inventory.json \
@@ -591,6 +621,8 @@ These five belong to this section only. The maintained path does not use them.
 
 `data-lakehouse-ingest` requires Python >= 3.13, which may not be your system default.
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 uv python install 3.13
 uv venv .venv-berdl --python 3.13 --seed
@@ -600,6 +632,8 @@ uv venv .venv-berdl --python 3.13 --seed
 
 From [`kbaseincubator/BERIL-research-observatory`](https://github.com/kbaseincubator/BERIL-research-observatory):
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 bash scripts/bootstrap_client.sh
 bash scripts/bootstrap_ingest.sh
@@ -612,6 +646,8 @@ distributions in `.venv-berdl`.
 
 #### 3. MinIO client (`mc`)
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 mkdir -p ~/bin
 curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o ~/bin/mc   # macOS: darwin-amd64 or darwin-arm64
@@ -646,6 +682,8 @@ directories, since `LAKEHOUSE_ROOT`'s own default (`./lakehouse`) is relative
 and would resolve against the wrong checkout once you've `cd`'d into
 BERIL-research-observatory:
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 # From the nmdc-lakehouse checkout, before cd'ing anywhere else:
 export NMDC_LAKEHOUSE_DATA="$(realpath "${LAKEHOUSE_ROOT:-./lakehouse}")"
@@ -653,6 +691,8 @@ export NMDC_LAKEHOUSE_DATA="$(realpath "${LAKEHOUSE_ROOT:-./lakehouse}")"
 
 Two SOCKS tunnels reach BERDL's storage and compute from outside the cluster:
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 ssh -f -N -o ServerAliveInterval=60 -D 1338 ac.<your-berkeley-username>@login1.berkeley.kbase.us
 ssh -f -N -o ServerAliveInterval=60 -D 1337 ac.<your-berkeley-username>@login1.berkeley.kbase.us
@@ -660,6 +700,8 @@ ssh -f -N -o ServerAliveInterval=60 -D 1337 ac.<your-berkeley-username>@login1.b
 
 Then configure the MinIO client through the proxy:
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 source .venv-berdl/bin/activate
 eval "$(python scripts/get_minio_creds.py --bootstrap-remote --shell)"
@@ -674,6 +716,8 @@ to `http://127.0.0.1:8123` and configures the `berdl-minio` `mc` alias.
 
 ### Preflight
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 source .venv-berdl/bin/activate
 python scripts/ingest_preflight.py \
@@ -686,6 +730,8 @@ All 13 tables should show as single-batch.
 
 ### Upload metadata
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 https_proxy=http://127.0.0.1:8123 ~/bin/mc cp --recursive \
     "$NMDC_LAKEHOUSE_DATA/metadata/" \
@@ -701,6 +747,8 @@ The notebook itself isn't checked into either repo. It's a
 adapted on-cluster during the 2026-04-25 run. Download it into your BERIL-research-observatory
 checkout (or wherever you're running from) before executing:
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 source .venv-berdl/bin/activate
 jupyter nbconvert --to notebook --execute --inplace \
@@ -710,6 +758,8 @@ jupyter nbconvert --to notebook --execute --inplace \
 
 Poll progress:
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```bash
 https_proxy=http://127.0.0.1:8123 ~/bin/mc cat \
     "berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/datasets/nmdc_linkml_store/_ingest_progress.jsonl"
@@ -717,6 +767,8 @@ https_proxy=http://127.0.0.1:8123 ~/bin/mc cat \
 
 ### Verify in BERDL SQL
 
+<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
+     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
 ```sql
 SHOW TABLES IN nmdc_nmdc_linkml_store;
 SELECT COUNT(*) FROM nmdc_nmdc_linkml_store.biosample_set;

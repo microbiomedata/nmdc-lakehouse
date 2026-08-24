@@ -91,6 +91,66 @@ miss the vocabulary CI uses. It lints the same file set as CI, and passes
 `--minAlertLevel=suggestion` so warnings and suggestions stay visible to you
 without reaching CI.
 
+## Say whether a documented procedure has been run
+
+A fenced block under `docs/` in a language that runs something must carry a marker
+on the line above it. `just doc-procedures` fails without one, and CI runs it.
+
+```
+<!-- verified: 2026-08-24 staged 53 tables against the nmdc tenant -->
+<!-- unverified: needs a pod terminal, tracked in <issue URL> -->
+```
+
+Both pass. Running the procedure is not the requirement, because most of these
+cannot be run from a workstation. Saying which is. A procedure nobody has run, reading
+like a tested one, is what this prevents: `docs/berdl-upload.md` exists because a
+Spark write to a local path silently produced no backup, and five rounds of review
+on the change that documented it were spent on claims nobody had checked.
+
+Mark the block you changed. There is no exemption list and nothing to regenerate:
+every runnable block under `docs/` carries a marker, so the only way to satisfy
+the check is to say which kind your block is.
+
+A `verified` marker must carry a date, because that is the claim worth holding to
+a format. "verified: ok" asserts something with nothing behind it, which is the
+failure this exists to prevent. An `unverified` marker concedes rather than
+claims, so it needs only a reason and somewhere it is tracked.
+
+Most of the existing markers say `unverified`, which is the honest state: nobody
+has recorded running those procedures. Changing one to `verified` means you ran
+it and wrote down what came back.
+
+A block with no language, or a data language such as `json` or `text`, is inert
+and needs nothing. Any other language is treated as runnable, including one nobody
+here has used yet, because a language this check does not recognise should be
+checked rather than ignored.
+
+## Do not hand-write a parser for a format that has one
+
+Use the ecosystem parser for any format with a specification: Markdown through
+`markdown-it-py`, YAML through `PyYAML` or `ruamel.yaml`, HTML and XML through
+`lxml`, CSV through the `csv` module, Tom's Obvious Minimal Language (TOML)
+through `tomllib`, shell words through
+`shlex`. For `git`, use a porcelain format with `-z` and split on the null
+byte; the
+human-readable output loses any path containing a newline, and the record silently
+becomes a shorter path that never existed.
+
+Regular expressions are fine for line-oriented logs and for text with no grammar.
+
+The reason is measured rather than stylistic. A hand-written Markdown fence
+scanner in this repository was corrected seven times by review, and every defect
+was a way for a runnable block to go *unseen* rather than merely reported: an
+over-indented line read as a closing fence, a block quote prefix required to match
+byte for byte, a fence inside a block quote invisible entirely, trailing
+whitespace stripped when a backslash followed by a space stops escaping a newline.
+Replacing it with a parser closed all of them at once and shortened the code.
+
+The signal to watch for is a review finding count that rises or oscillates across
+rounds rather than falling. That means the fixes are producing new surface faster
+than they close it, and the answer is to change the approach rather than write
+another fix.
+
 ## Describe and review the change
 
 Use a concise, specific, imperative pull request title. The description should

@@ -150,6 +150,46 @@ test-prose-lint-exit:
     [ "$rc" -ne 0 ] || { echo "prose-lint did NOT block on an error; the gate is inert"; exit 1; }
     echo "prose-lint exit contract holds: warnings pass, errors fail"
 
+# Require every runnable fenced block in docs/ to say whether anyone has run it.
+#
+# Five review rounds on https://github.com/microbiomedata/nmdc-lakehouse/pull/285 traced to one
+# cause: the document described a procedure nobody had executed, and the claims around it were
+# inferred from unrelated observations. Reviewers caught that five times and the repository caught
+# it zero times, which is the gap this closes.
+#
+# A block passes by carrying either marker above it. `verified` records a run and must carry a
+# date; `unverified` states that it has not been run and where that is tracked. Both pass, because
+# forcing execution is not possible from a workstation for most of these. The failure is an unrun
+# procedure that reads like a tested one.
+#
+# CI does not run `just check`; .github/workflows/ci.yml invokes each recipe as its own step, so
+# both of these are listed there individually. A gate that only `just check` runs is a gate CI does
+# not have.
+#
+# There is no exemption list. One was tried, grandfathering the blocks that predated the rule by
+# content hash, and it produced seven distinct defects across eight rounds of review, each a way
+# for the check to stop applying. All 81 were declared instead.
+doc-procedures:
+    uv run python scripts/python/doc_procedures.py docs
+
+# Assert that doc-procedures can actually fail. Runs offline, touches no tracked file.
+#
+# A guard tested only on input it must accept asserts nothing, and this repository has shipped
+# that twice: a prose-lint call that could not match Vale's singular "1 error", and an export
+# check that iterated its destination so a wholly absent table passed. So this asserts both
+# directions against a fixture, never against docs/.
+test-doc-procedures-exit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    printf 'intro\n\n```bash\necho hi\n```\n' > "$tmp/undeclared.md"
+    printf 'intro\n\n<!-- unverified: fixture, never run, see #287 -->\n```bash\necho hi\n```\n' > "$tmp/declared.md"
+    rc=0; uv run --no-sync python scripts/python/doc_procedures.py "$tmp/undeclared.md" >/dev/null 2>&1 || rc=$?
+    [ "$rc" -ne 0 ] || { echo "doc-procedures did NOT fail on an undeclared block; the gate is inert"; exit 1; }
+    rc=0; uv run --no-sync python scripts/python/doc_procedures.py "$tmp/declared.md" >/dev/null 2>&1 || rc=$?
+    [ "$rc" -eq 0 ] || { echo "doc-procedures blocked a declared block; exit was $rc"; exit 1; }
+    echo "doc-procedures exit contract holds: undeclared fails, declared passes"
+
 # Dry-render one recipe with explicitly safe values, then lint without executing it.
 [private]
 _shellcheck-recipe RECIPE:
@@ -345,7 +385,7 @@ test-dist:
     bash scripts/check_distribution.sh
 
 # Run the deterministic local quality checks.
-check: lint-just prose-lint test-prose-lint-exit shellcheck actionlint lint deps-lint typecheck check-flat-schema test-cov diff-cover
+check: lint-just prose-lint test-prose-lint-exit doc-procedures test-doc-procedures-exit shellcheck actionlint lint deps-lint typecheck check-flat-schema test-cov diff-cover
 
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
 # See scripts/README.md for details. These recipes shell out to utilities under
