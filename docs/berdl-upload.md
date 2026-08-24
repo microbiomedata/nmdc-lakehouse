@@ -361,12 +361,22 @@ lists exactly like a prefix holding a table. So sum the size of the data objects
 under each expected prefix, ignoring `_SUCCESS` and any other zero-byte marker,
 and require that sum to be greater than zero for every table you asked for.
 
-Non-zero bytes still are not proof of a usable table: a truncated or partially
-committed write also has a size. Open each expected table's Parquet footer and
-confirm it parses and reports the schema you asked for before you treat the
-export as safe to delete a source against.
-Reading the row count back and comparing it against the source is stronger again,
-and is what `berdl_staging.py` already requires of a staged table.
+Non-zero bytes are not proof of a usable table either: a truncated or partially
+committed write also has a size. Parse every Parquet footer under the prefix and
+confirm each reports the schema you asked for. Note that Spark's directory writer
+puts one footer in every `part-` object rather than one per table, so this is a
+check on all of them, not on a single file.
+
+**Valid parts still do not mean a complete table.** A partly committed write
+leaves a subset of perfectly readable parts, and every content check above passes
+on that subset. The only check that establishes completeness is comparing the row
+count read back from the destination against the source, so require it, and treat
+it as the gate rather than as a stronger option. `src/nmdc_lakehouse/berdl_staging.py:155`
+defines that comparison and `:873` raises when the counts disagree, which is the
+standard a staged table is already held to.
+
+Nothing above authorizes deleting a source. An export written to a staging prefix
+nobody has verified end to end is not a backup, whatever its parts parse as.
 
 **Moving the data anywhere else is not documented here, deliberately.** The
 transfer mechanics live in the historical transport section below, which needs
