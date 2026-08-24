@@ -375,8 +375,13 @@ it as the gate rather than as a stronger option. `src/nmdc_lakehouse/berdl_stagi
 defines that comparison and `:873` raises when the counts disagree, which is the
 standard a staged table is already held to.
 
-Nothing above authorizes deleting a source. An export written to a staging prefix
-nobody has verified end to end is not a backup, whatever its parts parse as.
+**None of this authorizes deleting a source, even when every check passes.** The
+export lands in the tenant's own staging area, on the same platform as the table
+it came from, and the next paragraph says no off-platform transfer is documented
+here. A second copy beside the first is not an independent backup, so it does not
+carry a deletion. Whatever its parts parse as, treat it as a staging artifact
+until someone has performed and recorded a transfer off the platform, which is
+tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/250.
 
 **Moving the data anywhere else is not documented here, deliberately.** The
 transfer mechanics live in the historical transport section below, which needs
@@ -392,7 +397,7 @@ which depends on row width, nested and binary values, and per-object overhead. `
 compare them against the driver's available memory before choosing that route.
 
 **This section is not part of the maintained path**, despite sitting above the
-boundary, because no reviewed plan command performs an export. The trap below was
+boundary, because no reviewed plan command performs an export. The trap above was
 observed. The export guidance is manual and nobody has run it end to end, so
 treat it as a starting point that still needs verifying, not as a capability this
 repository offers.
