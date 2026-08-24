@@ -23,6 +23,7 @@ from nmdc_lakehouse.doc_procedures import (
     iter_blocks,
     load_baseline,
     main,
+    malformed_markers,
     offending,
     report,
     scan,
@@ -506,3 +507,38 @@ def test_an_ordinary_html_comment_is_not_a_malformed_marker(tmp_path: Path) -> N
     """Documents contain comments that have nothing to do with this rule."""
     _write(tmp_path, "<!-- a note to the reader -->\n" + UNMARKED)
     assert scan_malformed([tmp_path]) == []
+
+
+def test_deleting_one_of_two_grandfathered_copies_is_reported(tmp_path: Path) -> None:
+    """Presence is not enough when a key is budgeted for more than one copy.
+
+    The committed baseline has exactly one entry with an allowance of two, the
+    repeated validate-snapshot block in docs/berdl-upload.md. Comparing membership
+    rather than counts left that entry whole when one of its two copies went, so a
+    spare exemption survived for a body that no longer had two copies to spend it.
+    """
+    block = "```bash\necho twice\n```\n"
+    path = _write(tmp_path, block + "\ntext\n\n" + block)
+    baseline_path = tmp_path / "baseline.json"
+    write_baseline(baseline_path, scan([tmp_path]))
+    baseline = load_baseline(baseline_path)
+    assert list(baseline.values()) == [2]
+    assert stale_allowances(scan([tmp_path]), baseline) == []
+
+    path.write_text(block, encoding="utf-8")
+    assert len(stale_allowances(scan([tmp_path]), baseline)) == 1
+
+
+@pytest.mark.parametrize(
+    "marker,reason",
+    [
+        ("<!-- verified:", "never closed"),
+        ("<!-- unverified: -->", "says nothing after the colon"),
+        ("<!-- verified: ok --> and prose", "followed by more text"),
+    ],
+)
+def test_a_malformed_marker_is_diagnosed_by_its_actual_fault(tmp_path: Path, marker: str, reason: str) -> None:
+    """One message for three faults told two thirds of readers the wrong thing."""
+    found = malformed_markers(marker + "\n" + UNMARKED, Path("a.md"))
+    assert len(found) == 1
+    assert reason in found[0][1]

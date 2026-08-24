@@ -220,9 +220,16 @@ def malformed_markers(text: str, path: Path) -> list[tuple[int, str]]:
         if token.type != "html_block":
             continue
         content = token.content.strip()
-        if _MARKER_START.match(content) and not _MARKER.match(content):
-            line = token.map[0] + 1 if token.map else 0
-            found.append((line, content.splitlines()[0]))
+        if not _MARKER_START.match(content) or _MARKER.match(content):
+            continue
+        if "-->" not in content:
+            reason = "never closed, so Markdown reads everything below it as comment"
+        elif not content.endswith("-->"):
+            reason = "closed, then followed by more text in the same block"
+        else:
+            reason = "closed but says nothing after the colon"
+        line = token.map[0] + 1 if token.map else 0
+        found.append((line, f"{content.splitlines()[0]}   ({reason})"))
     return found
 
 
@@ -335,6 +342,11 @@ def offending(blocks: Iterable[ProcedureBlock], baseline: dict[str, int]) -> lis
 def stale_allowances(blocks: Iterable[ProcedureBlock], baseline: dict[str, int]) -> list[str]:
     """Return baseline entries whose body no longer appears in their file.
 
+    Compares counts rather than presence. Membership alone only noticed an entry
+    once its last copy was gone, so the one entry in the committed baseline with
+    an allowance of two survived intact when one of its two copies was deleted,
+    leaving a spare exemption for a body with fewer copies than it is budgeted.
+
     An allowance outlived its block. Edit a grandfathered block into something
     new and marked, and its old entry stayed in the baseline with nothing to
     spend it on; adding a fresh unmarked copy of the old body then spent it and
@@ -342,8 +354,8 @@ def stale_allowances(blocks: Iterable[ProcedureBlock], baseline: dict[str, int])
     baseline that no longer describes the tree is an error telling you to
     regenerate it rather than a set of spare permissions.
     """
-    present = {block.allowance_key for block in blocks}
-    return sorted(key for key in baseline if key not in present)
+    present: Counter[str] = Counter(block.allowance_key for block in blocks)
+    return sorted(key for key, count in baseline.items() if present[key] < count)
 
 
 def report(blocks: Sequence[ProcedureBlock], baseline: dict[str, int]) -> str:
@@ -396,8 +408,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(report(blocks, baseline))
     malformed = scan_malformed(args.paths or [Path("docs")])
     if malformed:
-        print(f"\n{len(malformed)} marker comments are not closed, so Markdown reads")
-        print("everything below them as comment, including any fence:")
+        print(f"\n{len(malformed)} marker comments are not usable declarations:")
         for entry in malformed:
             print(f"  {entry}")
     stale = stale_allowances(blocks, baseline)
