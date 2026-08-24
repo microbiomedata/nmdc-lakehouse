@@ -310,9 +310,12 @@ rather than an established one:
 
 ```python
 from datetime import UTC, datetime
+from uuid import uuid4
 
-# Generated when this runs, so copying the snippet cannot reuse an earlier run's path.
-run = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+# Generated when this runs, so copying the snippet cannot reuse an earlier run's
+# path. The random suffix matters: a timestamp alone resolves to one second, so
+# two exports started in the same second would share a prefix.
+run = f"{datetime.now(UTC):%Y%m%dT%H%M%S}-{uuid4().hex[:8]}"
 prefix = f"staging/exports/{run}-results-backup"
 df.write.parquet(f"s3a://cdm-lake/tenant-general-warehouse/nmdc/{prefix}/annotation_enzyme_commission.parquet")
 ```
