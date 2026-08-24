@@ -332,9 +332,9 @@ them. Listing it on 2026-08-21 shows single objects:
 46GiB   datasets/results/annotation_kegg_orthology.parquet
 ```
 
-Those are single-file uploads, written by `mc.fput_object` from a locally built
-Parquet file (`notebooks/ingest_ko_ec_annotations.ipynb` cell 8 and
-`notebooks/ingest_pfam_gff.ipynb` cell 8). They are not the output of the
+Both are single-file uploads written by `mc.fput_object` from a locally built
+Parquet file. Both come from `notebooks/ingest_ko_ec_annotations.ipynb`, which
+names the two tables in cell 6 and uploads them in cell 8. They are not the output of the
 `df.write.parquet` above, which is Spark's directory writer and produces a
 directory of `part-*` objects instead. Nobody has run that write here, so this
 document has no observation of its output to show you.
