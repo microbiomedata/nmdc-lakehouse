@@ -217,7 +217,7 @@ def test_a_clean_report_still_states_the_counts(tmp_path: Path) -> None:
     """Silence on success hides a check that stopped finding anything."""
     _write(tmp_path, VERIFIED)
     message = report(scan([tmp_path]), {})
-    assert "1 runnable blocks" in message
+    assert "1 runnable block," in message
     assert "declares neither" not in message
 
 
@@ -293,3 +293,29 @@ def test_a_baseline_with_no_version_raises(tmp_path: Path) -> None:
     stale.write_text(json.dumps({"allowances": {}}), encoding="utf-8")
     with pytest.raises(BaselineFormatError):
         load_baseline(stale)
+
+
+def test_paths_under_the_working_directory_are_recorded_relative(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The committed baseline holds relative paths, so that branch needs a test.
+
+    Every other test writes under `tmp_path`, which is outside the working
+    directory, so `_relative` always raised and returned the path unchanged. Line
+    coverage read 100% while the branch that actually produces baseline keys had
+    never returned.
+    """
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "a.md").write_text(UNMARKED, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    blocks = scan([Path("docs")])
+    assert [block.path.as_posix() for block in blocks] == ["docs/a.md"]
+    assert blocks[0].allowance_key.startswith("docs/a.md::")
+
+
+def test_a_single_block_is_not_reported_in_the_plural(tmp_path: Path) -> None:
+    """CI and operators read this line; "1 runnable blocks" is what it used to say."""
+    _write(tmp_path, UNMARKED)
+    message = report(scan([tmp_path]), {})
+    assert "1 runnable block," in message
+    assert "1 runnable blocks" not in message

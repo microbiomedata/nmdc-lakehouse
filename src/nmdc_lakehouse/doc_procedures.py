@@ -254,14 +254,18 @@ def offending(blocks: Iterable[ProcedureBlock], baseline: dict[str, int]) -> lis
 def report(blocks: Sequence[ProcedureBlock], baseline: dict[str, int]) -> str:
     """Return a message naming what was measured, not a presumed cause."""
     bad = offending(blocks, baseline)
-    counts = {
-        "runnable blocks": len(blocks),
-        "grandfathered": sum(1 for b in blocks if b.marker is None) - len(bad),
-        "verified": sum(1 for b in blocks if b.marker == "verified"),
-        "unverified": sum(1 for b in blocks if b.marker == "unverified"),
-        "undeclared": len(bad),
-    }
-    summary = ", ".join(f"{value} {name}" for name, value in counts.items())
+    undeclared = len(bad)
+    total = len(blocks)
+    noun = "runnable block" if total == 1 else "runnable blocks"
+    summary = ", ".join(
+        [
+            f"{total} {noun}",
+            f"{sum(1 for b in blocks if b.marker is None) - undeclared} grandfathered",
+            f"{sum(1 for b in blocks if b.marker == 'verified')} verified",
+            f"{sum(1 for b in blocks if b.marker == 'unverified')} unverified",
+            f"{undeclared} undeclared",
+        ]
+    )
     if not bad:
         return f"doc procedures: {summary}"
     lines = [f"doc procedures: {summary}", ""]
