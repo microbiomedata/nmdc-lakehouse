@@ -19,12 +19,14 @@ from scripts.python.doc_procedures import (
     BASELINE_FORMAT_VERSION,
     BaselineFormatError,
     ProcedureBlock,
+    added_by,
     fingerprint,
     iter_blocks,
     load_baseline,
     main,
     malformed_markers,
     offending,
+    pruned_baseline,
     report,
     scan,
     scan_malformed,
@@ -599,3 +601,56 @@ def test_a_marker_enclosing_a_fence_in_any_container_is_caught(tmp_path: Path, c
     _write(tmp_path, f"<!-- verified: ok\n{body}\n-->\n" + UNMARKED)
     assert len(scan_malformed([tmp_path])) == 1
     assert main([str(tmp_path), "--baseline", str(tmp_path / "absent.json")]) == 1
+
+
+def test_pruning_clears_a_stale_entry_without_exempting_new_work(tmp_path: Path) -> None:
+    """The recovery path a contributor is told to use must not disable the gate.
+
+    Marking a grandfathered block leaves its old entry stale. The obvious recovery,
+    regenerating, grandfathers every undeclared block in the tree, so following it
+    after adding a new block exempts that new block too. Pruning cannot.
+    """
+    path = _write(tmp_path, "```bash\necho original\n```\n")
+    baseline_path = tmp_path / "baseline.json"
+    write_baseline(baseline_path, scan([tmp_path]))
+
+    path.write_text(
+        "<!-- verified: 2026-08-24 ran it -->\n```bash\necho original\n```\n\n```bash\nrm -rf /brand-new\n```\n",
+        encoding="utf-8",
+    )
+    assert main([str(tmp_path), "--baseline", str(baseline_path), "--prune-baseline"]) == 0
+    assert load_baseline(baseline_path) == {}
+    assert main([str(tmp_path), "--baseline", str(baseline_path)]) == 1
+
+
+def test_pruning_never_adds_or_raises_an_allowance(tmp_path: Path) -> None:
+    """Its only safety property, asserted rather than described."""
+    _write(tmp_path, UNMARKED + "\ntext\n\n" + UNMARKED)
+    blocks = scan([tmp_path])
+    key = blocks[0].allowance_key
+    assert pruned_baseline(blocks, {key: 1}) == {key: 1}
+    assert pruned_baseline(blocks, {}) == {}
+    assert pruned_baseline(blocks, {key: 5}) == {key: 2}
+
+
+def test_regenerating_refuses_to_exempt_something_new(tmp_path: Path) -> None:
+    """The old advice is now an error naming what it would have hidden."""
+    path = _write(tmp_path, "```bash\necho original\n```\n")
+    baseline_path = tmp_path / "baseline.json"
+    write_baseline(baseline_path, scan([tmp_path]))
+    before = load_baseline(baseline_path)
+
+    path.write_text("```bash\necho original\n```\n\n" + UNMARKED, encoding="utf-8")
+    assert main([str(tmp_path), "--baseline", str(baseline_path), "--write-baseline"]) == 1
+    assert load_baseline(baseline_path) == before
+
+    assert main([str(tmp_path), "--baseline", str(baseline_path), "--write-baseline", "--force"]) == 0
+    assert load_baseline(baseline_path) != before
+
+
+def test_added_by_names_only_what_grows(tmp_path: Path) -> None:
+    """Used to decide whether a regenerate is a widening; must not fire on a shrink."""
+    assert added_by({"a": 1}, {"a": 1}) == []
+    assert added_by({"a": 1}, {"a": 2}) == ["a"]
+    assert added_by({"a": 2}, {"a": 1}) == []
+    assert added_by({}, {"b": 1}) == ["b"]

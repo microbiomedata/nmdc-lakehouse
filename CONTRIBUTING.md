@@ -107,10 +107,17 @@ like a tested one, is what this prevents: `docs/berdl-upload.md` exists because 
 Spark write to a local path silently produced no backup, and five rounds of review
 on the change that documented it were spent on claims nobody had checked.
 
-Mark the block you changed. Do not edit `docs/procedure-baseline.json` by hand and
-do not regenerate it to make a failure go away. It records the blocks that predate
-the rule, it shrinks as they get marked, and regenerating it grandfathers whatever
-you just wrote.
+Mark the block you changed. `docs/procedure-baseline.json` records the blocks that
+predate the rule; do not edit it by hand.
+
+Marking a grandfathered block changes its hash, so its old entry is left with
+nothing to spend and the check reports it. That is expected, and `just
+prune-doc-baseline` is the way to clear it. Pruning can only shrink the baseline,
+so it cannot exempt anything you have just written.
+
+Do not reach for `--write-baseline` to clear a failure. It grandfathers every
+undeclared block in the tree, including the one that tripped the check, which is a
+gate switching itself off. It refuses to do so without `--force` for that reason.
 
 A block with no language, or a data language such as `json` or `text`, is inert
 and needs nothing. Any other language is treated as runnable, including one nobody

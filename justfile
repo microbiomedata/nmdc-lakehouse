@@ -175,6 +175,15 @@ test-prose-lint-exit:
 doc-procedures:
     uv run python scripts/python/doc_procedures.py docs --baseline docs/procedure-baseline.json
 
+# Drop doc-procedure baseline entries the tree no longer needs.
+#
+# Run this after marking a grandfathered block. Marking changes its hash, which leaves its old
+# entry with nothing to spend, and `doc-procedures` reports that. Pruning takes the minimum of
+# each recorded allowance and what is actually undeclared now, so it can only shrink the baseline.
+# It cannot exempt anything you have just written, which is exactly what regenerating would do.
+prune-doc-baseline:
+    uv run python scripts/python/doc_procedures.py docs --baseline docs/procedure-baseline.json --prune-baseline
+
 # Assert that doc-procedures can actually fail. Runs offline, touches no tracked file.
 #
 # A guard tested only on input it must accept asserts nothing, and this repository has shipped

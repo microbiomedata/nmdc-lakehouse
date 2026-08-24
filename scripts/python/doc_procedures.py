@@ -329,20 +329,24 @@ def load_baseline(path: Path) -> dict[str, int]:
     return {str(key): int(value) for key, value in document.get("allowances", {}).items()}
 
 
-def write_baseline(path: Path, blocks: Iterable[ProcedureBlock]) -> None:
-    """Record how many undeclared copies of each body each file may keep."""
-    counts: Counter[str] = Counter(block.allowance_key for block in blocks)
+def write_counts(path: Path, counts: dict[str, int]) -> None:
+    """Write an allowance mapping to ``path``."""
     document = {
         "baseline_format_version": BASELINE_FORMAT_VERSION,
         "comment": (
             "Undeclared runnable doc blocks that predate the verification-marker "
             "rule. Each key is '<path>::<hash of language and body>'; each value is "
             "how many undeclared copies that file may keep. Do not add entries by "
-            "hand: mark the block instead."
+            "hand: mark the block instead, then run --prune-baseline."
         ),
         "allowances": dict(sorted(counts.items())),
     }
     path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+
+
+def write_baseline(path: Path, blocks: Iterable[ProcedureBlock]) -> None:
+    """Record how many undeclared copies of each body each file may keep."""
+    write_counts(path, dict(Counter(block.allowance_key for block in blocks)))
 
 
 def offending(blocks: Iterable[ProcedureBlock], baseline: dict[str, int]) -> list[ProcedureBlock]:
@@ -395,6 +399,27 @@ def stale_allowances(blocks: Iterable[ProcedureBlock], baseline: dict[str, int])
     return sorted(key for key, count in baseline.items() if present[key] < count)
 
 
+def pruned_baseline(blocks: Iterable[ProcedureBlock], baseline: dict[str, int]) -> dict[str, int]:
+    """Return ``baseline`` reduced to what the tree still needs, never increased.
+
+    This is the safe way out of a stale entry, and the only one a contributor
+    should need. Marking a grandfathered block changes its hash, which leaves its
+    old entry with nothing to spend, and the obvious recovery, regenerating the
+    baseline, exempts every undeclared block in the tree including whatever was
+    just written. Pruning takes the minimum of the recorded allowance and what is
+    actually undeclared now, so it can only shrink: it cannot add a key and cannot
+    raise a count.
+    """
+    undeclared: Counter[str] = Counter(block.allowance_key for block in blocks if block.marker is None)
+    kept = {key: min(count, undeclared[key]) for key, count in baseline.items()}
+    return {key: count for key, count in kept.items() if count > 0}
+
+
+def added_by(baseline: dict[str, int], proposed: dict[str, int]) -> list[str]:
+    """Return keys ``proposed`` would exempt that ``baseline`` does not already."""
+    return sorted(key for key, count in proposed.items() if count > baseline.get(key, 0))
+
+
 def report(blocks: Sequence[ProcedureBlock], baseline: dict[str, int]) -> str:
     """Return a message naming what was measured, not a presumed cause."""
     bad = offending(blocks, baseline)
@@ -434,12 +459,45 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="Grandfather every undeclared block found now. Use once, when adopting the check.",
     )
+    parser.add_argument(
+        "--prune-baseline",
+        action="store_true",
+        help="Drop baseline entries the tree no longer needs. Can only shrink it.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="With --write-baseline, allow exempting blocks that are not exempt today.",
+    )
     args = parser.parse_args(argv)
     blocks = scan(args.paths or [Path("docs")])
+    if args.prune_baseline:
+        existing = load_baseline(args.baseline)
+        kept = pruned_baseline(blocks, existing)
+        dropped = sum(existing.values()) - sum(kept.values())
+        write_counts(args.baseline, kept)
+        print(f"pruned {args.baseline}: {dropped} exemption(s) dropped, {sum(kept.values())} left")
+        return 0
     if args.write_baseline:
-        grandfathered = offending(blocks, {})
-        write_baseline(args.baseline, grandfathered)
-        print(f"wrote {args.baseline} with {len(grandfathered)} grandfathered blocks")
+        proposed = dict(Counter(block.allowance_key for block in offending(blocks, {})))
+        existing = load_baseline(args.baseline) if args.baseline.exists() else {}
+        added = added_by(existing, proposed)
+        if added and existing and not args.force:
+            print(
+                f"refusing to write {args.baseline}: it would newly exempt "
+                f"{len(added)} block(s) that are not exempt today."
+            )
+            for key in added:
+                print(f"  {key}")
+            print(
+                "\nMark those blocks instead. Regenerating to clear a failure is how a "
+                "gate\nstops applying to the work that tripped it. Use --prune-baseline "
+                "to drop\nentries the tree no longer needs, or --force if you really mean "
+                "to exempt\nthe blocks listed above."
+            )
+            return 1
+        write_baseline(args.baseline, offending(blocks, {}))
+        print(f"wrote {args.baseline} with {sum(proposed.values())} grandfathered blocks")
         return 0
     baseline = load_baseline(args.baseline)
     print(report(blocks, baseline))
@@ -455,7 +513,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         for key in stale:
             print(f"  {key}")
-        print("\nRegenerate with --write-baseline after checking the change was intended.")
+        print(
+            "\nThis is normal after marking or editing a grandfathered block. Run with "
+            "--prune-baseline\nto drop them: that can only shrink the baseline, so it "
+            "cannot exempt anything you have\njust written. Do not use --write-baseline "
+            "for this, which would grandfather every\nundeclared block in the tree."
+        )
     return 1 if offending(blocks, baseline) or stale or malformed else 0
 
 

@@ -1,6 +1,6 @@
 {
   "baseline_format_version": 3,
-  "comment": "Undeclared runnable doc blocks that predate the verification-marker rule. Each key is '<path>::<hash of language and body>'; each value is how many undeclared copies that file may keep. Do not add entries by hand: mark the block instead.",
+  "comment": "Undeclared runnable doc blocks that predate the verification-marker rule. Each key is '<path>::<hash of language and body>'; each value is how many undeclared copies that file may keep. Do not add entries by hand: mark the block instead, then run --prune-baseline.",
   "allowances": {
     "docs/berdl-promotion-probe.md::410b0f38e0ad34b2f90a5ebbfdb091a103817980bb47a747f74dea62d5344f69": 1,
     "docs/berdl-promotion-probe.md::5f06d68a484da7814840b8fc2986944372fea50c5b3e219583c84f6e1714c8fb": 1,
