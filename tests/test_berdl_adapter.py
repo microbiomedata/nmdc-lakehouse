@@ -35,7 +35,7 @@ def _arguments(tmp_path: Path) -> list[str]:
         "--staging-namespace",
         "nmdc.nmdc_metadata_staging_20260819",
         "--destination-provider",
-        "spark_catalog",
+        "nmdc",
         "--destination-table-format",
         "iceberg",
         "--mode",
@@ -58,7 +58,7 @@ def test_plan_only_reports_owned_adapter_inputs(tmp_path: Path, capsys: pytest.C
     assert document["status"] == "plan-only"
     assert document["tables"] == ["biosample_set"]
     assert document["destination"]["namespace"] == "nmdc.nmdc_metadata_staging_20260819"
-    assert document["destination"]["provider"] == "spark_catalog"
+    assert document["destination"]["provider"] == "nmdc"
     assert document["destination"]["table_format"] == "iceberg"
     assert document["ingest"]["api"] == "data_lakehouse_ingest.ingest"
 
@@ -115,7 +115,7 @@ def test_execute_uploads_verifies_and_calls_official_ingest(
 
     document = json.loads(capsys.readouterr().out)
     assert document["status"] == "verified"
-    assert document["destination"]["provider"] == "spark_catalog"
+    assert document["destination"]["provider"] == "nmdc"
     assert document["destination"]["table_format"] == "iceberg"
     assert document["verification"]["tables"][0]["source_rows"] == 1
     assert observed["config"]["tables"][0]["format"] == "parquet"
@@ -213,6 +213,9 @@ def test_runtime_rejects_package_imported_outside_selected_checkout(
         ("--staging-namespace", "nmdc.other", "exactly match"),
         ("--bucket", "192.168.1.1", "IP address"),
         ("--progress-key", "elsewhere/progress.jsonl", "children"),
+        # The label every inventory carried until 2026-08-24, while the tables it described
+        # were read from the `nmdc` catalog.
+        ("--destination-provider", "spark_catalog", "name the tenant catalog"),
     ],
 )
 def test_adapter_rejects_unsafe_destinations(

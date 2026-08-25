@@ -27,6 +27,20 @@ _SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _SAFE_PROPERTY = re.compile(r"[A-Za-z][A-Za-z0-9._-]{0,127}\Z")
 
 
+def catalog_of_namespace(namespace: str, label: str = "namespace") -> str:
+    """Return the catalog component of a namespace that has to name one.
+
+    Splitting on the first dot and taking element zero returns the whole string for a bare name,
+    so `provider == namespace.split(".")[0]` passes for `namespace="nmdc"` without any catalog
+    ever having been named. Every caller comparing a provider label against a catalog goes
+    through here so that the unqualified case raises instead of quietly agreeing.
+    """
+    catalog, separator, remainder = namespace.partition(".")
+    if not separator or not catalog or not remainder:
+        raise ValueError(f"A {label} must name a catalog, as <catalog>.<namespace>.")
+    return catalog
+
+
 class MetadataApplicationError(ValueError):
     """Raised when approved metadata cannot produce a safe operation plan."""
 
@@ -193,6 +207,10 @@ class MetadataApplicationPlan(BaseModel):
         """Require an explicit qualified identifier, never a destination default."""
         if not _SAFE_NAMESPACE.fullmatch(value):
             raise ValueError("Staging namespace must be a safe qualified identifier.")
+        # _SAFE_NAMESPACE makes the dotted part optional, so it never enforced what this
+        # docstring promises. Metadata application formats targets as `<namespace>.<table>`,
+        # which resolves through the session's default catalog when the namespace names none.
+        catalog_of_namespace(value, "staging namespace")
         return value
 
     @field_validator("tables")

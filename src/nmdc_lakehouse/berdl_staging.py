@@ -14,11 +14,12 @@ from collections.abc import Callable, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Final, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from nmdc_lakehouse.metadata_application import (
     MetadataApplicationPlan,
     build_metadata_application_plan,
+    catalog_of_namespace,
     load_metadata_application_plan,
 )
 from nmdc_lakehouse.metadata_bundle import MetadataBundle, load_metadata_bundle
@@ -47,7 +48,6 @@ _BUCKET_RESERVED_PREFIXES = ("xn--", "sthree-", "amzn-s3-demo-")
 _BUCKET_RESERVED_SUFFIXES = ("-s3alias", "--ol-s3", ".mrap", "--x-s3", "--table-s3")
 _OBJECT_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 _REVISION = re.compile(r"[0-9a-f]{40}\Z")
-_SUPPORTED_DESTINATION_PROVIDER: Final[Literal["spark_catalog"]] = "spark_catalog"
 _SUPPORTED_TABLE_FORMAT: Final[Literal["iceberg"]] = "iceberg"
 _SUPPORTED_INGEST_REVISIONS: Final = frozenset({"a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3"})
 
@@ -122,7 +122,7 @@ class BerdlStagingPlan(BaseModel):
     snapshot_id: str
     destination_id: str
     destination_observed_at: str
-    destination_provider: Literal["spark_catalog"]
+    destination_provider: str
     destination_table_format: Literal["iceberg"]
     staging_namespace: str
     tenant: str
@@ -137,18 +137,40 @@ class BerdlStagingPlan(BaseModel):
     artifacts: list[StagingArtifact]
     command: list[str]
 
+    @model_validator(mode="after")
+    def validate_provider_names_the_catalog(self) -> "BerdlStagingPlan":
+        """Require the provider label to name the catalog this plan actually writes into.
+
+        `destination_provider` is a label: nothing downstream addresses a table with it. That is
+        exactly why it drifted. Binding it to `tenant`, which is the catalog component of
+        `staging_namespace`, turns it into a check that the reviewed destination evidence and the
+        write target are the same catalog.
+        """
+        if self.staging_namespace != f"{self.tenant}.{self.dataset}":
+            raise ValueError("The staging namespace must be exactly <tenant>.<dataset>.")
+        if self.destination_provider != catalog_of_namespace(self.staging_namespace, "staging namespace"):
+            raise ValueError("The destination provider must name the catalog the staging namespace writes into.")
+        return self
+
 
 class UpstreamDestination(BaseModel):
     """Destination identity reported by the BERIL command."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    provider: Literal["spark_catalog"]
+    provider: str
     table_format: Literal["iceberg"]
     bucket: str
     bronze_prefix: str
     namespace: str
     mode: Literal["overwrite"]
+
+    @model_validator(mode="after")
+    def validate_provider_names_the_catalog(self) -> "UpstreamDestination":
+        """Hold BERIL's reported destination to the same catalog-naming rule as the plan."""
+        if self.provider != catalog_of_namespace(self.namespace, "reported namespace"):
+            raise ValueError("The reported provider must name the catalog of the reported namespace.")
+        return self
 
 
 class UpstreamTableVerification(BaseModel):
@@ -551,9 +573,10 @@ def build_berdl_staging_plan(
         config_key=config_key,
     )
     build_publication_preflight(manifest, bundle, inventory, publication_plan)
-    if inventory.provider != _SUPPORTED_DESTINATION_PROVIDER or inventory.table_format != _SUPPORTED_TABLE_FORMAT:
+    if inventory.provider != tenant or inventory.table_format != _SUPPORTED_TABLE_FORMAT:
         raise BerdlStagingPlanError(
-            "BERDL staging requires a reviewed spark_catalog destination using the Iceberg table format."
+            f"BERDL staging requires destination evidence observed in catalog '{tenant}' "
+            "using the Iceberg table format."
         )
     _require_target_validation(manifest, target_validation)
     _require_metadata_agreement(manifest, bundle, inventory, metadata_plan, staging_namespace)
@@ -597,7 +620,7 @@ def build_berdl_staging_plan(
         snapshot_id=manifest.snapshot_id,
         destination_id=inventory.destination_id,
         destination_observed_at=inventory.observed_at,
-        destination_provider=_SUPPORTED_DESTINATION_PROVIDER,
+        destination_provider=inventory.provider,
         destination_table_format=_SUPPORTED_TABLE_FORMAT,
         staging_namespace=staging_namespace,
         tenant=tenant,

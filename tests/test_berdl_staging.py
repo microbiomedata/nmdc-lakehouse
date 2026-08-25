@@ -11,9 +11,11 @@ from types import SimpleNamespace
 
 import pytest
 from click.testing import CliRunner
+from pydantic import ValidationError
 
 from nmdc_lakehouse import berdl_staging
 from nmdc_lakehouse.berdl_staging import (
+    BerdlStagingPlan,
     BerdlStagingPlanError,
     EvidenceDigest,
     UpstreamStagingOutcome,
@@ -152,7 +154,7 @@ def _inventory() -> DestinationInventory:
         inventory_format_version=1,
         destination_id="nmdc-production",
         observed_at="2026-08-19T12:15:00+00:00",
-        provider="spark_catalog",
+        provider="nmdc",
         table_format="iceberg",
         metadata_capabilities=[MetadataCapability.NAMESPACE, MetadataCapability.TABLE, MetadataCapability.COLUMN],
         tables=[DestinationTable(name="biosample_set", rows=1, physical_schema_sha256="c" * 64)],
@@ -413,7 +415,7 @@ def test_plan_binds_candidate_and_exact_plan_only_command(tmp_path: Path) -> Non
     assert plan.ingest.checkout == str((tmp_path / "data-lakehouse-ingest").resolve())
     assert plan.ingest.checkout_remote == "https://github.com/kbase/data-lakehouse-ingest.git"
     assert plan.ingest.package_tree_git_oid == "1" * 40
-    assert plan.destination_provider == "spark_catalog"
+    assert plan.destination_provider == "nmdc"
     assert plan.destination_table_format == "iceberg"
     assert "--destination-provider" in plan.command
     assert "--destination-table-format" in plan.command
@@ -441,14 +443,20 @@ def test_metadata_plan_must_match_snapshot_and_staging_namespace(tmp_path: Path)
         )
 
 
-@pytest.mark.parametrize(("provider", "table_format"), [(None, "iceberg"), ("spark_catalog", None), ("trino", "delta")])
+@pytest.mark.parametrize(
+    ("provider", "table_format"),
+    # "spark_catalog" is the label this destination evidence actually carried until 2026-08-24,
+    # while every table it described lived in the "nmdc" catalog. It is kept as a case because it
+    # is the exact drift this guard now catches, not a hypothetical one.
+    [(None, "iceberg"), ("nmdc", None), ("spark_catalog", "iceberg"), ("trino", "delta")],
+)
 def test_staging_requires_reviewed_supported_destination_contract(
     tmp_path: Path, provider: str | None, table_format: str | None
 ) -> None:
     inventory = _inventory().model_copy(update={"provider": provider, "table_format": table_format})
     publication_plan = build_publication_plan(_manifest(), inventory, PublicationPolicy(policy_format_version=1))
 
-    with pytest.raises(BerdlStagingPlanError, match="spark_catalog destination using the Iceberg"):
+    with pytest.raises(BerdlStagingPlanError, match="observed in catalog 'nmdc'"):
         _build(tmp_path, inventory=inventory, publication_plan=publication_plan)
 
 
@@ -1242,6 +1250,56 @@ def test_upstream_outcome_must_match_destination_tables_and_counts(tmp_path: Pat
             staging_plan_sha256="a" * 64,
             upstream_outcome_sha256="b" * 64,
         )
+
+
+def test_plan_provider_must_name_the_catalog_it_writes_into(tmp_path: Path) -> None:
+    """A plan cannot be reconstructed with a provider naming a catalog other than its tenant.
+
+    The build path already refuses mismatched inventory evidence. This covers the model itself,
+    so a hand-edited or replayed plan document cannot carry the mismatch back in.
+    """
+    document = _build(tmp_path).model_dump()
+    document["destination_provider"] = "spark_catalog"
+
+    with pytest.raises(ValidationError, match="must name the catalog the staging namespace writes into"):
+        BerdlStagingPlan.model_validate(document)
+
+
+def test_plan_namespace_must_be_exactly_tenant_and_dataset(tmp_path: Path) -> None:
+    """tenant="nmdc" with provider="nmdc" must not pass while the namespace names another catalog.
+
+    The provider agreeing with `tenant` says nothing on its own: only tying the namespace to
+    `<tenant>.<dataset>` makes `tenant` the catalog actually written into.
+    """
+    document = _build(tmp_path).model_dump()
+    document["staging_namespace"] = "spark_catalog.nmdc_metadata_staging_20260819"
+
+    with pytest.raises(ValidationError, match="exactly <tenant>.<dataset>"):
+        BerdlStagingPlan.model_validate(document)
+
+
+def test_upstream_destination_namespace_must_name_a_catalog(tmp_path: Path) -> None:
+    """A bare namespace splits to itself, so the provider comparison would agree vacuously."""
+    document = _upstream_outcome(_build(tmp_path)).model_dump()
+    document["destination"]["provider"] = "nmdc"
+    document["destination"]["namespace"] = "nmdc"
+
+    with pytest.raises(ValidationError, match="must name a catalog"):
+        UpstreamStagingOutcome.model_validate(document)
+
+
+def test_upstream_destination_provider_must_name_its_own_catalog(tmp_path: Path) -> None:
+    """A reported provider that names a different catalog than the reported namespace is rejected.
+
+    The model refuses this at parse time, so a BERIL outcome cannot describe a write to one
+    catalog while labeling it as another.
+    """
+    plan = _build(tmp_path)
+    document = _upstream_outcome(plan).model_dump()
+    document["destination"]["provider"] = "spark_catalog"
+
+    with pytest.raises(ValidationError, match="must name the catalog of the reported namespace"):
+        UpstreamStagingOutcome.model_validate(document)
 
 
 def test_cli_previews_staging_without_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

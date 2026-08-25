@@ -17,11 +17,11 @@ Usage:
     python scripts/python/audit_database_metadata.py nmdc_metadata nmdc_results
     python scripts/python/audit_database_metadata.py --columns --json data/audit.json
     python scripts/python/audit_database_metadata.py --columns --tables-with-issues
-    python scripts/python/audit_database_metadata.py nmdc_metadata \
+    python scripts/python/audit_database_metadata.py nmdc.metadata \
         --publication-inventory data/nmdc-metadata-inventory.json \
         --destination-id nmdc-production \
-        --provider spark_catalog \
-        --table-format delta \
+        --provider nmdc \
+        --table-format iceberg \
         --metadata-capability namespace \
         --metadata-capability table \
         --metadata-capability column
@@ -194,6 +194,22 @@ def build_publication_inventory(
     destination_id = _validate_label(destination_id, "Destination ID")
     provider = _validate_label(provider, "Provider")
     table_format = _validate_label(table_format, "Table format")
+    # Nothing downstream addresses a table with `provider`; it is only ever compared against a
+    # reviewed expectation. That is precisely how it drifted: inventories were labeled
+    # `spark_catalog` while every table they described was read from the `nmdc` catalog. Bind the
+    # label to the catalog actually queried so the artifact cannot misreport where it looked.
+    # An unqualified name resolves in whatever catalog the session happens to be pointed at, and
+    # the artifact has no field that records which one that was. Require the catalog to be written
+    # down.
+    if "." not in database:
+        raise PublicationInventoryError(
+            f"Database {database!r} must be catalog-qualified so the inventory records where it looked."
+        )
+    observed_catalog = database.split(".", 1)[0]
+    if provider != observed_catalog:
+        raise PublicationInventoryError(
+            f"Provider {provider!r} does not name the catalog {observed_catalog!r} being inventoried."
+        )
     if not metadata_capabilities or len(metadata_capabilities) != len(set(metadata_capabilities)):
         raise PublicationInventoryError("Metadata capabilities must be a nonempty list without duplicates.")
     unknown_capabilities = set(metadata_capabilities).difference(_METADATA_CAPABILITIES)
@@ -477,7 +493,10 @@ def main() -> int:
         help="Write a complete credential-free destination inventory for the publication planner",
     )
     ap.add_argument("--destination-id", help="Logical destination identity for publication inventory output")
-    ap.add_argument("--provider", help="Reviewed destination catalog/provider label")
+    ap.add_argument(
+        "--provider",
+        help="Reviewed destination catalog: the first component of the qualified database above",
+    )
     ap.add_argument("--table-format", help="Reviewed table format; checked against every discovered table")
     ap.add_argument(
         "--metadata-capability",

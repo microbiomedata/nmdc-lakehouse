@@ -293,10 +293,13 @@ checkout of the official `kbase/data-lakehouse-ingest` package at an explicit
 full Git revision and binds that API to the NMDC-owned adapter. BERIL Research
 Observatory is not part of this accountable ingestion boundary.
 
-The current adapter accepts only a destination inventory that identifies the
-`spark_catalog` provider and `iceberg` table format. Both values are retained in
-the immutable staging plan and its exact adapter arguments; an absent or
-incompatible destination contract cannot produce an executable-looking plan.
+The current adapter accepts only a destination inventory whose `provider` names
+the catalog the plan writes into, in the `iceberg` table format. The staging
+namespace is `<tenant>.<dataset>`, so the catalog is the tenant, and evidence
+observed in some other catalog is rejected rather than relabeled. Both values
+are retained in the immutable staging plan and its exact adapter arguments; an
+absent or incompatible destination contract cannot produce an
+executable-looking plan.
 
 The generated JSON records local paths and checksums for every reviewed input,
 including target validation, the selected Parquet identities, the KBase ingest
