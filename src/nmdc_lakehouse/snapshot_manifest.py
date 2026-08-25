@@ -33,7 +33,11 @@ MANIFEST_FORMAT_VERSION = 2
 SUPPORTED_MANIFEST_FORMAT_VERSIONS = frozenset({1, 2})
 # Fields that did not exist at version 1. Hashing them into a version 1 manifest would change an
 # identity that is already recorded in evidence, so they are removed before hashing one.
-_FIELDS_ADDED_AT_VERSION_2 = ("target_schema_version", "target_schema_versions")
+# Split by level on purpose. `footer_metadata_format_version` is new on an ARTIFACT and has
+# existed at the top level since version 1, so one shared list stripped the top-level field too
+# and broke the identity it was written to preserve.
+_TOP_LEVEL_FIELDS_ADDED_AT_VERSION_2 = ("target_schema_versions",)
+_ARTIFACT_FIELDS_ADDED_AT_VERSION_2 = ("target_schema_version", "footer_metadata_format_version")
 MANIFEST_NAME = "snapshot-manifest.json"
 _PREFIX = b"nmdc_lakehouse."
 _SOURCE_LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
@@ -60,6 +64,10 @@ class ArtifactRecord(BaseModel):
     source_schema_version: str
     source_class: str
     target_schema_id: str
+    # The version this artifact's own footer declares, rather than whatever the writer's constant
+    # said at manifest time. Without it a manifest could report a footer contract none of its
+    # files implement, and validation had nothing to compare against.
+    footer_metadata_format_version: str = ""
     # Empty for a version 1 footer, which predates this field. An artifact that cannot name the
     # flat schema that produced it is exactly what issue 293 is about, so the emptiness is
     # recorded rather than hidden behind a plausible default.
@@ -200,6 +208,18 @@ def _footer_value(schema: pa.Schema, key: str) -> str:
     return value.decode()
 
 
+def _required_from_version_2(schema: pa.Schema, key: str, footer_version: str, path: Path) -> str:
+    """Read a key that version 1 footers lack and version 2 footers must carry.
+
+    Treating it as optional unconditionally would let a footer claim version 2 while omitting the
+    field that version added, which is a footer contract nothing would then be enforcing.
+    """
+    value = _optional_footer_value(schema, key)
+    if not value and footer_version != "1":
+        raise SnapshotManifestError(f"Parquet footer for {path.name} declares format {footer_version} but omits {key}.")
+    return value
+
+
 def _optional_footer_value(schema: pa.Schema, key: str) -> str:
     """Return a footer value, or empty when the footer predates the key."""
     value = (schema.metadata or {}).get(_PREFIX + key.encode())
@@ -225,7 +245,8 @@ def _artifact(path: Path) -> ArtifactRecord:
             source_schema_version=_footer_value(schema, "source_schema_version"),
             source_class=_footer_value(schema, "source_class"),
             target_schema_id=_footer_value(schema, "target_schema_id"),
-            target_schema_version=_optional_footer_value(schema, "target_schema_version"),
+            footer_metadata_format_version=footer_version,
+            target_schema_version=_required_from_version_2(schema, "target_schema_version", footer_version, path),
             target_class=_footer_value(schema, "target_class"),
             mapping=_footer_value(schema, "mapping"),
         )
@@ -272,6 +293,21 @@ def _git_state(root: Path) -> tuple[str | None, bool | None]:
     return value, bool(status.stdout.strip()) if status.returncode == 0 else None
 
 
+def _single_footer_version(artifacts: list[ArtifactRecord]) -> str:
+    """Return the one footer version the artifacts share, refusing a snapshot that mixes them.
+
+    The manifest previously recorded the writer's current constant, so a snapshot of version 1
+    files would have declared version 2 and nothing would have noticed: the per-artifact record
+    did not carry the version either, so validation had nothing to compare against.
+    """
+    observed = sorted({artifact.footer_metadata_format_version for artifact in artifacts})
+    if not observed:
+        return FOOTER_METADATA_FORMAT_VERSION
+    if len(observed) > 1:
+        raise SnapshotManifestError("Snapshot mixes Parquet footer metadata formats: " + ", ".join(observed) + ".")
+    return observed[0]
+
+
 def _snapshot_identity(manifest: SnapshotManifest) -> str:
     """Hash the manifest over the field set its own format version defines.
 
@@ -286,10 +322,10 @@ def _snapshot_identity(manifest: SnapshotManifest) -> str:
         mode="json",
     )
     if manifest.manifest_format_version < 2:
-        for field in _FIELDS_ADDED_AT_VERSION_2:
+        for field in _TOP_LEVEL_FIELDS_ADDED_AT_VERSION_2:
             identity.pop(field, None)
         for artifact in identity.get("artifacts", []):
-            for field in _FIELDS_ADDED_AT_VERSION_2:
+            for field in _ARTIFACT_FIELDS_ADDED_AT_VERSION_2:
                 artifact.pop(field, None)
     return f"sha256:{_json_sha256(identity)}"
 
@@ -416,7 +452,7 @@ def build_manifest(root: Path, metrics_path: Path, source_label: str) -> Snapsho
         source_label=source_label,
         included_collections=sorted(included),
         skipped_collections=sorted(skipped),
-        footer_metadata_format_version=FOOTER_METADATA_FORMAT_VERSION,
+        footer_metadata_format_version=_single_footer_version(artifacts),
         target_schema_ids=sorted({artifact.target_schema_id for artifact in artifacts}),
         target_schema_versions=sorted({artifact.target_schema_version for artifact in artifacts}),
         mapping_ids=sorted({artifact.mapping for artifact in artifacts}),
@@ -494,6 +530,12 @@ def validate_snapshot(root: Path) -> SnapshotManifest:
     if _sha256(performance_path) != manifest.performance_record.sha256:
         raise SnapshotManifestError("Performance record checksum does not match the manifest.")
     rebuilt = [_artifact(root / item.path) for item in manifest.artifacts]
+    if manifest.manifest_format_version < 2:
+        # A version 1 manifest recorded neither of the version 2 artifact fields, so a fresh read
+        # of the same unchanged file differs from it by exactly those fields. Comparing them would
+        # report "content changed" for every snapshot written before this version, which is the
+        # same trap as hashing them.
+        rebuilt = [item.model_copy(update=dict.fromkeys(_ARTIFACT_FIELDS_ADDED_AT_VERSION_2, "")) for item in rebuilt]
     if rebuilt != manifest.artifacts:
         raise SnapshotManifestError(
             "Parquet content, rows, schemas, or footer contracts changed after manifest creation."

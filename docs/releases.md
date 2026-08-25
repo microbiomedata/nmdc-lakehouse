@@ -84,8 +84,14 @@ hand-edited artifact is refused even when the edit looks harmless.
 ### Artifacts declare the schema that produced them
 
 A Parquet footer carries `nmdc_lakehouse.target_schema_version`, and the snapshot manifest
-records it per artifact plus a `target_schema_versions` summary. So a file, and any lakehouse
-table loaded from it, can name the projection that wrote it without reference to this repository.
+records it per artifact plus a `target_schema_versions` summary. So a **file** can name the
+projection that wrote it without reference to this repository.
+
+A **lakehouse table cannot yet.** Nothing writes this into Iceberg table properties or column
+comments, so somebody querying `nmdc.metadata` rather than reading Parquet still has no way to
+ask which flattener produced what they are looking at. That is the remaining half of scope item 2
+in https://github.com/microbiomedata/nmdc-lakehouse/issues/293, and it is the half a consumer
+actually meets.
 
 More than one entry in `target_schema_versions` means a snapshot was assembled across a flattener
 change and is not internally consistent. Nothing could previously detect that.

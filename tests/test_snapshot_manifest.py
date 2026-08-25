@@ -16,6 +16,7 @@ from click.testing import CliRunner
 from nmdc_lakehouse import snapshot_manifest
 from nmdc_lakehouse.cli import cli
 from nmdc_lakehouse.jobs.collection_to_parquet import REVIEWED_SCHEMA_COLLECTIONS
+from nmdc_lakehouse.sinks.parquet_sink import FOOTER_METADATA_FORMAT_VERSION
 from nmdc_lakehouse.snapshot_manifest import (
     MANIFEST_FORMAT_VERSION,
     MANIFEST_NAME,
@@ -26,14 +27,16 @@ from nmdc_lakehouse.snapshot_manifest import (
 )
 
 
-def _snapshot_fixture(root: Path) -> Path:
+def _snapshot_fixture(root: Path, footer_version: bytes = b"2") -> Path:
+    """Write a one-artifact snapshot. Pass b"1" for a footer predating target_schema_version."""
     metadata = {
-        b"nmdc_lakehouse.footer_metadata_format_version": b"1",
+        b"nmdc_lakehouse.footer_metadata_format_version": footer_version,
         b"nmdc_lakehouse.source_schema_id": b"https://w3id.org/nmdc/nmdc",
         b"nmdc_lakehouse.source_schema_version": b"11.10.0",
         b"nmdc_lakehouse.source_class": b"Biosample",
         b"nmdc_lakehouse.target_schema_id": b"https://w3id.org/nmdc/nmdc-schema-flattened",
         b"nmdc_lakehouse.target_class": b"Biosample",
+        **({b"nmdc_lakehouse.target_schema_version": b"11.10.0+flat.1.0.0"} if footer_version != b"1" else {}),
         b"nmdc_lakehouse.mapping": b"nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener",
     }
     field = pa.field("id", pa.string(), metadata={b"nmdc_lakehouse.identifier": b"true"})
@@ -454,10 +457,118 @@ def test_a_version_2_manifest_does_hash_the_schema_version(tmp_path: Path) -> No
 
 
 def test_a_written_artifact_declares_the_flat_schema_that_produced_it(tmp_path: Path) -> None:
-    """The point of issue 293: a Parquet file that can name its own schema."""
+    """The point of issue 293: a Parquet file that can name its own schema.
+
+    Asserting the version numbers alone would pass with the field absent from every footer, which
+    is what the first version of this test did.
+    """
     metrics_path = _snapshot_fixture(tmp_path)
 
     manifest = build_manifest(tmp_path, metrics_path, "nmdc-production")
 
+    declared = {artifact.target_schema_version for artifact in manifest.artifacts}
+    assert declared == {"11.10.0+flat.1.0.0"}, declared
+    assert manifest.target_schema_versions == ["11.10.0+flat.1.0.0"]
     assert manifest.footer_metadata_format_version == "2"
-    assert manifest.manifest_format_version == 2
+    assert all(artifact.footer_metadata_format_version == "2" for artifact in manifest.artifacts)
+
+
+def test_a_version_2_footer_must_carry_the_field_version_2_added(tmp_path: Path) -> None:
+    """Optional-unconditionally would let a footer claim a contract it does not implement."""
+    _snapshot_fixture(tmp_path)
+    parquet_path = tmp_path / "biosample_set.parquet"
+    table = pq.read_table(parquet_path)
+    metadata = dict(table.schema.metadata)
+    del metadata[b"nmdc_lakehouse.target_schema_version"]
+    pq.write_table(table.replace_schema_metadata(metadata), parquet_path)
+
+    with pytest.raises(SnapshotManifestError, match="declares format 2 but omits"):
+        build_manifest(tmp_path, tmp_path / "etl-metrics.json", "nmdc-production")
+
+
+def test_a_version_1_footer_may_omit_it(tmp_path: Path) -> None:
+    """The requirement is scoped to the version that introduced the field, not to all footers."""
+    metrics_path = _snapshot_fixture(tmp_path, footer_version=b"1")
+
+    manifest = build_manifest(tmp_path, metrics_path, "nmdc-production")
+
+    assert manifest.footer_metadata_format_version == "1"
+    assert manifest.artifacts[0].target_schema_version == ""
+
+
+def test_the_manifest_reports_the_footer_version_its_artifacts_carry(tmp_path: Path) -> None:
+    """Not the writer's current constant.
+
+    Recording the constant meant a snapshot of version 1 files declared version 2, and nothing
+    could detect it, because the per-artifact record did not carry a version to compare against.
+    """
+    metrics_path = _snapshot_fixture(tmp_path, footer_version=b"1")
+
+    manifest = build_manifest(tmp_path, metrics_path, "nmdc-production")
+
+    assert FOOTER_METADATA_FORMAT_VERSION == "2", "the constant and the artifacts must differ here"
+    assert manifest.footer_metadata_format_version == "1"
+
+
+def test_a_snapshot_mixing_footer_versions_is_refused(tmp_path: Path) -> None:
+    """One manifest cannot honestly describe two footer contracts."""
+    metrics_path = _snapshot_fixture(tmp_path, footer_version=b"1")
+    older = pq.read_table(tmp_path / "biosample_set.parquet")
+    newer_metadata = dict(older.schema.metadata)
+    newer_metadata[b"nmdc_lakehouse.footer_metadata_format_version"] = b"2"
+    newer_metadata[b"nmdc_lakehouse.target_schema_version"] = b"11.10.0+flat.1.0.0"
+    pq.write_table(older.replace_schema_metadata(newer_metadata), tmp_path / "study_set.parquet")
+
+    metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    metrics["outputs"].append(
+        {
+            "table": "study_set",
+            "path": "study_set.parquet",
+            "rows": 1,
+            "bytes": (tmp_path / "study_set.parquet").stat().st_size,
+        }
+    )
+    metrics_path.write_text(json.dumps(metrics), encoding="utf-8")
+
+    with pytest.raises(SnapshotManifestError, match="mixes Parquet footer metadata formats"):
+        build_manifest(tmp_path, metrics_path, "nmdc-production")
+
+
+def test_a_version_1_snapshot_still_validates_end_to_end(tmp_path: Path) -> None:
+    """The whole point of the version-aware handling, exercised through validate_snapshot.
+
+    `local/mongodb-metadata-20260821_104214`, the snapshot the verified staging run was built
+    from, is a version 1 manifest. Everything here is what that file does on disk.
+    """
+    from nmdc_lakehouse.snapshot_manifest import _snapshot_identity
+
+    metrics_path = _snapshot_fixture(tmp_path, footer_version=b"1")
+    manifest = build_manifest(tmp_path, metrics_path, "nmdc-production")
+    manifest.manifest_format_version = 1
+    manifest.target_schema_versions = []
+    for artifact in manifest.artifacts:
+        artifact.target_schema_version = ""
+        artifact.footer_metadata_format_version = ""
+    manifest.snapshot_id = _snapshot_identity(manifest)
+    write_manifest(tmp_path, manifest)
+
+    assert validate_snapshot(tmp_path) == manifest
+
+
+def test_a_snapshot_with_no_artifacts_falls_back_to_the_current_footer_version() -> None:
+    from nmdc_lakehouse.snapshot_manifest import _single_footer_version
+
+    assert _single_footer_version([]) == FOOTER_METADATA_FORMAT_VERSION
+
+
+def test_a_footer_missing_a_key_required_at_every_version_is_refused(tmp_path: Path) -> None:
+    """Distinct from the version 2 rule: these keys have been required since version 1."""
+    _snapshot_fixture(tmp_path)
+    parquet_path = tmp_path / "biosample_set.parquet"
+    table = pq.read_table(parquet_path)
+    metadata = dict(table.schema.metadata)
+    del metadata[b"nmdc_lakehouse.source_class"]
+    pq.write_table(table.replace_schema_metadata(metadata), parquet_path)
+
+    with pytest.raises(SnapshotManifestError, match="missing required metadata: source_class"):
+        build_manifest(tmp_path, tmp_path / "etl-metrics.json", "nmdc-production")
