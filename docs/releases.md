@@ -110,9 +110,21 @@ snapshot, which the verified staging run was built from, into "Snapshot identity
 the manifest content". A version 1 manifest is hashed without the version 2 fields and keeps the
 identity it was written with.
 
-Anything added to the manifest in future needs the same treatment. Add the field name to
-`_FIELDS_ADDED_AT_VERSION_2`'s successor, bump the version, and widen the reader rather than
-pinning it.
+Anything added to the manifest in future needs the same treatment, in three places, because one
+added field broke existing snapshots three separate ways:
+
+1. Add the field name to `_TOP_LEVEL_FIELDS_ADDED_AT_VERSION_2` or
+   `_ARTIFACT_FIELDS_ADDED_AT_VERSION_2` in `src/nmdc_lakehouse/snapshot_manifest.py`, whichever
+   level it sits at. They are separate lists because `footer_metadata_format_version` is new on
+   an artifact and original at the top level, and one shared list stripped both.
+2. Bump `MANIFEST_FORMAT_VERSION` and widen `SUPPORTED_MANIFEST_FORMAT_VERSIONS` rather than
+   pinning the reader to the new value.
+3. Check `validate_snapshot`, which compares freshly read artifacts against stored ones. A new
+   per-artifact field makes an untouched file look changed until the rebuilt records are
+   normalised to the manifest's declared version.
+
+Then run `validate-snapshot` against a snapshot written before the change. That is what caught
+all three; none of them failed a unit test first.
 
 ### Produce the diff report for a release
 

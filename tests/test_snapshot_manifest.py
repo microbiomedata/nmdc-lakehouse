@@ -572,3 +572,15 @@ def test_a_footer_missing_a_key_required_at_every_version_is_refused(tmp_path: P
 
     with pytest.raises(SnapshotManifestError, match="missing required metadata: source_class"):
         build_manifest(tmp_path, tmp_path / "etl-metrics.json", "nmdc-production")
+
+
+def test_a_legacy_snapshot_summarises_no_schema_versions_rather_than_one_empty_one(
+    tmp_path: Path,
+) -> None:
+    """[""] reads as a version. An empty list reads as "these files cannot say"."""
+    metrics_path = _snapshot_fixture(tmp_path, footer_version=b"1")
+
+    manifest = build_manifest(tmp_path, metrics_path, "nmdc-production")
+
+    assert manifest.target_schema_versions == []
+    assert manifest.artifacts[0].target_schema_version == ""

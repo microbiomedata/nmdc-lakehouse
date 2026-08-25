@@ -203,9 +203,14 @@ def class_def_to_arrow_schema(
         )
         fields.append(pa.field(name, arrow_type, nullable=True, metadata=field_metadata))
     descriptions = {name: class_def.attributes[name].description for name in names}
+    # The version has to describe the keys that are present. `_encoded_metadata` drops falsy
+    # values, so a caller omitting target_schema_version previously still got a footer stamped
+    # "2", and the manifest reader then refused it as a version 2 footer missing a version 2 key.
+    # A writer that can emit something its own reader rejects is worse than either rule alone.
+    declared_version = FOOTER_METADATA_FORMAT_VERSION if target_schema_version else "1"
     schema_metadata = _encoded_metadata(
         {
-            "footer_metadata_format_version": FOOTER_METADATA_FORMAT_VERSION,
+            "footer_metadata_format_version": declared_version,
             "table_description": class_def.description,
             "source_schema_id": source_schema.id if source_schema else None,
             "source_schema_version": source_schema.version if source_schema else None,

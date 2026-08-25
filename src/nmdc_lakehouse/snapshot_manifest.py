@@ -454,7 +454,13 @@ def build_manifest(root: Path, metrics_path: Path, source_label: str) -> Snapsho
         skipped_collections=sorted(skipped),
         footer_metadata_format_version=_single_footer_version(artifacts),
         target_schema_ids=sorted({artifact.target_schema_id for artifact in artifacts}),
-        target_schema_versions=sorted({artifact.target_schema_version for artifact in artifacts}),
+        # Empties dropped. A snapshot of version 1 footers otherwise summarised as [""], which
+        # reads as one schema version rather than as "these files cannot say". An empty list is
+        # the honest answer, and it also keeps "more than one entry means the snapshot spans a
+        # flattener change" true, which [""] plus a real version would have broken.
+        target_schema_versions=sorted(
+            {artifact.target_schema_version for artifact in artifacts if artifact.target_schema_version}
+        ),
         mapping_ids=sorted({artifact.mapping for artifact in artifacts}),
         software=software,
         performance_record=PerformanceRecord(path=metrics_path.name, sha256=_sha256(metrics_path)),
