@@ -127,7 +127,7 @@ def test_missing_descriptions_are_explicit_and_not_operations() -> None:
     plan = build_metadata_application_plan(
         _bundle(_table("biosample_set", None, None)),
         _inventory(MetadataCapability.NAMESPACE, MetadataCapability.TABLE, MetadataCapability.COLUMN),
-        "nmdc_metadata_staging",
+        "nmdc.nmdc_metadata_staging",
     )
 
     assert [item.model_dump() for item in plan.missing_descriptions] == [
@@ -141,12 +141,12 @@ def test_rendering_is_deterministic_by_table_name() -> None:
     first = build_metadata_application_plan(
         _bundle(_table("study_set", "Study.", "Identifier."), _table("biosample_set", "Sample.", "ID.")),
         _inventory(MetadataCapability.TABLE, MetadataCapability.COLUMN),
-        "nmdc_metadata_staging",
+        "nmdc.nmdc_metadata_staging",
     )
     second = build_metadata_application_plan(
         _bundle(_table("biosample_set", "Sample.", "ID."), _table("study_set", "Study.", "Identifier.")),
         _inventory(MetadataCapability.TABLE, MetadataCapability.COLUMN),
-        "nmdc_metadata_staging",
+        "nmdc.nmdc_metadata_staging",
     )
 
     assert json.loads(render_metadata_application_plan(first)) == json.loads(render_metadata_application_plan(second))
@@ -157,7 +157,7 @@ def test_escaping_sensitive_content_remains_inert_data() -> None:
     plan = build_metadata_application_plan(
         _bundle(_table("biosample_set", value, "Identifier.")),
         _inventory(MetadataCapability.TABLE),
-        "nmdc_metadata_staging",
+        "nmdc.nmdc_metadata_staging",
     )
 
     operation = next(item for item in plan.supported_operations if item.kind == MetadataOperationKind.TABLE_DESCRIPTION)
@@ -171,9 +171,9 @@ def test_duplicate_inputs_are_rejected() -> None:
     duplicate_capabilities = _inventory(MetadataCapability.TABLE, MetadataCapability.TABLE)
 
     with pytest.raises(MetadataApplicationError, match="duplicate table"):
-        build_metadata_application_plan(duplicate_bundle, _inventory(), "nmdc_metadata_staging")
+        build_metadata_application_plan(duplicate_bundle, _inventory(), "nmdc.nmdc_metadata_staging")
     with pytest.raises(MetadataApplicationError, match="duplicate metadata capabilities"):
-        build_metadata_application_plan(_bundle(table), duplicate_capabilities, "nmdc_metadata_staging")
+        build_metadata_application_plan(_bundle(table), duplicate_capabilities, "nmdc.nmdc_metadata_staging")
 
 
 def test_copied_inventory_evidence_validation_is_sanitized() -> None:
@@ -181,14 +181,14 @@ def test_copied_inventory_evidence_validation_is_sanitized() -> None:
     inventory.observed_at = "not-a-timestamp"
 
     with pytest.raises(MetadataApplicationError, match="Cannot build a valid metadata application plan"):
-        build_metadata_application_plan(_bundle(), inventory, "nmdc_metadata_staging")
+        build_metadata_application_plan(_bundle(), inventory, "nmdc.nmdc_metadata_staging")
 
 
 def test_plan_loader_rejects_incomplete_table_coverage(tmp_path: Path) -> None:
     plan = build_metadata_application_plan(
         _bundle(_table("biosample_set", "Sample.", "Identifier.")),
         _inventory(MetadataCapability.TABLE, MetadataCapability.COLUMN),
-        "nmdc_metadata_staging",
+        "nmdc.nmdc_metadata_staging",
     )
     document = plan.model_dump(mode="json")
     document["tables"] = []
@@ -200,7 +200,7 @@ def test_plan_loader_rejects_incomplete_table_coverage(tmp_path: Path) -> None:
 
 
 def test_schema_and_atomic_output_are_versioned(tmp_path: Path) -> None:
-    plan = build_metadata_application_plan(_bundle(), _inventory(), "nmdc_metadata_staging")
+    plan = build_metadata_application_plan(_bundle(), _inventory(), "nmdc.nmdc_metadata_staging")
     output = tmp_path / "output" / "metadata-application-plan.json"
 
     assert metadata_application_json_schema()["x-format-version"] == 1
@@ -223,7 +223,7 @@ def test_offline_command_prints_and_writes_the_same_plan(tmp_path: Path) -> None
     bundle_path.write_text(bundle.model_dump_json(), encoding="utf-8")
     inventory_path.write_text(inventory.model_dump_json(), encoding="utf-8")
 
-    expected = plan_metadata_application(bundle_path, inventory_path, "nmdc_metadata_staging")
+    expected = plan_metadata_application(bundle_path, inventory_path, "nmdc.nmdc_metadata_staging")
     result = CliRunner().invoke(
         cli,
         [
@@ -232,7 +232,7 @@ def test_offline_command_prints_and_writes_the_same_plan(tmp_path: Path) -> None
             "--inventory",
             str(inventory_path),
             "--staging-namespace",
-            "nmdc_metadata_staging",
+            "nmdc.nmdc_metadata_staging",
             "--output",
             str(output),
         ],
@@ -257,7 +257,7 @@ def test_command_sanitizes_invalid_input(tmp_path: Path) -> None:
             "--inventory",
             str(inventory_path),
             "--staging-namespace",
-            "nmdc_metadata_staging",
+            "nmdc.nmdc_metadata_staging",
         ],
     )
 
@@ -282,7 +282,7 @@ def test_command_sanitizes_output_directory_failure(tmp_path: Path) -> None:
             "--inventory",
             str(inventory_path),
             "--staging-namespace",
-            "nmdc_metadata_staging",
+            "nmdc.nmdc_metadata_staging",
             "--output",
             str(blocked_parent / "plan.json"),
         ],

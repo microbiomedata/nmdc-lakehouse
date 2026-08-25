@@ -27,6 +27,7 @@ from nmdc_lakehouse.metadata_application import (
     MetadataApplicationPlan,
     MetadataOperation,
     MetadataOperationKind,
+    catalog_of_namespace,
 )
 
 # Bumped from 1 when AppliedMetadataTarget gained columns_already_correct and
@@ -159,7 +160,7 @@ def build_berdl_metadata_preview(
         or plan.staging_namespace != staging.staging_namespace
     ):
         raise BerdlMetadataError("The metadata plan does not match the verified staging outcome.")
-    staged_catalog = plan.staging_namespace.split(".", 1)[0]
+    staged_catalog = catalog_of_namespace(plan.staging_namespace, "staging namespace")
     if plan.destination_provider != staged_catalog or plan.destination_table_format != "iceberg":
         raise BerdlMetadataError("BERDL metadata application requires an Iceberg destination in the staged catalog.")
     staged_tables = sorted(table.table for table in staging.tables)

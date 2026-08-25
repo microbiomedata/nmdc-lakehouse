@@ -136,6 +136,20 @@ def test_preview_rejects_a_non_iceberg_destination() -> None:
         build_berdl_metadata_preview(plan, _staging(), metadata_plan_sha256="5" * 64, staging_outcome_sha256="6" * 64)
 
 
+def test_metadata_plan_namespace_must_name_a_catalog() -> None:
+    """A bare staging namespace would make the staged-catalog check agree with itself.
+
+    Metadata application formats targets as `<namespace>.<table>`, so an unqualified namespace
+    resolves through the session's default catalog rather than the staged one.
+    """
+    document = _plan().model_dump()
+    document["staging_namespace"] = "metadata_staging_20260820"
+    document["destination_provider"] = "metadata_staging_20260820"
+
+    with pytest.raises(ValidationError, match="must name a catalog"):
+        MetadataApplicationPlan.model_validate(document)
+
+
 def test_preview_rejects_a_provider_naming_another_catalog() -> None:
     """The label must name the catalog of the namespace that was actually staged."""
     plan = _plan()

@@ -1265,6 +1265,29 @@ def test_plan_provider_must_name_the_catalog_it_writes_into(tmp_path: Path) -> N
         BerdlStagingPlan.model_validate(document)
 
 
+def test_plan_namespace_must_be_exactly_tenant_and_dataset(tmp_path: Path) -> None:
+    """tenant="nmdc" with provider="nmdc" must not pass while the namespace names another catalog.
+
+    The provider agreeing with `tenant` says nothing on its own: only tying the namespace to
+    `<tenant>.<dataset>` makes `tenant` the catalog actually written into.
+    """
+    document = _build(tmp_path).model_dump()
+    document["staging_namespace"] = "spark_catalog.nmdc_metadata_staging_20260819"
+
+    with pytest.raises(ValidationError, match="exactly <tenant>.<dataset>"):
+        BerdlStagingPlan.model_validate(document)
+
+
+def test_upstream_destination_namespace_must_name_a_catalog(tmp_path: Path) -> None:
+    """A bare namespace splits to itself, so the provider comparison would agree vacuously."""
+    document = _upstream_outcome(_build(tmp_path)).model_dump()
+    document["destination"]["provider"] = "nmdc"
+    document["destination"]["namespace"] = "nmdc"
+
+    with pytest.raises(ValidationError, match="must name a catalog"):
+        UpstreamStagingOutcome.model_validate(document)
+
+
 def test_upstream_destination_provider_must_name_its_own_catalog(tmp_path: Path) -> None:
     """A reported provider that names a different catalog than the reported namespace is rejected.
 

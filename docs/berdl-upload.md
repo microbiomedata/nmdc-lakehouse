@@ -582,9 +582,8 @@ For NMDC the Iceberg catalog is `nmdc` and the live metadata namespace is
 copy, covered in
 https://github.com/microbiomedata/nmdc-lakehouse/issues/248.
 
-<!-- verified: run in the BERDL pod on 2026-08-24, producing the 49-table
-     inventory used by the staging run in
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/136 -->
+<!-- verified: run in the BERDL pod on 2026-08-24, producing a 49-table inventory.
+     Only the inventory capture below is covered by this marker. -->
 ```bash
 python scripts/python/audit_database_metadata.py nmdc.metadata \
   --publication-inventory /path/to/nmdc-metadata-destination-inventory.json \

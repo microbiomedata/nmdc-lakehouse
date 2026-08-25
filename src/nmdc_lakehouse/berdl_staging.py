@@ -19,6 +19,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationErro
 from nmdc_lakehouse.metadata_application import (
     MetadataApplicationPlan,
     build_metadata_application_plan,
+    catalog_of_namespace,
     load_metadata_application_plan,
 )
 from nmdc_lakehouse.metadata_bundle import MetadataBundle, load_metadata_bundle
@@ -145,7 +146,9 @@ class BerdlStagingPlan(BaseModel):
         `staging_namespace`, turns it into a check that the reviewed destination evidence and the
         write target are the same catalog.
         """
-        if self.destination_provider != self.tenant:
+        if self.staging_namespace != f"{self.tenant}.{self.dataset}":
+            raise ValueError("The staging namespace must be exactly <tenant>.<dataset>.")
+        if self.destination_provider != catalog_of_namespace(self.staging_namespace, "staging namespace"):
             raise ValueError("The destination provider must name the catalog the staging namespace writes into.")
         return self
 
@@ -165,7 +168,7 @@ class UpstreamDestination(BaseModel):
     @model_validator(mode="after")
     def validate_provider_names_the_catalog(self) -> "UpstreamDestination":
         """Hold BERIL's reported destination to the same catalog-naming rule as the plan."""
-        if self.provider != self.namespace.split(".", 1)[0]:
+        if self.provider != catalog_of_namespace(self.namespace, "reported namespace"):
             raise ValueError("The reported provider must name the catalog of the reported namespace.")
         return self
 
