@@ -478,8 +478,14 @@ schema-diff FROM TO="HEAD":
     schema="src/nmdc_lakehouse/schemas/nmdc_metadata.yaml"
     work="$(mktemp -d)"
     trap 'rm -rf "$work"' EXIT
-    git show "{{ FROM }}:$schema" > "$work/before.yaml"
-    git show "{{ TO }}:$schema" > "$work/after.yaml"
+    # Resolve first, so a revision beginning with "-" is rejected by rev-parse rather than
+    # reaching git show as an option. `--` is not the fix here: `git show -- REV:path` treats the
+    # argument as a path, exits 0 and prints nothing, which would diff two empty files and report
+    # no differences.
+    from_rev="$(git rev-parse --verify "{{ FROM }}^{commit}")"
+    to_rev="$(git rev-parse --verify "{{ TO }}^{commit}")"
+    git show "$from_rev:$schema" > "$work/before.yaml"
+    git show "$to_rev:$schema" > "$work/after.yaml"
     uv run python -m nmdc_lakehouse.cli schema-diff "$work/before.yaml" "$work/after.yaml"
 
 flatten-and-export-nmdc: flatten-nmdc export-nmdc-parquet export-flattened-biosample-csv

@@ -208,3 +208,31 @@ def test_cli_reports_an_unreadable_schema_as_a_clean_failure(tmp_path: Path) -> 
 
     assert result.exit_code != 0
     assert "Cannot read schema" in result.output
+
+
+def test_the_digest_is_read_from_its_own_annotation() -> None:
+    """A generic scan takes the first hex value in the document, which need not be ours.
+
+    The snapshot manifest already records several sha256 values, so an artifact that grew a
+    similar field would have verification checking the wrong string and still passing.
+    """
+    decoy = "b" * 64
+    real = "c" * 64
+    document = (
+        "annotations:\n"
+        "  some_other_digest:\n"
+        "    tag: some_other_digest\n"
+        f"    value: '{decoy}'\n"
+        "  flat_schema_sha256:\n"
+        "    tag: flat_schema_sha256\n"
+        f"    value: '{real}'\n"
+    )
+
+    assert declared_content_digest(document) == real
+
+
+def test_a_bare_annotation_still_works() -> None:
+    """The fallback keeps small fixtures readable rather than forcing the full artifact shape."""
+    digest = "d" * 64
+
+    assert declared_content_digest(f"    value: '{digest}'\n") == digest

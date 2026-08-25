@@ -42,6 +42,13 @@ class SchemaArtifactError(ValueError):
 # is not. Matching without allowing for them found nothing and reported "declares no content
 # digest" on a file that declared one.
 _SHA_LINE = re.compile(r"""(?m)^\s*value:\s*['"]?(?P<digest>[0-9a-f]{64})['"]?\s*$""")
+# Anchored on the annotation that owns the digest. The generic scan below takes the first
+# 64-character hex `value:` in the document, and nothing stops a future annotation from carrying
+# one: the snapshot manifest already records several sha256 values, and an artifact that grew a
+# similar field would have this verifying the wrong string while still reporting a clean pass.
+_ANCHORED_SHA = re.compile(
+    r"""(?m)^\s*flat_schema_sha256:\s*$\n(?:^\s+.*$\n)*?^\s*value:\s*['"]?(?P<digest>[0-9a-f]{64})['"]?\s*$"""
+)
 
 
 def _digest_of(rendered: str) -> str:
@@ -62,7 +69,14 @@ def resolve_content_digest(rendered: str) -> str:
 
 
 def declared_content_digest(rendered: str) -> str | None:
-    """Return the digest an artifact declares, or None when it declares none."""
+    """Return the digest an artifact declares, or None when it declares none.
+
+    Prefers the value under `flat_schema_sha256`, and falls back to the first hex `value:` only
+    for small fixtures that carry a bare annotation rather than the full artifact shape.
+    """
+    anchored = _ANCHORED_SHA.search(rendered)
+    if anchored is not None and anchored.group("digest") != UNRESOLVED_CONTENT_SHA256:
+        return anchored.group("digest")
     for match in _SHA_LINE.finditer(rendered):
         digest = match.group("digest")
         if digest != UNRESOLVED_CONTENT_SHA256:
