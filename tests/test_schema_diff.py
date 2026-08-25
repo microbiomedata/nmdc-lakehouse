@@ -236,3 +236,49 @@ def test_a_bare_annotation_still_works() -> None:
     digest = "d" * 64
 
     assert declared_content_digest(f"    value: '{digest}'\n") == digest
+
+
+def _code_spans(markdown: str) -> list[str]:
+    """Return the text of every code span a real CommonMark parser finds."""
+    from markdown_it import MarkdownIt
+
+    spans: list[str] = []
+
+    def walk(tokens) -> None:
+        for token in tokens:
+            if token.type == "code_inline":
+                spans.append(token.content)
+            if token.children:
+                walk(token.children)
+
+    walk(MarkdownIt("commonmark").parse(markdown))
+    return spans
+
+
+def test_a_description_containing_backticks_stays_inside_one_code_span(tmp_path: Path) -> None:
+    """The generated schema really does carry backticks in 79 class descriptions.
+
+    Wrapped in a single-backtick span, the span closes at the first inner backtick and the rest
+    of the line is mis-rendered. Checked with a CommonMark parser rather than by reading the
+    output, because the malformed form looks close enough to correct to pass a glance.
+    """
+    before = _schema(tmp_path, "before", "  T:\n    description: made by `SchemaDrivenFlattener` here\n")
+    after = _schema(tmp_path, "after", "  T:\n    description: made here\n")
+
+    report = render_diff(diff_schemas(before, after))
+
+    assert any("`SchemaDrivenFlattener`" in span for span in _code_spans(report))
+
+
+def test_code_span_widens_its_fence_for_any_run_of_backticks() -> None:
+    from nmdc_lakehouse.transforms.schema_diff import code_span
+
+    for text in ("plain", "one ` tick", "two `` ticks", "```", "`leading", "trailing`"):
+        rendered = code_span(text)
+        assert _code_spans(rendered) == [text], f"{text!r} rendered as {rendered!r}"
+
+
+def test_an_empty_value_renders_as_none_rather_than_an_empty_span() -> None:
+    from nmdc_lakehouse.transforms.schema_diff import code_span
+
+    assert _code_spans(code_span("")) == ["(none)"]

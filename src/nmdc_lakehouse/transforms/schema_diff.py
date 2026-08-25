@@ -147,6 +147,31 @@ def diff_schemas(before_path: str, after_path: str) -> SchemaDiff:
     return result
 
 
+def code_span(text: str) -> str:
+    """Wrap text in a Markdown code span that survives backticks inside it.
+
+    Schema descriptions contain backticks. The generated flat schema carries "produced by
+    `SchemaDrivenFlattener`" in 79 class descriptions, and this report printed those inside a
+    single-backtick span, which closes at the first inner backtick and mis-renders the rest of
+    the line.
+
+    CommonMark's rule: a code span may be delimited by any number of backticks, and closes on the
+    first run of exactly that length. So use one more than the longest run inside. A leading or
+    trailing backtick additionally needs a space, because CommonMark strips one space from each
+    end when both are present.
+    """
+    if not text:
+        return "`(none)`"
+    longest = 0
+    run = 0
+    for character in text:
+        run = run + 1 if character == "`" else 0
+        longest = max(longest, run)
+    fence = "`" * (longest + 1)
+    pad = " " if text.startswith("`") or text.endswith("`") else ""
+    return f"{fence}{pad}{text}{pad}{fence}"
+
+
 def _differing_part(before: str, after: str, context: int = 24, width: int = 70) -> tuple[str, str]:
     """Return the two values trimmed to where they actually diverge.
 
@@ -199,18 +224,21 @@ def render_diff(diff: SchemaDiff, limit: int = 40) -> str:
             lines.append(f"- ... and {len(items) - limit} more, not shown")
         lines.append("")
 
-    section("Tables added", [f"`{t}`" for t in diff.tables_added])
-    section("Tables removed", [f"`{t}`" for t in diff.tables_removed])
-    section("Attributes added", [f"`{t}.{a}`" for t, a in diff.attributes_added])
-    section("Attributes removed", [f"`{t}.{a}`" for t, a in diff.attributes_removed])
+    section("Tables added", [code_span(t) for t in diff.tables_added])
+    section("Tables removed", [code_span(t) for t in diff.tables_removed])
+    section("Attributes added", [code_span(f"{t}.{a}") for t, a in diff.attributes_added])
+    section("Attributes removed", [code_span(f"{t}.{a}") for t, a in diff.attributes_removed])
     section(
         "Table descriptions changed",
-        ["`{}`: `{}` -> `{}`".format(c.table, *_differing_part(c.before, c.after)) for c in diff.tables_changed],
+        [
+            "{}: {} -> {}".format(code_span(c.table), *(code_span(part) for part in _differing_part(c.before, c.after)))
+            for c in diff.tables_changed
+        ],
     )
     section(
         "Attributes changed",
         [
-            f"`{c.table}.{c.attribute}` {c.what}: `{c.before or '(none)'}` -> `{c.after or '(none)'}`"
+            f"{code_span(f'{c.table}.{c.attribute}')} {c.what}: {code_span(c.before)} -> {code_span(c.after)}"
             for c in diff.attributes_changed
         ],
     )
