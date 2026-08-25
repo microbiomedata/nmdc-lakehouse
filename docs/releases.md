@@ -55,6 +55,46 @@ There is no automated PyPI publication workflow yet. If public publication is
 enabled, use PyPI Trusted Publishing from a protected GitHub environment. Do
 not create or store a long-lived PyPI API token in repository secrets.
 
+## The flat schema has its own version
+
+The package version and the flat metadata schema version are different things and move for
+different reasons. `src/nmdc_lakehouse/schemas/nmdc_metadata.yaml` declares
+
+```
+version: <nmdc-schema version>+flat.<flattener version>
+```
+
+for example `11.23.0+flat.1.0.0`. The first half says which upstream release it derives from. The
+second is `FLATTENER_VERSION` in `src/nmdc_lakehouse/transforms/schema_generator.py`, and it
+belongs to this repository's projection rules.
+
+Until 2026-08-25 the artifact declared only the upstream version, so three committed revisions all
+said `11.23.0` while differing in content. A consumer holding two tables written from two of those
+could not tell them apart, which is the first question a consumer asks.
+
+**Bump `FLATTENER_VERSION` in the same pull request that changes what the flattener emits.**
+Raise the minor part when a table, attribute or range changes, and the patch part when only
+descriptions or annotations move. `just check-flat-schema` will tell you the artifact is stale; it
+cannot tell you the version should have moved, because that judgement is about what changed and why.
+
+The artifact also carries `flat_schema_sha256`, a digest of its own rendered text with that field
+blanked. It is computed rather than typed, and `just check-flat-schema` recomputes it, so a
+hand-edited artifact is refused even when the edit looks harmless.
+
+### Produce the diff report for a release
+
+<!-- verified: run on 2026-08-25 against the two revisions named in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/293, which reported 79 changed
+     table descriptions -->
+```bash
+just schema-diff <older-revision> <newer-revision>
+```
+
+Include the report in the release notes when the flat schema moved. It lists tables and attributes
+added or removed, ranges and other attribute properties changed, and table descriptions changed.
+When two artifacts differ in a way the report does not model, it says so explicitly rather than
+reporting no differences, so a quiet "nothing changed" is not something it can produce.
+
 ## Supported Python
 
 The package supports Python 3.13 and intentionally excludes Python 3.14. Keep

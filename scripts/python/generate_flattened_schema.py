@@ -15,7 +15,9 @@ Default OUTPUT_PATH: src/nmdc_lakehouse/schemas/nmdc_metadata.yaml
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
+import re
 import tempfile
 from importlib.metadata import version
 from importlib.util import find_spec
@@ -24,13 +26,75 @@ from pathlib import Path
 from linkml_runtime import SchemaView
 from linkml_runtime.dumpers import yaml_dumper
 
-from nmdc_lakehouse.transforms.schema_generator import flatten_database_schema
+from nmdc_lakehouse.transforms.schema_generator import (
+    UNRESOLVED_CONTENT_SHA256,
+    flatten_database_schema,
+)
 
 CANONICAL_OUTPUT = Path(__file__).resolve().parents[2] / "src/nmdc_lakehouse/schemas/nmdc_metadata.yaml"
 
 
 class SchemaArtifactError(ValueError):
     """Raised when the canonical target schema cannot be generated or checked."""
+
+
+# The dumper quotes a 64-character hex string, so the quotes are part of the line and the digest
+# is not. Matching without allowing for them found nothing and reported "declares no content
+# digest" on a file that declared one.
+_SHA_LINE = re.compile(r"""(?m)^\s*value:\s*['"]?(?P<digest>[0-9a-f]{64})['"]?\s*$""")
+# Anchored on the annotation that owns the digest. The generic scan below takes the first
+# 64-character hex `value:` in the document, and nothing stops a future annotation from carrying
+# one: the snapshot manifest already records several sha256 values, and an artifact that grew a
+# similar field would have this verifying the wrong string while still reporting a clean pass.
+_ANCHORED_SHA = re.compile(
+    r"""(?m)^\s*flat_schema_sha256:\s*$\n(?:^\s+.*$\n)*?^\s*value:\s*['"]?(?P<digest>[0-9a-f]{64})['"]?\s*$"""
+)
+
+
+def _digest_of(rendered: str) -> str:
+    """Hash the document as it reads with the digest field blanked out.
+
+    A document cannot contain its own digest, so the value is computed over the rendered text
+    with the placeholder still in place. Verification does the substitution in reverse, which
+    makes the check reproducible arithmetic rather than a stored number nobody can recompute.
+    """
+    return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+
+
+def resolve_content_digest(rendered: str) -> str:
+    """Replace the placeholder digest with the hash of the document that carries it."""
+    if UNRESOLVED_CONTENT_SHA256 not in rendered:
+        raise SchemaArtifactError("The rendered schema carries no placeholder digest to resolve.")
+    return rendered.replace(UNRESOLVED_CONTENT_SHA256, _digest_of(rendered), 1)
+
+
+def declared_content_digest(rendered: str) -> str | None:
+    """Return the digest an artifact declares, or None when it declares none.
+
+    Prefers the value under `flat_schema_sha256`, and falls back to the first hex `value:` only
+    for small fixtures that carry a bare annotation rather than the full artifact shape.
+    """
+    anchored = _ANCHORED_SHA.search(rendered)
+    if anchored is not None and anchored.group("digest") != UNRESOLVED_CONTENT_SHA256:
+        return anchored.group("digest")
+    for match in _SHA_LINE.finditer(rendered):
+        digest = match.group("digest")
+        if digest != UNRESOLVED_CONTENT_SHA256:
+            return digest
+    return None
+
+
+def verify_content_digest(rendered: str) -> None:
+    """Fail when an artifact's declared digest does not describe its own content."""
+    declared = declared_content_digest(rendered)
+    if declared is None:
+        raise SchemaArtifactError("The schema artifact declares no content digest.")
+    expected = _digest_of(rendered.replace(declared, UNRESOLVED_CONTENT_SHA256, 1))
+    if declared != expected:
+        raise SchemaArtifactError(
+            f"The schema artifact's declared digest {declared[:16]} does not match its content "
+            f"({expected[:16]}). The file was edited by hand, or generation changed without a rerun."
+        )
 
 
 def render_installed_schema() -> str:
@@ -44,7 +108,7 @@ def render_installed_schema() -> str:
         schema_view,
         source_package_version=version("nmdc-schema"),
     )
-    return yaml_dumper.dumps(flat_schema)
+    return resolve_content_digest(yaml_dumper.dumps(flat_schema))
 
 
 def check_schema_artifact(path: Path, expected: str) -> None:
@@ -89,7 +153,9 @@ def main(argv: list[str] | None = None) -> None:
         rendered = render_installed_schema()
         if args.check:
             check_schema_artifact(args.output, rendered)
+            verify_content_digest(args.output.read_text(encoding="utf-8"))
             print(f"Generated schema artifact is current: {args.output}")
+            print(f"  version: {SchemaView(str(args.output)).schema.version}")
         else:
             write_schema_artifact(args.output, rendered)
             schema_view = SchemaView(str(args.output))

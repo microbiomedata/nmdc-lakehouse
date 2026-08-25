@@ -470,6 +470,24 @@ generate-flat-schema *ARGS:
 check-flat-schema:
     @uv run python scripts/python/generate_flattened_schema.py --check
 
+# Report what changed in the flat schema between two git revisions.
+# Example: just schema-diff c4d6ceb 9073b67
+schema-diff FROM TO="HEAD":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    schema="src/nmdc_lakehouse/schemas/nmdc_metadata.yaml"
+    work="$(mktemp -d)"
+    trap 'rm -rf "$work"' EXIT
+    # Resolve first, so a revision beginning with "-" is rejected by rev-parse rather than
+    # reaching git show as an option. `--` is not the fix here: `git show -- REV:path` treats the
+    # argument as a path, exits 0 and prints nothing, which would diff two empty files and report
+    # no differences.
+    from_rev="$(git rev-parse --verify "{{ FROM }}^{commit}")"
+    to_rev="$(git rev-parse --verify "{{ TO }}^{commit}")"
+    git show "$from_rev:$schema" > "$work/before.yaml"
+    git show "$to_rev:$schema" > "$work/after.yaml"
+    uv run python -m nmdc_lakehouse.cli schema-diff "$work/before.yaml" "$work/after.yaml"
+
 flatten-and-export-nmdc: flatten-nmdc export-nmdc-parquet export-flattened-biosample-csv
     @echo ""
     @echo "=== NMDC flatten and export complete ==="

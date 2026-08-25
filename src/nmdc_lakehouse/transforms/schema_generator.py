@@ -51,6 +51,19 @@ PRIMARY_MAPPING_ID = "nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener
 SIDE_TABLE_MAPPING_ID = "nmdc_lakehouse.transforms.flatteners.side_table_rows"
 SCHEMA_GENERATOR_ID = "nmdc_lakehouse.transforms.schema_generator.flatten_database_schema"
 
+# The projection's own version, bumped when THIS code changes what it emits, never when
+# nmdc-schema changes. Until 2026-08-25 the flat schema declared the upstream version instead, so
+# three committed revisions all said 11.23.0 while differing in content (a638437c, 72cdacd0,
+# b4e0f7a8). A consumer holding two of those tables could not tell them apart, which is the
+# question a consumer asks first. Raise the minor part when a shape changes, the patch part when
+# only descriptions or annotations move.
+FLATTENER_VERSION = "1.0.0"
+
+# Filled in after rendering, because a document cannot contain its own digest. The generator
+# renders with this placeholder in place, hashes that exact text, then substitutes. Verifying
+# runs the same substitution in reverse, so the check is arithmetic rather than trust.
+UNRESOLVED_CONTENT_SHA256 = "0" * 64
+
 
 def flatten_class_def(
     schema_view: SchemaView,
@@ -122,6 +135,17 @@ def flatten_class_def(
     return cls
 
 
+def flat_schema_version(source_schema_version: str) -> str:
+    """Return the flat schema's own version, which names both halves of what produced it.
+
+    `<source>+flat.<flattener>`, so a reader can still see which nmdc-schema this derives from
+    while two schemas built by different flatteners from the same upstream release are no longer
+    identical strings. The build-metadata form is deliberate: it is the semver part that says
+    "same upstream, different projection".
+    """
+    return f"{source_schema_version}+flat.{FLATTENER_VERSION}"
+
+
 def flatten_database_schema(
     schema_view: SchemaView,
     database_class: str = "Database",
@@ -140,7 +164,7 @@ def flatten_database_schema(
     out = SchemaDefinition(
         id=schema_id,
         name=schema_name,
-        version=source_schema_version,
+        version=flat_schema_version(source_schema_version),
         description=(
             "Flattened LinkML schema describing primary and side-table output "
             "for every schema-specified collection. Generated; do not edit by hand."
@@ -152,6 +176,8 @@ def flatten_database_schema(
                 tag="source_package_version", value=source_package_version or source_schema_version
             ),
             "schema_generator": Annotation(tag="schema_generator", value=SCHEMA_GENERATOR_ID),
+            "flattener_version": Annotation(tag="flattener_version", value=FLATTENER_VERSION),
+            "flat_schema_sha256": Annotation(tag="flat_schema_sha256", value=UNRESOLVED_CONTENT_SHA256),
             "primary_mapping": Annotation(tag="primary_mapping", value=PRIMARY_MAPPING_ID),
             "side_table_mapping": Annotation(tag="side_table_mapping", value=SIDE_TABLE_MAPPING_ID),
         },

@@ -94,6 +94,11 @@ jobs:
       - name: Typecheck
         run: just typecheck
 
+      # In `just check` since it was written, and never in CI, so a stale schema artifact could
+      # merge while a local run refused it. That drift is https://github.com/microbiomedata/nmdc-lakehouse/issues/290.
+      - name: Check the committed flat schema matches current generation
+        run: just check-flat-schema
+
       - name: Check doc procedures declare whether anyone ran them
         run: just doc-procedures
 
