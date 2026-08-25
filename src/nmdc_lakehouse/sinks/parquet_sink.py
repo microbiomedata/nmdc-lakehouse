@@ -41,7 +41,10 @@ _BASE_TO_ARROW: dict[str, pa.DataType] = {
 }
 
 _METADATA_PREFIX = "nmdc_lakehouse."
-FOOTER_METADATA_FORMAT_VERSION = "1"
+# Bumped from "1" when target_schema_version was added. Readers accept both, so the snapshots
+# already on disk still validate; only new writes carry the new key. See
+# SUPPORTED_FOOTER_METADATA_FORMAT_VERSIONS in snapshot_manifest.
+FOOTER_METADATA_FORMAT_VERSION = "2"
 
 # Spark reads its own schema from this Parquet footer key rather than from Arrow field metadata,
 # and a field's "comment" there is documented to become the column comment on a table Spark creates
@@ -156,6 +159,7 @@ def class_def_to_arrow_schema(
     source_schema: SchemaDefinition | None = None,
     source_class: str | None = None,
     target_schema_id: str | None = None,
+    target_schema_version: str | None = None,
     mapping: str | None = None,
 ) -> pa.Schema:
     """Derive a PyArrow schema from a LinkML ClassDefinition.
@@ -170,6 +174,9 @@ def class_def_to_arrow_schema(
         source_schema: LinkML schema from which the projection was generated.
         source_class: Root LinkML class projected into this table.
         target_schema_id: Stable identifier for the generated target schema.
+        target_schema_version: Version of the flat schema that produced this table. Distinct from
+            the source schema version: the same nmdc-schema release projected by different
+            flattener code gives a different value, which is the whole reason it is recorded.
         mapping: Stable identity of the mapping used to produce table rows.
 
     Returns:
@@ -204,6 +211,7 @@ def class_def_to_arrow_schema(
             "source_schema_version": source_schema.version if source_schema else None,
             "source_class": source_class,
             "target_schema_id": target_schema_id,
+            "target_schema_version": target_schema_version,
             "target_class": class_def.name,
             "mapping": mapping,
         }
@@ -279,6 +287,7 @@ class ParquetSink:
         source_schema: SchemaDefinition | None = None,
         source_class: str | None = None,
         target_schema_id: str | None = None,
+        target_schema_version: str | None = None,
         mapping: str | None = None,
     ) -> None:
         """Construct a ParquetSink.
@@ -295,6 +304,7 @@ class ParquetSink:
             source_schema: LinkML schema from which the projection was generated.
             source_class: Root LinkML class projected into this table.
             target_schema_id: Stable identifier for the generated target schema.
+            target_schema_version: Version of the flat schema that produced this table.
             mapping: Stable identity of the mapping used to produce table rows.
         """
         self.root = Path(root)
@@ -306,6 +316,7 @@ class ParquetSink:
                 source_schema=source_schema,
                 source_class=source_class,
                 target_schema_id=target_schema_id,
+                target_schema_version=target_schema_version,
                 mapping=mapping,
             )
             if class_def is not None

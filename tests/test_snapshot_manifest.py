@@ -17,6 +17,7 @@ from nmdc_lakehouse import snapshot_manifest
 from nmdc_lakehouse.cli import cli
 from nmdc_lakehouse.jobs.collection_to_parquet import REVIEWED_SCHEMA_COLLECTIONS
 from nmdc_lakehouse.snapshot_manifest import (
+    MANIFEST_FORMAT_VERSION,
     MANIFEST_NAME,
     SnapshotManifestError,
     build_manifest,
@@ -145,7 +146,7 @@ def test_manifest_schema_cli_emits_versioned_json_schema() -> None:
 
     assert result.exit_code == 0
     assert schema["title"] == "SnapshotManifest"
-    assert schema["x-manifest-format-version"] == 1
+    assert schema["x-manifest-format-version"] == MANIFEST_FORMAT_VERSION
     assert "artifacts" in schema["properties"]
 
 
@@ -408,3 +409,55 @@ def test_missing_or_unresponsive_git_does_not_block_manifest(monkeypatch, tmp_pa
     monkeypatch.setattr(snapshot_manifest.subprocess, "run", lambda *_args, **_kwargs: (_ for _ in ()).throw(error))
 
     assert snapshot_manifest._git_state(tmp_path) == (None, None)
+
+
+def test_a_version_1_manifest_keeps_the_identity_it_was_written_with(tmp_path: Path) -> None:
+    """Adding a field must not invalidate snapshots already on disk.
+
+    This is a regression, not a hypothetical. Adding `target_schema_version` hashed it into the
+    identity of every manifest, and `validate-snapshot` on the 2026-08-21 snapshot, the one the
+    verified staging run was built from, began reporting "Snapshot identity does not match the
+    manifest content".
+    """
+    from nmdc_lakehouse.snapshot_manifest import _snapshot_identity
+
+    metrics_path = _snapshot_fixture(tmp_path)
+    manifest = build_manifest(tmp_path, metrics_path, "nmdc-production")
+    manifest.manifest_format_version = 1
+    manifest.target_schema_versions = []
+    for artifact in manifest.artifacts:
+        artifact.target_schema_version = ""
+    before = _snapshot_identity(manifest)
+
+    # A version 1 manifest read by a version 2 reader picks the new fields up as defaults. Those
+    # must not reach the hash.
+    manifest.target_schema_versions = ["11.23.0+flat.1.0.0"]
+    for artifact in manifest.artifacts:
+        artifact.target_schema_version = "11.23.0+flat.1.0.0"
+
+    assert _snapshot_identity(manifest) == before
+
+
+def test_a_version_2_manifest_does_hash_the_schema_version(tmp_path: Path) -> None:
+    """The exclusion is scoped to version 1, or the new field would record nothing at all."""
+    from nmdc_lakehouse.snapshot_manifest import _snapshot_identity
+
+    metrics_path = _snapshot_fixture(tmp_path)
+    manifest = build_manifest(tmp_path, metrics_path, "nmdc-production")
+    manifest.manifest_format_version = 2
+    manifest.target_schema_versions = ["11.23.0+flat.1.0.0"]
+    before = _snapshot_identity(manifest)
+
+    manifest.target_schema_versions = ["11.23.0+flat.2.0.0"]
+
+    assert _snapshot_identity(manifest) != before
+
+
+def test_a_written_artifact_declares_the_flat_schema_that_produced_it(tmp_path: Path) -> None:
+    """The point of issue 293: a Parquet file that can name its own schema."""
+    metrics_path = _snapshot_fixture(tmp_path)
+
+    manifest = build_manifest(tmp_path, metrics_path, "nmdc-production")
+
+    assert manifest.footer_metadata_format_version == "2"
+    assert manifest.manifest_format_version == 2

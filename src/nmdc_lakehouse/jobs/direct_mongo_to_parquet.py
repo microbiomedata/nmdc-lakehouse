@@ -80,7 +80,11 @@ class DirectMongoToParquetJob(Job):
         """Stream records from MongoDB through a raw cursor into Parquet."""
         from linkml_runtime import SchemaView
 
-        from nmdc_lakehouse.transforms.schema_generator import DEFAULT_FLATTENED_SCHEMA_ID, flatten_class_def
+        from nmdc_lakehouse.transforms.schema_generator import (
+            DEFAULT_FLATTENED_SCHEMA_ID,
+            flat_schema_version,
+            flatten_class_def,
+        )
 
         schema_view = SchemaView(_schema_path())
         flat_class = flatten_class_def(schema_view, self.root_class)
@@ -157,6 +161,7 @@ class DirectMongoToParquetJob(Job):
                     source_schema=schema_view.schema,
                     source_class=self.root_class,
                     target_schema_id=DEFAULT_FLATTENED_SCHEMA_ID,
+                    target_schema_version=flat_schema_version(str(schema_view.schema.version or "unversioned")),
                     mapping=DIRECT_MAPPING_ID,
                 )
                 rows_written = sink.write(_stream(), table=self.collection)

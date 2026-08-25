@@ -131,6 +131,7 @@ class CollectionToParquetJob(Job):
         from nmdc_lakehouse.transforms.flatteners import side_table_rows
         from nmdc_lakehouse.transforms.schema_generator import (
             DEFAULT_FLATTENED_SCHEMA_ID,
+            flat_schema_version,
             flatten_class_def,
             side_table_class_defs,
         )
@@ -217,6 +218,7 @@ class CollectionToParquetJob(Job):
                 source_schema=schema_view.schema,
                 source_class=self.root_class,
                 target_schema_id=DEFAULT_FLATTENED_SCHEMA_ID,
+                target_schema_version=flat_schema_version(str(schema_view.schema.version or "unversioned")),
                 mapping="nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener",
             )
             side_writers: dict[str, StreamingWriter] = {}
@@ -235,6 +237,7 @@ class CollectionToParquetJob(Job):
                         source_schema=schema_view.schema,
                         source_class=self.root_class,
                         target_schema_id=DEFAULT_FLATTENED_SCHEMA_ID,
+                        target_schema_version=flat_schema_version(str(schema_view.schema.version or "unversioned")),
                         mapping="nmdc_lakehouse.transforms.flatteners.side_table_rows",
                     ),
                 )

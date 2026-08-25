@@ -81,6 +81,33 @@ The artifact also carries `flat_schema_sha256`, a digest of its own rendered tex
 blanked. It is computed rather than typed, and `just check-flat-schema` recomputes it, so a
 hand-edited artifact is refused even when the edit looks harmless.
 
+### Artifacts declare the schema that produced them
+
+A Parquet footer carries `nmdc_lakehouse.target_schema_version`, and the snapshot manifest
+records it per artifact plus a `target_schema_versions` summary. So a file, and any lakehouse
+table loaded from it, can name the projection that wrote it without reference to this repository.
+
+More than one entry in `target_schema_versions` means a snapshot was assembled across a flattener
+change and is not internally consistent. Nothing could previously detect that.
+
+Two format versions moved together and both readers accept the old value:
+
+| | was | is |
+| --- | --- | --- |
+| `footer_metadata_format_version` | `1` | `2` |
+| `manifest_format_version` | `1` | `2` |
+
+**Snapshot identity is computed over the field set the manifest itself declares.** That is not a
+nicety. The identity is a hash of the manifest document, so adding a field silently invalidates
+every snapshot ever written: adding this one turned `validate-snapshot` on the 2026-08-21
+snapshot, which the verified staging run was built from, into "Snapshot identity does not match
+the manifest content". A version 1 manifest is hashed without the version 2 fields and keeps the
+identity it was written with.
+
+Anything added to the manifest in future needs the same treatment. Add the field name to
+`_FIELDS_ADDED_AT_VERSION_2`'s successor, bump the version, and widen the reader rather than
+pinning it.
+
 ### Produce the diff report for a release
 
 <!-- verified: run on 2026-08-25 against the two revisions named in

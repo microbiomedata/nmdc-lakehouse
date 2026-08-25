@@ -20,7 +20,20 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from nmdc_lakehouse.sinks.parquet_sink import FOOTER_METADATA_FORMAT_VERSION
 
-MANIFEST_FORMAT_VERSION = 1
+# Both accepted on read. Version 2 added target_schema_version, which version 1 files do not
+# carry, so pinning to the current version alone would refuse every snapshot already on disk,
+# including the one the 2026-08-25 staging run was built from. Widening the reader is the same
+# choice inventory_format_version made, and for the same reason.
+SUPPORTED_FOOTER_METADATA_FORMAT_VERSIONS = frozenset({"1", "2"})
+
+# Bumped from 1 when target_schema_version(s) were added. Both are accepted on read, and the
+# identity below is computed over the field set the manifest declares, so every snapshot written
+# before this still validates against the identity it was written with.
+MANIFEST_FORMAT_VERSION = 2
+SUPPORTED_MANIFEST_FORMAT_VERSIONS = frozenset({1, 2})
+# Fields that did not exist at version 1. Hashing them into a version 1 manifest would change an
+# identity that is already recorded in evidence, so they are removed before hashing one.
+_FIELDS_ADDED_AT_VERSION_2 = ("target_schema_version", "target_schema_versions")
 MANIFEST_NAME = "snapshot-manifest.json"
 _PREFIX = b"nmdc_lakehouse."
 _SOURCE_LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
@@ -47,6 +60,10 @@ class ArtifactRecord(BaseModel):
     source_schema_version: str
     source_class: str
     target_schema_id: str
+    # Empty for a version 1 footer, which predates this field. An artifact that cannot name the
+    # flat schema that produced it is exactly what issue 293 is about, so the emptiness is
+    # recorded rather than hidden behind a plausible default.
+    target_schema_version: str = ""
     target_class: str
     mapping: str
 
@@ -87,6 +104,10 @@ class SnapshotManifest(BaseModel):
     skipped_collections: list[str]
     footer_metadata_format_version: str
     target_schema_ids: list[str]
+    # A list, not a single value, because a snapshot assembled from two runs across a flattener
+    # change would carry two. More than one entry here is the signal that a snapshot is not
+    # internally consistent, which nothing could previously detect.
+    target_schema_versions: list[str] = Field(default_factory=list)
     mapping_ids: list[str]
     software: SoftwareRecord
     performance_record: PerformanceRecord
@@ -179,12 +200,18 @@ def _footer_value(schema: pa.Schema, key: str) -> str:
     return value.decode()
 
 
+def _optional_footer_value(schema: pa.Schema, key: str) -> str:
+    """Return a footer value, or empty when the footer predates the key."""
+    value = (schema.metadata or {}).get(_PREFIX + key.encode())
+    return "" if value is None else value.decode()
+
+
 def _artifact(path: Path) -> ArtifactRecord:
     try:
         parquet = pq.ParquetFile(path)
         schema = parquet.schema_arrow
         footer_version = _footer_value(schema, "footer_metadata_format_version")
-        if footer_version != FOOTER_METADATA_FORMAT_VERSION:
+        if footer_version not in SUPPORTED_FOOTER_METADATA_FORMAT_VERSIONS:
             raise SnapshotManifestError(f"Unsupported footer metadata format in {path.name}: {footer_version}")
         return ArtifactRecord(
             path=path.name,
@@ -198,6 +225,7 @@ def _artifact(path: Path) -> ArtifactRecord:
             source_schema_version=_footer_value(schema, "source_schema_version"),
             source_class=_footer_value(schema, "source_class"),
             target_schema_id=_footer_value(schema, "target_schema_id"),
+            target_schema_version=_optional_footer_value(schema, "target_schema_version"),
             target_class=_footer_value(schema, "target_class"),
             mapping=_footer_value(schema, "mapping"),
         )
@@ -245,10 +273,24 @@ def _git_state(root: Path) -> tuple[str | None, bool | None]:
 
 
 def _snapshot_identity(manifest: SnapshotManifest) -> str:
+    """Hash the manifest over the field set its own format version defines.
+
+    Hashing whatever the current model happens to carry means every added field silently
+    invalidates every snapshot ever written. That was not hypothetical: adding
+    target_schema_version turned `validate-snapshot` on the 2026-08-21 snapshot, the one the
+    verified staging run was built from, into "Snapshot identity does not match the manifest
+    content".
+    """
     identity = manifest.model_dump(
         exclude={"snapshot_id", "generated_at", "performance_record"},
         mode="json",
     )
+    if manifest.manifest_format_version < 2:
+        for field in _FIELDS_ADDED_AT_VERSION_2:
+            identity.pop(field, None)
+        for artifact in identity.get("artifacts", []):
+            for field in _FIELDS_ADDED_AT_VERSION_2:
+                artifact.pop(field, None)
     return f"sha256:{_json_sha256(identity)}"
 
 
@@ -376,6 +418,7 @@ def build_manifest(root: Path, metrics_path: Path, source_label: str) -> Snapsho
         skipped_collections=sorted(skipped),
         footer_metadata_format_version=FOOTER_METADATA_FORMAT_VERSION,
         target_schema_ids=sorted({artifact.target_schema_id for artifact in artifacts}),
+        target_schema_versions=sorted({artifact.target_schema_version for artifact in artifacts}),
         mapping_ids=sorted({artifact.mapping for artifact in artifacts}),
         software=software,
         performance_record=PerformanceRecord(path=metrics_path.name, sha256=_sha256(metrics_path)),
@@ -423,9 +466,9 @@ def validate_snapshot(root: Path) -> SnapshotManifest:
         manifest = SnapshotManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
     except Exception as error:
         raise SnapshotManifestError(f"Cannot read a valid {MANIFEST_NAME}.") from error
-    if manifest.manifest_format_version != MANIFEST_FORMAT_VERSION:
+    if manifest.manifest_format_version not in SUPPORTED_MANIFEST_FORMAT_VERSIONS:
         raise SnapshotManifestError("Unsupported snapshot manifest format version.")
-    if manifest.footer_metadata_format_version != FOOTER_METADATA_FORMAT_VERSION:
+    if manifest.footer_metadata_format_version not in SUPPORTED_FOOTER_METADATA_FORMAT_VERSIONS:
         raise SnapshotManifestError("Unsupported Parquet footer metadata format version.")
     artifact_paths = [item.path for item in manifest.artifacts]
     owned_paths = [manifest.performance_record.path, *artifact_paths]
