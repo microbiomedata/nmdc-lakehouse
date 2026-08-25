@@ -52,7 +52,13 @@ class SchemaDiff:
 
     @property
     def is_empty(self) -> bool:
-        """True when the two schemas describe the same tables, attributes and ranges."""
+        """True when nothing this report models differs between the two schemas.
+
+        That is: the same tables, the same attributes on each, the same range, multivalued and
+        required flags, and the same attribute and table descriptions. It says nothing about
+        types, enums, prefixes, imports or top-level annotations, which is why `documents_differ`
+        is reported alongside it rather than folded into it.
+        """
         return not any(
             (
                 self.tables_added,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import sys
+import importlib.util
 from pathlib import Path
 
 import pytest
@@ -14,13 +14,27 @@ from nmdc_lakehouse.transforms.schema_generator import (
     flat_schema_version,
 )
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/python"))
-from generate_flattened_schema import (  # noqa: E402
-    SchemaArtifactError,
-    declared_content_digest,
-    resolve_content_digest,
-    verify_content_digest,
-)
+
+def _load_generator_script():
+    """Load the generator script without putting scripts/python on sys.path.
+
+    Inserting into sys.path at import time changes import resolution for every other test in the
+    session, not just this file, and the effect outlives the module that caused it.
+    """
+    path = Path(__file__).resolve().parents[1] / "scripts/python/generate_flattened_schema.py"
+    spec = importlib.util.spec_from_file_location("generate_flattened_schema", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_generator = _load_generator_script()
+SchemaArtifactError = _generator.SchemaArtifactError
+declared_content_digest = _generator.declared_content_digest
+resolve_content_digest = _generator.resolve_content_digest
+verify_content_digest = _generator.verify_content_digest
 
 _HEADER = """id: https://example.org/flat
 name: flat
