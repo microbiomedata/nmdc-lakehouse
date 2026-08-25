@@ -260,6 +260,34 @@ def publication_plan_command(
     click.echo(render_publication_plan(plan))
 
 
+@cli.command("schema-diff")
+@click.argument("before", type=click.Path(path_type=Path, dir_okay=False, exists=True))
+@click.argument("after", type=click.Path(path_type=Path, dir_okay=False, exists=True))
+@click.option("--limit", default=40, show_default=True, help="Rows per section before truncating.")
+@click.option(
+    "--output",
+    "output_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    help="Write the report here instead of printing it.",
+)
+def schema_diff_command(before: Path, after: Path, limit: int, output_path: Path | None) -> None:
+    """Report what changed between two generated flat schemas.
+
+    Materialise an older revision with `git show REV:src/nmdc_lakehouse/schemas/nmdc_metadata.yaml`.
+    """
+    from nmdc_lakehouse.transforms.schema_diff import SchemaDiffError, diff_schemas, render_diff
+
+    try:
+        report = render_diff(diff_schemas(str(before), str(after)), limit=limit)
+    except SchemaDiffError as error:
+        raise click.ClickException(str(error)) from error
+    if output_path is None:
+        click.echo(report)
+        return
+    output_path.write_text(report, encoding="utf-8")
+    click.echo(f"wrote {output_path}", err=True)
+
+
 @cli.command("publication-plan-schema")
 @click.argument("document", type=click.Choice(["inventory", "policy", "plan"]))
 def publication_plan_schema_command(document: str) -> None:

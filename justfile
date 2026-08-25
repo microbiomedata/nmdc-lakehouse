@@ -470,6 +470,18 @@ generate-flat-schema *ARGS:
 check-flat-schema:
     @uv run python scripts/python/generate_flattened_schema.py --check
 
+# Report what changed in the flat schema between two git revisions.
+# Example: just schema-diff c4d6ceb 9073b67
+schema-diff FROM TO="HEAD":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    schema="src/nmdc_lakehouse/schemas/nmdc_metadata.yaml"
+    work="$(mktemp -d)"
+    trap 'rm -rf "$work"' EXIT
+    git show "{{ FROM }}:$schema" > "$work/before.yaml"
+    git show "{{ TO }}:$schema" > "$work/after.yaml"
+    uv run python -m nmdc_lakehouse.cli schema-diff "$work/before.yaml" "$work/after.yaml"
+
 flatten-and-export-nmdc: flatten-nmdc export-nmdc-parquet export-flattened-biosample-csv
     @echo ""
     @echo "=== NMDC flatten and export complete ==="

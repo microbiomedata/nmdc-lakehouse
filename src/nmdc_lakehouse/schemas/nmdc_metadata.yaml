@@ -12,6 +12,12 @@ annotations:
   schema_generator:
     tag: schema_generator
     value: nmdc_lakehouse.transforms.schema_generator.flatten_database_schema
+  flattener_version:
+    tag: flattener_version
+    value: 1.0.0
+  flat_schema_sha256:
+    tag: flat_schema_sha256
+    value: 'eed19f932dc95b914531ea060c1244a14e76d870a0ef85964d402c5c4a280bab'
   primary_mapping:
     tag: primary_mapping
     value: nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener
@@ -21,7 +27,7 @@ annotations:
 description: Flattened LinkML schema describing primary and side-table output for
   every schema-specified collection. Generated; do not edit by hand.
 id: https://w3id.org/nmdc/nmdc-schema-flattened
-version: 11.23.0
+version: 11.23.0+flat.1.0.0
 prefixes:
   BFO:
     prefix_prefix: BFO
