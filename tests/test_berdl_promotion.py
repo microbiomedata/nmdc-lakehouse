@@ -1,8 +1,11 @@
 """Tests for planning a canonical promotion without performing one.
 
-Every case here is a refusal, apart from the two that prove the happy path still works. That
-balance is deliberate: this artifact authorizes changing the canonical namespace, so what it
-declines to authorize is the whole point of it.
+Most cases here are refusals, and that is deliberate: this artifact authorizes changing the
+canonical namespace, so what it declines to authorize is most of what it is for. The rest prove
+the accepted path still works and that the rendering says what an operator needs.
+
+No count of them appears in this sentence on purpose. The previous version said "apart from the
+two", which stopped being true as soon as cases were added and had to be re-read to notice.
 """
 
 from __future__ import annotations
@@ -335,3 +338,29 @@ def test_every_counted_disposition_appears_in_the_steps() -> None:
 
     for operation in plan.operations:
         assert operation.disposition.value in steps or operation.table in steps, operation.disposition
+
+
+def test_evidence_describing_different_destinations_is_refused() -> None:
+    """Every other check passes on mismatched destinations, which is what makes this one needed.
+
+    The dispositions were decided against one destination's contents. Promoting them into another
+    promotes decisions about tables that are not the ones being replaced.
+    """
+    publication_plan = _publication_plan(_entry("biosample_set", Disposition.REPLACE, 1))
+    publication_plan.destination_id = "somewhere-else"
+
+    with pytest.raises(PromotionPlanError, match="describes destination 'somewhere-else'"):
+        _build(publication_plan, _staging(("biosample_set", 1)))
+
+
+def test_a_missing_candidate_row_count_is_refused_as_missing_not_as_a_mismatch() -> None:
+    """`candidate_rows` is optional on PlanEntry, and None read as a count that disagreed.
+
+    The message said "planned with None rows but 1 were staged", which points at the data when
+    the real problem is that the plan recorded no count to decide on.
+    """
+    with pytest.raises(PromotionPlanError, match="no candidate row count"):
+        _build(
+            _publication_plan(_entry("biosample_set", Disposition.REPLACE, None)),
+            _staging(("biosample_set", 1)),
+        )

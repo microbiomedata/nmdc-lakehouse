@@ -150,6 +150,14 @@ def build_berdl_promotion_plan(
         metadata_outcome.staging_namespace == staging_outcome.staging_namespace,
         "The metadata was applied to a different namespace than the one that was staged.",
     )
+    # The dispositions were decided against one destination's contents. Promoting them into a
+    # different destination promotes decisions made about tables that are not the ones being
+    # replaced, and every other check here would still pass.
+    _require(
+        publication_plan.destination_id == staging_outcome.destination_id,
+        f"The publication plan describes destination '{publication_plan.destination_id}' but the "
+        f"staging outcome describes '{staging_outcome.destination_id}'.",
+    )
 
     # Row counts, table by table. The publication plan decided what to do on the strength of
     # candidate row counts, and the staging outcome is what actually landed. Promoting on a plan
@@ -161,6 +169,14 @@ def build_berdl_promotion_plan(
             _require(
                 entry.table in staged_rows,
                 f"'{entry.table}' is planned as {entry.disposition.value} but was not staged.",
+            )
+            # Absent, not zero. candidate_rows is optional on PlanEntry, and comparing None
+            # produced "planned with None rows but 27352 were staged", which reads as a count
+            # mismatch when the real problem is that the plan never recorded a count to decide on.
+            _require(
+                entry.candidate_rows is not None,
+                f"'{entry.table}' is planned as {entry.disposition.value} with no candidate row "
+                "count, so there is nothing to check the staged data against.",
             )
             _require(
                 entry.candidate_rows == staged_rows[entry.table],
