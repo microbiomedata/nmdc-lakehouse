@@ -417,3 +417,32 @@ def test_the_outage_agrees_with_itself_when_both_derived_tables_are_dropped() ->
 
     assert "graph_edges, biosample_to_workflow_run are dropped" in outage
     assert "do not exist again" in outage
+
+
+def test_a_staging_outcome_naming_one_table_twice_is_refused() -> None:
+    """The row check read a dict, so the second entry quietly replaced the first.
+
+    A duplicate is not a formatting quirk. It means the evidence describes the same table twice
+    and the two descriptions may disagree, so which count gets checked was decided by list order.
+    """
+    with pytest.raises(PromotionPlanError, match="staging outcome names the same table more than once"):
+        _build(
+            _publication_plan(_entry("biosample_set", Disposition.REPLACE, 27352)),
+            _staging(("biosample_set", 27352), ("biosample_set", 1)),
+        )
+
+
+def test_a_publication_plan_naming_one_table_twice_is_refused() -> None:
+    """The same shape on the other input, which nobody flagged.
+
+    A duplicated plan entry built two operations for one table, so the object count in the header
+    the operator authorizes was larger than the number of tables the promotion touches.
+    """
+    with pytest.raises(PromotionPlanError, match="publication plan names the same table more than once"):
+        _build(
+            _publication_plan(
+                _entry("biosample_set", Disposition.REPLACE, 27352),
+                _entry("biosample_set", Disposition.PRESERVE, None),
+            ),
+            _staging(("biosample_set", 27352)),
+        )

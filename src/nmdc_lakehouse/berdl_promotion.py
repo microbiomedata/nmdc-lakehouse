@@ -12,6 +12,7 @@ artifact rather than a flag on the command that performs it.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -111,6 +112,21 @@ def _require(condition: bool, message: str) -> None:
         raise PromotionPlanError(message)
 
 
+def _require_named_once(names: list[str], source: str) -> None:
+    """Refuse evidence that names one table twice, rather than keeping whichever entry came last.
+
+    Collapsing by name is the tempting fix and the wrong one. A duplicate is not a formatting
+    quirk, it means the file describes the same table twice and the two descriptions may disagree,
+    so the count that survives is decided by list order. This is an authorization artifact: the
+    operator has to be told the evidence is malformed, not handed the last row silently.
+    """
+    duplicated = sorted({name for name, count in Counter(names).items() if count > 1})
+    _require(
+        not duplicated,
+        f"{source} names the same table more than once: " + ", ".join(duplicated) + ".",
+    )
+
+
 def build_berdl_promotion_plan(
     *,
     publication_plan: PublicationPlan,
@@ -162,6 +178,8 @@ def build_berdl_promotion_plan(
     # Row counts, table by table. The publication plan decided what to do on the strength of
     # candidate row counts, and the staging outcome is what actually landed. Promoting on a plan
     # whose numbers no longer match the data is promoting on a stale decision.
+    _require_named_once([table.table for table in staging_outcome.tables], "The staging outcome")
+    _require_named_once([entry.table for entry in publication_plan.tables], "The publication plan")
     staged_rows = {table.table: table.destination_rows for table in staging_outcome.tables}
     operations: list[PromotionOperation] = []
     for entry in publication_plan.tables:
