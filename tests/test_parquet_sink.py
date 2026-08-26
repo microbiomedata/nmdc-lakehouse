@@ -140,6 +140,7 @@ def test_write_persists_schema_metadata_in_parquet_footer(flat_schema_view, flat
         source_schema=flat_schema_view.schema,
         source_class="FlatRecord",
         target_schema_id=TARGET_SCHEMA_ID,
+        target_schema_version="1.2.3+flat.1.0.0",
         mapping=PRIMARY_MAPPING,
     )
     sink.write(iter([{"id": "r1", "depth_has_numeric_value": 1.5}]), table="flat_record")
@@ -150,12 +151,16 @@ def test_write_persists_schema_metadata_in_parquet_footer(flat_schema_view, flat
     # Checked separately, because its value is a whole rendered schema rather than a label.
     assert footer.pop(_SPARK_SCHEMA_KEY, None) is not None, "the Spark schema must reach the footer"
     assert footer == {
-        b"nmdc_lakehouse.footer_metadata_format_version": b"1",
+        b"nmdc_lakehouse.footer_metadata_format_version": b"2",
         b"nmdc_lakehouse.table_description": b"A flattened test record.",
         b"nmdc_lakehouse.source_schema_id": b"https://example.org/test",
         b"nmdc_lakehouse.source_schema_version": b"1.2.3",
         b"nmdc_lakehouse.source_class": b"FlatRecord",
         b"nmdc_lakehouse.target_schema_id": TARGET_SCHEMA_ID.encode(),
+        # An artifact that cannot name the flat schema that produced it is what issue 293 is
+        # about. Two schemas from the same nmdc-schema release but different flattener code are
+        # indistinguishable without this.
+        b"nmdc_lakehouse.target_schema_version": b"1.2.3+flat.1.0.0",
         b"nmdc_lakehouse.target_class": b"FlatRecord",
         b"nmdc_lakehouse.mapping": PRIMARY_MAPPING.encode(),
     }
@@ -572,3 +577,28 @@ def test_dropping_empty_columns_rebuilds_the_spark_schema(flat_schema_view, flat
     # And the surviving columns keep their descriptions, which is the point of the entry.
     described = {field["name"]: field["metadata"].get("comment") for field in spark["fields"]}
     assert described["id"] == "Stable record identifier."
+
+
+def test_a_footer_declares_version_1_when_it_carries_no_schema_version() -> None:
+    """The version must describe the keys present, or the writer emits what the reader refuses.
+
+    `_encoded_metadata` drops falsy values, so a caller omitting `target_schema_version` used to
+    get a footer stamped "2" without the key that version 2 added, which
+    `snapshot_manifest._required_from_version_2` then rejected as an invalid contract.
+    """
+    from linkml_runtime.linkml_model import ClassDefinition, SlotDefinition
+
+    from nmdc_lakehouse.sinks.parquet_sink import class_def_to_arrow_schema
+
+    class_def = ClassDefinition(name="T", attributes={"id": SlotDefinition(name="id", range="string")})
+
+    without = class_def_to_arrow_schema(class_def, target_schema_id="https://example/flat")
+    with_version = class_def_to_arrow_schema(
+        class_def, target_schema_id="https://example/flat", target_schema_version="1.0.0+flat.1.0.0"
+    )
+
+    key = b"nmdc_lakehouse.footer_metadata_format_version"
+    assert without.metadata[key] == b"1"
+    assert b"nmdc_lakehouse.target_schema_version" not in without.metadata
+    assert with_version.metadata[key] == b"2"
+    assert with_version.metadata[b"nmdc_lakehouse.target_schema_version"] == b"1.0.0+flat.1.0.0"
