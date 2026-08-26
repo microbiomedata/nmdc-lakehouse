@@ -536,6 +536,16 @@ def validate_snapshot(root: Path) -> SnapshotManifest:
     if _sha256(performance_path) != manifest.performance_record.sha256:
         raise SnapshotManifestError("Performance record checksum does not match the manifest.")
     rebuilt = [_artifact(root / item.path) for item in manifest.artifacts]
+    # Check the observed footer contract BEFORE normalising, because the normalisation below
+    # blanks the field that would reveal a mismatch. Without this, a version 1 manifest whose
+    # Parquet files had been replaced with version 2 footers validated clean: the manifest said
+    # "1", the files said "2", and the comparison had just erased the difference.
+    observed_footer_version = _single_footer_version(rebuilt)
+    if observed_footer_version != manifest.footer_metadata_format_version:
+        raise SnapshotManifestError(
+            f"Snapshot artifacts declare footer metadata format {observed_footer_version}, "
+            f"but the manifest records {manifest.footer_metadata_format_version}."
+        )
     if manifest.manifest_format_version < 2:
         # A version 1 manifest recorded neither of the version 2 artifact fields, so a fresh read
         # of the same unchanged file differs from it by exactly those fields. Comparing them would

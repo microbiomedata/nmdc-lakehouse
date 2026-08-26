@@ -584,3 +584,36 @@ def test_a_legacy_snapshot_summarises_no_schema_versions_rather_than_one_empty_o
 
     assert manifest.target_schema_versions == []
     assert manifest.artifacts[0].target_schema_version == ""
+
+
+def test_swapping_a_footer_after_creation_is_caught_on_a_version_1_manifest(tmp_path: Path) -> None:
+    """The version 1 normalisation must not erase the evidence it is normalising around.
+
+    Blanking `footer_metadata_format_version` on the rebuilt records before comparing them made a
+    version 1 manifest validate clean against files that had been replaced with version 2
+    footers: the manifest said 1, the files said 2, and the comparison had just deleted the
+    difference.
+    """
+    from nmdc_lakehouse.snapshot_manifest import _snapshot_identity
+
+    metrics_path = _snapshot_fixture(tmp_path, footer_version=b"1")
+    manifest = build_manifest(tmp_path, metrics_path, "nmdc-production")
+    manifest.manifest_format_version = 1
+    manifest.target_schema_versions = []
+    for artifact in manifest.artifacts:
+        artifact.target_schema_version = ""
+        artifact.footer_metadata_format_version = ""
+    manifest.snapshot_id = _snapshot_identity(manifest)
+    write_manifest(tmp_path, manifest)
+    assert validate_snapshot(tmp_path) == manifest, "the untouched snapshot must validate first"
+
+    # Now swap the footer for a version 2 one, leaving the rows and the manifest alone.
+    parquet_path = tmp_path / "biosample_set.parquet"
+    table = pq.read_table(parquet_path)
+    metadata = dict(table.schema.metadata)
+    metadata[b"nmdc_lakehouse.footer_metadata_format_version"] = b"2"
+    metadata[b"nmdc_lakehouse.target_schema_version"] = b"11.10.0+flat.1.0.0"
+    pq.write_table(table.replace_schema_metadata(metadata), parquet_path)
+
+    with pytest.raises(SnapshotManifestError, match="declare footer metadata format 2"):
+        validate_snapshot(tmp_path)
