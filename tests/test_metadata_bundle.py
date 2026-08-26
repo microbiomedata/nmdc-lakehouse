@@ -14,6 +14,7 @@ from nmdc_lakehouse.cli import cli
 from nmdc_lakehouse.metadata_bundle import (
     BUNDLE_FORMAT_VERSION,
     DescriptionOverride,
+    MetadataBundle,
     MetadataBundleError,
     MetadataProfile,
     NamespaceProfile,
@@ -464,3 +465,34 @@ def test_metadata_profile_cli_rejects_duplicate_properties(tmp_path: Path) -> No
 
     assert result.exit_code != 0
     assert "unique KEY=VALUE" in result.output
+
+
+def _bundle_fixture(tmp_path: Path) -> MetadataBundle:
+    """A built bundle, so the version pairing is exercised on a real document."""
+    _snapshot_files(tmp_path)
+    return build_metadata_bundle(
+        tmp_path,
+        _manifest(),
+        _profile(),
+        generated_at="2026-08-18T18:00:00+00:00",
+    )
+
+
+def test_a_version_1_bundle_cannot_carry_flat_schema_versions(tmp_path: Path) -> None:
+    """A format version that does not constrain its own fields is a label, not a contract."""
+    from pydantic import ValidationError
+
+    document = _bundle_fixture(tmp_path).model_dump()
+    document["bundle_format_version"] = 1
+    document["target_schema_versions"] = ["11.23.0+flat.1.0.0"]
+
+    with pytest.raises(ValidationError, match="version 1 bundle cannot carry"):
+        MetadataBundle.model_validate(document)
+
+
+def test_a_version_1_bundle_with_no_versions_is_still_readable(tmp_path: Path) -> None:
+    document = _bundle_fixture(tmp_path).model_dump()
+    document["bundle_format_version"] = 1
+    document["target_schema_versions"] = []
+
+    assert MetadataBundle.model_validate(document).bundle_format_version == 1

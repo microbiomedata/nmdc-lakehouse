@@ -297,7 +297,7 @@ def test_apply_writes_only_the_columns_that_differ(tmp_path: Path) -> None:
     assert outcome.targets[0].columns_already_correct == ["id"]
 
 
-def test_a_version_one_outcome_still_parses_and_new_outcomes_declare_version_two() -> None:
+def test_a_version_one_outcome_still_parses_and_new_outcomes_declare_the_current_version() -> None:
     """Every model here forbids extra fields, so an added key is a format change, default or not."""
     from nmdc_lakehouse.berdl_metadata import METADATA_OUTCOME_FORMAT_VERSION
 
@@ -324,9 +324,10 @@ def test_a_version_one_outcome_still_parses_and_new_outcomes_declare_version_two
     assert parsed.outcome_format_version == 1
     assert parsed.targets[0].columns_already_correct == []
     assert parsed.targets[0].table_description_already_correct is False
-    # And the fields that motivated the bump are rejected under the old version's shape only by
-    # the version number, not by the model, which is exactly why the number had to change.
-    assert METADATA_OUTCOME_FORMAT_VERSION == 2
+    # And the current version is whatever the newest shape declares. Asserting a literal here
+    # would have to be edited on every bump, which is how a version stops moving when the shape
+    # does: this file would still read 2 while AppliedMetadataTarget had grown two fields.
+    assert METADATA_OUTCOME_FORMAT_VERSION > parsed.outcome_format_version
 
 
 def test_a_column_description_without_a_column_cannot_be_built() -> None:

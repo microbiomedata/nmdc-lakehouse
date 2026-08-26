@@ -206,6 +206,19 @@ class MetadataApplicationPlan(BaseModel):
             raise ValueError("Destination provider identities must be sanitized logical labels.")
         return value
 
+    @model_validator(mode="after")
+    def validate_version_matches_fields(self) -> "MetadataApplicationPlan":
+        """Keep the format version an honest guide to which fields carry meaning.
+
+        The field exists on the model whatever the version says, so a hand-edited version 1 plan
+        could carry a schema version and have it applied, contradicting the contract that version
+        1 plans cannot name one. A version number nothing enforces is a label, not a contract,
+        which is the defect this whole line of work exists to remove.
+        """
+        if self.plan_format_version < 2 and self.target_schema_version:
+            raise ValueError("A version 1 plan cannot carry a target schema version.")
+        return self
+
     @field_validator("staging_namespace")
     @classmethod
     def validate_staging_namespace(cls, value: str) -> str:

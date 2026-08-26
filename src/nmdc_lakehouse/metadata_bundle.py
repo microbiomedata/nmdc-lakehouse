@@ -235,6 +235,13 @@ class MetadataBundle(BaseModel):
     namespace: NamespaceProfile
     tables: list[TableMetadata]
 
+    @model_validator(mode="after")
+    def validate_version_matches_fields(self) -> "MetadataBundle":
+        """A version 1 bundle cannot name flat schema versions, so it must not carry any."""
+        if self.bundle_format_version < 2 and self.target_schema_versions:
+            raise ValueError("A version 1 bundle cannot carry target schema versions.")
+        return self
+
     @field_validator("generated_at")
     @classmethod
     def validate_generated_at(cls, value: str) -> str:

@@ -33,7 +33,10 @@ from nmdc_lakehouse.metadata_application import (
 # Bumped from 1 when AppliedMetadataTarget gained columns_already_correct and
 # table_description_already_correct. Every model here forbids extra fields, so any added key
 # is a format change whether or not it has a default.
-METADATA_OUTCOME_FORMAT_VERSION: Literal[2] = 2
+# Bumped to 3 when AppliedMetadataTarget gained the schema_properties fields. A version that does
+# not move when the serialized shape does is not a version: a consumer keying off it would read a
+# 3-shaped document believing it was 2.
+METADATA_OUTCOME_FORMAT_VERSION: Literal[3] = 3
 
 
 class BerdlMetadataError(ValueError):
@@ -99,7 +102,7 @@ class BerdlMetadataOutcome(BaseModel):
     # widened rather than the version being left alone, because BerdlMetadataOutcome forbids extra
     # fields: a reader pinned to version 1 rejects a version 2 document outright, and an optional
     # field with a default does nothing to prevent that. Writing emits the constant below.
-    outcome_format_version: Literal[1, 2]
+    outcome_format_version: Literal[1, 2, 3]
     status: Literal["metadata-verified"]
     snapshot_id: str
     destination_id: str
