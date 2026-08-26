@@ -98,7 +98,7 @@ change and is not internally consistent. Nothing could previously detect that.
 
 Two format versions moved together and both readers accept the old value:
 
-| | was | is |
+| Field | Was | Is |
 | --- | --- | --- |
 | `footer_metadata_format_version` | `1` | `2` |
 | `manifest_format_version` | `1` | `2` |
