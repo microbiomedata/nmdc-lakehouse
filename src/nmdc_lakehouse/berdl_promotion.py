@@ -12,6 +12,7 @@ artifact rather than a flag on the command that performs it.
 from __future__ import annotations
 
 import re
+import textwrap
 from collections import Counter
 from typing import Literal, Protocol
 
@@ -311,18 +312,20 @@ def render_promotion_plan(plan: BerdlPromotionPlan) -> str:
         # Said before authorization rather than in a runbook nobody reads at 2am. This is the
         # consequence of the ordering, and the operator is the person who can postpone it. The
         # sentence names the tables this plan drops, not the ones a two-table plan would drop.
+        # Written as one sentence and wrapped, rather than as hand-split lines. Splitting it by
+        # hand is what let the first fix change the verbs and leave the pronouns behind, and it
+        # makes every later edit a re-wrapping job.
         single = len(plan.derived_rebuilds) == 1
-        dropped_verb, exist_verb = ("is", "does not") if single else ("are", "do not")
-        lines.extend(
-            [
-                "",
-                "  OUTAGE: " + ", ".join(plan.derived_rebuilds) + f" {dropped_verb} dropped at step 1 and",
-                f"  {exist_verb} exist again until the rebuild. Queries against them, and joins",
-                "  from them into the results tables, fail for the whole run. That is",
-                "  deliberate: leaving them in place would return provenance that no longer",
-                "  exists, and those answers look correct.",
-            ]
+        is_are, does_do, them = ("is", "does", "it") if single else ("are", "do", "them")
+        outage = (
+            f"OUTAGE: {', '.join(plan.derived_rebuilds)} {is_are} dropped at step 1 and {does_do} "
+            f"not exist again until the rebuild. Queries against {them}, and joins from {them} "
+            "into the results tables, fail for the whole run. That is deliberate: leaving "
+            f"{them} in place would return provenance that no longer exists, and those answers "
+            "look correct."
         )
+        lines.append("")
+        lines.extend(textwrap.wrap(outage, width=78, initial_indent="  ", subsequent_indent="  "))
     lines.append("")
     lines.append(f"  recovery       {plan.recovery}")
     lines.append("  nothing has been changed; this plan is a description")

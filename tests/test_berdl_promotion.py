@@ -405,18 +405,28 @@ def test_the_outage_names_the_tables_this_plan_drops() -> None:
         )
     )
 
-    outage = rendered[rendered.index("OUTAGE") :]
+    # Normalised, because the block is wrapped and a phrase can straddle two lines.
+    outage = " ".join(rendered[rendered.index("OUTAGE") :].split())
 
     assert "graph_edges is dropped" in outage
     assert "biosample_to_workflow_run" not in outage
+    # The verbs were made conditional and the pronouns were not, which reads as a half-edit
+    # rather than as a sentence. Asserted here so the number agreement holds across the block.
+    assert "does not exist again" in outage
+    assert "against it, and joins from it" in outage
+    assert "leaving it in place" in outage
+    assert "them" not in outage
 
 
 def test_the_outage_agrees_with_itself_when_both_derived_tables_are_dropped() -> None:
     """The singular case is the new one, so the plural is the control that it did not break."""
-    outage = render_promotion_plan(_full_plan())
+    outage = " ".join(render_promotion_plan(_full_plan()).split())
 
     assert "graph_edges, biosample_to_workflow_run are dropped" in outage
     assert "do not exist again" in outage
+    assert "against them, and joins from them" in outage
+    assert "leaving them in place" in outage
+    assert " it " not in outage.split("OUTAGE")[1].split("recovery")[0]
 
 
 def test_a_staging_outcome_naming_one_table_twice_is_refused() -> None:
