@@ -41,8 +41,10 @@ _BASE_TO_ARROW: dict[str, pa.DataType] = {
 }
 
 _METADATA_PREFIX = "nmdc_lakehouse."
-# Bumped from "1" when target_schema_version was added. Readers accept both, so the snapshots
-# already on disk still validate; only new writes carry the new key. See
+# The highest footer format this module writes, not the version every write carries. Bumped from
+# "1" when target_schema_version was added, and class_def_to_arrow_schema still emits "1" when no
+# target_schema_version is supplied, because a version has to describe the keys present. Readers
+# accept both, so snapshots already on disk still validate. See
 # SUPPORTED_FOOTER_METADATA_FORMAT_VERSIONS in snapshot_manifest.
 FOOTER_METADATA_FORMAT_VERSION = "2"
 
