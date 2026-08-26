@@ -5,7 +5,7 @@
 > Promotion drops `biosample_to_workflow_run` and `graph_edges` **before** replacing the tables
 > they are computed from, and rebuilds them afterwards. For the duration of a promotion both are
 > absent: queries against them fail, and so do joins from `biosample_to_workflow_run` into
-> `nmdc.results`.
+> `nmdc_results`.
 >
 > That is deliberate, decided 2026-08-26. The alternative was leaving them in place while their
 > inputs were replaced underneath, which would have returned biosample-to-workflow mappings built

@@ -21,6 +21,11 @@ from nmdc_lakehouse.publication_plan import Disposition, PublicationPlan
 
 PROMOTION_PLAN_FORMAT_VERSION: Literal[1] = 1
 
+# Dispositions this planner can express as a step. `retire` is absent on purpose: it removes
+# canonical tables, nothing here implements that, and a plan whose header counts a disposition its
+# sequence omits is a silent omission the operator authorizes without seeing.
+_PLANNED_DISPOSITIONS = frozenset({Disposition.REPLACE, Disposition.ADD, Disposition.REBUILD, Disposition.PRESERVE})
+
 _QUALIFIED = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\Z")
 
 
@@ -173,10 +178,23 @@ def build_berdl_promotion_plan(
 
     _require(bool(operations), "The publication plan describes no canonical objects.")
 
+    unsupported = sorted(
+        {operation.disposition.value for operation in operations if operation.disposition not in _PLANNED_DISPOSITIONS}
+    )
+    _require(
+        not unsupported,
+        "No promotion step exists for disposition(s): " + ", ".join(unsupported) + ".",
+    )
+
     # A rebuild disposition names a table this repository knows how to rebuild, or the plan is
     # describing work nothing can perform.
-    rebuilds = sorted(operation.table for operation in operations if operation.disposition is Disposition.REBUILD)
-    unknown = [table for table in rebuilds if table not in DERIVED_TABLES]
+    # Ordered by DERIVED_TABLES, not alphabetically. biosample_to_workflow_run walks graph_edges,
+    # so sorting put them in exactly the wrong order: the plan said to rebuild the consumer first,
+    # while derived_tables and its own documentation both say graph_edges goes first. A plan that
+    # contradicts the module it plans for is worse than one that says nothing about ordering.
+    planned_rebuilds = {operation.table for operation in operations if operation.disposition is Disposition.REBUILD}
+    rebuilds = [table for table in DERIVED_TABLES if table in planned_rebuilds]
+    unknown = sorted(planned_rebuilds.difference(DERIVED_TABLES))
     _require(
         not unknown,
         "No rebuild procedure exists for: " + ", ".join(unknown) + ".",
@@ -225,6 +243,8 @@ def promotion_steps(plan: BerdlPromotionPlan) -> list[str]:
         steps.append(f"replace {counts[Disposition.REPLACE.value]} table(s) from staging")
     if counts.get(Disposition.ADD.value):
         steps.append(f"add {counts[Disposition.ADD.value]} table(s) absent from the destination")
+    if counts.get(Disposition.PRESERVE.value):
+        steps.append(f"leave {counts[Disposition.PRESERVE.value]} table(s) untouched")
     if plan.derived_rebuilds:
         steps.append("rebuild those derived table(s) from the replaced provenance side tables")
     steps.append(f"verify all {len(plan.operations)} object(s) by read-back")

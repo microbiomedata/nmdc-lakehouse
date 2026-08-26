@@ -278,3 +278,60 @@ def test_a_plan_with_nothing_derived_says_nothing_about_an_outage() -> None:
     )
 
     assert "OUTAGE" not in rendered
+
+
+def test_rebuilds_are_ordered_by_dependency_not_alphabetically() -> None:
+    """biosample_to_workflow_run walks graph_edges, so sorting reversed the required order.
+
+    The plan said to rebuild the consumer first while `derived_tables` and its documentation both
+    say graph_edges goes first, which is a plan contradicting the module it plans for.
+    """
+    from nmdc_lakehouse.derived_tables import DERIVED_TABLES
+
+    plan = _full_plan()
+
+    assert plan.derived_rebuilds == list(DERIVED_TABLES)
+    assert plan.derived_rebuilds[0] == "graph_edges"
+    assert plan.derived_rebuilds != sorted(plan.derived_rebuilds), "alphabetical would be wrong here"
+
+
+def test_a_disposition_with_no_step_is_refused() -> None:
+    """A disposition counted in the header but absent from the sequence is a silent omission.
+
+    `retire` removes canonical tables and nothing here implements that, so a plan containing one
+    is refused rather than summarised and skipped.
+    """
+    with pytest.raises(PromotionPlanError, match="No promotion step exists for disposition"):
+        _build(
+            _publication_plan(
+                _entry("biosample_set", Disposition.REPLACE, 1),
+                _entry("old_set", Disposition.RETIRE, None),
+            ),
+            _staging(("biosample_set", 1)),
+        )
+
+
+def test_preserve_appears_in_the_steps_rather_than_only_in_the_counts() -> None:
+    """It is a real no-op, and the operator should read it rather than infer it from a total."""
+    from nmdc_lakehouse.berdl_promotion import promotion_steps
+
+    plan = _build(
+        _publication_plan(
+            _entry("biosample_set", Disposition.REPLACE, 1),
+            _entry("functional_annotation_agg", Disposition.PRESERVE, None),
+        ),
+        _staging(("biosample_set", 1)),
+    )
+
+    assert any("leave 1 table(s) untouched" in step for step in promotion_steps(plan))
+
+
+def test_every_counted_disposition_appears_in_the_steps() -> None:
+    """The property behind the two cases above: the header and the sequence cannot disagree."""
+    from nmdc_lakehouse.berdl_promotion import promotion_steps
+
+    plan = _full_plan()
+    steps = " ".join(promotion_steps(plan))
+
+    for operation in plan.operations:
+        assert operation.disposition.value in steps or operation.table in steps, operation.disposition
