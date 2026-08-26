@@ -754,6 +754,8 @@ def test_a_staged_table_is_labelled_with_the_schema_that_produced_it(tmp_path: P
 
     assert properties["nmdc_lakehouse.target_schema_version"] == "11.23.0+flat.1.0.0"
     assert properties["nmdc_lakehouse.snapshot_id"] == plan.snapshot_id
+    # Two reads when a write happens: the probe, then the read-back of what was written.
+    assert len([item for item in statements if item.startswith("SHOW TBLPROPERTIES")]) == 2
     assert outcome.targets[0].schema_properties_status == "verified"
     assert outcome.targets[0].schema_properties_already_correct is False
 
@@ -771,7 +773,10 @@ def test_properties_already_correct_are_verified_without_being_rewritten(tmp_pat
     outcome = _apply_with(plan, _spark_with_properties(properties, statements), tmp_path)
 
     assert not [item for item in statements if item.startswith("ALTER TABLE")]
-    assert [item for item in statements if item.startswith("SHOW TBLPROPERTIES")]
+    # Exactly one read, not two. The first read is the catalog's answer and nothing was written
+    # after it, so re-reading cost a round trip per table on every rerun and confirmed nothing a
+    # concurrent change could not also have defeated.
+    assert len([item for item in statements if item.startswith("SHOW TBLPROPERTIES")]) == 1
     assert outcome.targets[0].schema_properties_already_correct is True
     assert outcome.targets[0].schema_properties_status == "verified"
 
@@ -809,7 +814,10 @@ def test_a_property_read_back_that_disagrees_is_refused(tmp_path: Path) -> None:
 
     spark = SimpleNamespace(catalog=Catalog(), sql=sql)
 
-    with pytest.raises(BerdlMetadataError, match="schema property read-back failed"):
+    # The message names the fully-qualified table and the property, because '"'"'table.key'"'"' reads
+    # like a column reference and drops the namespace.
+    expected = r"failed for 'nmdc\.metadata_staging_20260820\.biosample_set', property"
+    with pytest.raises(BerdlMetadataError, match=expected):
         _apply_with(plan, spark, tmp_path)
 
 

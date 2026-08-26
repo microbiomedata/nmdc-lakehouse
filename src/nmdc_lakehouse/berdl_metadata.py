@@ -431,20 +431,28 @@ def apply_berdl_staging_metadata(
         if wanted:
             observed = _read_table_properties(spark, full_table)
             properties_already_correct = all(observed.get(key) == value for key, value in wanted.items())
-            if not properties_already_correct:
+            if properties_already_correct:
+                # `observed` is the catalog's answer and nothing was written after it, so it is
+                # the confirmation. Re-reading would cost one round trip per table on every rerun
+                # and could only differ if something else changed the table mid-run, which a
+                # second read does not protect against either.
+                confirmed = observed
+            else:
                 assignments = ", ".join(
                     f"{_quote_property(key)} = {_quote_property(value)}" for key, value in wanted.items()
                 )
                 try:
                     spark.sql(f"ALTER TABLE {full_table} SET TBLPROPERTIES ({assignments})")
                 except Exception as error:
-                    raise BerdlMetadataError(f"Setting schema properties failed for '{table}'.") from error
-            # Read back whether or not anything was written, for the same reason the descriptions
-            # do: a skipped write must never be a skipped check.
-            confirmed = _read_table_properties(spark, full_table)
+                    raise BerdlMetadataError(f"Setting schema properties failed for '{full_table}'.") from error
+                # Read back what was just written. The check below runs either way, so a skipped
+                # write is still never a skipped check; only the extra fetch is skipped.
+                confirmed = _read_table_properties(spark, full_table)
             for key, value in wanted.items():
                 if confirmed.get(key) != value:
-                    raise BerdlMetadataError(f"The schema property read-back failed for '{table}.{key}'.")
+                    raise BerdlMetadataError(
+                        f"The schema property read-back failed for '{full_table}', property {key!r}."
+                    )
             properties_status = "verified"
 
         targets.append(
