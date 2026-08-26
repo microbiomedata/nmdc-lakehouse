@@ -204,3 +204,87 @@ def test_progress_is_reported_per_hop_when_a_callback_is_given() -> None:
 def test_the_default_depth_matches_the_notebook_it_replaces() -> None:
     """A silent change here would alter results without changing any statement."""
     assert DEFAULT_MAX_DEPTH == 15
+
+
+class FailingSpark(FakeSpark):
+    """Raises on the first statement matching a marker, to prove each failure is a message."""
+
+    def __init__(self, marker: str, per_view: dict[str, int] | None = None, default_count: int = 1) -> None:
+        super().__init__(counts=per_view, default_count=default_count)
+        self._marker = marker
+
+    def sql(self, statement: str):
+        if self._marker in statement:
+            raise RuntimeError("engine said no")
+        return super().sql(statement)
+
+
+def test_a_failed_graph_edges_write_is_a_message_not_a_traceback() -> None:
+    with pytest.raises(DerivedTableError, match="Rebuilding 'nmdc.metadata.graph_edges' failed"):
+        rebuild_graph_edges(FailingSpark("CREATE OR REPLACE TABLE nmdc.metadata.graph_edges"), NAMESPACE)
+
+
+def test_a_failed_count_is_a_message_not_a_traceback() -> None:
+    with pytest.raises(DerivedTableError, match="Cannot count rows in"):
+        rebuild_graph_edges(FailingSpark("SELECT COUNT(*)"), NAMESPACE)
+
+
+def test_a_count_returning_more_than_one_row_is_refused() -> None:
+    """A catalog answering a count with two rows is broken, not reporting a number."""
+
+    class TwoRowSpark(FakeSpark):
+        def sql(self, statement: str):
+            self.statements.append(statement)
+            if statement.startswith("SELECT COUNT(*)"):
+                return FakeFrame([(1,), (2,)], self.views)
+            return FakeFrame([], self.views)
+
+    with pytest.raises(DerivedTableError, match="returned 2 rows, expected 1"):
+        rebuild_graph_edges(TwoRowSpark(), NAMESPACE)
+
+
+def test_a_failed_hop_is_a_message_naming_the_view() -> None:
+    with pytest.raises(DerivedTableError, match="failed while building 'walk_frontier_0'"):
+        rebuild_biosample_to_workflow_run(FailingSpark("workflow_execution_set WHERE id IS NOT NULL"), NAMESPACE)
+
+
+def test_a_hop_that_finds_no_edges_ends_the_walk_and_says_so() -> None:
+    """Distinct from the frontier emptying: this is graph_edges having nothing further."""
+    messages: list[str] = []
+    spark = ScriptedSpark(
+        {
+            "walk_frontier_0": 10,
+            "walk_step_1": 3,
+            "walk_reached_1": 3,
+            "walk_frontier_1": 2,
+            "walk_processing_1": 1,
+            "walk_step_2": 0,
+            "walk_reached_all": 3,
+            "walk_processing_all": 1,
+            f"{NAMESPACE}.biosample_to_workflow_run": 3,
+        }
+    )
+
+    outcome = rebuild_biosample_to_workflow_run(spark, NAMESPACE, progress=messages.append)
+
+    assert outcome.rows == 3
+    assert any("no further edges" in message for message in messages)
+    # The processing views collected on the way are unioned rather than replaced by the empty stub.
+    assert any("SELECT * FROM walk_processing_1" in statement for statement in spark.statements)
+
+
+def test_a_failed_final_write_is_a_message_not_a_traceback() -> None:
+    spark = FailingSpark(
+        "CREATE OR REPLACE TABLE nmdc.metadata.biosample_to_workflow_run",
+        per_view={
+            "walk_frontier_0": 10,
+            "walk_step_1": 5,
+            "walk_reached_1": 5,
+            "walk_frontier_1": 0,
+            "walk_reached_all": 5,
+            "walk_processing_all": 0,
+        },
+    )
+
+    with pytest.raises(DerivedTableError, match="Writing 'nmdc.metadata.biosample_to_workflow_run' failed"):
+        rebuild_biosample_to_workflow_run(spark, NAMESPACE)
