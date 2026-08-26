@@ -288,3 +288,54 @@ def test_a_failed_final_write_is_a_message_not_a_traceback() -> None:
 
     with pytest.raises(DerivedTableError, match="Writing 'nmdc.metadata.biosample_to_workflow_run' failed"):
         rebuild_biosample_to_workflow_run(spark, NAMESPACE)
+
+
+def test_each_hop_is_materialised_and_released() -> None:
+    """A temp view is lazy, so without this each hop's plan contains every earlier hop.
+
+    The count at the end of each hop would re-execute the chain, and the final UNION ALL would
+    re-execute all of them again. At fifteen hops the work grows faster than the depth.
+    """
+    spark = ScriptedSpark(
+        {
+            "walk_frontier_0": 10,
+            "walk_step_1": 5,
+            "walk_reached_1": 5,
+            "walk_frontier_1": 0,
+            "walk_reached_all": 5,
+            "walk_processing_all": 0,
+            f"{NAMESPACE}.biosample_to_workflow_run": 5,
+        }
+    )
+
+    rebuild_biosample_to_workflow_run(spark, NAMESPACE)
+
+    cached = [s for s in spark.statements if s.startswith("CACHE TABLE")]
+    uncached = [s for s in spark.statements if s.startswith("UNCACHE TABLE")]
+    assert "CACHE TABLE walk_frontier_0" in cached
+    assert "CACHE TABLE walk_step_1" in cached
+    assert len(uncached) == len(cached), "every cached hop is released"
+
+
+def test_a_failure_to_release_the_cache_does_not_fail_the_rebuild() -> None:
+    """Freeing memory is best effort; by then the result is already computed and verified."""
+
+    class UncacheFails(ScriptedSpark):
+        def sql(self, statement: str):
+            if statement.startswith("UNCACHE TABLE"):
+                raise RuntimeError("nothing to uncache")
+            return super().sql(statement)
+
+    spark = UncacheFails(
+        {
+            "walk_frontier_0": 10,
+            "walk_step_1": 5,
+            "walk_reached_1": 5,
+            "walk_frontier_1": 0,
+            "walk_reached_all": 5,
+            "walk_processing_all": 0,
+            f"{NAMESPACE}.biosample_to_workflow_run": 5,
+        }
+    )
+
+    assert rebuild_biosample_to_workflow_run(spark, NAMESPACE).rows == 5

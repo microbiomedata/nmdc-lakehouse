@@ -106,10 +106,13 @@ The result is written directly to Silver via
 
 ### When NMDC data is reloaded
 
-Both derived tables are rebuilt by `nmdc_lakehouse.derived_tables`, which is what a
-promotion calls. A reload replaces every table these are derived from, so leaving them
-alone leaves two populated tables describing data that no longer exists, and nothing in
-the namespace says so.
+Both derived tables are rebuilt by `nmdc_lakehouse.derived_tables`. Call it yourself after a
+reload: nothing calls it automatically yet, and wiring it into a promotion is
+https://github.com/microbiomedata/nmdc-lakehouse/issues/234.
+
+This matters because a reload replaces every table these two are derived from, so leaving
+them alone leaves two populated tables describing data that no longer exists, and nothing
+in the namespace says so.
 
 <!-- unverified: the module and its refusals are covered offline, but no rebuild has been run
      against a live catalog, so the SQL is not yet known to compute the right provenance.

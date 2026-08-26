@@ -208,13 +208,32 @@ def rebuild_biosample_to_workflow_run(
         raise DerivedTableError("max_depth must be at least 1.")
     say = progress if callable(progress) else (lambda _message: None)
 
+    cached: list[str] = []
+
     def run(statement: str, view: str) -> int:
+        """Build one temp view, materialise it, and return its row count.
+
+        The CACHE is not an optimisation detail. A temp view is lazy, so without it each hop's
+        plan contains every earlier hop, the count at the end of each hop re-executes the chain,
+        and the final UNION ALL re-executes all of them again. At fifteen hops that is a plan
+        that grows with depth and work that grows faster.
+        """
         try:
             frame = spark.sql(statement)  # type: ignore[attr-defined]
             frame.createOrReplaceTempView(view)
+            spark.sql(f"CACHE TABLE {view}")  # type: ignore[attr-defined]
         except Exception as error:
             raise DerivedTableError(f"The walk failed while building '{view}'.") from error
+        cached.append(view)
         return _count(spark, view)
+
+    def release() -> None:
+        """Drop the cached hops. Best effort: a failure here has not lost any result."""
+        for view in cached:
+            try:
+                spark.sql(f"UNCACHE TABLE {view}")  # type: ignore[attr-defined]
+            except Exception:  # noqa: BLE001 - releasing memory must not fail the rebuild
+                pass
 
     run(seed_frontier_statement(namespace), "walk_frontier_0")
     reached_views: list[str] = []
@@ -270,4 +289,5 @@ def rebuild_biosample_to_workflow_run(
         raise DerivedTableError(f"Writing '{namespace}.biosample_to_workflow_run' failed.") from error
 
     rows = _count(spark, f"{namespace}.biosample_to_workflow_run")
+    release()
     return RebuildOutcome(table=f"{namespace}.biosample_to_workflow_run", rows=rows, depth_reached=depth_reached)
