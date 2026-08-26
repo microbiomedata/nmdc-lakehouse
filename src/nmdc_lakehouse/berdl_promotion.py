@@ -43,10 +43,12 @@ class StagedTableLike(Protocol):
     @property
     def table(self) -> str:
         """Canonical table name, matched against the publication plan."""
+        ...
 
     @property
     def destination_rows(self) -> int:
         """Rows that actually landed in staging, checked against the planned count."""
+        ...
 
 
 class StagingOutcomeLike(Protocol):
@@ -65,22 +67,27 @@ class StagingOutcomeLike(Protocol):
     @property
     def status(self) -> str:
         """Verification status; promotion refuses anything but the verified value."""
+        ...
 
     @property
     def snapshot_id(self) -> str:
         """Snapshot this evidence describes, cross-checked across all three inputs."""
+        ...
 
     @property
     def staging_namespace(self) -> str:
         """Namespace the evidence describes, cross-checked across all three inputs."""
+        ...
 
     @property
     def destination_id(self) -> str:
         """Destination the dispositions were decided against."""
+        ...
 
     @property
     def tables(self) -> Sequence[StagedTableLike]:
         """Every table staging reported on, in the order the outcome recorded them."""
+        ...
 
 
 class MetadataOutcomeLike(Protocol):
@@ -89,18 +96,22 @@ class MetadataOutcomeLike(Protocol):
     @property
     def destination_id(self) -> str:
         """Destination the metadata was applied against."""
+        ...
 
     @property
     def status(self) -> str:
         """Verification status; promotion refuses anything but the verified value."""
+        ...
 
     @property
     def snapshot_id(self) -> str:
         """Snapshot this evidence describes, cross-checked across all three inputs."""
+        ...
 
     @property
     def staging_namespace(self) -> str:
         """Namespace the evidence describes, cross-checked across all three inputs."""
+        ...
 
 
 class PromotionPlanError(ValueError):
@@ -141,6 +152,7 @@ class BerdlPromotionPlan(BaseModel):
     @model_validator(mode="after")
     def validate_namespaces(self) -> "BerdlPromotionPlan":
         """Both namespaces must name a catalog, and promotion must not target the staging one."""
+        ...
         for value, label in ((self.staging_namespace, "staging"), (self.canonical_namespace, "canonical")):
             if not _QUALIFIED.fullmatch(value):
                 raise ValueError(f"The {label} namespace must be catalog-qualified as <catalog>.<namespace>.")

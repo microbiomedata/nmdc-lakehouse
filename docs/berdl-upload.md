@@ -569,6 +569,11 @@ writes a description of the promotion they authorize. It changes nothing, and
 there is deliberately no flag that makes it promote. Unlike every command before
 it, this one is offline and does not need a pod: it reads three local JSON files.
 
+<!-- unverified: the command runs and is covered end to end by
+tests/test_berdl_promotion.py, but this invocation has not been run against the
+real 2026-08-24 evidence files, which are not in the repository. Tracked in
+https://github.com/microbiomedata/nmdc-lakehouse/issues/234. -->
+
 ```bash
 uv run python -m nmdc_lakehouse.cli berdl-promotion-plan \
   --plan /path/to/publication-plan.json \
