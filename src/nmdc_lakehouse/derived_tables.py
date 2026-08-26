@@ -235,59 +235,63 @@ def rebuild_biosample_to_workflow_run(
             except Exception:  # noqa: BLE001 - releasing memory must not fail the rebuild
                 pass
 
-    run(seed_frontier_statement(namespace), "walk_frontier_0")
-    reached_views: list[str] = []
-    processing_views: list[str] = []
-    depth_reached = 0
-
-    for depth in range(1, max_depth + 1):
-        frontier = f"walk_frontier_{depth - 1}"
-        step = f"walk_step_{depth}"
-        if run(hop_statement(namespace, frontier), step) == 0:
-            say(f"hop {depth}: no further edges, walk complete")
-            break
-
-        reached = f"walk_reached_{depth}"
-        if run(reached_biosamples_statement(step, depth), reached) > 0:
-            reached_views.append(reached)
-
-        next_frontier = f"walk_frontier_{depth}"
-        remaining = run(continuing_frontier_statement(step), next_frontier)
-        depth_reached = depth
-        say(f"hop {depth}: {remaining} node(s) still to walk")
-        if remaining == 0:
-            break
-
-        processing = f"walk_processing_{depth}"
-        if run(processing_types_statement(namespace, next_frontier), processing) > 0:
-            processing_views.append(processing)
-    else:
-        raise DerivedTableError(
-            f"The walk was still finding paths at depth {max_depth}. Raise max_depth rather than "
-            "accepting a truncated result, which would lose provenance only for the deepest "
-            "samples and look like a complete table."
-        )
-
-    if not reached_views:
-        raise DerivedTableError(
-            "The walk reached no biosamples at any depth, so there is nothing to write. Refusing "
-            "rather than replacing the table with an empty one."
-        )
-
-    run(" UNION ALL ".join(f"SELECT * FROM {view}" for view in reached_views), "walk_reached_all")
-    if processing_views:
-        run(" UNION ALL ".join(f"SELECT * FROM {view}" for view in processing_views), "walk_processing_all")
-    else:
-        run(
-            "SELECT CAST(NULL AS STRING) AS workflow_run_id, CAST(NULL AS STRING) AS processing_type WHERE false",
-            "walk_processing_all",
-        )
-
+    # try/finally, because every refusal below leaves cached hops behind otherwise, and there
+    # are four of them. Adding the cache in the previous commit made a leak out of each one.
     try:
-        spark.sql(pair_statement(namespace, "walk_reached_all", "walk_processing_all"))  # type: ignore[attr-defined]
-    except Exception as error:
-        raise DerivedTableError(f"Writing '{namespace}.biosample_to_workflow_run' failed.") from error
+        run(seed_frontier_statement(namespace), "walk_frontier_0")
+        reached_views: list[str] = []
+        processing_views: list[str] = []
+        depth_reached = 0
 
-    rows = _count(spark, f"{namespace}.biosample_to_workflow_run")
-    release()
-    return RebuildOutcome(table=f"{namespace}.biosample_to_workflow_run", rows=rows, depth_reached=depth_reached)
+        for depth in range(1, max_depth + 1):
+            frontier = f"walk_frontier_{depth - 1}"
+            step = f"walk_step_{depth}"
+            if run(hop_statement(namespace, frontier), step) == 0:
+                say(f"hop {depth}: no further edges, walk complete")
+                break
+
+            reached = f"walk_reached_{depth}"
+            if run(reached_biosamples_statement(step, depth), reached) > 0:
+                reached_views.append(reached)
+
+            next_frontier = f"walk_frontier_{depth}"
+            remaining = run(continuing_frontier_statement(step), next_frontier)
+            depth_reached = depth
+            say(f"hop {depth}: {remaining} node(s) still to walk")
+            if remaining == 0:
+                break
+
+            processing = f"walk_processing_{depth}"
+            if run(processing_types_statement(namespace, next_frontier), processing) > 0:
+                processing_views.append(processing)
+        else:
+            raise DerivedTableError(
+                f"The walk was still finding paths at depth {max_depth}. Raise max_depth rather than "
+                "accepting a truncated result, which would lose provenance only for the deepest "
+                "samples and look like a complete table."
+            )
+
+        if not reached_views:
+            raise DerivedTableError(
+                "The walk reached no biosamples at any depth, so there is nothing to write. Refusing "
+                "rather than replacing the table with an empty one."
+            )
+
+        run(" UNION ALL ".join(f"SELECT * FROM {view}" for view in reached_views), "walk_reached_all")
+        if processing_views:
+            run(" UNION ALL ".join(f"SELECT * FROM {view}" for view in processing_views), "walk_processing_all")
+        else:
+            run(
+                "SELECT CAST(NULL AS STRING) AS workflow_run_id, CAST(NULL AS STRING) AS processing_type WHERE false",
+                "walk_processing_all",
+            )
+
+        try:
+            spark.sql(pair_statement(namespace, "walk_reached_all", "walk_processing_all"))  # type: ignore[attr-defined]
+        except Exception as error:
+            raise DerivedTableError(f"Writing '{namespace}.biosample_to_workflow_run' failed.") from error
+
+        rows = _count(spark, f"{namespace}.biosample_to_workflow_run")
+        return RebuildOutcome(table=f"{namespace}.biosample_to_workflow_run", rows=rows, depth_reached=depth_reached)
+    finally:
+        release()

@@ -339,3 +339,35 @@ def test_a_failure_to_release_the_cache_does_not_fail_the_rebuild() -> None:
     )
 
     assert rebuild_biosample_to_workflow_run(spark, NAMESPACE).rows == 5
+
+
+def test_a_refusing_walk_still_releases_its_cache() -> None:
+    """Four of this function's five exits are refusals, and each one used to leak.
+
+    Adding the cache made a leak out of every refusal path, so this asserts the release happens
+    on one of them rather than only on the success it was written for.
+    """
+    spark = ScriptedSpark({}, default_count=7)
+
+    with pytest.raises(DerivedTableError, match="still finding paths"):
+        rebuild_biosample_to_workflow_run(spark, NAMESPACE, max_depth=2)
+
+    cached = [s for s in spark.statements if s.startswith("CACHE TABLE")]
+    uncached = [s for s in spark.statements if s.startswith("UNCACHE TABLE")]
+    assert cached, "the walk cached something before refusing"
+    assert len(uncached) == len(cached), "and released all of it despite refusing"
+
+
+def test_a_walk_that_fails_mid_hop_still_releases_its_cache() -> None:
+    """The same guarantee for an engine failure rather than a refusal."""
+    spark = FailingSpark(
+        "material_processing_set",
+        per_view={"walk_frontier_0": 10, "walk_step_1": 5, "walk_reached_1": 2, "walk_frontier_1": 3},
+    )
+
+    with pytest.raises(DerivedTableError, match="failed while building"):
+        rebuild_biosample_to_workflow_run(spark, NAMESPACE)
+
+    cached = [s for s in spark.statements if s.startswith("CACHE TABLE")]
+    uncached = [s for s in spark.statements if s.startswith("UNCACHE TABLE")]
+    assert cached and len(uncached) == len(cached)

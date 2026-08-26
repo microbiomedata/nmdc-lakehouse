@@ -91,16 +91,20 @@ AND  b2wr.workflow_type = 'nmdc:ReadBasedTaxonomyAnalysis'
 
 ## Generation
 
-`notebooks/build_biosample_to_workflow_run.ipynb` generates and registers this
-table. Run it once after each NMDC data load. The notebook uses an iterative
-BFS walk over `nmdc_metadata.graph_edges`, one flat JOIN per hop level,
-avoiding Trino's 150-stage `WITH RECURSIVE` limit. `graph_edges` is created
-or replaced as a managed table in Step 0 and persists in `nmdc_metadata` after
-the notebook completes; refresh it whenever the underlying Silver provenance
-side tables are reloaded.
+`nmdc_lakehouse.derived_tables` generates and registers both tables. See
+[Maintenance](#maintenance) for the two calls and their order.
 
-The result is written directly to Silver via
-`spark.createDataFrame().write.saveAsTable()`. No Bronze roundtrip.
+An iterative breadth-first walk over `graph_edges`, one join per hop level, which is what
+avoids Trino's 150-stage `WITH RECURSIVE` limit. `graph_edges` is created or replaced from
+the four provenance side tables and persists, so refresh it whenever those are reloaded.
+
+Each hop is cached as it is built. A temp view is lazy, so without that each hop's plan
+contains every earlier hop and the end-of-walk union re-executes all of them.
+
+The result is written by `CREATE OR REPLACE TABLE ... AS SELECT`, in the catalog's own
+format. No Bronze roundtrip, and no pinned table format: the notebook wrote
+`spark.createDataFrame().write.saveAsTable()` into Delta, which was right for the Hive
+namespace it targeted and wrong for an Iceberg one.
 
 ## Maintenance
 
