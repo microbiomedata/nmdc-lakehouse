@@ -1,5 +1,21 @@
 # biosample_to_workflow_run: precomputed provenance table
 
+> **This table disappears during a reload.**
+>
+> Promotion drops `biosample_to_workflow_run` and `graph_edges` **before** replacing the tables
+> they are computed from, and rebuilds them afterwards. For the duration of a promotion both are
+> absent: queries against them fail, and so do joins from `biosample_to_workflow_run` into
+> `nmdc.results`.
+>
+> That is deliberate, decided 2026-08-26. The alternative was leaving them in place while their
+> inputs were replaced underneath, which would have returned biosample-to-workflow mappings built
+> from provenance that no longer existed. Those answers look correct, so nobody would notice.
+> A failed query is noticed immediately; a wrong one is found out later, by somebody else, in
+> results they had no reason to doubt.
+>
+> If you depend on these tables, expect a window of minutes during a reload rather than degraded
+> answers. See https://github.com/microbiomedata/nmdc-lakehouse/issues/234.
+
 ## Purpose
 
 `nmdc_metadata.biosample_to_workflow_run` maps every NMDC biosample to every

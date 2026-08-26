@@ -46,6 +46,11 @@ PROCESSING_TYPES = {
     "nmdc:FiltrationProcess": "has_filtration",
 }
 
+# Rebuilt from the provenance side tables rather than loaded, because no MongoDB dump contains
+# them. Named here, beside the code that rebuilds them, so promotion can ask what it must rebuild
+# rather than keeping a second list that has to be remembered.
+DERIVED_TABLES = ("graph_edges", "biosample_to_workflow_run")
+
 DEFAULT_MAX_DEPTH = 15
 BIOSAMPLE_PREFIX = "nmdc:bsm"
 
