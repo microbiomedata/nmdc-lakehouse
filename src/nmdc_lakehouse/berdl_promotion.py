@@ -11,12 +11,18 @@ artifact rather than a flag on the command that performs it.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import re
+import tempfile
 import textwrap
 from collections import Counter
-from typing import Literal, Protocol
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Literal, Protocol, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from nmdc_lakehouse.derived_tables import DERIVED_TABLES
 from nmdc_lakehouse.publication_plan import Disposition, PublicationPlan
@@ -34,8 +40,13 @@ _QUALIFIED = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\Z")
 class StagedTableLike(Protocol):
     """One staged table, as the staging outcome reports it."""
 
-    table: str
-    destination_rows: int
+    @property
+    def table(self) -> str:
+        """Canonical table name, matched against the publication plan."""
+
+    @property
+    def destination_rows(self) -> int:
+        """Rows that actually landed in staging, checked against the planned count."""
 
 
 class StagingOutcomeLike(Protocol):
@@ -47,19 +58,49 @@ class StagingOutcomeLike(Protocol):
     caller finds out at runtime that the shape changed.
     """
 
-    status: str
-    snapshot_id: str
-    staging_namespace: str
-    destination_id: str
-    tables: list[StagedTableLike]
+    # Read-only properties, not plain attributes. A protocol attribute is mutable and so matched
+    # invariantly, which rejects a model whose status is Literal["data-verified"] against str, and
+    # rejects list[StagedTable] against list[StagedTableLike]. This module only reads these, so
+    # properties and a Sequence state the actual contract instead of an accidentally stricter one.
+    @property
+    def status(self) -> str:
+        """Verification status; promotion refuses anything but the verified value."""
+
+    @property
+    def snapshot_id(self) -> str:
+        """Snapshot this evidence describes, cross-checked across all three inputs."""
+
+    @property
+    def staging_namespace(self) -> str:
+        """Namespace the evidence describes, cross-checked across all three inputs."""
+
+    @property
+    def destination_id(self) -> str:
+        """Destination the dispositions were decided against."""
+
+    @property
+    def tables(self) -> Sequence[StagedTableLike]:
+        """Every table staging reported on, in the order the outcome recorded them."""
 
 
 class MetadataOutcomeLike(Protocol):
     """The fields promotion reads from a verified metadata outcome."""
 
-    status: str
-    snapshot_id: str
-    staging_namespace: str
+    @property
+    def destination_id(self) -> str:
+        """Destination the metadata was applied against."""
+
+    @property
+    def status(self) -> str:
+        """Verification status; promotion refuses anything but the verified value."""
+
+    @property
+    def snapshot_id(self) -> str:
+        """Snapshot this evidence describes, cross-checked across all three inputs."""
+
+    @property
+    def staging_namespace(self) -> str:
+        """Namespace the evidence describes, cross-checked across all three inputs."""
 
 
 class PromotionPlanError(ValueError):
@@ -174,6 +215,14 @@ def build_berdl_promotion_plan(
         publication_plan.destination_id == staging_outcome.destination_id,
         f"The publication plan describes destination '{publication_plan.destination_id}' but the "
         f"staging outcome describes '{staging_outcome.destination_id}'.",
+    )
+    # All three inputs, not two. The check above was added for the plan and the staging outcome,
+    # and the metadata outcome carries a destination as well. Guarding two of three leaves the
+    # column descriptions to have been applied somewhere other than where the data landed.
+    _require(
+        publication_plan.destination_id == metadata_outcome.destination_id,
+        f"The publication plan describes destination '{publication_plan.destination_id}' but the "
+        f"metadata outcome describes '{metadata_outcome.destination_id}'.",
     )
 
     # Row counts, table by table. The publication plan decided what to do on the strength of
@@ -330,3 +379,117 @@ def render_promotion_plan(plan: BerdlPromotionPlan) -> str:
     lines.append(f"  recovery       {plan.recovery}")
     lines.append("  nothing has been changed; this plan is a description")
     return "\n".join(lines)
+
+
+# Generic, so the caller keeps the concrete model type. Returning a bare BaseModel would hand
+# build_berdl_promotion_plan something the type checker cannot match to its protocols.
+_Evidence = TypeVar("_Evidence", bound=BaseModel)
+
+
+def _read_evidence(path: Path, model: type[_Evidence], label: str) -> tuple[_Evidence, str]:
+    """Read one evidence file and hash the exact bytes that were parsed.
+
+    The digest comes from the same `contents` that pydantic validated, not from a second read.
+    Hashing the file again would let a file change between the two reads and produce a plan whose
+    recorded digest belongs to bytes nobody checked.
+    """
+    document = path.expanduser()
+    if not document.is_file() or document.is_symlink():
+        raise PromotionPlanError(f"The {label} must be an ordinary file.")
+    try:
+        contents = document.read_bytes()
+        parsed = model.model_validate_json(contents, strict=True)
+    except (OSError, UnicodeDecodeError, ValidationError) as error:
+        raise PromotionPlanError(f"The {label} is not valid.") from error
+    return parsed, hashlib.sha256(contents).hexdigest()
+
+
+def plan_berdl_promotion_from_files(
+    *,
+    publication_plan_path: Path,
+    staging_outcome_path: Path,
+    metadata_outcome_path: Path,
+    canonical_namespace: str,
+    recovery: str,
+) -> BerdlPromotionPlan:
+    """Read the three pieces of evidence from disk and build the plan they authorize.
+
+    Each digest recorded in the plan is of the bytes this call actually parsed, so the plan names
+    the exact evidence it was built from rather than whatever those paths hold later.
+    """
+    from nmdc_lakehouse.berdl_metadata import BerdlMetadataOutcome
+    from nmdc_lakehouse.berdl_staging import BerdlStagingOutcome
+
+    publication_plan, publication_plan_sha256 = _read_evidence(
+        publication_plan_path, PublicationPlan, "publication plan"
+    )
+    staging_outcome, staging_outcome_sha256 = _read_evidence(
+        staging_outcome_path, BerdlStagingOutcome, "BERDL staging outcome"
+    )
+    metadata_outcome, metadata_outcome_sha256 = _read_evidence(
+        metadata_outcome_path, BerdlMetadataOutcome, "BERDL metadata outcome"
+    )
+    return build_berdl_promotion_plan(
+        publication_plan=publication_plan,
+        staging_outcome=staging_outcome,
+        metadata_outcome=metadata_outcome,
+        canonical_namespace=canonical_namespace,
+        staging_outcome_sha256=staging_outcome_sha256,
+        metadata_outcome_sha256=metadata_outcome_sha256,
+        publication_plan_sha256=publication_plan_sha256,
+        recovery=recovery,
+    )
+
+
+def render_berdl_promotion_plan_json(plan: BerdlPromotionPlan) -> str:
+    """Render the plan as stable, credential-free JSON."""
+    return json.dumps(plan.model_dump(mode="json"), indent=2, sort_keys=True)
+
+
+def write_berdl_promotion_plan(path: Path, plan: BerdlPromotionPlan) -> Path:
+    """Create the plan file without replacing an earlier one.
+
+    This follows the create-without-replacing contract used by the staging and metadata outcomes
+    rather than the overwrite contract used by regenerable plans. A promotion plan is the artifact
+    a human authorizes against, and silently replacing one would mean an operator can approve a
+    digest that no longer describes the file at that path.
+    """
+    destination = path.expanduser()
+    if destination.exists() or destination.is_symlink():
+        raise PromotionPlanError("Refusing to replace an existing BERDL promotion plan.")
+    parent = destination.parent
+    if not parent.is_dir() or parent.is_symlink():
+        raise PromotionPlanError("The BERDL promotion plan parent must be an ordinary directory.")
+    destination = parent.resolve() / destination.name
+    descriptor: int | None = None
+    temporary: Path | None = None
+    try:
+        descriptor, temporary_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=parent)
+        temporary = Path(temporary_name)
+        stream = os.fdopen(descriptor, "w", encoding="utf-8")
+        descriptor = None
+        with stream:
+            stream.write(render_berdl_promotion_plan_json(plan))
+            stream.write("\n")
+        try:
+            # os.link rather than replace: it fails if the destination appeared since the check
+            # above, so the refusal holds even when two runs race for the same path.
+            os.link(temporary, destination)
+        except FileExistsError as error:
+            raise PromotionPlanError("Refusing to replace an existing BERDL promotion plan.") from error
+        except OSError as error:
+            raise PromotionPlanError("Cannot publish the BERDL promotion plan atomically.") from error
+    except OSError as error:
+        raise PromotionPlanError("Cannot write the BERDL promotion plan.") from error
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+    return destination

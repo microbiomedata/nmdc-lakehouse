@@ -562,6 +562,55 @@ The probe defaults to loopback port 8123. `BERDL_PROXY_HOST` and
 starts a proxy, opens a tunnel, refreshes a token, installs packages, changes
 the external checkout, uploads files, or changes a catalog.
 
+## Describe the promotion that staging authorizes
+
+`berdl-promotion-plan` reads the three pieces of evidence produced above and
+writes a description of the promotion they authorize. It changes nothing, and
+there is deliberately no flag that makes it promote. Unlike every command before
+it, this one is offline and does not need a pod: it reads three local JSON files.
+
+```bash
+uv run python -m nmdc_lakehouse.cli berdl-promotion-plan \
+  --plan /path/to/publication-plan.json \
+  --staging-outcome /path/to/nmdc-staging-outcome.json \
+  --metadata-outcome /path/to/nmdc-staging-metadata-outcome.json \
+  --canonical-namespace nmdc.metadata \
+  --recovery "Reload the immutable snapshot into a fresh staging namespace." \
+  --output /path/to/promotion-plan.json
+```
+
+Every check refuses rather than warns. The three files must agree on the
+snapshot, the staging namespace, and the destination; every planned `replace` or
+`add` must have been staged with the row count the plan decided on; every staged
+table must have a disposition; and neither the plan nor the staging outcome may
+name one table twice. A `retire` disposition is refused outright, because nothing
+implements it.
+
+The rendered plan states the step order and, when derived tables are involved,
+the outage:
+
+```
+  1. drop 2 derived table(s): graph_edges, biosample_to_workflow_run
+  2. replace 2 table(s) from staging
+  3. add 1 table(s) absent from the destination
+  4. rebuild those derived table(s) from the replaced provenance side tables
+  5. verify all 5 object(s) by read-back
+
+  OUTAGE: graph_edges, biosample_to_workflow_run are dropped at step 1 and do
+  not exist again until the rebuild. Queries against them, and joins from them
+  into the results tables, fail for the whole run. ...
+```
+
+Dropping first is the ordering Mark chose on 2026-08-26, and
+`docs/biosample_to_workflow_run.md` explains why: leaving those tables in place
+while the tables they are computed from are replaced underneath would have them
+return provenance that no longer exists, and those answers look correct.
+
+The output file is created once and never replaced, because it is the artifact a
+human authorizes against. **Nothing yet consumes it.** The command that performs
+a promotion does not exist; see
+[#234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
+
 ## Capture a fresh destination inventory without mutation
 
 The offline publication planner requires current evidence from the selected

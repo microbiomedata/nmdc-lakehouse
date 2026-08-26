@@ -10,6 +10,9 @@ two", which stopped being true as soon as cases were added and had to be re-read
 
 from __future__ import annotations
 
+import hashlib
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -67,8 +70,18 @@ def _staging(*tables: tuple[str, int], status: str = "data-verified"):
     )
 
 
-def _metadata(status: str = "metadata-verified", snapshot_id: str = SNAPSHOT, namespace: str = STAGING):
-    return SimpleNamespace(status=status, snapshot_id=snapshot_id, staging_namespace=namespace)
+def _metadata(
+    status: str = "metadata-verified",
+    snapshot_id: str = SNAPSHOT,
+    namespace: str = STAGING,
+    destination_id: str = "nmdc-production",
+):
+    return SimpleNamespace(
+        status=status,
+        snapshot_id=snapshot_id,
+        staging_namespace=namespace,
+        destination_id=destination_id,
+    )
 
 
 def _build(publication_plan, staging, metadata=None, canonical: str = CANONICAL):
@@ -456,3 +469,263 @@ def test_a_publication_plan_naming_one_table_twice_is_refused() -> None:
             ),
             _staging(("biosample_set", 27352)),
         )
+
+
+def test_a_metadata_outcome_describing_a_different_destination_is_refused() -> None:
+    """The destination guard covered two of the three inputs.
+
+    It was added for the publication plan and the staging outcome. The metadata outcome carries a
+    destination too, so descriptions could have been applied somewhere other than where the data
+    landed and every other check would still pass.
+    """
+    with pytest.raises(PromotionPlanError, match="metadata outcome describes 'somewhere-else'"):
+        _build(
+            _publication_plan(_entry("biosample_set", Disposition.REPLACE, 1)),
+            _staging(("biosample_set", 1)),
+            metadata=_metadata(destination_id="somewhere-else"),
+        )
+
+
+def _write(path: Path, payload: dict) -> Path:
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def _plan_document() -> dict:
+    return {
+        "plan_format_version": 1,
+        "candidate_snapshot_id": SNAPSHOT,
+        "destination_id": "nmdc-production",
+        "destination_observed_at": "2026-08-24T20:49:38+00:00",
+        "destination_provider": "nmdc",
+        "destination_table_format": "iceberg",
+        "destination_metadata_capabilities": [],
+        "tables": [
+            json.loads(_entry("biosample_set", Disposition.REPLACE, 27352).model_dump_json()),
+            json.loads(_entry("graph_edges", Disposition.REBUILD, None).model_dump_json()),
+        ],
+    }
+
+
+def _staging_document() -> dict:
+    return {
+        "outcome_format_version": 1,
+        "status": "data-verified",
+        "snapshot_id": SNAPSHOT,
+        "staging_namespace": STAGING,
+        "destination_id": "nmdc-production",
+        "bucket": "berdl-bucket",
+        "bronze_prefix": "bronze/nmdc",
+        "progress_key": "progress.json",
+        "config_key": "config.json",
+        "ingest_revision": "f" * 40,
+        "staging_plan_sha256": "1" * 64,
+        "upstream_outcome_sha256": "2" * 64,
+        "upstream_started_at": "2026-08-24T20:00:00+00:00",
+        "upstream_finished_at": "2026-08-24T20:08:56+00:00",
+        "tables": [
+            {
+                "table": "biosample_set",
+                "artifact_sha256": "3" * 64,
+                "rows": 27352,
+                "destination_rows": 27352,
+                "source_basis": "snapshot",
+            }
+        ],
+    }
+
+
+def _metadata_document() -> dict:
+    return {
+        "outcome_format_version": 1,
+        "status": "metadata-verified",
+        "snapshot_id": SNAPSHOT,
+        "destination_id": "nmdc-production",
+        "staging_namespace": STAGING,
+        "staging_outcome_sha256": "4" * 64,
+        "metadata_plan_sha256": "5" * 64,
+        "deferred_namespace_operations": 0,
+        "targets": [],
+    }
+
+
+def _files(root: Path) -> dict[str, Path]:
+    return {
+        "publication_plan_path": _write(root / "plan.json", _plan_document()),
+        "staging_outcome_path": _write(root / "staging.json", _staging_document()),
+        "metadata_outcome_path": _write(root / "metadata.json", _metadata_document()),
+    }
+
+
+RECOVERY = "Reload the immutable snapshot into a fresh staging namespace, measured at 8m56s."
+
+
+def test_the_plan_records_the_digest_of_the_bytes_it_actually_read(tmp_path: Path) -> None:
+    """The recorded digests must identify the evidence, or they identify nothing.
+
+    Hashing each file in a second pass would let it change between the read and the hash, and the
+    plan would then name bytes nobody validated.
+    """
+    from nmdc_lakehouse.berdl_promotion import plan_berdl_promotion_from_files
+
+    paths = _files(tmp_path)
+    plan = plan_berdl_promotion_from_files(canonical_namespace=CANONICAL, recovery=RECOVERY, **paths)
+
+    for path, recorded in (
+        (paths["publication_plan_path"], plan.publication_plan_sha256),
+        (paths["staging_outcome_path"], plan.staging_outcome_sha256),
+        (paths["metadata_outcome_path"], plan.metadata_outcome_sha256),
+    ):
+        assert recorded == hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_evidence_that_is_not_an_ordinary_file_is_refused(tmp_path: Path) -> None:
+    """A symlink means the bytes hashed are not the bytes at the path the operator reviewed."""
+    from nmdc_lakehouse.berdl_promotion import plan_berdl_promotion_from_files
+
+    paths = _files(tmp_path)
+    real = paths["staging_outcome_path"]
+    link = tmp_path / "staging-link.json"
+    link.symlink_to(real)
+    paths["staging_outcome_path"] = link
+
+    with pytest.raises(PromotionPlanError, match="staging outcome must be an ordinary file"):
+        plan_berdl_promotion_from_files(canonical_namespace=CANONICAL, recovery=RECOVERY, **paths)
+
+
+def test_the_plan_file_is_never_replaced(tmp_path: Path) -> None:
+    """A promotion plan is what a human authorizes against.
+
+    Silently replacing one lets an operator approve a digest that no longer describes the file at
+    that path.
+    """
+    from nmdc_lakehouse.berdl_promotion import plan_berdl_promotion_from_files, write_berdl_promotion_plan
+
+    plan = plan_berdl_promotion_from_files(canonical_namespace=CANONICAL, recovery=RECOVERY, **_files(tmp_path))
+    output = tmp_path / "promotion.json"
+    written = write_berdl_promotion_plan(output, plan)
+    assert written.is_file()
+
+    with pytest.raises(PromotionPlanError, match="Refusing to replace"):
+        write_berdl_promotion_plan(output, plan)
+
+
+def test_the_command_writes_a_plan_and_changes_nothing(tmp_path: Path) -> None:
+    """The module was reachable only from its own tests until this command existed."""
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    paths = _files(tmp_path)
+    output = tmp_path / "promotion.json"
+    result = CliRunner().invoke(
+        cli,
+        [
+            "berdl-promotion-plan",
+            "--plan",
+            str(paths["publication_plan_path"]),
+            "--staging-outcome",
+            str(paths["staging_outcome_path"]),
+            "--metadata-outcome",
+            str(paths["metadata_outcome_path"]),
+            "--canonical-namespace",
+            CANONICAL,
+            "--recovery",
+            RECOVERY,
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "nothing has been changed" in result.output
+    assert "OUTAGE" in result.output
+    written = json.loads(output.read_text(encoding="utf-8"))
+    assert written["status"] == "plan-only"
+    assert written["derived_rebuilds"] == ["graph_edges"]
+
+
+def test_the_command_reports_a_refusal_as_a_usage_error_not_a_traceback(tmp_path: Path) -> None:
+    """An operator reading a stack trace cannot tell a refused plan from a crashed one."""
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    paths = _files(tmp_path)
+    broken = _staging_document()
+    broken["destination_id"] = "somewhere-else"
+    _write(paths["staging_outcome_path"], broken)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "berdl-promotion-plan",
+            "--plan",
+            str(paths["publication_plan_path"]),
+            "--staging-outcome",
+            str(paths["staging_outcome_path"]),
+            "--metadata-outcome",
+            str(paths["metadata_outcome_path"]),
+            "--canonical-namespace",
+            CANONICAL,
+            "--recovery",
+            RECOVERY,
+            "--output",
+            str(tmp_path / "promotion.json"),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "somewhere-else" in result.output
+    assert "Traceback" not in result.output
+    assert not (tmp_path / "promotion.json").exists(), "a refused plan must leave no artifact"
+
+
+def test_evidence_that_is_not_valid_json_is_refused_by_name(tmp_path: Path) -> None:
+    """The message has to name which of the three files is wrong.
+
+    All three are read the same way, so "the evidence is not valid" would send the operator to
+    check all of them.
+    """
+    from nmdc_lakehouse.berdl_promotion import plan_berdl_promotion_from_files
+
+    paths = _files(tmp_path)
+    paths["metadata_outcome_path"].write_text("{not json", encoding="utf-8")
+
+    with pytest.raises(PromotionPlanError, match="BERDL metadata outcome is not valid"):
+        plan_berdl_promotion_from_files(canonical_namespace=CANONICAL, recovery=RECOVERY, **paths)
+
+
+def test_an_output_directory_that_does_not_exist_is_refused(tmp_path: Path) -> None:
+    """The writer does not create the parent.
+
+    Creating it would let a typo in the output path silently produce a plan somewhere nobody is
+    looking, which for an authorization artifact is worse than failing.
+    """
+    from nmdc_lakehouse.berdl_promotion import plan_berdl_promotion_from_files, write_berdl_promotion_plan
+
+    plan = plan_berdl_promotion_from_files(canonical_namespace=CANONICAL, recovery=RECOVERY, **_files(tmp_path))
+
+    with pytest.raises(PromotionPlanError, match="parent must be an ordinary directory"):
+        write_berdl_promotion_plan(tmp_path / "no-such-dir" / "promotion.json", plan)
+
+
+def test_the_refusal_survives_a_file_appearing_after_the_check(tmp_path: Path, monkeypatch) -> None:
+    """The pre-check alone is a race; `os.link` is what actually enforces the refusal.
+
+    Simulated by making the existence check blind, which is what a second process writing between
+    the check and the link looks like from inside this function.
+    """
+    from nmdc_lakehouse.berdl_promotion import plan_berdl_promotion_from_files, write_berdl_promotion_plan
+
+    plan = plan_berdl_promotion_from_files(canonical_namespace=CANONICAL, recovery=RECOVERY, **_files(tmp_path))
+    output = tmp_path / "promotion.json"
+    output.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(Path, "exists", lambda self: False)
+
+    with pytest.raises(PromotionPlanError, match="Refusing to replace"):
+        write_berdl_promotion_plan(output, plan)
+
+    assert output.read_text(encoding="utf-8") == "{}", "the existing file must be untouched"
+    leftovers = [item.name for item in tmp_path.iterdir() if item.name.startswith(".promotion.json.")]
+    assert not leftovers, f"the temporary file must be cleaned up, found {leftovers}"
