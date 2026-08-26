@@ -91,29 +91,72 @@ AND  b2wr.workflow_type = 'nmdc:ReadBasedTaxonomyAnalysis'
 
 ## Generation
 
-`notebooks/build_biosample_to_workflow_run.ipynb` generates and registers this
-table. Run it once after each NMDC data load. The notebook uses an iterative
-BFS walk over `nmdc_metadata.graph_edges`, one flat JOIN per hop level,
-avoiding Trino's 150-stage `WITH RECURSIVE` limit. `graph_edges` is created
-or replaced as a managed table in Step 0 and persists in `nmdc_metadata` after
-the notebook completes; refresh it whenever the underlying Silver provenance
-side tables are reloaded.
+`nmdc_lakehouse.derived_tables` generates and registers both tables. See
+[Maintenance](#maintenance) for the two calls and their order.
 
-The result is written directly to Silver via
-`spark.createDataFrame().write.saveAsTable()`. No Bronze roundtrip.
+An iterative breadth-first walk over `graph_edges`, one join per hop level, which is what
+avoids Trino's 150-stage `WITH RECURSIVE` limit. `graph_edges` is created or replaced from
+the four provenance side tables and persists, so refresh it whenever those are reloaded.
+
+Each hop is cached as it is built. A temp view is lazy, so without that each hop's plan
+contains every earlier hop and the end-of-walk union re-executes all of them.
+
+The result is written by `CREATE OR REPLACE TABLE ... AS SELECT`, in the catalog's own
+format. No Bronze roundtrip, and no pinned table format: the notebook wrote
+`spark.createDataFrame().write.saveAsTable()` into Delta, which was right for the Hive
+namespace it targeted and wrong for an Iceberg one.
 
 ## Maintenance
 
 ### When NMDC data is reloaded
 
-Re-run `notebooks/build_biosample_to_workflow_run.ipynb`. Fully derived, so no
-manual editing required.
+Both derived tables are rebuilt by `nmdc_lakehouse.derived_tables`. Call it yourself after a
+reload: nothing calls it automatically yet, and wiring it into a promotion is
+https://github.com/microbiomedata/nmdc-lakehouse/issues/234.
+
+This matters because a reload replaces every table these two are derived from, so leaving
+them alone leaves two populated tables describing data that no longer exists, and nothing
+in the namespace says so.
+
+**Pass the catalog-qualified name.** The examples elsewhere on this page say
+`nmdc_metadata.biosample_to_workflow_run`, which is the legacy Hive address for the same
+tables; `nmdc.metadata` is the Iceberg one. They are two addresses onto one dataset rather
+than two copies, measured in
+https://github.com/microbiomedata/nmdc-lakehouse/issues/248. The rebuild functions require
+the qualified form and reject `nmdc_metadata`, because an unqualified name resolves in
+whatever catalog the session happens to point at and these statements replace tables.
+
+<!-- unverified: the module and its refusals are covered offline, but no rebuild has been run
+     against a live catalog, so the SQL is not yet known to compute the right provenance.
+     Tracked at https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
+```python
+from nmdc_lakehouse.derived_tables import rebuild_biosample_to_workflow_run, rebuild_graph_edges
+
+rebuild_graph_edges(spark, "nmdc.metadata")
+rebuild_biosample_to_workflow_run(spark, "nmdc.metadata", progress=print)
+```
+
+Order matters: `graph_edges` is what the walk traverses, so it is rebuilt first from the
+four provenance side tables.
+
+`notebooks/build_biosample_to_workflow_run.ipynb` is the record of how this was worked out
+and is no longer the way to run it. Three things changed in the move, and each was a reason
+it could not run unattended: it used a Trino cursor for the walk and Spark for the writes, so
+an automated run needed two connections; it accumulated every hop into pandas frames in the
+driver; and each hop inlined every frontier identifier into an `IN (...)` clause, which at
+33,234 workflow runs is a statement megabytes wide that grows with the data. The walk is the
+same breadth-first algorithm.
+
+It also wrote `USING DELTA` into the unqualified `nmdc_metadata`. That was right for the Hive
+namespace it targeted and wrong for the Iceberg one, so the format is no longer pinned and the
+namespace has to be catalog-qualified.
 
 ### When a new MaterialProcessing subclass is added to the NMDC schema
 
-The preflight cell detects unknown types automatically and prints a WARNING.
-Add the new type and a snake_case column name to `PROCESSING_TYPES` in the
-build notebook before rebuilding.
+Add the type and a snake_case column name to `PROCESSING_TYPES` in
+`src/nmdc_lakehouse/derived_tables.py`. The rebuild does not detect unknown types for you;
+that preflight lived in the notebook and has not been ported, which is
+https://github.com/microbiomedata/nmdc-lakehouse/issues/130.
 
 ### When a new workflow type is added to NMDC
 
