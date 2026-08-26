@@ -17,7 +17,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from nmdc_lakehouse.snapshot_manifest import ArtifactRecord, SnapshotManifest, validate_snapshot
 
 PROFILE_FORMAT_VERSION: Literal[1] = 1
-BUNDLE_FORMAT_VERSION: Literal[1] = 1
+# Bumped from 1 when target_schema_versions was added. Version 1 documents are still read, and
+# carry an empty list, because a bundle built before the flat schema had a version genuinely
+# cannot name one.
+BUNDLE_FORMAT_VERSION: Literal[2] = 2
 _PREFIX = b"nmdc_lakehouse."
 _SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_]*\Z")
@@ -218,12 +221,16 @@ class MetadataBundle(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    bundle_format_version: Literal[1]
+    bundle_format_version: Literal[1, 2]
     generated_at: str = Field(min_length=1)
     snapshot_id: str
     profile_id: str
     source_schemas: list[SchemaIdentity]
     target_schema_ids: list[str]
+    # The flat schema versions the snapshot's artifacts declare. Empty for a version 1 bundle.
+    # More than one means the snapshot spans a flattener change, and a table cannot then be
+    # labelled with a single version, which plan_metadata_application refuses.
+    target_schema_versions: list[str] = Field(default_factory=list)
     mapping_ids: list[str]
     namespace: NamespaceProfile
     tables: list[TableMetadata]
@@ -455,6 +462,7 @@ def build_metadata_bundle(
         profile_id=profile.profile_id,
         source_schemas=[SchemaIdentity(schema_id=schema_id, version=version) for schema_id, version in source_schemas],
         target_schema_ids=sorted(manifest.target_schema_ids),
+        target_schema_versions=sorted(manifest.target_schema_versions),
         mapping_ids=sorted(manifest.mapping_ids),
         namespace=profile.namespace,
         tables=tables,

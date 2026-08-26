@@ -20,7 +20,10 @@ from nmdc_lakehouse.publication_plan import (
     load_destination_inventory,
 )
 
-PLAN_FORMAT_VERSION: Literal[1] = 1
+# Bumped from 1 when target_schema_version was added, so the applied metadata can say which flat
+# schema produced the tables it describes. Version 1 plans are still read and carry an empty
+# value, because they genuinely cannot say.
+PLAN_FORMAT_VERSION: Literal[2] = 2
 _SAFE_NAMESPACE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_]*(?:\.[A-Za-z0-9][A-Za-z0-9_]*)*\Z")
 _SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_]*\Z")
 _SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
@@ -154,9 +157,11 @@ class MetadataApplicationPlan(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    plan_format_version: Literal[1]
+    plan_format_version: Literal[1, 2]
     snapshot_id: str
     profile_id: str
+    # The one flat schema version behind every table in this plan. Empty for a version 1 plan.
+    target_schema_version: str = ""
     bundle_generated_at: str
     source_namespace: str
     destination_id: str
@@ -373,6 +378,7 @@ def build_metadata_application_plan(
             plan_format_version=PLAN_FORMAT_VERSION,
             snapshot_id=bundle.snapshot_id,
             profile_id=bundle.profile_id,
+            target_schema_version=_single_schema_version(bundle),
             bundle_generated_at=bundle.generated_at,
             source_namespace=bundle.namespace.name,
             destination_id=inventory.destination_id,
@@ -404,6 +410,23 @@ def load_metadata_application_plan(path: Path) -> MetadataApplicationPlan:
         return MetadataApplicationPlan.model_validate_json(document.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, ValidationError) as error:
         raise MetadataApplicationError("Cannot read a valid metadata application plan.") from error
+
+
+def _single_schema_version(bundle: MetadataBundle) -> str:
+    """Return the one flat schema version behind the bundle, refusing a mixed one.
+
+    A table gets labelled with a single version, so a bundle whose artifacts disagree cannot be
+    applied honestly: some table would carry a version that did not produce it. Refusing here is
+    the same reading the manifest already documents, where more than one entry means the snapshot
+    spans a flattener change.
+    """
+    versions = sorted({version for version in bundle.target_schema_versions if version})
+    if len(versions) > 1:
+        raise MetadataApplicationError(
+            "The bundle spans more than one flat schema version, so its tables cannot be labelled "
+            "with one: " + ", ".join(versions) + "."
+        )
+    return versions[0] if versions else ""
 
 
 def plan_metadata_application(

@@ -701,3 +701,163 @@ def test_progress_text_pluralises_correctly() -> None:
     assert _plural(2, "column") == "2 columns"
     assert _plural(1, "column description") == "1 column description"
     assert _plural(1393, "column description") == "1393 column descriptions"
+
+
+def _spark_with_properties(properties: dict[str, str], statements: list[str]):
+    """A fake Spark that records ALTER statements and serves SHOW TBLPROPERTIES from a dict."""
+
+    class Catalog:
+        def getTable(self, _name):
+            return SimpleNamespace(description="NMDC biosamples")
+
+        def listColumns(self, _name):
+            return [SimpleNamespace(name="id", description="Stable biosample identifier")]
+
+    def sql(statement: str):
+        statements.append(statement)
+        if statement.startswith("SHOW TBLPROPERTIES"):
+            return SimpleNamespace(collect=lambda: [(key, value) for key, value in properties.items()])
+        if statement.startswith("ALTER TABLE"):
+            body = statement.split("SET TBLPROPERTIES (", 1)[1].rstrip(")")
+            for pair in body.split(", "):
+                key, value = pair.split(" = ")
+                properties[key.strip("'")] = value.strip("'")
+            return SimpleNamespace(collect=lambda: [])
+        raise AssertionError(f"unexpected statement: {statement}")
+
+    return SimpleNamespace(catalog=Catalog(), sql=sql)
+
+
+def _apply_with(plan, spark, tmp_path: Path):
+    preview = build_berdl_metadata_preview(
+        plan, _staging(), metadata_plan_sha256="5" * 64, staging_outcome_sha256="6" * 64
+    )
+    return apply_berdl_staging_metadata(
+        plan,
+        _staging(),
+        preview,
+        ingest_checkout=tmp_path,
+        runtime=lambda _checkout: (spark, lambda *a, **k: {"status": "success"}, lambda *a, **k: {"status": "success"}),
+        checkout_verifier=lambda *_args: None,
+    )
+
+
+def test_a_staged_table_is_labelled_with_the_schema_that_produced_it(tmp_path: Path) -> None:
+    """The half of issue 293 a consumer meets: querying the table, not reading the Parquet."""
+    plan = _plan()
+    plan.target_schema_version = "11.23.0+flat.1.0.0"
+    properties: dict[str, str] = {}
+    statements: list[str] = []
+
+    outcome = _apply_with(plan, _spark_with_properties(properties, statements), tmp_path)
+
+    assert properties["nmdc_lakehouse.target_schema_version"] == "11.23.0+flat.1.0.0"
+    assert properties["nmdc_lakehouse.snapshot_id"] == plan.snapshot_id
+    assert outcome.targets[0].schema_properties_status == "verified"
+    assert outcome.targets[0].schema_properties_already_correct is False
+
+
+def test_properties_already_correct_are_verified_without_being_rewritten(tmp_path: Path) -> None:
+    """Same rule as the descriptions: skip the write, never skip the check."""
+    plan = _plan()
+    plan.target_schema_version = "11.23.0+flat.1.0.0"
+    properties = {
+        "nmdc_lakehouse.target_schema_version": "11.23.0+flat.1.0.0",
+        "nmdc_lakehouse.snapshot_id": plan.snapshot_id,
+    }
+    statements: list[str] = []
+
+    outcome = _apply_with(plan, _spark_with_properties(properties, statements), tmp_path)
+
+    assert not [item for item in statements if item.startswith("ALTER TABLE")]
+    assert [item for item in statements if item.startswith("SHOW TBLPROPERTIES")]
+    assert outcome.targets[0].schema_properties_already_correct is True
+    assert outcome.targets[0].schema_properties_status == "verified"
+
+
+def test_a_plan_that_cannot_name_a_schema_labels_nothing(tmp_path: Path) -> None:
+    """Better unlabelled than labelled with a guess a consumer cannot distinguish from a fact."""
+    plan = _plan()
+    plan.target_schema_version = ""
+    properties: dict[str, str] = {}
+    statements: list[str] = []
+
+    outcome = _apply_with(plan, _spark_with_properties(properties, statements), tmp_path)
+
+    assert properties == {}
+    assert statements == []
+    assert outcome.targets[0].schema_properties_status == "not-planned"
+
+
+def test_a_property_read_back_that_disagrees_is_refused(tmp_path: Path) -> None:
+    """A guard only ever seen to pass proves nothing."""
+    plan = _plan()
+    plan.target_schema_version = "11.23.0+flat.1.0.0"
+
+    class Catalog:
+        def getTable(self, _name):
+            return SimpleNamespace(description="NMDC biosamples")
+
+        def listColumns(self, _name):
+            return [SimpleNamespace(name="id", description="Stable biosample identifier")]
+
+    def sql(statement: str):
+        if statement.startswith("SHOW TBLPROPERTIES"):
+            return SimpleNamespace(collect=lambda: [("nmdc_lakehouse.target_schema_version", "something else")])
+        return SimpleNamespace(collect=lambda: [])
+
+    spark = SimpleNamespace(catalog=Catalog(), sql=sql)
+
+    with pytest.raises(BerdlMetadataError, match="schema property read-back failed"):
+        _apply_with(plan, spark, tmp_path)
+
+
+def test_a_value_that_cannot_be_quoted_is_refused() -> None:
+    """A plan is a file somebody can edit, and these values are interpolated into SQL."""
+    from nmdc_lakehouse.berdl_metadata import _quote_property
+
+    assert _quote_property("11.23.0+flat.1.0.0") == "'11.23.0+flat.1.0.0'"
+    for bad in ("it's", "back\\slash", "two\nlines"):
+        with pytest.raises(BerdlMetadataError, match="cannot be quoted safely"):
+            _quote_property(bad)
+
+
+def test_a_property_read_failure_is_a_message_not_a_traceback(tmp_path: Path) -> None:
+    """The catalog is a remote call, and a failed read must name the table it failed on."""
+    plan = _plan()
+    plan.target_schema_version = "11.23.0+flat.1.0.0"
+
+    class Catalog:
+        def getTable(self, _name):
+            return SimpleNamespace(description="NMDC biosamples")
+
+        def listColumns(self, _name):
+            return [SimpleNamespace(name="id", description="Stable biosample identifier")]
+
+    def sql(statement: str):
+        if statement.startswith("SHOW TBLPROPERTIES"):
+            raise RuntimeError("catalog unavailable")
+        return SimpleNamespace(collect=lambda: [])
+
+    with pytest.raises(BerdlMetadataError, match="Cannot read back table properties"):
+        _apply_with(plan, SimpleNamespace(catalog=Catalog(), sql=sql), tmp_path)
+
+
+def test_a_failed_property_write_is_a_message_not_a_traceback(tmp_path: Path) -> None:
+    plan = _plan()
+    plan.target_schema_version = "11.23.0+flat.1.0.0"
+
+    class Catalog:
+        def getTable(self, _name):
+            return SimpleNamespace(description="NMDC biosamples")
+
+        def listColumns(self, _name):
+            return [SimpleNamespace(name="id", description="Stable biosample identifier")]
+
+    def sql(statement: str):
+        if statement.startswith("ALTER TABLE"):
+            raise RuntimeError("write refused")
+        return SimpleNamespace(collect=lambda: [])
+
+    with pytest.raises(BerdlMetadataError, match="Setting schema properties failed"):
+        _apply_with(plan, SimpleNamespace(catalog=Catalog(), sql=sql), tmp_path)

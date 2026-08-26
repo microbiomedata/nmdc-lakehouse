@@ -80,6 +80,10 @@ class AppliedMetadataTarget(BaseModel):
     # The same distinction for the table description, which "verified" alone cannot express.
     # False when no table description was planned, which table_description_status already says.
     table_description_already_correct: bool = False
+    # Whether this table now carries the schema-identity properties, and whether they had to be
+    # written. "not-planned" for a version 1 plan, which cannot name a flat schema version.
+    schema_properties_status: Literal["verified", "not-planned"] = "not-planned"
+    schema_properties_already_correct: bool = False
 
     # Both of the fields above are absent from a version 1 outcome, hence the defaults. They are
     # what the outcome format version was raised for.
@@ -255,6 +259,47 @@ def _catalog_description(value: Any) -> str | None:
     return description if isinstance(description, str) else None
 
 
+# Deliberately the same names the Parquet footer uses. A reader who has seen one should not have
+# to learn a second vocabulary for the other, and the footer and the table are now the two places
+# the same fact is recorded.
+SCHEMA_PROPERTY_PREFIX = "nmdc_lakehouse."
+
+
+def _schema_properties(plan: Any) -> dict[str, str]:
+    """Return the identity properties a staged table should carry, or nothing to write.
+
+    Empty when the plan cannot name a flat schema version, which is true of every plan written
+    before the schema had one. Labelling those tables with a guess would be worse than leaving
+    them unlabelled, because a consumer cannot tell a guess from a fact.
+    """
+    version = getattr(plan, "target_schema_version", "")
+    if not version:
+        return {}
+    return {
+        f"{SCHEMA_PROPERTY_PREFIX}target_schema_version": version,
+        f"{SCHEMA_PROPERTY_PREFIX}snapshot_id": plan.snapshot_id,
+    }
+
+
+def _read_table_properties(spark: Any, table: str) -> dict[str, str]:
+    try:
+        rows = spark.sql(f"SHOW TBLPROPERTIES {table}").collect()
+    except Exception as error:
+        raise BerdlMetadataError(f"Cannot read back table properties for '{table}'.") from error
+    return {row[0]: row[1] for row in rows}
+
+
+def _quote_property(value: str) -> str:
+    """Quote one property value for SQL, refusing what cannot be quoted safely.
+
+    These values come from a reviewed plan rather than from a caller, but they are interpolated
+    into a statement, and a plan is a file somebody can edit.
+    """
+    if "'" in value or "\\" in value or "\n" in value or "\r" in value:
+        raise BerdlMetadataError(f"A table property value cannot be quoted safely: {value!r}")
+    return f"'{value}'"
+
+
 def _read_table_description(spark: Any, table: str) -> str | None:
     try:
         return _catalog_description(spark.catalog.getTable(table))
@@ -374,6 +419,31 @@ def apply_berdl_staging_metadata(
             f"({verified_columns_total}/{planned_columns} verified, {written_columns_total} written, "
             f"{elapsed / 60:.1f} min elapsed{estimate})"
         )
+        # The identity properties, applied last so a table that fails earlier is not labelled as
+        # carrying a schema it does not describe. One ALTER sets them all, so this is one commit
+        # per table rather than one per property, and it is skipped when they already match.
+        properties_status: Literal["verified", "not-planned"] = "not-planned"
+        properties_already_correct = False
+        wanted = _schema_properties(plan)
+        if wanted:
+            observed = _read_table_properties(spark, full_table)
+            properties_already_correct = all(observed.get(key) == value for key, value in wanted.items())
+            if not properties_already_correct:
+                assignments = ", ".join(
+                    f"{_quote_property(key)} = {_quote_property(value)}" for key, value in wanted.items()
+                )
+                try:
+                    spark.sql(f"ALTER TABLE {full_table} SET TBLPROPERTIES ({assignments})")
+                except Exception as error:
+                    raise BerdlMetadataError(f"Setting schema properties failed for '{table}'.") from error
+            # Read back whether or not anything was written, for the same reason the descriptions
+            # do: a skipped write must never be a skipped check.
+            confirmed = _read_table_properties(spark, full_table)
+            for key, value in wanted.items():
+                if confirmed.get(key) != value:
+                    raise BerdlMetadataError(f"The schema property read-back failed for '{table}.{key}'.")
+            properties_status = "verified"
+
         targets.append(
             AppliedMetadataTarget(
                 table=table,
@@ -381,6 +451,8 @@ def apply_berdl_staging_metadata(
                 columns_verified=sorted(verified_columns),
                 columns_already_correct=already_correct,
                 table_description_already_correct=table_already_correct,
+                schema_properties_status=properties_status,
+                schema_properties_already_correct=properties_already_correct,
             )
         )
     return BerdlMetadataOutcome(

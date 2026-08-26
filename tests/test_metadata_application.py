@@ -10,6 +10,7 @@ from click.testing import CliRunner
 
 from nmdc_lakehouse.cli import cli
 from nmdc_lakehouse.metadata_application import (
+    PLAN_FORMAT_VERSION,
     MetadataApplicationError,
     MetadataOperationKind,
     build_metadata_application_plan,
@@ -203,7 +204,7 @@ def test_schema_and_atomic_output_are_versioned(tmp_path: Path) -> None:
     plan = build_metadata_application_plan(_bundle(), _inventory(), "nmdc.nmdc_metadata_staging")
     output = tmp_path / "output" / "metadata-application-plan.json"
 
-    assert metadata_application_json_schema()["x-format-version"] == 1
+    assert metadata_application_json_schema()["x-format-version"] == PLAN_FORMAT_VERSION
     assert write_metadata_application_plan(output, plan) == output.resolve()
     assert output.read_text(encoding="utf-8") == render_metadata_application_plan(plan) + "\n"
     assert load_metadata_application_plan(output) == plan
@@ -297,10 +298,23 @@ def test_schema_command_emits_plan_contract() -> None:
     result = CliRunner().invoke(cli, ["metadata-application-plan-schema"])
 
     assert result.exit_code == 0, result.output
-    assert json.loads(result.output)["x-format-version"] == 1
+    assert json.loads(result.output)["x-format-version"] == PLAN_FORMAT_VERSION
 
 
 @pytest.mark.parametrize("namespace", ["nmdc metadata", "nmdc_metadata;DROP", "nmdc_metadata\n"])
 def test_unsafe_staging_namespace_is_rejected(namespace: str) -> None:
     with pytest.raises(MetadataApplicationError, match="safe qualified identifier"):
         build_metadata_application_plan(_bundle(), _inventory(), namespace)
+
+
+def test_a_bundle_spanning_two_flat_schemas_cannot_be_planned() -> None:
+    """A table gets one version label, so a mixed bundle cannot be applied honestly."""
+    bundle = _bundle(_table("biosample_set", "Reviewed table's purpose.", "Stable identifier."))
+    bundle.target_schema_versions = ["11.23.0+flat.1.0.0", "11.23.0+flat.2.0.0"]
+
+    with pytest.raises(MetadataApplicationError, match="spans more than one flat schema version"):
+        build_metadata_application_plan(
+            bundle,
+            _inventory(MetadataCapability.NAMESPACE, MetadataCapability.TABLE),
+            "nmdc.nmdc_metadata_staging",
+        )

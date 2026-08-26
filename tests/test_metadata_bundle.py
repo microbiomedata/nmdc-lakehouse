@@ -12,6 +12,7 @@ from click.testing import CliRunner
 
 from nmdc_lakehouse.cli import cli
 from nmdc_lakehouse.metadata_bundle import (
+    BUNDLE_FORMAT_VERSION,
     DescriptionOverride,
     MetadataBundleError,
     MetadataProfile,
@@ -374,7 +375,7 @@ def test_metadata_schema_cli_emits_versioned_contracts() -> None:
     assert profile.exit_code == 0, profile.output
     assert bundle.exit_code == 0, bundle.output
     assert json.loads(profile.output)["x-format-version"] == 1
-    assert json.loads(bundle.output)["x-format-version"] == 1
+    assert json.loads(bundle.output)["x-format-version"] == BUNDLE_FORMAT_VERSION
     assert metadata_json_schema("bundle")["title"] == "MetadataBundle"
 
 
