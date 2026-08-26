@@ -297,6 +297,27 @@ def test_apply_writes_only_the_columns_that_differ(tmp_path: Path) -> None:
     assert outcome.targets[0].columns_already_correct == ["id"]
 
 
+def _outcome_document() -> dict:
+    """A minimal valid outcome as a dict, so version pairings can be exercised on parse."""
+    return {
+        "outcome_format_version": 3,
+        "status": "metadata-verified",
+        "snapshot_id": SNAPSHOT_ID,
+        "destination_id": "berdl-production",
+        "staging_namespace": "nmdc.metadata_staging_20260820",
+        "staging_outcome_sha256": "6" * 64,
+        "metadata_plan_sha256": "5" * 64,
+        "deferred_namespace_operations": 1,
+        "targets": [
+            {
+                "table": "biosample_set",
+                "table_description_status": "verified",
+                "columns_verified": ["id"],
+            }
+        ],
+    }
+
+
 def test_a_version_one_outcome_still_parses_and_new_outcomes_declare_the_current_version() -> None:
     """Every model here forbids extra fields, so an added key is a format change, default or not."""
     from nmdc_lakehouse.berdl_metadata import METADATA_OUTCOME_FORMAT_VERSION
@@ -870,3 +891,30 @@ def test_a_failed_property_write_is_a_message_not_a_traceback(tmp_path: Path) ->
 
     with pytest.raises(BerdlMetadataError, match="Setting schema properties failed"):
         _apply_with(plan, SimpleNamespace(catalog=Catalog(), sql=sql), tmp_path)
+
+
+def test_a_version_2_outcome_cannot_report_schema_properties() -> None:
+    """The third instance of a version that named a shape without constraining it.
+
+    The bundle and the plan both refuse this pairing already. This one was missed while fixing
+    those two, which is why it is worth a case rather than a comment: an outcome is evidence, and
+    an outcome claiming an application its own version says did not happen is false evidence.
+    """
+    from pydantic import ValidationError
+
+    document = _outcome_document()
+    document["outcome_format_version"] = 2
+    document["targets"][0]["schema_properties_status"] = "verified"
+
+    with pytest.raises(ValidationError, match="version 2 outcome cannot report schema properties"):
+        BerdlMetadataOutcome.model_validate(document)
+
+
+def test_a_version_2_outcome_that_reports_none_is_still_readable() -> None:
+    """Scoped to the pairing, not to refusing older documents."""
+    document = _outcome_document()
+    document["outcome_format_version"] = 2
+    document["targets"][0]["schema_properties_status"] = "not-planned"
+    document["targets"][0]["schema_properties_already_correct"] = False
+
+    assert BerdlMetadataOutcome.model_validate(document).outcome_format_version == 2

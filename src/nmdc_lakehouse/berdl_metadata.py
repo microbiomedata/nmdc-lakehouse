@@ -14,7 +14,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from nmdc_lakehouse.berdl_staging import (
     BerdlStagingOutcome,
@@ -103,6 +103,26 @@ class BerdlMetadataOutcome(BaseModel):
     # fields: a reader pinned to version 1 rejects a version 2 document outright, and an optional
     # field with a default does nothing to prevent that. Writing emits the constant below.
     outcome_format_version: Literal[1, 2, 3]
+
+    @model_validator(mode="after")
+    def validate_version_matches_targets(self) -> "BerdlMetadataOutcome":
+        """Keep the version an honest guide to what the targets may claim.
+
+        The schema-property fields exist on every target whatever the version says, so a version 1
+        or 2 outcome could report `schema_properties_status="verified"` and validate. That is
+        evidence of an application that the version says did not happen, and this file is
+        evidence. The bundle and the plan already refuse the same pairing; this was the third
+        instance and the one I did not notice while fixing the other two.
+        """
+        if self.outcome_format_version < 3:
+            for target in self.targets:
+                if target.schema_properties_status != "not-planned" or target.schema_properties_already_correct:
+                    raise ValueError(
+                        f"A version {self.outcome_format_version} outcome cannot report schema "
+                        f"properties for '{target.table}'."
+                    )
+        return self
+
     status: Literal["metadata-verified"]
     snapshot_id: str
     destination_id: str
