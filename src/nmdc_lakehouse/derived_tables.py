@@ -23,9 +23,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-# Slot columns that make up one provenance edge, and the direction each contributes. The
-# has_output row is reversed on purpose: output flows from the process to the material, so
-# walking upstream from a workflow run follows it backwards.
+# One row per side table that contributes provenance edges: (table, source column, destination
+# column, slot label). Direction is not a field; it is which column goes on which side. The
+# has_output row therefore reads backwards on purpose, because output flows from the process to
+# the material and the walk goes upstream from a workflow run.
 _EDGE_SOURCES = (
     ("workflow_execution_set_was_informed_by", "parent_id", "was_informed_by", "was_informed_by"),
     ("data_generation_set_has_input", "parent_id", "has_input", "has_input"),

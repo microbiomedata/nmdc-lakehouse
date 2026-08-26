@@ -118,6 +118,14 @@ This matters because a reload replaces every table these two are derived from, s
 them alone leaves two populated tables describing data that no longer exists, and nothing
 in the namespace says so.
 
+**Pass the catalog-qualified name.** The examples elsewhere on this page say
+`nmdc_metadata.biosample_to_workflow_run`, which is the legacy Hive address for the same
+tables; `nmdc.metadata` is the Iceberg one. They are two addresses onto one dataset rather
+than two copies, measured in
+https://github.com/microbiomedata/nmdc-lakehouse/issues/248. The rebuild functions require
+the qualified form and reject `nmdc_metadata`, because an unqualified name resolves in
+whatever catalog the session happens to point at and these statements replace tables.
+
 <!-- unverified: the module and its refusals are covered offline, but no rebuild has been run
      against a live catalog, so the SQL is not yet known to compute the right provenance.
      Tracked at https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
