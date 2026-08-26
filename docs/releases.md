@@ -87,11 +87,21 @@ A Parquet footer carries `nmdc_lakehouse.target_schema_version`, and the snapsho
 records it per artifact plus a `target_schema_versions` summary. So a **file** can name the
 projection that wrote it without reference to this repository.
 
-A **lakehouse table cannot yet.** Nothing writes this into Iceberg table properties or column
-comments, so somebody querying `nmdc.metadata` rather than reading Parquet still has no way to
-ask which flattener produced what they are looking at. That is the remaining half of scope item 2
-in https://github.com/microbiomedata/nmdc-lakehouse/issues/293, and it is the half a consumer
-actually meets.
+A **lakehouse table** carries the same fact in its properties, under the same names:
+
+| property | what it says |
+| --- | --- |
+| `nmdc_lakehouse.target_schema_version` | which flat schema produced this table |
+| `nmdc_lakehouse.snapshot_id` | which snapshot the rows came from |
+
+`berdl-apply-metadata` sets them in one `ALTER` per table, alongside the descriptions, and reads
+them back whether or not it wrote them. A plan that cannot name a version labels nothing rather
+than guessing, because a consumer cannot tell a guess from a fact.
+
+They are set on the **staging** namespace, which is where the metadata step runs. They reach
+`nmdc.metadata` when a staging namespace is promoted, which is
+https://github.com/microbiomedata/nmdc-lakehouse/issues/234 and is not yet implemented. So today
+a consumer can ask a staged table which schema produced it, and cannot yet ask the canonical one.
 
 More than one entry in `target_schema_versions` means a snapshot was assembled across a flattener
 change and is not internally consistent. Nothing could previously detect that.

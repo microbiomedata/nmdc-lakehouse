@@ -297,7 +297,28 @@ def test_apply_writes_only_the_columns_that_differ(tmp_path: Path) -> None:
     assert outcome.targets[0].columns_already_correct == ["id"]
 
 
-def test_a_version_one_outcome_still_parses_and_new_outcomes_declare_version_two() -> None:
+def _outcome_document() -> dict:
+    """A minimal valid outcome as a dict, so version pairings can be exercised on parse."""
+    return {
+        "outcome_format_version": 3,
+        "status": "metadata-verified",
+        "snapshot_id": SNAPSHOT_ID,
+        "destination_id": "berdl-production",
+        "staging_namespace": "nmdc.metadata_staging_20260820",
+        "staging_outcome_sha256": "6" * 64,
+        "metadata_plan_sha256": "5" * 64,
+        "deferred_namespace_operations": 1,
+        "targets": [
+            {
+                "table": "biosample_set",
+                "table_description_status": "verified",
+                "columns_verified": ["id"],
+            }
+        ],
+    }
+
+
+def test_a_version_one_outcome_still_parses_and_new_outcomes_declare_the_current_version() -> None:
     """Every model here forbids extra fields, so an added key is a format change, default or not."""
     from nmdc_lakehouse.berdl_metadata import METADATA_OUTCOME_FORMAT_VERSION
 
@@ -324,9 +345,10 @@ def test_a_version_one_outcome_still_parses_and_new_outcomes_declare_version_two
     assert parsed.outcome_format_version == 1
     assert parsed.targets[0].columns_already_correct == []
     assert parsed.targets[0].table_description_already_correct is False
-    # And the fields that motivated the bump are rejected under the old version's shape only by
-    # the version number, not by the model, which is exactly why the number had to change.
-    assert METADATA_OUTCOME_FORMAT_VERSION == 2
+    # And the current version is whatever the newest shape declares. Asserting a literal here
+    # would have to be edited on every bump, which is how a version stops moving when the shape
+    # does: this file would still read 2 while AppliedMetadataTarget had grown two fields.
+    assert METADATA_OUTCOME_FORMAT_VERSION > parsed.outcome_format_version
 
 
 def test_a_column_description_without_a_column_cannot_be_built() -> None:
@@ -701,3 +723,198 @@ def test_progress_text_pluralises_correctly() -> None:
     assert _plural(2, "column") == "2 columns"
     assert _plural(1, "column description") == "1 column description"
     assert _plural(1393, "column description") == "1393 column descriptions"
+
+
+def _spark_with_properties(properties: dict[str, str], statements: list[str]):
+    """A fake Spark that records ALTER statements and serves SHOW TBLPROPERTIES from a dict."""
+
+    class Catalog:
+        def getTable(self, _name):
+            return SimpleNamespace(description="NMDC biosamples")
+
+        def listColumns(self, _name):
+            return [SimpleNamespace(name="id", description="Stable biosample identifier")]
+
+    def sql(statement: str):
+        statements.append(statement)
+        if statement.startswith("SHOW TBLPROPERTIES"):
+            return SimpleNamespace(collect=lambda: [(key, value) for key, value in properties.items()])
+        if statement.startswith("ALTER TABLE"):
+            body = statement.split("SET TBLPROPERTIES (", 1)[1].rstrip(")")
+            for pair in body.split(", "):
+                key, value = pair.split(" = ")
+                properties[key.strip("'")] = value.strip("'")
+            return SimpleNamespace(collect=lambda: [])
+        raise AssertionError(f"unexpected statement: {statement}")
+
+    return SimpleNamespace(catalog=Catalog(), sql=sql)
+
+
+def _apply_with(plan, spark, tmp_path: Path):
+    preview = build_berdl_metadata_preview(
+        plan, _staging(), metadata_plan_sha256="5" * 64, staging_outcome_sha256="6" * 64
+    )
+    return apply_berdl_staging_metadata(
+        plan,
+        _staging(),
+        preview,
+        ingest_checkout=tmp_path,
+        runtime=lambda _checkout: (spark, lambda *a, **k: {"status": "success"}, lambda *a, **k: {"status": "success"}),
+        checkout_verifier=lambda *_args: None,
+    )
+
+
+def test_a_staged_table_is_labelled_with_the_schema_that_produced_it(tmp_path: Path) -> None:
+    """The half of issue 293 a consumer meets: querying the table, not reading the Parquet."""
+    plan = _plan()
+    plan.target_schema_version = "11.23.0+flat.1.0.0"
+    properties: dict[str, str] = {}
+    statements: list[str] = []
+
+    outcome = _apply_with(plan, _spark_with_properties(properties, statements), tmp_path)
+
+    assert properties["nmdc_lakehouse.target_schema_version"] == "11.23.0+flat.1.0.0"
+    assert properties["nmdc_lakehouse.snapshot_id"] == plan.snapshot_id
+    # Two reads when a write happens: the probe, then the read-back of what was written.
+    assert len([item for item in statements if item.startswith("SHOW TBLPROPERTIES")]) == 2
+    assert outcome.targets[0].schema_properties_status == "verified"
+    assert outcome.targets[0].schema_properties_already_correct is False
+
+
+def test_properties_already_correct_are_verified_without_being_rewritten(tmp_path: Path) -> None:
+    """Same rule as the descriptions: skip the write, never skip the check."""
+    plan = _plan()
+    plan.target_schema_version = "11.23.0+flat.1.0.0"
+    properties = {
+        "nmdc_lakehouse.target_schema_version": "11.23.0+flat.1.0.0",
+        "nmdc_lakehouse.snapshot_id": plan.snapshot_id,
+    }
+    statements: list[str] = []
+
+    outcome = _apply_with(plan, _spark_with_properties(properties, statements), tmp_path)
+
+    assert not [item for item in statements if item.startswith("ALTER TABLE")]
+    # Exactly one read, not two. The first read is the catalog's answer and nothing was written
+    # after it, so re-reading cost a round trip per table on every rerun and confirmed nothing a
+    # concurrent change could not also have defeated.
+    assert len([item for item in statements if item.startswith("SHOW TBLPROPERTIES")]) == 1
+    assert outcome.targets[0].schema_properties_already_correct is True
+    assert outcome.targets[0].schema_properties_status == "verified"
+
+
+def test_a_plan_that_cannot_name_a_schema_labels_nothing(tmp_path: Path) -> None:
+    """Better unlabelled than labelled with a guess a consumer cannot distinguish from a fact."""
+    plan = _plan()
+    plan.target_schema_version = ""
+    properties: dict[str, str] = {}
+    statements: list[str] = []
+
+    outcome = _apply_with(plan, _spark_with_properties(properties, statements), tmp_path)
+
+    assert properties == {}
+    assert statements == []
+    assert outcome.targets[0].schema_properties_status == "not-planned"
+
+
+def test_a_property_read_back_that_disagrees_is_refused(tmp_path: Path) -> None:
+    """A guard only ever seen to pass proves nothing."""
+    plan = _plan()
+    plan.target_schema_version = "11.23.0+flat.1.0.0"
+
+    class Catalog:
+        def getTable(self, _name):
+            return SimpleNamespace(description="NMDC biosamples")
+
+        def listColumns(self, _name):
+            return [SimpleNamespace(name="id", description="Stable biosample identifier")]
+
+    def sql(statement: str):
+        if statement.startswith("SHOW TBLPROPERTIES"):
+            return SimpleNamespace(collect=lambda: [("nmdc_lakehouse.target_schema_version", "something else")])
+        return SimpleNamespace(collect=lambda: [])
+
+    spark = SimpleNamespace(catalog=Catalog(), sql=sql)
+
+    # The message names the fully-qualified table and the property, because '"'"'table.key'"'"' reads
+    # like a column reference and drops the namespace.
+    expected = r"failed for 'nmdc\.metadata_staging_20260820\.biosample_set', property"
+    with pytest.raises(BerdlMetadataError, match=expected):
+        _apply_with(plan, spark, tmp_path)
+
+
+def test_a_value_that_cannot_be_quoted_is_refused() -> None:
+    """A plan is a file somebody can edit, and these values are interpolated into SQL."""
+    from nmdc_lakehouse.berdl_metadata import _quote_property
+
+    assert _quote_property("11.23.0+flat.1.0.0") == "'11.23.0+flat.1.0.0'"
+    for bad in ("it's", "back\\slash", "two\nlines"):
+        with pytest.raises(BerdlMetadataError, match="cannot be quoted safely"):
+            _quote_property(bad)
+
+
+def test_a_property_read_failure_is_a_message_not_a_traceback(tmp_path: Path) -> None:
+    """The catalog is a remote call, and a failed read must name the table it failed on."""
+    plan = _plan()
+    plan.target_schema_version = "11.23.0+flat.1.0.0"
+
+    class Catalog:
+        def getTable(self, _name):
+            return SimpleNamespace(description="NMDC biosamples")
+
+        def listColumns(self, _name):
+            return [SimpleNamespace(name="id", description="Stable biosample identifier")]
+
+    def sql(statement: str):
+        if statement.startswith("SHOW TBLPROPERTIES"):
+            raise RuntimeError("catalog unavailable")
+        return SimpleNamespace(collect=lambda: [])
+
+    with pytest.raises(BerdlMetadataError, match="Cannot read back table properties"):
+        _apply_with(plan, SimpleNamespace(catalog=Catalog(), sql=sql), tmp_path)
+
+
+def test_a_failed_property_write_is_a_message_not_a_traceback(tmp_path: Path) -> None:
+    plan = _plan()
+    plan.target_schema_version = "11.23.0+flat.1.0.0"
+
+    class Catalog:
+        def getTable(self, _name):
+            return SimpleNamespace(description="NMDC biosamples")
+
+        def listColumns(self, _name):
+            return [SimpleNamespace(name="id", description="Stable biosample identifier")]
+
+    def sql(statement: str):
+        if statement.startswith("ALTER TABLE"):
+            raise RuntimeError("write refused")
+        return SimpleNamespace(collect=lambda: [])
+
+    with pytest.raises(BerdlMetadataError, match="Setting schema properties failed"):
+        _apply_with(plan, SimpleNamespace(catalog=Catalog(), sql=sql), tmp_path)
+
+
+def test_a_version_2_outcome_cannot_report_schema_properties() -> None:
+    """The third instance of a version that named a shape without constraining it.
+
+    The bundle and the plan both refuse this pairing already. This one was missed while fixing
+    those two, which is why it is worth a case rather than a comment: an outcome is evidence, and
+    an outcome claiming an application its own version says did not happen is false evidence.
+    """
+    from pydantic import ValidationError
+
+    document = _outcome_document()
+    document["outcome_format_version"] = 2
+    document["targets"][0]["schema_properties_status"] = "verified"
+
+    with pytest.raises(ValidationError, match="version 2 outcome cannot report schema properties"):
+        BerdlMetadataOutcome.model_validate(document)
+
+
+def test_a_version_2_outcome_that_reports_none_is_still_readable() -> None:
+    """Scoped to the pairing, not to refusing older documents."""
+    document = _outcome_document()
+    document["outcome_format_version"] = 2
+    document["targets"][0]["schema_properties_status"] = "not-planned"
+    document["targets"][0]["schema_properties_already_correct"] = False
+
+    assert BerdlMetadataOutcome.model_validate(document).outcome_format_version == 2

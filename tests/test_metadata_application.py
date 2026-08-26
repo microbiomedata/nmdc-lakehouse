@@ -10,7 +10,9 @@ from click.testing import CliRunner
 
 from nmdc_lakehouse.cli import cli
 from nmdc_lakehouse.metadata_application import (
+    PLAN_FORMAT_VERSION,
     MetadataApplicationError,
+    MetadataApplicationPlan,
     MetadataOperationKind,
     build_metadata_application_plan,
     load_metadata_application_plan,
@@ -203,7 +205,7 @@ def test_schema_and_atomic_output_are_versioned(tmp_path: Path) -> None:
     plan = build_metadata_application_plan(_bundle(), _inventory(), "nmdc.nmdc_metadata_staging")
     output = tmp_path / "output" / "metadata-application-plan.json"
 
-    assert metadata_application_json_schema()["x-format-version"] == 1
+    assert metadata_application_json_schema()["x-format-version"] == PLAN_FORMAT_VERSION
     assert write_metadata_application_plan(output, plan) == output.resolve()
     assert output.read_text(encoding="utf-8") == render_metadata_application_plan(plan) + "\n"
     assert load_metadata_application_plan(output) == plan
@@ -297,10 +299,62 @@ def test_schema_command_emits_plan_contract() -> None:
     result = CliRunner().invoke(cli, ["metadata-application-plan-schema"])
 
     assert result.exit_code == 0, result.output
-    assert json.loads(result.output)["x-format-version"] == 1
+    assert json.loads(result.output)["x-format-version"] == PLAN_FORMAT_VERSION
 
 
 @pytest.mark.parametrize("namespace", ["nmdc metadata", "nmdc_metadata;DROP", "nmdc_metadata\n"])
 def test_unsafe_staging_namespace_is_rejected(namespace: str) -> None:
     with pytest.raises(MetadataApplicationError, match="safe qualified identifier"):
         build_metadata_application_plan(_bundle(), _inventory(), namespace)
+
+
+def test_a_bundle_spanning_two_flat_schemas_cannot_be_planned() -> None:
+    """A table gets one version label, so a mixed bundle cannot be applied honestly."""
+    bundle = _bundle(_table("biosample_set", "Reviewed table's purpose.", "Stable identifier."))
+    bundle.target_schema_versions = ["11.23.0+flat.1.0.0", "11.23.0+flat.2.0.0"]
+
+    with pytest.raises(MetadataApplicationError, match="spans more than one flat schema version"):
+        build_metadata_application_plan(
+            bundle,
+            _inventory(MetadataCapability.NAMESPACE, MetadataCapability.TABLE),
+            "nmdc.nmdc_metadata_staging",
+        )
+
+
+def _plan_document() -> dict:
+    """A minimal valid plan as a dict, so the version pairing can be exercised on parse."""
+    bundle = _bundle(_table("biosample_set", "Reviewed table's purpose.", "Stable identifier."))
+    plan = build_metadata_application_plan(
+        bundle,
+        _inventory(MetadataCapability.NAMESPACE, MetadataCapability.TABLE),
+        "nmdc.nmdc_metadata_staging",
+    )
+    # Python mode, not JSON. The model is strict, so serialising enums to strings produces a
+    # document it then refuses to parse, and the failure looks like the validator under test.
+    return plan.model_dump()
+
+
+def test_a_version_1_plan_cannot_carry_a_schema_version() -> None:
+    """The field exists on the model whatever the version says, so the version must enforce it.
+
+    Without this, a hand-edited version 1 plan carries a schema version, `berdl-apply-metadata`
+    labels the tables from it, and the contract that version 1 plans cannot name a schema is a
+    sentence in a comment rather than a rule.
+    """
+    from pydantic import ValidationError
+
+    document = _plan_document()
+    document["plan_format_version"] = 1
+    document["target_schema_version"] = "11.23.0+flat.1.0.0"
+
+    with pytest.raises(ValidationError, match="version 1 plan cannot carry"):
+        MetadataApplicationPlan.model_validate(document)
+
+
+def test_a_version_1_plan_with_no_schema_version_is_still_readable() -> None:
+    """The rule is about the pairing, not about refusing old documents."""
+    document = _plan_document()
+    document["plan_format_version"] = 1
+    document["target_schema_version"] = ""
+
+    assert MetadataApplicationPlan.model_validate(document).plan_format_version == 1
