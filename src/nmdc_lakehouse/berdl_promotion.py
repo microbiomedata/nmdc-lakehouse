@@ -262,7 +262,15 @@ def promotion_steps(plan: BerdlPromotionPlan) -> list[str]:
     if counts.get(Disposition.PRESERVE.value):
         steps.append(f"leave {counts[Disposition.PRESERVE.value]} table(s) untouched")
     if plan.derived_rebuilds:
-        steps.append("rebuild those derived table(s) from the replaced provenance side tables")
+        # A rebuild reads whatever the destination holds when it runs, which is only "the
+        # replaced tables" if this plan replaced any. A plan can rebuild with zero replacements,
+        # and telling the operator otherwise describes a step that is not the one about to run.
+        source = (
+            "the replaced provenance side tables"
+            if counts.get(Disposition.REPLACE.value)
+            else "the provenance side tables already in the destination"
+        )
+        steps.append(f"rebuild those derived table(s) from {source}")
     steps.append(f"verify all {len(plan.operations)} object(s) by read-back")
     return steps
 
@@ -283,15 +291,18 @@ def render_promotion_plan(plan: BerdlPromotionPlan) -> str:
     lines.extend(f"  {index}. {step}" for index, step in enumerate(promotion_steps(plan), start=1))
     if plan.derived_rebuilds:
         # Said before authorization rather than in a runbook nobody reads at 2am. This is the
-        # consequence of the ordering, and the operator is the person who can postpone it.
+        # consequence of the ordering, and the operator is the person who can postpone it. The
+        # sentence names the tables this plan drops, not the ones a two-table plan would drop.
+        single = len(plan.derived_rebuilds) == 1
+        dropped_verb, exist_verb = ("is", "does not") if single else ("are", "do not")
         lines.extend(
             [
                 "",
-                "  OUTAGE: " + ", ".join(plan.derived_rebuilds) + " are dropped at step 1 and do",
-                "  not exist again until the rebuild. Queries against them, and joins from",
-                "  biosample_to_workflow_run into the results tables, fail for the whole run.",
-                "  That is deliberate: leaving them in place would return provenance that no",
-                "  longer exists, and those answers look correct.",
+                "  OUTAGE: " + ", ".join(plan.derived_rebuilds) + f" {dropped_verb} dropped at step 1 and",
+                f"  {exist_verb} exist again until the rebuild. Queries against them, and joins",
+                "  from them into the results tables, fail for the whole run. That is",
+                "  deliberate: leaving them in place would return provenance that no longer",
+                "  exists, and those answers look correct.",
             ]
         )
     lines.append("")

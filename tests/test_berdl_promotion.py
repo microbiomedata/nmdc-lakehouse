@@ -364,3 +364,56 @@ def test_a_missing_candidate_row_count_is_refused_as_missing_not_as_a_mismatch()
             _publication_plan(_entry("biosample_set", Disposition.REPLACE, None)),
             _staging(("biosample_set", 1)),
         )
+
+
+def test_a_rebuild_with_no_replacements_does_not_claim_the_sources_were_replaced() -> None:
+    """The step text described a plan that is not the one about to run.
+
+    A rebuild reads whatever the destination holds at the moment it runs. Calling those "the
+    replaced provenance side tables" when this plan replaced nothing tells the operator a
+    replacement is part of the sequence they are authorizing, and it is not.
+    """
+    from nmdc_lakehouse.berdl_promotion import promotion_steps
+
+    plan = _build(
+        _publication_plan(
+            _entry("functional_annotation_agg", Disposition.PRESERVE, None),
+            _entry("graph_edges", Disposition.REBUILD, None),
+        ),
+        _staging(),
+    )
+    steps = " ".join(promotion_steps(plan))
+
+    assert "rebuild" in steps
+    assert "replaced provenance side tables" not in steps
+    assert "already in the destination" in steps
+
+
+def test_the_outage_names_the_tables_this_plan_drops() -> None:
+    """It named biosample_to_workflow_run whatever the plan actually dropped.
+
+    An operator dropping only graph_edges was warned about joins from a table this plan does not
+    touch, which is both wrong and the kind of wrong that teaches people to skim the block.
+    """
+    rendered = render_promotion_plan(
+        _build(
+            _publication_plan(
+                _entry("biosample_set", Disposition.REPLACE, 1),
+                _entry("graph_edges", Disposition.REBUILD, None),
+            ),
+            _staging(("biosample_set", 1)),
+        )
+    )
+
+    outage = rendered[rendered.index("OUTAGE") :]
+
+    assert "graph_edges is dropped" in outage
+    assert "biosample_to_workflow_run" not in outage
+
+
+def test_the_outage_agrees_with_itself_when_both_derived_tables_are_dropped() -> None:
+    """The singular case is the new one, so the plural is the control that it did not break."""
+    outage = render_promotion_plan(_full_plan())
+
+    assert "graph_edges, biosample_to_workflow_run are dropped" in outage
+    assert "do not exist again" in outage
