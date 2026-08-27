@@ -569,19 +569,20 @@ writes a description of the promotion they authorize. It changes nothing, and
 there is deliberately no flag that makes it promote. Unlike every command before
 it, this one is offline and does not need a pod: it reads three local JSON files.
 
-<!-- unverified: the command runs and is covered end to end by
-tests/test_berdl_promotion.py, but this invocation has not been run against the
-real 2026-08-24 evidence files, which are not in the repository. Tracked in
+<!-- verified: 2026-08-27 ran this exact recipe against synthetic evidence built
+by tests/test_berdl_promotion.py, exit 0, and it wrote the plan and printed the
+step sequence. Not yet run against the real 2026-08-24 evidence files, which are
+not in the repository; tracked in
 https://github.com/microbiomedata/nmdc-lakehouse/issues/234. -->
 
 ```bash
-uv run python -m nmdc_lakehouse.cli berdl-promotion-plan \
-  --plan /path/to/publication-plan.json \
-  --staging-outcome /path/to/nmdc-staging-outcome.json \
-  --metadata-outcome /path/to/nmdc-staging-metadata-outcome.json \
-  --canonical-namespace nmdc.metadata \
-  --recovery "Reload the immutable snapshot into a fresh staging namespace." \
-  --output /path/to/promotion-plan.json
+just berdl-promotion-plan \
+  /path/to/publication-plan.json \
+  /path/to/nmdc-staging-outcome.json \
+  /path/to/nmdc-staging-metadata-outcome.json \
+  nmdc.metadata \
+  "Reload the immutable snapshot into a fresh staging namespace." \
+  /path/to/promotion-plan.json
 ```
 
 Every check refuses rather than warns. The three files must agree on the
