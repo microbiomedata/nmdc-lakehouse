@@ -325,6 +325,23 @@ That is dangerous for a backup specifically, because what a failed backup leaves
 behind is a set of plausible-looking directories with the right names. Anyone who
 then deletes the source has lost it.
 
+**The same trap catches reads, and it is more confusing from that side.** Reading
+`file://$HOME/biosample_set.parquet` returns the schema correctly, because the
+driver resolves it against its own filesystem, and then fails when an executor
+tries to read the data:
+
+```
+Lost task 0.3 in stage 3.0 (TID 6) (10.1.129.250 executor 8)
+Caused by: java.io.FileNotFoundException:
+  File file:/home/mamillerpa/biosample_set.parquet does not exist
+```
+
+Observed 2026-08-24 while verifying
+[#278](https://github.com/microbiomedata/nmdc-lakehouse/issues/278) in the pod.
+The delay between a correct schema and a missing file is what makes it cost
+time: the first result looks like the read worked. Object storage is the only
+ground the driver and the executors share, in either direction.
+
 **Write to object storage instead**, which every executor can reach, using a
 prefix that carries a timestamp so a rerun cannot overwrite an earlier one. Keep
 it under the tenant staging area: `berdl_staging.py` rejects a bronze prefix
@@ -616,6 +633,65 @@ The output file is created once and never replaced, because it is the artifact a
 human authorizes against. **Nothing yet consumes it.** The command that performs
 a promotion does not exist; see
 [#234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
+
+## Running a script in the pod
+
+Every step past the local Parquet file needs a Spark session, and a Spark
+session means a pod. The method is not obvious and `labctl status` is misleading
+about it: there is no programmatic exec, but the JupyterHub terminal in a
+browser is a real shell in the pod.
+
+Stage the file with `labctl pod put` rather than pasting it. Then, in the
+browser terminal, run it with `ipython script.py` and not `python script.py`:
+the notebook environment's Spark session helpers are configured for the
+interactive shell, and plain `python` starts without them.
+
+Redirect to a log and read that, rather than watching the terminal:
+
+<!-- verified: 2026-08-24 used in the pod to run the column-comment probe for
+https://github.com/microbiomedata/nmdc-lakehouse/issues/278; the grep returned
+the four ANSWER lines quoted in docs/column-description-path.md. -->
+
+```bash
+ipython probe.py > probe.log 2>&1
+grep -E 'ANSWER|Error|Exception' probe.log
+```
+
+A Spark stack trace in a browser terminal is long enough that scrolling back to
+the cause is slow, and the useful lines are usually one `grep` away. Printing
+answers with a distinctive prefix, as the 2026-08-24 probe did with `ANSWER-1`
+through `ANSWER-4`, makes the result one line rather than a hunt.
+
+Two things that waste time if nobody says them. Click the prompt line before
+typing: an unfocused JupyterLab terminal accepts keystrokes and silently drops
+them, so a pasted command can simply not arrive. And avoid pasting multi-line
+input directly, because the terminal's handling of it is unreliable; that is
+what `labctl pod put` is for.
+
+## Qualify every table name with its catalog
+
+A bare namespace resolves to `spark_catalog`, which is Hive, not the `nmdc`
+Iceberg catalog. The failure names neither the catalog it chose nor the reason:
+
+```
+IllegalArgumentException: Cannot open table: path is not set
+```
+
+Write `nmdc.<namespace>.<table>`. Observed 2026-08-24 in the pod, on
+`nmdc_scratch.some_table`.
+
+This is worth knowing before it happens, because the error text contains no clue
+that a catalog was involved, and searching it leads to Iceberg path configuration
+rather than to name resolution. The repository defends against it where it can:
+`derived_tables` and `berdl_promotion` both refuse a namespace that is not
+catalog-qualified, rather than letting one through to be resolved by whatever
+`spark_catalog` happens to hold.
+
+The catalogs visible on 2026-08-24 were `bervodata`, `culturebotai`,
+`globalusers`, `kbase`, `kescience`, `mamillerpa`, `microbialdiscoveryforge`,
+`my`, `nmdc`, `refdata`, and `spark_catalog`. `nmdc` is the Iceberg one and the
+only one this repository writes to. That listing is a snapshot of one day and is
+not a contract; run `SHOW CATALOGS` rather than trusting it.
 
 ## Capture a fresh destination inventory without mutation
 
