@@ -222,10 +222,12 @@ it, which is why the verified and written counts differ on a rerun. The estimate
 is rated on written columns only: a skip costs a catalog read and a write costs a
 catalog commit, so counting them together would look fast while skipping and be
 wrong as soon as writing resumed. Standard output stays reserved for the parseable
-outcome JSON. Expect it to write nothing. Descriptions arrive in the Parquet
-footer and Spark applies them when it creates each table, so this step finds
-them already present and only reads back to confirm: a full 53-table namespace
-cost 0 column writes and about 40 seconds on 2026-08-24. The path it replaced
+outcome JSON. Expect it to write no column descriptions. Those arrive in the
+Parquet footer and Spark applies them when it creates each table, so this step
+finds them already present and only reads back to confirm: a full 53-table
+namespace cost 0 column writes and about 40 seconds on 2026-08-24. It is not
+otherwise read-only, and still writes any missing table descriptions and the
+schema identity properties. The path it replaced
 applied one column at a time, one catalog commit each, and on 2026-08-20 it ran
 for 117 minutes and failed. See
 [`column-description-path.md`](column-description-path.md).
@@ -645,14 +647,29 @@ and contact nothing. The method is not obvious and `labctl status` is misleading
 about it: there is no programmatic exec, but the JupyterHub terminal in a
 browser is a real shell in the pod.
 
-Stage the file with `labctl pod put` rather than pasting it. Then run it in the
-browser terminal.
+Stage the file with `labctl pod put` rather than pasting it. **`labctl pod put`
+is for scripts and small files**, not for data; see the section below on moving
+bulk data, which should not go through the pod at all.
 
 Use `python script.py` when the script builds its own session, which is what
 `get_spark_session()` does; the inventory capture below is run that way. Use
 `ipython script.py` only when the script relies on the interactive shell's
 startup helpers to have a session already, because plain `python` starts without
 them and the failure is an unbound name rather than anything about Spark.
+
+**For a sequence of queries, keep one session alive instead.** Every
+`ipython file.py` starts its own Spark Connect server, measured 2026-08-24 at
+roughly 90 seconds before the first query runs, on every invocation. The log
+prints `Starting Spark Connect server... ready at sc://localhost:15002` each
+time. Four probe scripts that day paid it four times. Per-file execution is
+right for a single self-contained job and wrong for iterating; `ipython`
+interactively, or a notebook, pays the cost once.
+
+**Scope any catalog survey.** Walking every catalog the token can see, with
+`DESCRIBE EXTENDED` per table, ran past four minutes on 2026-08-24 without
+finishing. Catalogs the token cannot read appear to cost time rather than
+failing fast, so name the catalogs you need and treat an all-catalogs sweep as a
+background job rather than something to wait on.
 
 Redirect to a log and read that, rather than watching the terminal:
 
@@ -675,6 +692,45 @@ typing: an unfocused JupyterLab terminal accepts keystrokes and silently drops
 them, so a pasted command can simply not arrive. And avoid pasting multi-line
 input directly, because the terminal's handling of it is unreliable; that is
 what `labctl pod put` is for.
+
+## Move bulk data with `mc`, not through the pod
+
+`mc` reaches BERDL object storage directly from a workstation, so a snapshot
+never needs to pass through the pod at all. Verified 2026-08-24 by uploading a
+whole snapshot in one command: 55 objects, 448 MiB, checked against local byte
+counts, with no pod involved and no tunnels beyond what `labctl up berdl`
+already provides.
+
+<!-- verified: 2026-08-24 moved the complete 2026-08-21 snapshot this way, 55
+objects and 448 MiB, confirmed by listing the destination. -->
+
+```bash
+mc cp --recursive /absolute/path/to/snapshot/ \
+  berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/staging/<date>/
+```
+
+This is worth stating because the 2026-08-20 run did it the hard way: tarred the
+snapshot to 368 MB, split it into four 100 MB chunks, pushed each through the
+Jupyter contents API with `labctl pod put`, and reassembled in the pod. The
+pieces were never deleted, so 736 MB of them sat in the pod home afterwards, and
+the reason for the workaround survived only as five cryptic filenames.
+
+The rule: **`labctl pod put` is for scripts and small files. Data destined for
+the lakehouse goes to object storage with `mc`, because that is where the ingest
+reads it from.**
+
+Two traps, both hit on 2026-08-24.
+
+**A leading path component is read as an alias.** `mc cp --recursive
+local/snapshot/ dest/` fails with `dial tcp [::1]:9000: connection refused`,
+because `local` is a configured alias pointing at `localhost:9000` rather than a
+directory. Use an absolute source path.
+
+**That failure reported success.** The `mc` error went to a log while the
+shell's exit code came from a `tail` later in the pipeline, so the command
+printed `exit=0` and moved nothing. It was caught only by counting objects at
+the destination afterwards. **Verify a transfer by listing the destination,
+never by the exit code of a pipeline.**
 
 ## Qualify every table name with its catalog
 

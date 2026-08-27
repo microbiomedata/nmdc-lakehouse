@@ -1,8 +1,10 @@
 # How a LinkML description becomes an Iceberg column comment
 
 A column comment in the lakehouse is the description written on a slot in
-`nmdc-schema`. It travels through five hops without anyone typing it a second
-time, and the last hop is what removed the dominant cost of a reload.
+`nmdc-schema`, plus any note the flattener adds when flattening changes what the
+column means. For 14 columns the slot has no description and the note is the
+whole comment. Nobody types either a second time, and the last hop is what
+removed the dominant cost of a reload.
 
 This document describes the mechanism. Decisions about it live in issues.
 
