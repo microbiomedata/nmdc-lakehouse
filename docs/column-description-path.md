@@ -11,11 +11,21 @@ This document describes the mechanism. Decisions about it live in issues.
 It branches rather than running in a line, which matters when you are working
 out where a description went missing.
 
-1. **A LinkML slot description** in `nmdc-schema`. This is the only place the
-   text is authored.
+1. **A LinkML slot description** in `nmdc-schema`, where most of the text is
+   authored.
 2. **The flattener** reads it with `class_induced_slots`, not `get_slot`, so a
-   class-specific `slot_usage` description wins over the schema-level one. See
-   `src/nmdc_lakehouse/transforms/schema_generator.py`.
+   class-specific `slot_usage` description wins over the schema-level one. It
+   also **writes text of its own**, appending a note when flattening changes what
+   a column means. See `src/nmdc_lakehouse/transforms/schema_generator.py`:
+
+   - `Reference by identifier; original range was class '<range>'.`
+   - `Flattened from nested slot '<parent>.<inner>'.`
+   - `Polymorphic subclass-specific slot (from '<subclass>').`
+
+   Each is appended to the upstream description, so when the upstream slot has
+   none the note becomes the whole comment. That is why a catalog comment can
+   differ from its source slot with nothing wrong, and it is the first thing to
+   check when one does.
 3. **`class_def_to_arrow_schema()` writes it in two places at once**, in
    `src/nmdc_lakehouse/sinks/parquet_sink.py`:
    - as Arrow field metadata under the key `nmdc_lakehouse.description`, and
@@ -87,9 +97,13 @@ documentation said so until 2026-08-27, in this file, in
 footer key in `src/nmdc_lakehouse/sinks/parquet_sink.py`. All three now record
 the measurement instead.
 
-What has **not** been established is a supported way to change one column
-description on a live table that is not being reloaded. That is the open half,
-and it is [#297](https://github.com/microbiomedata/nmdc-lakehouse/issues/297).
+Changing one column description on a live table that is not being reloaded is
+**not supported**, decided 2026-08-27 in
+[#297](https://github.com/microbiomedata/nmdc-lakehouse/issues/297) and enforced
+since: `berdl-apply-metadata` refuses a target that is not a staging namespace,
+naming the 560-then-833 failure and pointing here. Reload into a fresh staging
+namespace instead, where the descriptions arrive in the footer at no extra
+cost.
 
 ## Coverage
 
