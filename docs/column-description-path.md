@@ -40,8 +40,18 @@ out where a description went missing.
    ordinary Parquet footer; there is no separate Spark footer.
 5. **The Iceberg column comment**, created by Spark when the table is created.
 
-Nobody applies step 5. Spark reads the footer key and creates an
-already-described table in the commit it was making anyway.
+Nobody applies step 5 when the footer carried the description, which is the
+normal case: Spark reads the footer key and creates an already-described table
+in the commit it was making anyway. `berdl-apply-metadata` then reads every
+planned column back and writes nothing.
+
+The per-column `ALTER` still exists as the fallback for whatever the footer did
+not carry. `apply_berdl_staging_metadata` compares each planned description
+against the catalog and calls `apply_comments_from_table_schema` for the ones
+that are missing or wrong (`berdl_metadata.py:432-460`). On a staging namespace
+loaded from a current snapshot that list is empty. It is not empty for a table
+loaded before the footer key existed, or one where a description changed since
+the load.
 
 The one place the JSON is rebuilt from the Arrow metadata is pruning:
 `with_spark_schema()` regenerates the footer entry from the fields a schema
