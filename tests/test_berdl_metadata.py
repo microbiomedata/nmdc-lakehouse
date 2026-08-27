@@ -952,8 +952,10 @@ def test_describing_a_canonical_namespace_one_column_at_a_time_is_refused() -> N
 def test_the_refusal_names_the_measurement_and_the_alternative() -> None:
     """An operator told only "not supported" reasonably tries it another way.
 
-    The grouped form is the obvious other way and it applied 0 of 120 comments while reporting a
-    successful commit, so the message has to carry enough for someone to stop rather than retry.
+    The grouped form is the obvious other way and it is not expressible: a single
+    `ALTER TABLE ... ALTER COLUMN a COMMENT ..., ALTER COLUMN b COMMENT ...` is a
+    PARSE_SYNTAX_ERROR here, measured 2026-08-20 on a 120-column table. So the message has to
+    carry enough for someone to stop rather than reach for a repair that cannot be written.
     """
     plan, staging = _in_namespace("nmdc.metadata")
 

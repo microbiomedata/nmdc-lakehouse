@@ -54,8 +54,9 @@ FOOTER_METADATA_FORMAT_VERSION = "2"
 # one commit it was making anyway, instead of one ALTER per column afterwards.
 #
 # That this key reaches the footer with the right comments is covered by tests. That the BERDL
-# loader honours it has not been observed on a real run: #278 adds the catalog read-back, and #258
-# stays open until it passes. Do not describe the catalog side as delivered before then.
+# loader honours it was verified in the pod on 2026-08-24: 1,393 of 1,402 columns arrived
+# described, in one metadata commit rather than 1,393. #278 and #258 are both closed. The
+# measurement is in docs/column-description-path.md.
 _SPARK_SCHEMA_KEY = b"org.apache.spark.sql.parquet.row.metadata"
 
 # Arrow types this sink can produce, mapped to Spark's type names. Deliberately exhaustive over

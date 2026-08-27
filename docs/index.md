@@ -13,3 +13,4 @@ is implemented, while destination publication remains manual and external.
 - [Uploading Parquet to BERDL](berdl-upload.md)
 - [Portable publication and replacement contract](publication-contract.md)
 - [BERDL metadata shaping](berdl-metadata-shaping.md)
+- [How a LinkML description becomes an Iceberg column comment](column-description-path.md)

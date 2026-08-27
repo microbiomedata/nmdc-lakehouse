@@ -5,9 +5,13 @@ time. The boundary is the "Historical off-cluster transport" heading:
 
 - **Everything above it is the maintained path.** It runs inside a BERDL
   JupyterHub pod, uses the reviewed plan commands in this repository, and is what
-  a current staging load follows. One section above the boundary is an exception
-  and says so in its heading: "Getting table data back out" is unverified, because
-  no reviewed command performs an export and nobody has run the one it shows.
+  a current staging load follows. Two sections above the boundary are exceptions
+  and say so in their headings. "Getting table data back out" is unverified,
+  because no reviewed command performs an export and nobody has run the one it
+  shows. "Move bulk data with `mc`, for a one-off transfer" is verified but is
+  not part of the maintained upload: `berdl-upload` reads its snapshot from the
+  pod filesystem, so `mc` is for moving data around rather than for feeding that
+  command.
 - **Everything below it is the April 2026 record.** It is kept for provenance. Do
   not use it by itself to overwrite or replace live tables. Its fixed dataset
   name, table count, Delta verification examples, and prerequisites belong to that
@@ -222,11 +226,15 @@ it, which is why the verified and written counts differ on a rerun. The estimate
 is rated on written columns only: a skip costs a catalog read and a write costs a
 catalog commit, so counting them together would look fast while skipping and be
 wrong as soon as writing resumed. Standard output stays reserved for the parseable
-outcome JSON. Expect the run to be dominated by the widest table: descriptions
-are applied one column at a time and each is a separate catalog commit, so a
-table with over a thousand columns takes far longer than the data load it
-describes. See
-[#258](https://github.com/microbiomedata/nmdc-lakehouse/issues/258).
+outcome JSON. Expect it to write no column descriptions. Those arrive in the
+Parquet footer and Spark applies them when it creates each table, so this step
+finds them already present and only reads back to confirm: a full 53-table
+namespace cost 0 column writes and about 40 seconds on 2026-08-25. It is not
+otherwise read-only, and still writes any missing table descriptions and the
+schema identity properties. The path it replaced
+applied one column at a time, one catalog commit each, and on 2026-08-20 it ran
+for 117 minutes and failed. See
+[`column-description-path.md`](column-description-path.md).
 
 ## Move the snapshot and evidence into the pod
 
@@ -324,6 +332,27 @@ held 55 bytes. Seven directories, no data.
 That is dangerous for a backup specifically, because what a failed backup leaves
 behind is a set of plausible-looking directories with the right names. Anyone who
 then deletes the source has lost it.
+
+**The same trap catches reads, and it is more confusing from that side.** Reading
+`file://$HOME/biosample_set.parquet` returns the schema correctly, because the
+driver resolves it against its own filesystem, and then fails when an executor
+tries to read the data:
+
+<!-- verified: 2026-08-24 in the pod, reading file://$HOME/biosample_set.parquet
+while verifying https://github.com/microbiomedata/nmdc-lakehouse/issues/278; the
+schema returned correctly and the read failed on executor 8 as shown. -->
+
+```
+Lost task 0.3 in stage 3.0 (TID 6) (10.1.129.250 executor 8)
+Caused by: java.io.FileNotFoundException:
+  File file:/home/mamillerpa/biosample_set.parquet does not exist
+```
+
+Observed 2026-08-24 while verifying
+[#278](https://github.com/microbiomedata/nmdc-lakehouse/issues/278) in the pod.
+The delay between a correct schema and a missing file is what makes it cost
+time: the first result looks like the read worked. Object storage is the only
+ground the driver and the executors share, in either direction.
 
 **Write to object storage instead**, which every executor can reach, using a
 prefix that carries a timestamp so a rerun cannot overwrite an earlier one. Keep
@@ -616,6 +645,175 @@ The output file is created once and never replaced, because it is the artifact a
 human authorizes against. **Nothing yet consumes it.** The command that performs
 a promotion does not exist; see
 [#234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
+
+## Running a script in the pod
+
+Anything that touches the live catalog needs a Spark session, and a Spark
+session means a pod. Plenty of this guide does not: the metadata application
+plan, the publication preflight, and `berdl-promotion-plan` all read local files
+and contact nothing. The method is not obvious and `labctl status` is misleading
+about it: there is no programmatic exec, but the JupyterHub terminal in a
+browser is a real shell in the pod.
+
+Stage the file with `labctl pod put` rather than pasting it. **`labctl pod put`
+is for scripts and small files.** For bulk data see the section below: `mc`
+moves it to object storage directly, which is the right route for a one-off
+transfer, while the maintained `berdl-upload` path still reads its snapshot
+from the pod filesystem.
+
+Use `python script.py` when the script builds its own session, which is what
+`get_spark_session()` does; the inventory capture below is run that way. Use
+`ipython script.py` only when the script relies on the interactive shell's
+startup helpers to have a session already, because plain `python` starts without
+them and the failure is an unbound name rather than anything about Spark.
+
+**For a sequence of queries, keep one session alive instead.** Every
+`ipython file.py` starts its own Spark Connect server, measured 2026-08-24 at
+roughly 90 seconds before the first query runs, on every invocation. The log
+prints `Starting Spark Connect server... ready at sc://localhost:15002` each
+time. Four probe scripts that day paid it four times. Per-file execution is
+right for a single self-contained job and wrong for iterating; `ipython`
+interactively, or a notebook, pays the cost once.
+
+**Scope any catalog survey.** Walking every catalog the token can see, with
+`DESCRIBE EXTENDED` per table, ran past four minutes on 2026-08-24 without
+finishing. Catalogs the token cannot read appear to cost time rather than
+failing fast, so name the catalogs you need and treat an all-catalogs sweep as a
+background job rather than something to wait on.
+
+Redirect to a log and read that, rather than watching the terminal:
+
+<!-- verified: 2026-08-24 used in the pod to run the column-comment probe for
+https://github.com/microbiomedata/nmdc-lakehouse/issues/278; the grep returned
+the four ANSWER lines quoted in docs/column-description-path.md. -->
+
+```bash
+ipython probe.py > probe.log 2>&1
+grep -E 'ANSWER|Error|Exception' probe.log
+```
+
+A Spark stack trace in a browser terminal is long enough that scrolling back to
+the cause is slow, and the useful lines are usually one `grep` away. Printing
+answers with a distinctive prefix, as the 2026-08-24 probe did with `ANSWER-1`
+through `ANSWER-4`, makes the result one line rather than a hunt.
+
+Two things that waste time if nobody says them. Click the prompt line before
+typing: an unfocused JupyterLab terminal accepts keystrokes and silently drops
+them, so a pasted command can simply not arrive. And avoid pasting multi-line
+input directly, because the terminal's handling of it is unreliable; that is
+what `labctl pod put` is for.
+
+## Move bulk data with `mc`, for a one-off transfer
+
+`mc` reaches BERDL object storage directly from a workstation. Verified
+2026-08-24 by uploading a whole snapshot in one command: 55 objects, 448 MiB,
+checked against local byte counts, with no pod involved and no tunnels beyond
+what `labctl up berdl` already provides.
+
+**This does not replace the maintained transfer above, and swapping it in would
+break the run.** `berdl-upload-plan` binds `--data-dir` to a resolved local
+snapshot path (`berdl_staging.py:598-604`) and execution reads those Parquet
+files from the pod filesystem, so the snapshot still has to be in the pod for
+that command. Making the maintained path read from object storage instead is
+real work on the plan and the adapter, tracked in
+[#294](https://github.com/microbiomedata/nmdc-lakehouse/issues/294).
+
+Use `mc` for bulk data you are placing where the ingest reads from, or moving
+off the platform, and for anything large that would otherwise be chunked through
+the Jupyter contents API.
+
+This needs an `mc` alias named `berdl-minio`, and this repository does not
+create one. The 2026-08-24 transfer used an alias that was already configured,
+so no bootstrap was run that day and none is verified here.
+
+The step that configures it is `bash scripts/configure_mc.sh --berdl-proxy`,
+run from a **BERIL-research-observatory** checkout and not from this one;
+neither `configure_mc.sh` nor `get_minio_creds.py` exists in this repository.
+It is preceded there by
+`eval "$(python scripts/get_minio_creds.py --bootstrap-remote --shell)"`, which
+reads the credentials rather than setting the alias. Both appear under
+[Historical off-cluster transport](#historical-off-cluster-transport), whose
+preamble says its prerequisites belong to that section alone. That holds for the
+tunnels and the Python environment; the alias is the one thing the `mc` path
+needs from it, and neither of those two commands has a recorded run.
+
+<!-- verified: 2026-08-24 moved the complete 2026-08-21 snapshot this way and
+confirmed it by comparing all 55 objects and 448 MiB at the destination against
+the local byte counts, not by listing alone. The mc alias was already configured
+rather than bootstrapped for the run. -->
+
+```bash
+mc cp --recursive /absolute/path/to/snapshot/ \
+  berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/staging/<date>/
+```
+
+**No proxy is set here, and that is what the 2026-08-24 run used**, from a
+workstation where `labctl up berdl` had already made the storage reachable. It is
+not what the off-cluster path below uses: that one prefixes every `mc` call with
+`https_proxy=http://127.0.0.1:8123` against the SOCKS tunnels, because
+`configure_mc.sh` is invoked with `bash` and a variable it exports cannot reach
+the caller. So in a shell set up that way, a bare `mc` attempts direct access and
+fails. Which of the two you need depends on how you reached BERDL, and neither
+is a default: check before assuming this line works in your shell.
+
+This is worth stating because the 2026-08-20 run did it the hard way: tarred the
+snapshot to 368 MB, split it into four 100 MB chunks, pushed each through the
+Jupyter contents API with `labctl pod put`, and reassembled in the pod. The
+pieces were never deleted, so 736 MB of them sat in the pod home afterwards, and
+the reason for the workaround survived only as five cryptic filenames.
+
+The rule, with its boundary: **`labctl pod put` is for scripts and small files.
+For a one-off transfer, or for data you are placing where something already
+reads it from object storage, use `mc`.** It is not a substitute for the
+maintained `berdl-upload` inputs: that path binds `--data-dir` to a local
+snapshot and the adapter reads those Parquet files from the pod filesystem
+before uploading them itself (`berdl_staging.py:598-604`,
+`berdl_adapter.py:241-251`), so removing the local copy would leave the command
+without its required inputs.
+
+Two traps, both hit on 2026-08-24.
+
+**A leading path component is read as an alias.** `mc cp --recursive
+local/snapshot/ dest/` fails with `dial tcp [::1]:9000: connection refused`,
+because `local` is a configured alias pointing at `localhost:9000` rather than a
+directory. Use an absolute source path.
+
+**That failure reported success.** The `mc` error went to a log while the
+shell's exit code came from a `tail` later in the pipeline, so the command
+printed `exit=0` and moved nothing. It was caught only by counting objects at
+the destination afterwards. **Verify a transfer by counting the destination against the source, never by the
+exit code of a pipeline.** A listing alone is not enough: a partial transfer
+leaves a plausible one, with the right prefix and some of the objects. The
+2026-08-24 run was checked by comparing all 55 objects and 448 MiB against the
+local byte counts, which is the check worth repeating.
+
+## Qualify every table name with its catalog
+
+A bare namespace resolves to `spark_catalog`, which is Hive, not the `nmdc`
+Iceberg catalog. The failure names neither the catalog it chose nor the reason:
+
+<!-- verified: 2026-08-24 in the pod, on nmdc_scratch.some_table; the bare name
+resolved to spark_catalog and produced this error verbatim. -->
+
+```
+IllegalArgumentException: Cannot open table: path is not set
+```
+
+Write `nmdc.<namespace>.<table>`. Observed 2026-08-24 in the pod, on
+`nmdc_scratch.some_table`.
+
+This is worth knowing before it happens, because the error text contains no clue
+that a catalog was involved, and searching it leads to Iceberg path configuration
+rather than to name resolution. The repository defends against it where it can:
+`derived_tables` and `berdl_promotion` both refuse a namespace that is not
+catalog-qualified, rather than letting one through to be resolved by whatever
+`spark_catalog` happens to hold.
+
+The catalogs visible on 2026-08-24 were `bervodata`, `culturebotai`,
+`globalusers`, `kbase`, `kescience`, `mamillerpa`, `microbialdiscoveryforge`,
+`my`, `nmdc`, `refdata`, and `spark_catalog`. `nmdc` is the Iceberg one and the
+only one this repository writes to. That listing is a snapshot of one day and is
+not a contract; run `SHOW CATALOGS` rather than trusting it.
 
 ## Capture a fresh destination inventory without mutation
 
