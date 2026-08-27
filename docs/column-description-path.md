@@ -87,8 +87,10 @@ asking for something the SQL layer cannot express. See
 and [#297](https://github.com/microbiomedata/nmdc-lakehouse/issues/297) for the
 decision.
 
-The probe namespace `nmdc.commentbench_probe_20260820` is still in the catalog
-and shows 1 and 101 `metadata_log_entries` for the two tables. Those are
+The probe namespace `nmdc.commentbench_probe_20260820` was recorded on
+2026-08-20 with 1 and 101 `metadata_log_entries` for its two tables. Whether it
+is still present has not been checked since, so treat the namespace as a place
+to look rather than as something known to be there. Those entries are
 retained history entries under Iceberg's bounded log, not a count of update
 commits, so do not read 101 as "101 commits for 120 columns".
 

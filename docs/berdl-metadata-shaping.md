@@ -4,6 +4,16 @@ A survey of what descriptive metadata this pipeline can set at each level of the
 BERDL hierarchy, what's already done, and what's tracked but not yet built. Written
 because the work is scattered across seven issues ([#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114)-[#120](https://github.com/microbiomedata/nmdc-lakehouse/issues/120)) with no single map.
 
+> **Column comments were solved differently, after this page was written.**
+> Everything below describes reaching them through
+> `apply_comments_from_table_schema()`, one `ALTER TABLE ... ALTER COLUMN ...
+> COMMENT` per column, and calls that piloted rather than scaled. That path was
+> measured and abandoned: it stops at width, and describing a canonical table
+> that way is now refused. Descriptions ride in the Parquet footer instead and
+> arrive when Spark creates the table.
+> [`column-description-path.md`](column-description-path.md) is the current
+> account. The table and schema levels below are unaffected.
+
 ## Summary table
 
 | Level | Settable today? | Mechanism | State |
