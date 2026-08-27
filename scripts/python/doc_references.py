@@ -103,7 +103,12 @@ def unresolvable_scripts(paths: list[Path], root: Path) -> list[tuple[Path, int,
 
 
 def _issue_states(numbers: set[str], repo: str) -> dict[str, str]:
-    """Ask GitHub once per issue. Returns only what it could read, so a failure is not a pass."""
+    """Ask GitHub once per issue, returning only the states it could actually read.
+
+    Anything else is left out: a non-zero exit, a missing `gh`, a timeout, and output that exits
+    0 but does not parse. The caller fails on every number absent from this mapping, so an
+    unreadable state can never read as a clean run.
+    """
     states: dict[str, str] = {}
     for number in sorted(numbers, key=int):
         try:
@@ -120,8 +125,15 @@ def _issue_states(numbers: set[str], repo: str) -> dict[str, str]:
             # non-zero, but a traceback reads as a broken checker rather than an unchecked
             # reference, and the two want different responses from whoever sees it.
             continue
-        if result.returncode == 0:
+        if result.returncode != 0:
+            continue
+        try:
             states[number] = json.loads(result.stdout)["state"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            # Exit 0 with output this cannot read is still an unread state. Letting it raise
+            # would abandon the remaining issues, so one malformed response would stop the
+            # check rather than report one unreadable reference.
+            continue
     return states
 
 

@@ -204,7 +204,9 @@ test-doc-references-issues-exit:
     #!/usr/bin/env bash
     set -euo pipefail
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-    printf '<!-- unverified: x, tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/999999 -->\n' > "$tmp/unreadable.md"
+    # Issue 0, not a large number. GitHub issue numbers start at 1, so this can never become
+    # readable; 999999 would start passing for the wrong reason if the repository ever got there.
+    printf '<!-- unverified: x, tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/0 -->\n' > "$tmp/unreadable.md"
     rc=0; uv run --no-sync python scripts/python/doc_references.py "$tmp/unreadable.md" --check-issues >/dev/null 2>&1 || rc=$?
     [ "$rc" -ne 0 ] || { echo "an unreadable issue state passed; a network failure would read as clean"; exit 1; }
     echo "doc-references-issues exit contract holds: unreadable state fails"
