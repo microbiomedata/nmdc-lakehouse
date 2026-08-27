@@ -80,7 +80,13 @@ def _markdown_files(targets: list[Path]) -> list[Path]:
 
 
 def unresolvable_scripts(paths: list[Path], root: Path) -> list[tuple[Path, int, str]]:
-    """Every cited ``scripts/`` path that does not exist, with where it is cited."""
+    """Cited ``scripts/`` paths that do not exist here, with where each is cited.
+
+    Not every one. A file may declare that its paths belong to another checkout, and everything
+    from that declaration to the end of the file is skipped. The declaration is deliberately not
+    file-wide: `berdl-upload.md` declares at line 896 of 1124, so treating it as file-wide
+    exempted 895 lines of maintained runbook it does not introduce.
+    """
     problems = []
     for document in paths:
         declared_from: int | None = None
@@ -120,7 +126,10 @@ def _issue_states(numbers: set[str], repo: str) -> dict[str, str]:
 
 
 def _marker_blocks(text: str) -> list[tuple[int, str]]:
-    """Each verified/unverified marker, with the line it starts on.
+    """Each ``unverified`` marker, with the line it starts on.
+
+    Only ``unverified``. `MARKER_START` deliberately excludes ``verified``, for the reason given
+    where it is defined, so this returns one of the two kinds despite the shared syntax.
 
     A marker may wrap across lines, so the issue it names is often not on the line that opens it.
     Joining the block is what makes the reference findable at all.
@@ -140,7 +149,12 @@ def _marker_blocks(text: str) -> list[tuple[int, str]]:
 
 
 def markers_citing_closed_issues(paths: list[Path], repo: str) -> tuple[list[tuple[Path, int, str]], set[str]]:
-    """Markers naming a closed issue, and the issues whose state could not be read."""
+    """Markers naming a closed issue without saying so, and the issues whose state was unreadable.
+
+    Two conditions, not one. A marker is reported when the issue it names is CLOSED **and** the
+    marker does not contain a word marking it settled. A marker reading "tracked in <url>, now
+    closed" is the remedy, so reporting it would make the fix look like the defect.
+    """
     found: list[tuple[Path, int, str, str]] = []
     numbers: set[str] = set()
     for document in paths:
