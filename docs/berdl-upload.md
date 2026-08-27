@@ -761,8 +761,11 @@ directory. Use an absolute source path.
 **That failure reported success.** The `mc` error went to a log while the
 shell's exit code came from a `tail` later in the pipeline, so the command
 printed `exit=0` and moved nothing. It was caught only by counting objects at
-the destination afterwards. **Verify a transfer by listing the destination,
-never by the exit code of a pipeline.**
+the destination afterwards. **Verify a transfer by counting the destination against the source, never by the
+exit code of a pipeline.** A listing alone is not enough: a partial transfer
+leaves a plausible one, with the right prefix and some of the objects. The
+2026-08-24 run was checked by comparing all 55 objects and 448 MiB against the
+local byte counts, which is the check worth repeating.
 
 ## Qualify every table name with its catalog
 

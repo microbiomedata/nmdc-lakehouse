@@ -12,7 +12,14 @@ because the work is scattered across seven issues ([#114](https://github.com/mic
 > Parquet footer instead and arrive when Spark creates the table. The per-column
 > helper survives as the staging fallback for whatever the footer did not carry.
 > [`column-description-path.md`](column-description-path.md) is the current
-> account. The table and schema levels below are unaffected.
+> account.
+>
+> **The table level below is stale too.** It says scaling beyond the
+> `nmdc_ref_data.pfam_terms` pilot is future work in
+> [#115](https://github.com/microbiomedata/nmdc-lakehouse/issues/115). That issue
+> closed on 2026-08-20, and `berdl-apply-metadata` now applies and verifies
+> planned table descriptions across the namespace
+> (`berdl_metadata.py:410-423`). The schema level is unaffected.
 
 ## Summary table
 
@@ -21,7 +28,7 @@ because the work is scattered across seven issues ([#114](https://github.com/mic
 | Tenant / org | Unconfirmed | `berdl_notebook_utils.governance`'s `list_tenants()` / `get_tenant_detail()` have readable `description`/`website`/`organization`/`display_name` fields per tenant; no known write path from NMDC-side code | Not investigated, see below |
 | Schema / database | Yes | `ALTER SCHEMA ... SET DBPROPERTIES (...)` | Piloted on `nmdc_ref_data` only ([#116](https://github.com/microbiomedata/nmdc-lakehouse/issues/116), closed). `nmdc_metadata`/`nmdc_results` not yet done ([#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114)) |
 | Dataset (Bronze/MinIO object path) | No known mechanism | S3 supports object metadata (`x-amz-meta-*`) via `mc`; nothing in this pipeline sets it | Open gap, not filed |
-| Table | Yes | `data_lakehouse_ingest.utils.delta_comments.apply_table_comment` | Piloted on `nmdc_ref_data.pfam_terms` only ([#117](https://github.com/microbiomedata/nmdc-lakehouse/pull/117)). Scaling to 49+9 tables is [#115](https://github.com/microbiomedata/nmdc-lakehouse/issues/115) |
+| Table | Yes | `data_lakehouse_ingest.utils.delta_comments.apply_table_comment` | Done. Piloted on `nmdc_ref_data.pfam_terms` ([#117](https://github.com/microbiomedata/nmdc-lakehouse/pull/117)), then scaled: [#115](https://github.com/microbiomedata/nmdc-lakehouse/issues/115) closed 2026-08-20 and `berdl-apply-metadata` applies and verifies planned table descriptions |
 | Column | Yes | `data_lakehouse_ingest.utils.delta_comments.apply_comments_from_table_schema` | Same as table: piloted, not scaled |
 
 ## Tenant / org: the level nobody has written to yet
@@ -75,6 +82,10 @@ reference). This is a genuine gap, not yet filed as an issue. Lower priority tha
 the Silver-layer work above, since Silver is what users actually query.
 
 ## Table and column: proposed, piloted, not yet scaled
+
+*Historical. Both were scaled after this section was written; see the note at the
+top. It is kept because it records what was known and proposed at the time, and
+because the reasoning about `delta_comments` is still how the ingest works.*
 
 BERDL already ships a supported convention for this
 (`data_lakehouse_ingest.utils.delta_comments`), documented in [#115](https://github.com/microbiomedata/nmdc-lakehouse/issues/115):
