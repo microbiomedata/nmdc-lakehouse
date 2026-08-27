@@ -334,6 +334,10 @@ then deletes the source has lost it.
 driver resolves it against its own filesystem, and then fails when an executor
 tries to read the data:
 
+<!-- verified: 2026-08-24 in the pod, reading file://$HOME/biosample_set.parquet
+while verifying https://github.com/microbiomedata/nmdc-lakehouse/issues/278; the
+schema returned correctly and the read failed on executor 8 as shown. -->
+
 ```
 Lost task 0.3 in stage 3.0 (TID 6) (10.1.129.250 executor 8)
 Caused by: java.io.FileNotFoundException:
@@ -747,6 +751,9 @@ never by the exit code of a pipeline.**
 
 A bare namespace resolves to `spark_catalog`, which is Hive, not the `nmdc`
 Iceberg catalog. The failure names neither the catalog it chose nor the reason:
+
+<!-- verified: 2026-08-24 in the pod, on nmdc_scratch.some_table; the bare name
+resolved to spark_catalog and produced this error verbatim. -->
 
 ```
 IllegalArgumentException: Cannot open table: path is not set
