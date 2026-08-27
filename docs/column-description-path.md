@@ -123,9 +123,12 @@ rather than whether the schema supplied one.
 
 ## Running any of this yourself
 
-Every step past the Parquet file needs a Spark session in a BERDL pod. Staging a
-script and running it there is covered in
-[`berdl-upload.md`](berdl-upload.md), along with the two traps that cost the most
+Checking the catalog side needs a Spark session in a BERDL pod, because reading
+back a column comment means asking the catalog. Everything up to the Parquet
+file, and the offline commands in the publication sequence, need nothing.
+Staging a script and running it in the pod is covered in
+[`berdl-upload.md`](berdl-upload.md), along with the traps that cost the most
 time: a local path fails at the executor after the driver has already resolved
-the schema, and a bare namespace resolves to `spark_catalog` rather than to the
-`nmdc` Iceberg catalog.
+the schema, a bare namespace resolves to `spark_catalog` rather than to the
+`nmdc` Iceberg catalog, and bulk data should go to object storage with `mc`
+rather than through the pod at all.
