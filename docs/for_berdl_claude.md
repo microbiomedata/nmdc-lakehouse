@@ -33,8 +33,10 @@ Every row in `annotation_kegg_orthology` and `annotation_enzyme_commission` has:
 
 ## Standard join: annotation row → biosample
 
-<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
-     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
+<!-- unverified: no run of this procedure is recorded. Declaring the blocks
+     that predate this rule was
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
+     nothing tracks running them. -->
 ```sql
 SELECT ko.annotation_id,
        bs.id            AS biosample_id,
@@ -95,8 +97,10 @@ don't re-parse parquets you don't need.
 
 **Step 1, preflight: list what's already in `nmdc_results`**
 
-<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
-     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
+<!-- unverified: no run of this procedure is recorded. Declaring the blocks
+     that predate this rule was
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
+     nothing tracks running them. -->
 ```python
 existing = sorted(r.tableName for r in spark.sql("SHOW TABLES IN nmdc_results").collect())
 print(existing)
@@ -109,8 +113,10 @@ If your target table is already there, stop, because there is nothing to load.
 `fetch_taxonomy_summaries.ipynb` honors the `TAXONOMY_TYPES` env var
 (comma-separated, exact match against entries in `_DEFAULT_TARGET_TYPES`):
 
-<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
-     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
+<!-- unverified: no run of this procedure is recorded. Declaring the blocks
+     that predate this rule was
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
+     nothing tracks running them. -->
 ```bash
 export TAXONOMY_TYPES="Centrifuge output report file"
 ```
@@ -125,8 +131,10 @@ full default list is recoverable but wasteful, so narrow the scope.
 `SHOW TABLES IN nmdc_results`. To intentionally re-overwrite a specific
 table, add its name to `FORCE_OVERWRITE` in the configuration cell:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
-     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
+<!-- unverified: no run of this procedure is recorded. Declaring the blocks
+     that predate this rule was
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
+     nothing tracks running them. -->
 ```python
 FORCE_OVERWRITE = {"gtdbtk_bacterial_summary"}
 ```
@@ -147,8 +155,10 @@ upstream URLs, kernel staleness).
 
 Before running annotation queries, verify the tables are registered:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
-     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
+<!-- unverified: no run of this procedure is recorded. Declaring the blocks
+     that predate this rule was
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
+     nothing tracks running them. -->
 ```python
 for tbl in ("annotation_kegg_orthology", "annotation_enzyme_commission"):
     n = spark.sql(f"SHOW TABLES IN nmdc_results LIKE '{tbl}'").count()
@@ -178,8 +188,10 @@ The `functional_annotation_agg` table (also in `nmdc_metadata`) uses
 `KEGG.ORTHOLOGY:K00001` while annotation tables use `KO:K00001`.
 To cross-check counts:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
-     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
+<!-- unverified: no run of this procedure is recorded. Declaring the blocks
+     that predate this rule was
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
+     nothing tracks running them. -->
 ```sql
 'KEGG.ORTHOLOGY:' || SUBSTRING(annotation_id, 4)  AS faa_gene_function_id
 ```

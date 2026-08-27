@@ -174,6 +174,30 @@ test-prose-lint-exit:
 # There is no exemption list. One was tried, grandfathering the blocks that predated the rule by
 # content hash, and it produced seven distinct defects across eight rounds of review, each a way
 # for the check to stop applying. All 81 were declared instead.
+# Check that references in docs resolve for a reader. Offline: a cited scripts/ path must exist,
+# unless the file declares its paths belong to another checkout. The closed-issue rule needs the
+# network, so it is `doc-references-issues` and is not part of `check`.
+doc-references:
+    uv run python scripts/python/doc_references.py docs
+
+# The same checker plus one GitHub query per cited issue. Kept out of `check` because `check` must
+# run offline, and a network failure there would read as a pass.
+doc-references-issues:
+    uv run python scripts/python/doc_references.py docs --check-issues
+
+# Prove doc-references can fail. A checker that has never rejected anything is not evidence.
+test-doc-references-exit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    printf 'cites scripts/nope.py which is not here\n' > "$tmp/bad.md"
+    printf '<!-- external-scripts: some/other-repo -->\ncites scripts/nope.py\n' > "$tmp/declared.md"
+    rc=0; uv run --no-sync python scripts/python/doc_references.py "$tmp/bad.md" >/dev/null 2>&1 || rc=$?
+    [ "$rc" -ne 0 ] || { echo "doc-references did NOT fail on a missing script; the gate is inert"; exit 1; }
+    rc=0; uv run --no-sync python scripts/python/doc_references.py "$tmp/declared.md" >/dev/null 2>&1 || rc=$?
+    [ "$rc" -eq 0 ] || { echo "doc-references rejected a declared external path; the gate is too strict"; exit 1; }
+    echo "doc-references exit contract holds: missing fails, declared passes"
+
 doc-procedures:
     uv run python scripts/python/doc_procedures.py docs
 
@@ -390,7 +414,7 @@ test-dist:
     bash scripts/check_distribution.sh
 
 # Run the deterministic local quality checks.
-check: lint-just prose-lint test-prose-lint-exit doc-procedures test-doc-procedures-exit shellcheck actionlint lint deps-lint typecheck check-flat-schema test-cov diff-cover
+check: lint-just prose-lint test-prose-lint-exit doc-procedures test-doc-procedures-exit doc-references test-doc-references-exit shellcheck actionlint lint deps-lint typecheck check-flat-schema test-cov diff-cover
 
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
 # See scripts/README.md for details. These recipes shell out to utilities under
