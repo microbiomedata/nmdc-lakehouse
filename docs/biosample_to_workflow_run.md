@@ -51,10 +51,16 @@ regardless of workflow type.
 
 ## Workflow types covered
 
-All types present in `nmdc_metadata.workflow_execution_set` at build time.
-Run the preflight cell in `notebooks/build_biosample_to_workflow_run.ipynb`
-to see the current breakdown. New workflow types are picked up automatically
-on the next rebuild, with no config change required.
+All types present in `nmdc_metadata.workflow_execution_set` at build time. New
+workflow types are picked up automatically on the next rebuild, with no config
+change required.
+
+MaterialProcessing types are different: each one needs an entry in
+`PROCESSING_TYPES` to get a boolean column. A rebuild now refuses when the data
+holds a type the mapping does not cover, naming the types, because without a
+column every workflow that passed through one reads as false for the steps it
+did take. Query the current breakdown with
+`SELECT type, COUNT(*) FROM nmdc_metadata.material_processing_set GROUP BY type`.
 
 ## Example queries
 
@@ -155,9 +161,9 @@ rebuild_biosample_to_workflow_run(spark, "nmdc.metadata", progress=print)
 Order matters: `graph_edges` is what the walk traverses, so it is rebuilt first from the
 four provenance side tables.
 
-`notebooks/build_biosample_to_workflow_run.ipynb` is the record of how this was worked out
-and is no longer the way to run it. Three things changed in the move, and each was a reason
-it could not run unattended: it used a Trino cursor for the walk and Spark for the writes, so
+The work started in `notebooks/build_biosample_to_workflow_run.ipynb`, which was deleted on
+2026-08-27 once it was a second, untested implementation of the same walk. Three things changed
+in the move into `derived_tables`, and each was a reason the notebook could not run unattended: it used a Trino cursor for the walk and Spark for the writes, so
 an automated run needed two connections; it accumulated every hop into pandas frames in the
 driver; and each hop inlined every frontier identifier into an `IN (...)` clause, which at
 33,234 workflow runs is a statement megabytes wide that grows with the data. The walk is the
