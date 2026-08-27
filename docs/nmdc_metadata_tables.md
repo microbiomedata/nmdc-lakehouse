@@ -111,9 +111,10 @@ The Silver side tables cover the same ground under different names:
 
 ## Column description coverage
 
-Every column carries its LinkML description as an Iceberg column comment, so a
-data dictionary built from the catalog uses the wording in the schema itself,
-rather than a second copy that drifts.
+Every column whose LinkML slot has a description carries that description as an
+Iceberg column comment, so a data dictionary built from the catalog uses the
+wording in the schema itself rather than a second copy that drifts. Nothing is
+written for a slot that has no description, which is what the blanks below are.
 
 Coverage is **2,036 of 2,059 columns, 98.9%**, measured 2026-08-27 against
 `nmdc-schema` 11.23.0. The 23 blanks are not losses in this pipeline. Each one
@@ -147,12 +148,26 @@ import json, pathlib, sys, pyarrow.parquet as pq
 
 KEY = b"org.apache.spark.sql.parquet.row.metadata"
 total = blank = 0
+without_footer = []
 for path in sorted(pathlib.Path(sys.argv[1]).glob("*.parquet")):
-    schema = json.loads(pq.read_schema(path).metadata[KEY])
-    for field in schema["fields"]:
+    raw = (pq.read_schema(path).metadata or {}).get(KEY)
+    if raw is None:
+        # Not an error to report as a crash: a pre-footer snapshot, or a directory of
+        # unrelated Parquet, is a plausible thing to point this at, and "0 described"
+        # would be the wrong answer rather than a refusal.
+        without_footer.append(path.name)
+        continue
+    for field in json.loads(raw)["fields"]:
         total += 1
         blank += not (field.get("metadata") or {}).get("comment")
-print(f"{total - blank} of {total} described, {blank} blank")
+if without_footer:
+    print(f"{len(without_footer)} file(s) carry no {KEY.decode()} key:")
+    for name in without_footer:
+        print(f"  {name}")
+if total:
+    print(f"{total - blank} of {total} described, {blank} blank")
+else:
+    print("no described columns found; is this a completed snapshot?")
 EOF
 ```
 
