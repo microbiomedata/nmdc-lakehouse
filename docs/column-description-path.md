@@ -1,9 +1,10 @@
 # How a LinkML description becomes an Iceberg column comment
 
-A column comment in the lakehouse is the description written on a slot in
-`nmdc-schema`, plus any note the flattener adds when flattening changes what the
-column means. For 14 columns the slot has no description and the note is the
-whole comment. Nobody types either a second time, and the last hop is what
+A column comment in the lakehouse comes from up to three places: the description
+written on a slot in `nmdc-schema`, a note the flattener adds when flattening
+changes what the column means, and, for side-table key columns, a synthetic
+description with no slot behind it at all. Most comments are the first two
+together. Nobody types any of them a second time, and the last hop is what
 removed the dominant cost of a reload.
 
 This document describes the mechanism. Decisions about it live in issues.
@@ -143,8 +144,9 @@ cost.
 this pipeline. The figure, the list, and the command that reproduces it are in
 [`nmdc_metadata_tables.md`](nmdc_metadata_tables.md).
 
-**48 of the 2,036 comments are written by this repository rather than upstream**,
-in two different ways:
+**48 of the 2,036 comments contain no upstream text at all**, and a further 1,527
+mix upstream text with a note written here. Only 461 carry the wording from the
+schema and nothing else:
 
 | what the comment is made of | columns |
 | --- | ---: |
