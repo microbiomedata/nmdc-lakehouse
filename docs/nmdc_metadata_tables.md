@@ -109,6 +109,68 @@ The Silver side tables cover the same ground under different names:
   the agg uses `KEGG.ORTHOLOGY:K00001`. Translate with
   `'KEGG.ORTHOLOGY:' || SUBSTRING(annotation_id, 4)` before joining.
 
+## Column description coverage
+
+Every column whose LinkML slot has a description carries that description as an
+Iceberg column comment, so a data dictionary built from the catalog uses the
+wording in the schema itself rather than a second copy that drifts. Nothing is
+written for a slot that has no description, which is what the blanks below are.
+
+Coverage is **2,036 of 2,059 columns, 98.9%**, measured 2026-08-27 against
+`nmdc-schema` 11.23.0. The 23 blanks are not losses in this pipeline. Each one
+was checked against the induced slot on its source class, which is the lookup
+the flattener performs, and in all 23 the source slot has no description either.
+Adding one upstream propagates here on the next regeneration with no code change.
+
+The blanks a consumer is most likely to meet first are `instrument_set.vendor`,
+`instrument_set.model`, `data_object_set.url`,
+`workflow_execution_set.started_at_time`, and
+`workflow_execution_set.ended_at_time`. A blank there reads
+as an oversight in the lakehouse rather than in the schema it came from, which is
+why the number is stated here rather than rounded to "documented".
+
+The full list, its evidence, and the upstream proposal live in
+[#299](https://github.com/microbiomedata/nmdc-lakehouse/issues/299) and
+[nmdc-schema #685](https://github.com/microbiomedata/nmdc-schema/issues/685).
+
+To re-measure, read the `comment` of each field in the Spark schema JSON that
+the Parquet footer carries under `org.apache.spark.sql.parquet.row.metadata`.
+There is no separate Spark footer: that is one metadata key inside the ordinary
+Parquet footer, described in
+[the footer key reference](mongodb-connection.md).
+
+<!-- verified: 2026-08-27 run against local/mongodb-metadata-20260821_104214,
+printed "2036 of 2059 described, 23 blank", which is the figure above. -->
+
+```bash
+uv run python - /path/to/completed-snapshot <<'EOF'
+import json, pathlib, sys, pyarrow.parquet as pq
+
+KEY = b"org.apache.spark.sql.parquet.row.metadata"
+total = blank = 0
+without_footer = []
+for path in sorted(pathlib.Path(sys.argv[1]).glob("*.parquet")):
+    raw = (pq.read_schema(path).metadata or {}).get(KEY)
+    if raw is None:
+        # Not an error to report as a crash: a pre-footer snapshot, or a directory of
+        # unrelated Parquet, is a plausible thing to point this at, and "0 described"
+        # would be the wrong answer rather than a refusal.
+        without_footer.append(path.name)
+        continue
+    for field in json.loads(raw)["fields"]:
+        total += 1
+        blank += not (field.get("metadata") or {}).get("comment")
+if without_footer:
+    print(f"{len(without_footer)} file(s) carry no {KEY.decode()} key:")
+    for name in without_footer:
+        print(f"  {name}")
+if total:
+    print(f"{total - blank} of {total} described, {blank} blank")
+else:
+    print("no described columns found; is this a completed snapshot?")
+EOF
+```
+
 ## Multi-hop traversal: biosample_to_workflow_run
 
 For variable-depth queries (Biosample to / from any WorkflowExecution),
