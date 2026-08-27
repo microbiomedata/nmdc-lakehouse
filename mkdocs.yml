@@ -14,6 +14,7 @@ nav:
       - BERDL upload: berdl-upload.md
       - Portable publication and replacement contract: publication-contract.md
       - BERDL metadata shaping: berdl-metadata-shaping.md
+      - Column description path: column-description-path.md
       - BERDL promotion probe: berdl-promotion-probe.md
       - Selective collection loading: selective-collection-loading.md
   - Data products:

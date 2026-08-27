@@ -93,10 +93,17 @@ and it is [#297](https://github.com/microbiomedata/nmdc-lakehouse/issues/297).
 
 ## Coverage
 
-2,036 of 2,059 columns, 98.9%, measured 2026-08-27 against `nmdc-schema` 11.23.0. All 23 blanks are
-slots with no description upstream, not losses in this pipeline. The figure, the
-list, and the command that reproduces it are in
+2,036 of 2,059 columns, 98.9%, measured 2026-08-27 against `nmdc-schema`
+11.23.0. All 23 blanks are slots with no description upstream, not losses in
+this pipeline. The figure, the list, and the command that reproduces it are in
 [`nmdc_metadata_tables.md`](nmdc_metadata_tables.md).
+
+**14 of the 2,036 carry only a generated note**, with no upstream text behind
+them, because the slot they came from has no description and the flattening note
+is all that is left. `data_object_set.was_generated_by` reads as a reference
+note, and `protocol_link_url` on three tables reads as a nesting note. So 2,022
+columns carry authored text, and 98.9% measures whether a column has a comment
+rather than whether the schema supplied one.
 
 ## Running any of this yourself
 
