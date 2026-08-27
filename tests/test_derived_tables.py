@@ -360,8 +360,11 @@ def test_a_refusing_walk_still_releases_its_cache() -> None:
 
 def test_a_walk_that_fails_mid_hop_still_releases_its_cache() -> None:
     """The same guarantee for an engine failure rather than a refusal."""
+    # The trigger names the walk's join, not the bare table. The processing-type coverage check
+    # reads the same table before the walk starts, so "material_processing_set" alone now fires
+    # there instead and this test would pass on the wrong failure.
     spark = FailingSpark(
-        "material_processing_set",
+        f"JOIN {NAMESPACE}.material_processing_set",
         per_view={"walk_frontier_0": 10, "walk_step_1": 5, "walk_reached_1": 2, "walk_frontier_1": 3},
     )
 
@@ -371,3 +374,68 @@ def test_a_walk_that_fails_mid_hop_still_releases_its_cache() -> None:
     cached = [s for s in spark.statements if s.startswith("CACHE TABLE")]
     uncached = [s for s in spark.statements if s.startswith("UNCACHE TABLE")]
     assert cached and len(uncached) == len(cached)
+
+
+def test_a_processing_type_with_no_column_refuses_the_rebuild() -> None:
+    """The notebook printed a warning here. A warning is not seen by whoever reads the table.
+
+    `pair_statement` emits one boolean per entry in PROCESSING_TYPES, so a type in the data with
+    no entry gets no column, and every workflow that passed through it reads as false for the
+    steps it did take. The table is wrong in the direction that looks right.
+    """
+
+    class SparkWithAnUnknownType(FakeSpark):
+        def sql(self, statement: str):
+            if "NOT IN" in statement and "material_processing_set" in statement:
+                self.statements.append(statement)
+                return FakeFrame([("nmdc:Sonication",), ("nmdc:Lyophilization",)], self.views)
+            return super().sql(statement)
+
+    with pytest.raises(DerivedTableError, match="nmdc:Lyophilization, nmdc:Sonication"):
+        rebuild_biosample_to_workflow_run(SparkWithAnUnknownType(), NAMESPACE)
+
+
+def test_the_coverage_check_runs_before_anything_is_written() -> None:
+    """A rebuild that refuses after finishing has already replaced the table with the wrong one."""
+
+    class SparkWithAnUnknownType(FakeSpark):
+        def sql(self, statement: str):
+            if "NOT IN" in statement and "material_processing_set" in statement:
+                self.statements.append(statement)
+                return FakeFrame([("nmdc:Sonication",)], self.views)
+            return super().sql(statement)
+
+    spark = SparkWithAnUnknownType()
+    with pytest.raises(DerivedTableError):
+        rebuild_biosample_to_workflow_run(spark, NAMESPACE)
+
+    assert not [s for s in spark.statements if s.startswith("CREATE OR REPLACE TABLE")]
+    assert not [s for s in spark.statements if s.startswith("CACHE TABLE")]
+
+
+def test_every_processing_type_in_the_mapping_is_excluded_from_the_check() -> None:
+    """The check must not report the types it already has columns for."""
+    from nmdc_lakehouse.derived_tables import PROCESSING_TYPES, unaccounted_processing_types_statement
+
+    statement = unaccounted_processing_types_statement(NAMESPACE)
+
+    for nmdc_type in PROCESSING_TYPES:
+        assert f"'{nmdc_type}'" in statement, nmdc_type
+    assert statement.count("'") == 2 * len(PROCESSING_TYPES)
+
+
+def test_a_check_that_cannot_read_the_table_refuses_rather_than_assuming_coverage() -> None:
+    """An unreadable table is not the same as a table with nothing unaccounted for.
+
+    Both produce no rows. Treating a failed read as "all types are covered" would turn the guard
+    off in exactly the conditions where it is least safe to assume anything.
+    """
+
+    class SparkThatCannotRead(FakeSpark):
+        def sql(self, statement: str):
+            if "NOT IN" in statement and "material_processing_set" in statement:
+                raise RuntimeError("catalog unavailable")
+            return super().sql(statement)
+
+    with pytest.raises(DerivedTableError, match="Could not read material_processing_set"):
+        rebuild_biosample_to_workflow_run(SparkThatCannotRead(), NAMESPACE)

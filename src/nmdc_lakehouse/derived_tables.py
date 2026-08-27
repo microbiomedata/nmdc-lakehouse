@@ -5,8 +5,8 @@ side tables, so a reload replaces everything they are built from and leaves them
 that no longer exists. Nothing in the namespace says they are stale, which is why a promotion
 that replaces tables and stops is worse than one that also rebuilds these.
 
-Ported from `notebooks/build_biosample_to_workflow_run.ipynb`, with three changes that matter for
-running it unattended:
+Ported from `notebooks/build_biosample_to_workflow_run.ipynb`, deleted on 2026-08-27, with three
+changes that matter for running it unattended:
 
 - One engine. The notebook built `graph_edges` through Spark and then walked it through a Trino
   cursor, so an automated run needed two connections and two sets of credentials.
@@ -15,7 +15,9 @@ running it unattended:
   which for 33,234 workflow runs is a statement megabytes wide and grows with the data.
 
 The walk is the same algorithm: breadth-first from every workflow run, upstream along provenance
-edges, recording biosamples as they are reached and the processing classes seen on the way.
+edges, recording biosamples as they are reached and the processing classes seen on the way. The
+notebook's preflight cell came across as `check_processing_types_are_accounted_for`, which refuses
+where the cell printed a warning.
 """
 
 from __future__ import annotations
@@ -135,6 +137,45 @@ def processing_types_statement(namespace: str, frontier_view: str) -> str:
     )
 
 
+def unaccounted_processing_types_statement(namespace: str) -> str:
+    """MaterialProcessing types present in the data but absent from `PROCESSING_TYPES`.
+
+    `pair_statement` emits one boolean column per entry in `PROCESSING_TYPES`. A type in the data
+    that is not in that mapping gets no column, and every workflow that passed through it reads
+    as false for every processing step it did take. The table is then wrong in the direction that
+    looks right: it says the processing did not happen rather than that it was not measured.
+    """
+    _check_namespace(namespace)
+    known = ", ".join(f"'{nmdc_type}'" for nmdc_type in PROCESSING_TYPES)
+    return (
+        f"SELECT DISTINCT type FROM {namespace}.material_processing_set "
+        f"WHERE type IS NOT NULL AND type NOT IN ({known})"
+    )
+
+
+def check_processing_types_are_accounted_for(spark: object, namespace: str) -> None:
+    """Refuse to build the table when the mapping no longer covers the data.
+
+    Refuses rather than warns. This runs before a table is written, a warning in a log is not
+    seen by whoever reads the table months later, and the failure it prevents is invisible in the
+    output. Carried over from the preflight cell of the notebook this replaced, which printed a
+    warning and left it to the operator to notice.
+    """
+    _check_namespace(namespace)
+    try:
+        rows = spark.sql(unaccounted_processing_types_statement(namespace)).collect()  # type: ignore[attr-defined]
+    except Exception as error:
+        raise DerivedTableError("Could not read material_processing_set to check processing types.") from error
+    unaccounted = sorted(str(row[0]) for row in rows)
+    if unaccounted:
+        raise DerivedTableError(
+            "material_processing_set holds type(s) with no column in PROCESSING_TYPES: "
+            + ", ".join(unaccounted)
+            + ". Add them to PROCESSING_TYPES, or every workflow that passed through one will "
+            "read as false for the steps it did take."
+        )
+
+
 def pair_statement(namespace: str, reached_view: str, processing_view: str) -> str:
     """Collapse to one row per biosample and workflow run, with the processing booleans.
 
@@ -213,6 +254,10 @@ def rebuild_biosample_to_workflow_run(
     if max_depth < 1:
         raise DerivedTableError("max_depth must be at least 1.")
     say = progress if callable(progress) else (lambda _message: None)
+    # Before the walk, not after. A rebuild that runs to completion and then reports the mapping
+    # was incomplete has already replaced the table with the wrong one.
+    check_processing_types_are_accounted_for(spark, namespace)
+    say("processing types: all accounted for")
 
     cached: list[str] = []
 
