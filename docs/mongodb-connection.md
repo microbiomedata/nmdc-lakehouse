@@ -457,19 +457,32 @@ than a label:
 
 | Key | Meaning |
 | --- | --- |
-| `org.apache.spark.sql.parquet.row.metadata` | The file's schema in the form Spark reads a Parquet schema, with each slot description carried as a field `comment`. Written so that a Spark-based loader can create an already-described table in the commit it was making anyway, rather than needing one `ALTER TABLE ... ALTER COLUMN ... COMMENT` per column afterwards. Whether the BERDL loader honours it has **not** been confirmed on a real run; see the note below. |
+| `org.apache.spark.sql.parquet.row.metadata` | The file's schema in the form Spark reads a Parquet schema, with each slot description carried as a field `comment`. Written so that a Spark-based loader can create an already-described table in the commit it was making anyway, rather than needing one `ALTER TABLE ... ALTER COLUMN ... COMMENT` per column afterwards. Confirmed on BERDL on 2026-08-24; see the note below. |
 
-**What is and is not established.** That this key reaches the Parquet footer, and
+**What is established, and how.** That this key reaches the Parquet footer, and
 that its comments match the slot descriptions, is verified by tests in this
 repository. That Spark reads it and turns those comments into catalog column
-comments is read from Spark's documented behaviour and has never been observed
-here. Until a staging run confirms it, treat the catalog side as intended rather
-than delivered: a loader that ignored this key would look identical from here,
-because staging would succeed, row counts would match, and the descriptions
-would simply be absent. The read-back check is
-[#278](https://github.com/microbiomedata/nmdc-lakehouse/issues/278), and
-[#258](https://github.com/microbiomedata/nmdc-lakehouse/issues/258) stays open,
-with `berdl-apply-metadata` still applying descriptions, until it passes.
+comments was verified on BERDL on 2026-08-24, in the pod, against
+`biosample_set.parquet` from the 2026-08-21 snapshot:
+
+```
+BASELINE dataframe_columns=1402 with_comment_in_schema=1393
+ANSWER-1 columns_described=1393 of 1402
+ANSWER-2 metadata_commits=1
+ANSWER-3 id_comment='An NMDC assigned unique identifier for a biosample submitted to NMDC.'
+```
+
+The comments arrive in the DataFrame schema before any table exists, survive
+table creation, cost one commit rather than 1,393, and carry the real text. The
+nine columns without a comment are the same nine with no description in the source
+Parquet, so nothing is lost in transit. Both
+[#278](https://github.com/microbiomedata/nmdc-lakehouse/issues/278) and
+[#258](https://github.com/microbiomedata/nmdc-lakehouse/issues/258) are closed.
+
+This paragraph said the opposite until 2026-08-27, and it was right when it was
+written: the catalog side was genuinely unobserved, and a loader that ignored
+this key would have looked identical from here. It went stale the day after,
+when the probe ran.
 
 Because it is a schema, it has a consistency requirement the other keys do not:
 it must name exactly the columns the file holds. Any code that changes the field
