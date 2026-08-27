@@ -132,8 +132,29 @@ The full list, its evidence, and the upstream proposal live in
 [#299](https://github.com/microbiomedata/nmdc-lakehouse/issues/299) and
 [nmdc-schema #685](https://github.com/microbiomedata/nmdc-schema/issues/685).
 
-To re-measure, read the `comment` key of each field in the Spark schema footer
-(`org.apache.spark.sql.parquet.row.metadata`) of a completed snapshot.
+To re-measure, read the `comment` of each field in the Spark schema JSON that
+the Parquet footer carries under `org.apache.spark.sql.parquet.row.metadata`.
+There is no separate Spark footer: that is one metadata key inside the ordinary
+Parquet footer, described in
+[the footer key reference](mongodb-connection.md).
+
+<!-- verified: 2026-08-27 run against local/mongodb-metadata-20260821_104214,
+printed "2036 of 2059 described, 23 blank", which is the figure above. -->
+
+```bash
+uv run python - /path/to/completed-snapshot <<'EOF'
+import json, pathlib, sys, pyarrow.parquet as pq
+
+KEY = b"org.apache.spark.sql.parquet.row.metadata"
+total = blank = 0
+for path in sorted(pathlib.Path(sys.argv[1]).glob("*.parquet")):
+    schema = json.loads(pq.read_schema(path).metadata[KEY])
+    for field in schema["fields"]:
+        total += 1
+        blank += not (field.get("metadata") or {}).get("comment")
+print(f"{total - blank} of {total} described, {blank} blank")
+EOF
+```
 
 ## Multi-hop traversal: biosample_to_workflow_run
 
