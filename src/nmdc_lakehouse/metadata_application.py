@@ -30,6 +30,16 @@ _SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _SAFE_PROPERTY = re.compile(r"[A-Za-z][A-Za-z0-9._-]{0,127}\Z")
 
 
+def dataset_of_namespace(namespace: str, label: str = "namespace") -> str:
+    """Return the dataset component of a catalog-qualified namespace.
+
+    The companion of `catalog_of_namespace`, and it refuses the same unqualified input for the
+    same reason: a bare name has no dataset to return, only a name that looks like one.
+    """
+    catalog_of_namespace(namespace, label)
+    return namespace.partition(".")[2]
+
+
 def catalog_of_namespace(namespace: str, label: str = "namespace") -> str:
     """Return the catalog component of a namespace that has to name one.
 

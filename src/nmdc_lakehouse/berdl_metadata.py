@@ -22,12 +22,14 @@ from nmdc_lakehouse.berdl_staging import (
     _require_pristine_checkout,
     _require_revision_package,
     _run_command,
+    is_staging_dataset,
 )
 from nmdc_lakehouse.metadata_application import (
     MetadataApplicationPlan,
     MetadataOperation,
     MetadataOperationKind,
     catalog_of_namespace,
+    dataset_of_namespace,
 )
 
 # Bumped from 1 when AppliedMetadataTarget gained columns_already_correct and
@@ -145,6 +147,32 @@ def _read_model(path: Path, model: type[BaseModel], label: str) -> tuple[BaseMod
     return parsed, hashlib.sha256(contents).hexdigest()
 
 
+def _require_staging_target(namespace: str) -> None:
+    """Refuse to describe a canonical namespace one column at a time.
+
+    Mark decided on 2026-08-27 that a live per-column update is not supported and the answer is
+    to reload the table. The reason is measured, not preference. On 2026-08-20 this path applied
+    560 columns to `biosample_set` and then raised `RESTException` on the remaining 833, so it
+    does not slow down at width, it stops, and it stops with the table partly described. Batching
+    the statements is the obvious repair and it is worse: a grouped form produced one successful
+    commit and applied 0 of 120 comments, silently.
+
+    Staging is unaffected, and is how descriptions are meant to arrive. They ride in the Parquet
+    footer and cost one metadata commit per table at creation, which is why a whole namespace now
+    writes nothing. See `docs/column-description-path.md` and
+    https://github.com/microbiomedata/nmdc-lakehouse/issues/297.
+    """
+    dataset = dataset_of_namespace(namespace, "staging namespace")
+    if not is_staging_dataset(dataset):
+        raise BerdlMetadataError(
+            f"'{namespace}' is not a staging namespace, and describing a canonical table one "
+            "column at a time is not supported: that path applied 560 columns to biosample_set "
+            "and failed on the remaining 833. Reload the table into a fresh staging namespace "
+            "instead, where the descriptions arrive in the Parquet footer at no extra cost. See "
+            "docs/column-description-path.md."
+        )
+
+
 def _description_operations(
     plan: MetadataApplicationPlan,
 ) -> tuple[dict[str, MetadataOperation], dict[str, list[tuple[str, str]]], int]:
@@ -190,6 +218,7 @@ def build_berdl_metadata_preview(
     staged_catalog = catalog_of_namespace(plan.staging_namespace, "staging namespace")
     if plan.destination_provider != staged_catalog or plan.destination_table_format != "iceberg":
         raise BerdlMetadataError("BERDL metadata application requires an Iceberg destination in the staged catalog.")
+    _require_staging_target(plan.staging_namespace)
     staged_tables = sorted(table.table for table in staging.tables)
     if staged_tables != plan.tables or len(staged_tables) != len(set(staged_tables)):
         raise BerdlMetadataError("The metadata plan and staging outcome table sets do not match.")

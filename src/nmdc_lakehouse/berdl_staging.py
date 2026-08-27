@@ -247,6 +247,16 @@ def _run_command(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, text=True, capture_output=True, check=False, timeout=10)  # noqa: S603
 
 
+def is_staging_dataset(dataset: str) -> bool:
+    """Whether a dataset name is a staging one, by the single rule staging itself enforces.
+
+    Exported so that no second caller re-derives "looks like staging" from the string. A
+    disagreement between two such rules is invisible until one of them lets a canonical namespace
+    through.
+    """
+    return bool(_STAGING_DATASET.fullmatch(dataset))
+
+
 def _run_staging_command(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, text=True, stdout=2, stderr=2, check=False, shell=False)  # noqa: S603
 
