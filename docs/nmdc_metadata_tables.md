@@ -109,6 +109,31 @@ The Silver side tables cover the same ground under different names:
   the agg uses `KEGG.ORTHOLOGY:K00001`. Translate with
   `'KEGG.ORTHOLOGY:' || SUBSTRING(annotation_id, 4)` before joining.
 
+## Column description coverage
+
+Every column carries its LinkML description as an Iceberg column comment, so a
+data dictionary built from the catalog uses the wording in the schema itself,
+rather than a second copy that drifts.
+
+Coverage is **2,036 of 2,059 columns, 98.9%**, measured 2026-08-27 against
+`nmdc-schema` 11.23.0. The 23 blanks are not losses in this pipeline. Each one
+was checked against the induced slot on its source class, which is the lookup
+the flattener performs, and in all 23 the source slot has no description either.
+Adding one upstream propagates here on the next regeneration with no code change.
+
+The blanks a consumer is most likely to meet first are `instrument_set.vendor`,
+`instrument_set.model`, `data_object_set.url`, and the pair
+`workflow_execution_set.started_at_time` and `ended_at_time`. A blank there reads
+as an oversight in the lakehouse rather than in the schema it came from, which is
+why the number is stated here rather than rounded to "documented".
+
+The full list, its evidence, and the upstream proposal live in
+[#299](https://github.com/microbiomedata/nmdc-lakehouse/issues/299) and
+[nmdc-schema #685](https://github.com/microbiomedata/nmdc-schema/issues/685).
+
+To re-measure, read the `comment` key of each field in the Spark schema footer
+(`org.apache.spark.sql.parquet.row.metadata`) of a completed snapshot.
+
 ## Multi-hop traversal: biosample_to_workflow_run
 
 For variable-depth queries (Biosample to / from any WorkflowExecution),
