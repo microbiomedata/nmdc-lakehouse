@@ -43,7 +43,9 @@ out where a description went missing.
 Nobody applies step 5 when the footer carried the description, which is the
 normal case: Spark reads the footer key and creates an already-described table
 in the commit it was making anyway. `berdl-apply-metadata` then reads every
-planned column back and writes nothing.
+planned column back and writes no column descriptions. It is not otherwise
+read-only: it still writes any missing table descriptions and the schema
+identity properties.
 
 The per-column `ALTER` still exists as the fallback for whatever the footer did
 not carry. `apply_berdl_staging_metadata` compares each planned description

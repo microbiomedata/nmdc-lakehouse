@@ -113,13 +113,21 @@ The Silver side tables cover the same ground under different names:
 
 Every column whose LinkML slot has a description carries that description as an
 Iceberg column comment, so a data dictionary built from the catalog uses the
-wording in the schema itself rather than a second copy that drifts. Nothing is
-written for a slot that has no description, which is what the blanks below are.
-Forty-eight columns are the exception in the other direction, and this
-repository writes their comments rather than carrying them: 34 are synthetic
-`parent_id` keys on side tables, and 14 are columns whose slot has no
-description and where a flattening note became the whole comment. So 2,036
-columns carry a comment and 1,988 carry text authored upstream. See
+wording in the schema itself rather than a second copy that drifts.
+
+A comment can have three provenances, and the difference matters when a column
+reads oddly:
+
+| provenance | columns |
+| --- | ---: |
+| carried from an `nmdc-schema` slot | 1,988 |
+| written here: a synthetic `parent_id` on a side table, with no upstream slot | 34 |
+| written here: a flattening note, where the slot has no description | 14 |
+| no comment at all | 23 |
+
+So 2,036 of 2,059 carry a comment and 1,988 carry text authored upstream. The 23
+blanks are slots with no description and no flattening note, and none of them is
+a description this pipeline lost. See
 [`column-description-path.md`](column-description-path.md).
 
 Coverage is **2,036 of 2,059 columns, 98.9%**, measured 2026-08-27 against

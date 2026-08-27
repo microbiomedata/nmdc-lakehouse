@@ -718,8 +718,18 @@ Use `mc` for bulk data you are placing where the ingest reads from, or moving
 off the platform, and for anything large that would otherwise be chunked through
 the Jupyter contents API.
 
+This needs an `mc` alias named `berdl-minio`. The 2026-08-24 transfer used one
+that was already configured, so no bootstrap was run that day and none is
+verified here. The only documented way to create it is
+`python scripts/get_minio_creds.py --bootstrap-remote --shell`, described under
+[Historical off-cluster transport](#historical-off-cluster-transport). That
+section says its prerequisites belong to it alone, which is true of the other
+four and not of this one: the alias is the single thing the `mc` path borrows
+from it.
+
 <!-- verified: 2026-08-24 moved the complete 2026-08-21 snapshot this way, 55
-objects and 448 MiB, confirmed by listing the destination. -->
+objects and 448 MiB, confirmed by listing the destination, using an mc alias
+that was already configured rather than one bootstrapped for the run. -->
 
 ```bash
 mc cp --recursive /absolute/path/to/snapshot/ \
