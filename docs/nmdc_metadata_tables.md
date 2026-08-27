@@ -118,12 +118,16 @@ wording in the schema itself rather than a second copy that drifts.
 A comment can have three provenances, and the difference matters when a column
 reads oddly:
 
-| provenance | columns |
+| what the comment is made of | columns |
 | --- | ---: |
-| carried from an `nmdc-schema` slot | 1,988 |
-| written here: a synthetic `parent_id` on a side table, with no upstream slot | 34 |
-| written here: a flattening note, where the slot has no description | 14 |
+| upstream text only | 461 |
+| upstream text with a flattening note appended | 1,527 |
+| a flattening note only, because the slot has none | 14 |
+| a synthetic `parent_id`, with no slot behind it | 34 |
 | no comment at all | 23 |
+
+A note is appended rather than substituted, so most comments mix the two. 1,988
+columns carry some upstream text and 461 carry it untouched.
 
 So 2,036 of 2,059 carry a comment and 1,988 carry text authored upstream. The 23
 blanks are slots with no description and no flattening note, and none of them is

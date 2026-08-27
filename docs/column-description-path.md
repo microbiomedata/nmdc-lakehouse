@@ -146,21 +146,27 @@ this pipeline. The figure, the list, and the command that reproduces it are in
 **48 of the 2,036 comments are written by this repository rather than upstream**,
 in two different ways:
 
-| provenance | columns |
+| what the comment is made of | columns |
 | --- | ---: |
-| authored on an `nmdc-schema` slot | 1,988 |
-| synthetic `parent_id` on a side table | 34 |
-| a flattening note, where the slot had no description | 14 |
+| upstream text only | 461 |
+| upstream text with a flattening note appended | 1,527 |
+| a flattening note only, because the slot has none | 14 |
+| a synthetic `parent_id`, with no slot behind it | 34 |
+| no comment | 23 |
+
+These are not exclusive sources. A note is **appended** to whatever the slot
+said, so most comments are a mixture: 1,527 of the 1,988 with upstream text also
+carry a note, and only 461 are the slot's wording untouched.
 
 The 34 are side-table key columns. `side_table_class_defs()` creates each one
 with `Identifier of the parent '<class>' record.`, so there is no upstream slot
-behind it at all. The 14 are columns whose slot has no description and where a
-flattening note became the whole comment: `data_object_set.was_generated_by`
-reads as a reference note, and `protocol_link_url` on three tables reads as a
-nesting note.
+behind it. The 14 are columns whose slot has no description and where the note
+became the whole comment: `data_object_set.was_generated_by` reads as a
+reference note, and `protocol_link_url` on three tables reads as a nesting note.
 
-So 98.9% measures whether a column has a comment. 1,988, or 96.6%, measures
-whether the schema supplied one.
+So 98.9% is whether a column has a comment, and 1,988 or 96.6% is whether any of
+that comment came from the schema. Neither is a count of comments this
+repository left alone, which is 461.
 
 ## Running any of this yourself
 

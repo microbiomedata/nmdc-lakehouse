@@ -29,7 +29,7 @@ because the work is scattered across seven issues ([#114](https://github.com/mic
 | Schema / database | Yes | `ALTER SCHEMA ... SET DBPROPERTIES (...)` | Piloted on `nmdc_ref_data` only ([#116](https://github.com/microbiomedata/nmdc-lakehouse/issues/116), closed). `nmdc_metadata`/`nmdc_results` not yet done ([#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114)) |
 | Dataset (Bronze/MinIO object path) | No known mechanism | S3 supports object metadata (`x-amz-meta-*`) via `mc`; nothing in this pipeline sets it | Open gap, not filed |
 | Table | Yes | `data_lakehouse_ingest.utils.delta_comments.apply_table_comment` | Done. Piloted on `nmdc_ref_data.pfam_terms` ([#117](https://github.com/microbiomedata/nmdc-lakehouse/pull/117)), then scaled: [#115](https://github.com/microbiomedata/nmdc-lakehouse/issues/115) closed 2026-08-20 and `berdl-apply-metadata` applies and verifies planned table descriptions |
-| Column | Yes | `data_lakehouse_ingest.utils.delta_comments.apply_comments_from_table_schema` | Same as table: piloted, not scaled |
+| Column | Yes | The Parquet footer key `org.apache.spark.sql.parquet.row.metadata`, applied by Spark at table creation | Done, by a different route than this page proposed. `apply_comments_from_table_schema` does not scale and survives only as the staging fallback; see the note at the top |
 
 ## Tenant / org: the level nobody has written to yet
 

@@ -161,7 +161,8 @@ def _require_staging_target(namespace: str) -> None:
 
     Staging is unaffected, and is how descriptions are meant to arrive. They ride in the Parquet
     footer and cost one metadata commit per table at creation, which is why a whole namespace now
-    writes nothing. See `docs/column-description-path.md` and
+    writes no column descriptions. This function still writes missing table descriptions and the
+    schema identity properties. See `docs/column-description-path.md` and
     https://github.com/microbiomedata/nmdc-lakehouse/issues/297.
     """
     dataset = dataset_of_namespace(namespace, "staging namespace")
