@@ -652,8 +652,10 @@ about it: there is no programmatic exec, but the JupyterHub terminal in a
 browser is a real shell in the pod.
 
 Stage the file with `labctl pod put` rather than pasting it. **`labctl pod put`
-is for scripts and small files**, not for data; see the section below on moving
-bulk data, which should not go through the pod at all.
+is for scripts and small files.** For bulk data see the section below: `mc`
+moves it to object storage directly, which is the right route for a one-off
+transfer, while the maintained `berdl-upload` path still reads its snapshot
+from the pod filesystem.
 
 Use `python script.py` when the script builds its own session, which is what
 `get_spark_session()` does; the inventory capture below is run that way. Use
@@ -730,9 +732,14 @@ Jupyter contents API with `labctl pod put`, and reassembled in the pod. The
 pieces were never deleted, so 736 MB of them sat in the pod home afterwards, and
 the reason for the workaround survived only as five cryptic filenames.
 
-The rule: **`labctl pod put` is for scripts and small files. Data destined for
-the lakehouse goes to object storage with `mc`, because that is where the ingest
-reads it from.**
+The rule, with its boundary: **`labctl pod put` is for scripts and small files.
+For a one-off transfer, or for data you are placing where something already
+reads it from object storage, use `mc`.** It is not a substitute for the
+maintained `berdl-upload` inputs: that path binds `--data-dir` to a local
+snapshot and the adapter reads those Parquet files from the pod filesystem
+before uploading them itself (`berdl_staging.py:598-604`,
+`berdl_adapter.py:241-251`), so removing the local copy would leave the command
+without its required inputs.
 
 Two traps, both hit on 2026-08-24.
 

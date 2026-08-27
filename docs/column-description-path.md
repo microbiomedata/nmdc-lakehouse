@@ -129,12 +129,24 @@ cost.
 this pipeline. The figure, the list, and the command that reproduces it are in
 [`nmdc_metadata_tables.md`](nmdc_metadata_tables.md).
 
-**14 of the 2,036 carry only a generated note**, with no upstream text behind
-them, because the slot they came from has no description and the flattening note
-is all that is left. `data_object_set.was_generated_by` reads as a reference
-note, and `protocol_link_url` on three tables reads as a nesting note. So 2,022
-columns carry authored text, and 98.9% measures whether a column has a comment
-rather than whether the schema supplied one.
+**48 of the 2,036 comments are written by this repository rather than upstream**,
+in two different ways:
+
+| provenance | columns |
+| --- | ---: |
+| authored on an `nmdc-schema` slot | 1,988 |
+| synthetic `parent_id` on a side table | 34 |
+| a flattening note, where the slot had no description | 14 |
+
+The 34 are side-table key columns. `side_table_class_defs()` creates each one
+with `Identifier of the parent '<class>' record.`, so there is no upstream slot
+behind it at all. The 14 are columns whose slot has no description and where a
+flattening note became the whole comment: `data_object_set.was_generated_by`
+reads as a reference note, and `protocol_link_url` on three tables reads as a
+nesting note.
+
+So 98.9% measures whether a column has a comment. 1,988, or 96.6%, measures
+whether the schema supplied one.
 
 ## Running any of this yourself
 
@@ -145,5 +157,6 @@ Staging a script and running it in the pod is covered in
 [`berdl-upload.md`](berdl-upload.md), along with the traps that cost the most
 time: a local path fails at the executor after the driver has already resolved
 the schema, a bare namespace resolves to `spark_catalog` rather than to the
-`nmdc` Iceberg catalog, and bulk data should go to object storage with `mc`
-rather than through the pod at all.
+`nmdc` Iceberg catalog, and `mc` moves bulk data to object storage directly for
+one-off transfers, though the maintained `berdl-upload` path still reads its
+snapshot from the pod filesystem.

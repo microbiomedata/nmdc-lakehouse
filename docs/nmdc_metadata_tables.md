@@ -115,10 +115,11 @@ Every column whose LinkML slot has a description carries that description as an
 Iceberg column comment, so a data dictionary built from the catalog uses the
 wording in the schema itself rather than a second copy that drifts. Nothing is
 written for a slot that has no description, which is what the blanks below are.
-Fourteen columns are the exception in the other direction: their slot has no
-description, and a note the flattener adds when flattening changes the column's
-meaning becomes the whole comment. So 2,036 columns carry a comment and 2,022
-carry text authored upstream. See
+Forty-eight columns are the exception in the other direction, and this
+repository writes their comments rather than carrying them: 34 are synthetic
+`parent_id` keys on side tables, and 14 are columns whose slot has no
+description and where a flattening note became the whole comment. So 2,036
+columns carry a comment and 1,988 carry text authored upstream. See
 [`column-description-path.md`](column-description-path.md).
 
 Coverage is **2,036 of 2,059 columns, 98.9%**, measured 2026-08-27 against
