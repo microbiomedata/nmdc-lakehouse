@@ -122,8 +122,9 @@ the flattener performs, and in all 23 the source slot has no description either.
 Adding one upstream propagates here on the next regeneration with no code change.
 
 The blanks a consumer is most likely to meet first are `instrument_set.vendor`,
-`instrument_set.model`, `data_object_set.url`, and the pair
-`workflow_execution_set.started_at_time` and `ended_at_time`. A blank there reads
+`instrument_set.model`, `data_object_set.url`,
+`workflow_execution_set.started_at_time`, and
+`workflow_execution_set.ended_at_time`. A blank there reads
 as an oversight in the lakehouse rather than in the schema it came from, which is
 why the number is stated here rather than rounded to "documented".
 
