@@ -83,9 +83,12 @@ the Silver-layer work above, since Silver is what users actually query.
 
 ## Table and column: proposed, piloted, not yet scaled
 
-*Historical. Both were scaled after this section was written; see the note at the
-top. It is kept because it records what was known and proposed at the time, and
-because the reasoning about `delta_comments` is still how the ingest works.*
+*Historical, and the two levels went different ways. Table descriptions were
+scaled through `apply_table_comment` and that is still how they are applied.
+Column descriptions were not: `apply_comments_from_table_schema` is the helper
+that stops at width, so they arrive in the Parquet footer instead and it survives
+only as the staging fallback. See the note at the top. This section is kept
+because it records what was known and proposed at the time.*
 
 BERDL already ships a supported convention for this
 (`data_lakehouse_ingest.utils.delta_comments`), documented in [#115](https://github.com/microbiomedata/nmdc-lakehouse/issues/115):

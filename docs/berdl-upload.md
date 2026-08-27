@@ -5,9 +5,13 @@ time. The boundary is the "Historical off-cluster transport" heading:
 
 - **Everything above it is the maintained path.** It runs inside a BERDL
   JupyterHub pod, uses the reviewed plan commands in this repository, and is what
-  a current staging load follows. One section above the boundary is an exception
-  and says so in its heading: "Getting table data back out" is unverified, because
-  no reviewed command performs an export and nobody has run the one it shows.
+  a current staging load follows. Two sections above the boundary are exceptions
+  and say so in their headings. "Getting table data back out" is unverified,
+  because no reviewed command performs an export and nobody has run the one it
+  shows. "Move bulk data with `mc`, for a one-off transfer" is verified but is
+  not part of the maintained upload: `berdl-upload` reads its snapshot from the
+  pod filesystem, so `mc` is for moving data around rather than for feeding that
+  command.
 - **Everything below it is the April 2026 record.** It is kept for provenance. Do
   not use it by itself to overwrite or replace live tables. Its fixed dataset
   name, table count, Delta verification examples, and prerequisites belong to that
@@ -699,7 +703,7 @@ them, so a pasted command can simply not arrive. And avoid pasting multi-line
 input directly, because the terminal's handling of it is unreliable; that is
 what `labctl pod put` is for.
 
-## Move bulk data with `mc`, not through the pod
+## Move bulk data with `mc`, for a one-off transfer
 
 `mc` reaches BERDL object storage directly from a workstation. Verified
 2026-08-24 by uploading a whole snapshot in one command: 55 objects, 448 MiB,
@@ -742,6 +746,15 @@ rather than bootstrapped for the run. -->
 mc cp --recursive /absolute/path/to/snapshot/ \
   berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/staging/<date>/
 ```
+
+**No proxy is set here, and that is what the 2026-08-24 run used**, from a
+workstation where `labctl up berdl` had already made the storage reachable. It is
+not what the off-cluster path below uses: that one prefixes every `mc` call with
+`https_proxy=http://127.0.0.1:8123` against the SOCKS tunnels, because
+`configure_mc.sh` is invoked with `bash` and a variable it exports cannot reach
+the caller. So in a shell set up that way, a bare `mc` attempts direct access and
+fails. Which of the two you need depends on how you reached BERDL, and neither
+is a default: check before assuming this line works in your shell.
 
 This is worth stating because the 2026-08-20 run did it the hard way: tarred the
 snapshot to 368 MB, split it into four 100 MB chunks, pushed each through the
