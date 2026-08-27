@@ -718,18 +718,25 @@ Use `mc` for bulk data you are placing where the ingest reads from, or moving
 off the platform, and for anything large that would otherwise be chunked through
 the Jupyter contents API.
 
-This needs an `mc` alias named `berdl-minio`. The 2026-08-24 transfer used one
-that was already configured, so no bootstrap was run that day and none is
-verified here. The only documented way to create it is
-`python scripts/get_minio_creds.py --bootstrap-remote --shell`, described under
-[Historical off-cluster transport](#historical-off-cluster-transport). That
-section says its prerequisites belong to it alone, which is true of the other
-four and not of this one: the alias is the single thing the `mc` path borrows
-from it.
+This needs an `mc` alias named `berdl-minio`, and this repository does not
+create one. The 2026-08-24 transfer used an alias that was already configured,
+so no bootstrap was run that day and none is verified here.
 
-<!-- verified: 2026-08-24 moved the complete 2026-08-21 snapshot this way, 55
-objects and 448 MiB, confirmed by listing the destination, using an mc alias
-that was already configured rather than one bootstrapped for the run. -->
+The step that configures it is `bash scripts/configure_mc.sh --berdl-proxy`,
+run from a **BERIL-research-observatory** checkout and not from this one;
+neither `configure_mc.sh` nor `get_minio_creds.py` exists in this repository.
+It is preceded there by
+`eval "$(python scripts/get_minio_creds.py --bootstrap-remote --shell)"`, which
+reads the credentials rather than setting the alias. Both appear under
+[Historical off-cluster transport](#historical-off-cluster-transport), whose
+preamble says its prerequisites belong to that section alone. That holds for the
+tunnels and the Python environment; the alias is the one thing the `mc` path
+needs from it, and neither of those two commands has a recorded run.
+
+<!-- verified: 2026-08-24 moved the complete 2026-08-21 snapshot this way and
+confirmed it by comparing all 55 objects and 448 MiB at the destination against
+the local byte counts, not by listing alone. The mc alias was already configured
+rather than bootstrapped for the run. -->
 
 ```bash
 mc cp --recursive /absolute/path/to/snapshot/ \
