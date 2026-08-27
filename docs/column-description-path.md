@@ -71,17 +71,30 @@ stops. Measured 2026-08-20: 560 columns applied, then 833 raised
 `RESTException`, 560 + 833 = 1,393 exactly.
 
 Batching the `ALTER` statements into one schema update is the obvious repair and
-it does not work. A previous session measured it on 2026-08-20 in
-`nmdc.commentbench_probe_20260820`:
+**it cannot be expressed at all**. Measured 2026-08-20 on a fresh 120-column
+Iceberg table in the same catalog:
 
-| form | described | commits |
-| --- | ---: | ---: |
-| grouped | **0 of 120** | 1 |
-| one at a time | 120 of 120 | 101 |
+| form | result | applied |
+| --- | --- | ---: |
+| one `ALTER` per column | 174.4s, about 1,453 ms each | 120 of 120 |
+| one grouped `ALTER` | `[PARSE_SYNTAX_ERROR] Syntax error at or near 'COLUMN'` | 0 of 120 |
 
-The grouped form produced one commit and applied no comments at all, silently.
-Read that result before proposing a batching design; see
-[#297](https://github.com/microbiomedata/nmdc-lakehouse/issues/297).
+`ALTER TABLE ... ALTER COLUMN a COMMENT ..., ALTER COLUMN b COMMENT ...` is not
+valid syntax here, so grouping is not a design choice that was rejected; it is
+not available. Asking the ingest project to batch these statements would be
+asking for something the SQL layer cannot express. See
+[#258](https://github.com/microbiomedata/nmdc-lakehouse/issues/258) for the run
+and [#297](https://github.com/microbiomedata/nmdc-lakehouse/issues/297) for the
+decision.
+
+The probe namespace `nmdc.commentbench_probe_20260820` is still in the catalog
+and shows 1 and 101 `metadata_log_entries` for the two tables. Those are
+retained history entries under Iceberg's bounded log, not a count of update
+commits, so do not read 101 as "101 commits for 120 columns".
+
+Per-column cost scales with schema width: 1,453 ms on a 120-column table against
+roughly 14.5 seconds per column on the 1,402-column `biosample_set`, which is
+what you would expect if each commit rewrites the whole schema document.
 
 For the whole namespace the difference is the difference between hours and
 seconds. A full 53-table run on 2026-08-24 cost **0 column writes and about 40

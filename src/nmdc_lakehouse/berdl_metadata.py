@@ -154,8 +154,10 @@ def _require_staging_target(namespace: str) -> None:
     to reload the table. The reason is measured, not preference. On 2026-08-20 this path applied
     560 columns to `biosample_set` and then raised `RESTException` on the remaining 833, so it
     does not slow down at width, it stops, and it stops with the table partly described. Batching
-    the statements is the obvious repair and it is worse: a grouped form produced one successful
-    commit and applied 0 of 120 comments, silently.
+    the statements is the obvious repair and it is not available: a grouped
+    `ALTER TABLE ... ALTER COLUMN a COMMENT ..., ALTER COLUMN b COMMENT ...` is a
+    PARSE_SYNTAX_ERROR here, measured 2026-08-20, so batching cannot be expressed at the SQL
+    layer at all.
 
     Staging is unaffected, and is how descriptions are meant to arrive. They ride in the Parquet
     footer and cost one metadata commit per table at creation, which is why a whole namespace now

@@ -695,11 +695,22 @@ what `labctl pod put` is for.
 
 ## Move bulk data with `mc`, not through the pod
 
-`mc` reaches BERDL object storage directly from a workstation, so a snapshot
-never needs to pass through the pod at all. Verified 2026-08-24 by uploading a
-whole snapshot in one command: 55 objects, 448 MiB, checked against local byte
-counts, with no pod involved and no tunnels beyond what `labctl up berdl`
-already provides.
+`mc` reaches BERDL object storage directly from a workstation. Verified
+2026-08-24 by uploading a whole snapshot in one command: 55 objects, 448 MiB,
+checked against local byte counts, with no pod involved and no tunnels beyond
+what `labctl up berdl` already provides.
+
+**This does not replace the maintained transfer above, and swapping it in would
+break the run.** `berdl-upload-plan` binds `--data-dir` to a resolved local
+snapshot path (`berdl_staging.py:598-604`) and execution reads those Parquet
+files from the pod filesystem, so the snapshot still has to be in the pod for
+that command. Making the maintained path read from object storage instead is
+real work on the plan and the adapter, tracked in
+[#294](https://github.com/microbiomedata/nmdc-lakehouse/issues/294).
+
+Use `mc` for bulk data you are placing where the ingest reads from, or moving
+off the platform, and for anything large that would otherwise be chunked through
+the Jupyter contents API.
 
 <!-- verified: 2026-08-24 moved the complete 2026-08-21 snapshot this way, 55
 objects and 448 MiB, confirmed by listing the destination. -->
