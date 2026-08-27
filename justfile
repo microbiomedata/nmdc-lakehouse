@@ -198,6 +198,17 @@ test-doc-references-exit:
     [ "$rc" -eq 0 ] || { echo "doc-references rejected a declared external path; the gate is too strict"; exit 1; }
     echo "doc-references exit contract holds: missing fails, declared passes"
 
+# Prove the issues rule fails on an unreadable state rather than passing. Not in `check`: it
+# queries GitHub, and a network failure inside `check` is exactly what the offline split avoids.
+test-doc-references-issues-exit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    printf '<!-- unverified: x, tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/999999 -->\n' > "$tmp/unreadable.md"
+    rc=0; uv run --no-sync python scripts/python/doc_references.py "$tmp/unreadable.md" --check-issues >/dev/null 2>&1 || rc=$?
+    [ "$rc" -ne 0 ] || { echo "an unreadable issue state passed; a network failure would read as clean"; exit 1; }
+    echo "doc-references-issues exit contract holds: unreadable state fails"
+
 doc-procedures:
     uv run python scripts/python/doc_procedures.py docs
 

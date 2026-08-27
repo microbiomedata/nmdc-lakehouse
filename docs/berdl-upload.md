@@ -754,12 +754,12 @@ This needs an `mc` alias named `berdl-minio`, and this repository does not
 create one. The 2026-08-24 transfer used an alias that was already configured,
 so no bootstrap was run that day and none is verified here.
 
-The step that configures it is `bash scripts/configure_mc.sh --berdl-proxy`,
-run from inside a **BERIL-research-observatory** checkout and not from this one;
-neither `configure_mc.sh` nor `get_minio_creds.py` exists in this repository.
-It is preceded there by
-`eval "$(python scripts/get_minio_creds.py --bootstrap-remote --shell)"`, which
-reads the credentials rather than setting the alias. Both appear under
+The step that configures it is `configure_mc.sh --berdl-proxy`, run **from
+inside a `kbaseincubator/BERIL-research-observatory` checkout** and not from this
+one; neither that script nor `get_minio_creds.py` exists in this repository. It
+is preceded there by `get_minio_creds.py --bootstrap-remote --shell`, evaluated
+into the shell, which reads the credentials rather than setting the alias. The
+exact invocations are under
 [Historical off-cluster transport](#historical-off-cluster-transport), whose
 preamble says its prerequisites belong to that section alone. That holds for the
 tunnels and the Python environment; the alias is the one thing the `mc` path

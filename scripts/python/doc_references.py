@@ -40,10 +40,15 @@ from pathlib import Path
 
 SCRIPT_REFERENCE = re.compile(r"(?<![\w/.-])(scripts/[\w/-]+\.(?:py|sh))")
 
-#: A file may declare that its ``scripts/`` paths belong to another checkout, which is the honest
-#: shape for a runbook whose prose says "from <repo>:" before each block. Rewriting those commands
-#: to carry a prefix was tried and reverted: the reader has already changed directory by then, so a
-#: qualified path is the one that fails to copy-paste.
+#: A document may declare that its ``scripts/`` paths belong to another checkout, which is the
+#: honest shape for a runbook whose prose says "from <repo>:" before each block. Rewriting those
+#: commands to carry a prefix was tried and reverted: the reader has already changed directory by
+#: then, so a qualified path is the one that fails to copy-paste.
+#:
+#: The declaration applies from its own line forward, not to the whole file. A file-wide reading
+#: was the first implementation and it was too weak: `berdl-upload.md` declares at line 896 of
+#: 1124, so a broken path anywhere in the 895 maintained lines above it would have been exempted
+#: by a declaration introducing a section it is not part of.
 EXTERNAL_DECLARATION = re.compile(r"<!--\s*external-scripts:\s*(?P<repo>\S+)\s*-->", re.IGNORECASE)
 ISSUE_REFERENCE = re.compile(r"nmdc-lakehouse/issues/(\d+)")
 # `unverified:` only. A `verified:` marker naming a closed issue is the normal case and not a
@@ -78,10 +83,13 @@ def unresolvable_scripts(paths: list[Path], root: Path) -> list[tuple[Path, int,
     """Every cited ``scripts/`` path that does not exist, with where it is cited."""
     problems = []
     for document in paths:
-        text = document.read_text(encoding="utf-8")
-        if EXTERNAL_DECLARATION.search(text):
-            continue
-        for number, line in enumerate(text.splitlines(), start=1):
+        declared_from: int | None = None
+        for number, line in enumerate(document.read_text(encoding="utf-8").splitlines(), start=1):
+            if EXTERNAL_DECLARATION.search(line):
+                declared_from = number
+                continue
+            if declared_from is not None:
+                continue
             for reference in SCRIPT_REFERENCE.findall(line):
                 if not (root / reference).is_file():
                     problems.append((document, number, reference))
@@ -92,13 +100,20 @@ def _issue_states(numbers: set[str], repo: str) -> dict[str, str]:
     """Ask GitHub once per issue. Returns only what it could read, so a failure is not a pass."""
     states: dict[str, str] = {}
     for number in sorted(numbers, key=int):
-        result = subprocess.run(  # noqa: S603
-            ["gh", "issue", "view", number, "--repo", repo, "--json", "state"],  # noqa: S607
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=30,
-        )
+        try:
+            result = subprocess.run(  # noqa: S603
+                ["gh", "issue", "view", number, "--repo", repo, "--json", "state"],  # noqa: S607
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError):
+            # No gh, no network, or a timeout. Leaving the number out of `states` makes it
+            # unreadable, which the caller already fails on. Crashing here would also be
+            # non-zero, but a traceback reads as a broken checker rather than an unchecked
+            # reference, and the two want different responses from whoever sees it.
+            continue
         if result.returncode == 0:
             states[number] = json.loads(result.stdout)["state"]
     return states
@@ -179,8 +194,13 @@ def main() -> int:
             if len(places) > 5:
                 print(f"      ... and {len(places) - 5} more")
         if unreadable:
-            # Not a pass. An unreadable issue is an unchecked one, and saying so is the point.
+            # Fail, do not merely mention. An unreadable issue is an unchecked one, and an
+            # unchecked reference is what this rule exists to catch. Printing a note and exiting 0
+            # would make a network outage indistinguishable from a clean run, which is the exact
+            # shape the offline/online split was made to avoid.
             print(f"  could not read the state of: {', '.join(sorted(unreadable, key=int))}")
+            print("  treating unreadable issue state as a failure, not as a pass")
+            failed = True
 
     return 1 if failed else 0
 
