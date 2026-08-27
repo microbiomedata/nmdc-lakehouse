@@ -560,15 +560,31 @@ def _files(root: Path) -> dict[str, Path]:
 RECOVERY = "Reload the immutable snapshot into a fresh staging namespace, measured at 8m56s."
 
 
-def test_the_plan_records_the_digest_of_the_bytes_it_actually_read(tmp_path: Path) -> None:
+def test_the_plan_records_the_digest_of_the_bytes_it_actually_read(tmp_path: Path, monkeypatch) -> None:
     """The recorded digests must identify the evidence, or they identify nothing.
 
     Hashing each file in a second pass would let it change between the read and the hash, and the
-    plan would then name bytes nobody validated.
+    plan would then name bytes nobody validated. Asserting the digest against a later read of the
+    same path cannot detect that, because a double read agrees with itself while the file is
+    still. So each path is read once here and returns different bytes on any second read: if the
+    planner reads twice, the digest it recorded is of bytes this test never saw.
     """
     from nmdc_lakehouse.berdl_promotion import plan_berdl_promotion_from_files
 
     paths = _files(tmp_path)
+    first_read: dict[Path, bytes] = {}
+    reads: dict[Path, int] = {}
+    real_read_bytes = Path.read_bytes
+
+    def counting_read_bytes(self: Path) -> bytes:
+        resolved = self.resolve()
+        reads[resolved] = reads.get(resolved, 0) + 1
+        if reads[resolved] == 1:
+            first_read[resolved] = real_read_bytes(self)
+            return first_read[resolved]
+        return b'{"tampered": true}'
+
+    monkeypatch.setattr(Path, "read_bytes", counting_read_bytes)
     plan = plan_berdl_promotion_from_files(canonical_namespace=CANONICAL, recovery=RECOVERY, **paths)
 
     for path, recorded in (
@@ -576,7 +592,9 @@ def test_the_plan_records_the_digest_of_the_bytes_it_actually_read(tmp_path: Pat
         (paths["staging_outcome_path"], plan.staging_outcome_sha256),
         (paths["metadata_outcome_path"], plan.metadata_outcome_sha256),
     ):
-        assert recorded == hashlib.sha256(path.read_bytes()).hexdigest()
+        resolved = path.resolve()
+        assert reads[resolved] == 1, f"{path.name} was read {reads[resolved]} times"
+        assert recorded == hashlib.sha256(first_read[resolved]).hexdigest()
 
 
 def test_evidence_that_is_not_an_ordinary_file_is_refused(tmp_path: Path) -> None:

@@ -152,7 +152,6 @@ class BerdlPromotionPlan(BaseModel):
     @model_validator(mode="after")
     def validate_namespaces(self) -> "BerdlPromotionPlan":
         """Both namespaces must name a catalog, and promotion must not target the staging one."""
-        ...
         for value, label in ((self.staging_namespace, "staging"), (self.canonical_namespace, "canonical")):
             if not _QUALIFIED.fullmatch(value):
                 raise ValueError(f"The {label} namespace must be catalog-qualified as <catalog>.<namespace>.")
