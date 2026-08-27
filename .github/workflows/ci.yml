@@ -105,6 +105,12 @@ jobs:
       - name: Verify the doc-procedure gate can fail
         run: just test-doc-procedures-exit
 
+      - name: Check doc references resolve for a reader
+        run: just doc-references
+
+      - name: Verify the doc-reference gate can fail
+        run: just test-doc-references-exit
+
       - name: Test
         run: just test-cov
 

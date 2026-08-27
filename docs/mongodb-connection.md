@@ -50,10 +50,8 @@ ETL work that is the `nmdc` database.
 Do this when setting up a new machine, or any time the gateway key is rotated
 by the infrastructure team.
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 # 1. Get a fresh NERSC SSH key (prompts for NERSC password + OTP)
 sshproxy -u <your-nersc-username>
@@ -74,10 +72,8 @@ chmod 400 ~/.ssh/jump-dev.microbiomedata.org.private_key
 The NERSC SSH key expires every 24 hours and must be refreshed each session.
 The tunnel also closes when the terminal exits.
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 # 1. Refresh the NERSC SSH key (prompts for NERSC password + OTP)
 sshproxy -u <your-nersc-username>
@@ -97,10 +93,8 @@ While the tunnel is open, `localhost:27124` forwards to the NMDC production Mong
 
 Copy `.env.example` to `.env` and fill in your credentials:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 cp .env.example .env
 ```
@@ -135,10 +129,8 @@ Both mechanisms read the same file; exported shell variables take precedence ove
 
 With the tunnel open and `.env` populated:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 # Validate configuration, key permissions, and the local forwarded port.
 uv run --no-sync nmdc-lakehouse doctor --service-check gcp-tunnel
@@ -153,10 +145,8 @@ local tunnel, authentication rejection, and network access.
 
 For an independent interactive check:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 mongosh "mongodb://localhost:27124/nmdc" \
     --username <your-mongodb-username> \
@@ -166,10 +156,8 @@ mongosh "mongodb://localhost:27124/nmdc" \
 
 Or a Python-stack dry-run (reads records, writes nothing):
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 uv run nmdc-lakehouse run-job biosample_set --dry-run
 ```
@@ -244,10 +232,8 @@ object, so this message is expected for every collection.
 
 For the measured metadata dump, use the recipe:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 just etl-collections
 ```
@@ -260,10 +246,8 @@ already holds forces a disposition decision later.
 
 To leave collections out, name them:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 just etl-collections functional_annotation_agg
 ```
@@ -284,10 +268,8 @@ refuses to reuse its default output path. `local/` is ignored by Git.
 Set `LAKEHOUSE_ROOT` to use an intentional alternative directory. An explicit
 value remains authoritative:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 export LAKEHOUSE_ROOT="./local/mongodb-metadata-$(date +%Y%m%d_%H%M%S)"
 just etl-collections
@@ -297,10 +279,8 @@ If an existing output root must be reused, preview recognized schema-derived
 metadata Parquet files before deleting them. Unknown files, directories,
 manifests, logs, and symlinks are preserved:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 just clean-parquet
 just clean-parquet --delete
@@ -338,10 +318,8 @@ recovered.
 
 The direct CLI equivalent is:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 mkdir -p local
 timestamp="$(date +%Y%m%d_%H%M%S)"
@@ -394,10 +372,8 @@ extra files or directories, symlinks, and Parquet files without the current
 footer contract. It writes the manifest atomically and refuses to replace an
 existing completion marker. Validate a snapshot again before upload:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 uv run nmdc-lakehouse validate-snapshot "$LAKEHOUSE_ROOT"
 ```
@@ -405,10 +381,8 @@ uv run nmdc-lakehouse validate-snapshot "$LAKEHOUSE_ROOT"
 Consumers can obtain the machine-readable JSON Schema for the current manifest
 format without connecting to a service:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 uv run nmdc-lakehouse snapshot-manifest-schema
 ```
@@ -425,10 +399,8 @@ Snapshot validation proves file integrity and contract identities; it does not
 prove that flattened values satisfy the logical LinkML target. Generate separate
 snapshot-bound evidence outside the immutable snapshot:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 just validate-target-rows "$LAKEHOUSE_ROOT" \
   "./local/target-validation-$(date +%Y%m%d_%H%M%S).json"
@@ -544,20 +516,16 @@ strings, source documents, or production values.
 
 ### Step 2: functional annotation aggregate (~17 min)
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 uv run nmdc-lakehouse run-job functional_annotation_agg
 ```
 
 ### Run a single collection
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 uv run nmdc-lakehouse run-job biosample_set
 uv run nmdc-lakehouse run-job study_set

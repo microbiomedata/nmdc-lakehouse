@@ -17,10 +17,8 @@ corrective patches, which are separate and not implemented; see
 Every schema collection is a registered job, so a single collection can be
 produced on its own:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 uv run nmdc-lakehouse list-jobs
 just run-job biosample_set
@@ -30,10 +28,8 @@ To produce everything except named collections, use the aggregate job with
 repeatable exclusions. This is how `functional_annotation_agg` is normally held
 back, since it is 54.8 million records on a separate loader:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 just run-job all-collections --skip functional_annotation_agg
 ```
@@ -44,10 +40,8 @@ run can be directed somewhere other than a completed snapshot.
 
 ## Today: removing local Parquet selectively
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 just clean-parquet                 # preview, the default
 just clean-parquet --delete        # remove the previewed files

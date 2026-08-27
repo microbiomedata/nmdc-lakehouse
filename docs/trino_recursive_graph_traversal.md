@@ -30,10 +30,8 @@ notebooks now use. The Trino `WITH RECURSIVE` pattern below is documented as
 an on-the-fly alternative for ad-hoc exploration where the precomputed table
 is not yet available or when you want to traverse a path it doesn't cover.
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```python
 from berdl_notebook_utils.setup_trino_session import get_trino_connection
 import pandas as pd
@@ -83,10 +81,8 @@ Combining the annotation table scan and the recursive walk into a single
 `WITH RECURSIVE` query causes `TOO_MANY_REQUESTS_FAILED`. The Trino worker
 node crashes under the combined load. Split into two steps instead:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```python
 import time, pandas as pd
 

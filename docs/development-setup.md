@@ -43,10 +43,8 @@ dependency versions is an explicit lock-file change; ordinary setup uses
 
 From the repository root, run:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 just bootstrap
 ```
@@ -63,10 +61,8 @@ The command:
 Running it again is safe and must not change tracked files. Common next steps
 are:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 just doctor
 just test
@@ -86,10 +82,8 @@ a custom hooks path, bootstrap installs the repository pre-commit hook normally.
 
 Run the read-only, offline diagnostic after bootstrap:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 just doctor
 ```
@@ -103,10 +97,8 @@ optional production-data readiness and do not make unit development fail.
 The justfile loads `.env` before starting a recipe. If `just doctor` exits while
 parsing a malformed `.env`, bypass that initial loading step:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 uv run --no-sync nmdc-lakehouse doctor
 ```
@@ -119,10 +111,8 @@ contents.
 The default doctor remains offline. Pass one or more explicit service checks
 only when you intend to inspect live-service readiness:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 uv run --no-sync nmdc-lakehouse doctor --service-check mongo-config
 uv run --no-sync nmdc-lakehouse doctor --service-check gcp-tunnel

@@ -50,7 +50,10 @@ SCRIPT_REFERENCE = re.compile(r"(?<![\w/.-])(scripts/[\w/-]+\.(?:py|sh))")
 #: 1124, so a broken path anywhere in the 895 maintained lines above it would have been exempted
 #: by a declaration introducing a section it is not part of.
 EXTERNAL_DECLARATION = re.compile(r"<!--\s*external-scripts:\s*(?P<repo>\S+)\s*-->", re.IGNORECASE)
-ISSUE_REFERENCE = re.compile(r"nmdc-lakehouse/issues/(\d+)")
+# Both forms `doc_procedures` accepts. It takes a URL or a bare `#136` (see its `_TRACKER`), so
+# matching only URLs left every bare reference unqueried: a marker could name a closed issue as
+# `#136`, pass that gate, and never reach this one.
+ISSUE_REFERENCE = re.compile(r"nmdc-lakehouse/issues/(\d+)|(?<![\w/])#(\d+)\b")
 # `unverified:` only. A `verified:` marker naming a closed issue is the normal case and not a
 # defect: it records what was being verified, and the issue closed because the verification
 # worked. An `unverified:` marker is a live pointer to where an unrun procedure is tracked, so a
@@ -171,7 +174,8 @@ def markers_citing_closed_issues(paths: list[Path], repo: str) -> tuple[list[tup
     numbers: set[str] = set()
     for document in paths:
         for line_number, block in _marker_blocks(document.read_text(encoding="utf-8")):
-            for issue in ISSUE_REFERENCE.findall(block):
+            for url_issue, bare_issue in ISSUE_REFERENCE.findall(block):
+                issue = url_issue or bare_issue
                 numbers.add(issue)
                 found.append((document, line_number, block, issue))
     states = _issue_states(numbers, repo)

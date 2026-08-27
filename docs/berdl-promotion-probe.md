@@ -20,10 +20,8 @@ each and confines every mutation to them.
 Preview is the default. It is offline: it contacts no service, starts no Spark
 session, and creates nothing.
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 just berdl-promotion-probe \
   nmdc \
@@ -42,10 +40,8 @@ local. Start the Spark Connect sidecar with `get_spark_session()` in a notebook
 before using the pod terminal. Supply the exact plan digest from the preview as
 explicit authorization:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the blocks
-     that predate this rule was
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/291, now closed;
-     nothing tracks running them. -->
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
 ```bash
 just berdl-promotion-probe \
   nmdc \

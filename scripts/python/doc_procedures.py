@@ -100,10 +100,22 @@ _MARKER_START = re.compile(r"^<!--\s*(verified|unverified)\s*:", re.IGNORECASE)
 #: value is then parsed, because 2026-99-99 has the shape and is not a date.
 _DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 
-#: Somewhere the work is tracked, required of an ``unverified`` marker. A URL or a
-#: bare issue reference both count. Without this the marker says only that nobody
-#: ran it, which leaves a reader no way to find out whether that is still true.
+#: Somewhere the work is tracked, accepted from an ``unverified`` marker. A URL or a
+#: bare issue reference both count.
 _TRACKER = re.compile(r"https?://\S+|#\d+", re.IGNORECASE)
+
+#: Or an explicit statement that nothing tracks it. The rule originally required a tracker
+#: unconditionally, on the reasoning that a marker saying only "nobody ran it" leaves a reader no
+#: way to find out whether that is still true. That assumed a tracker always exists. It does not:
+#: issue 291 tracked *declaring* these blocks, closed when the declaring was done, and left 80
+#: markers pointing at finished work. Inventing an issue so the pointer resolves is worse than
+#: saying there is none, because it tells the reader to go and read something that will not help.
+#: A marker that says nothing tracks it is complete: the reader knows the state and knows there is
+#: no more to find.
+#: `\s+` rather than a space: a marker wraps, so the phrase is routinely split across lines with
+#: the continuation indented. Matching a literal space passed every one-line fixture and failed on
+#: all 80 real markers.
+_UNTRACKED = re.compile(r"nothing\s+tracks\s+(running\s+)?it", re.IGNORECASE)
 
 #: CommonMark tokeniser. Hand-written fence matching was tried and abandoned: it
 #: diverged from Markdown in seven ways review had to find, and every one was a
@@ -162,8 +174,10 @@ def marker_fault(comment: str) -> str | None:
             date.fromisoformat(found.group(0))
         except ValueError:
             return f"names {found.group(0)}, which is not a real date"
-    elif not _TRACKER.search(detail):
-        return "says nobody ran it without saying where that is tracked; add an issue URL"
+    elif not _TRACKER.search(detail) and not _UNTRACKED.search(detail):
+        return (
+            "says nobody ran it without saying where that is tracked; add an issue URL, or say that nothing tracks it"
+        )
     return None
 
 
