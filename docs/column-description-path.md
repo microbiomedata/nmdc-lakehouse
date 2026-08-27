@@ -97,10 +97,12 @@ roughly 14.5 seconds per column on the 1,402-column `biosample_set`, which is
 what you would expect if each commit rewrites the whole schema document.
 
 For the whole namespace the difference is the difference between hours and
-seconds. A full 53-table run on 2026-08-24 cost **0 column writes and about 40
+seconds. A full 53-table run on 2026-08-25 cost **0 column writes and about 40
 seconds**, because every description was already present and
 `_read_column_descriptions` found it. The same step had run for 117 minutes and
-failed on 2026-08-20.
+failed on 2026-08-20. The three dates are three different runs: the failure on
+2026-08-20, the `biosample_set` footer probe on 2026-08-24, and the full
+namespace on 2026-08-25.
 
 ## What is verified, and what is not
 

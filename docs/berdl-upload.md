@@ -225,7 +225,7 @@ wrong as soon as writing resumed. Standard output stays reserved for the parseab
 outcome JSON. Expect it to write no column descriptions. Those arrive in the
 Parquet footer and Spark applies them when it creates each table, so this step
 finds them already present and only reads back to confirm: a full 53-table
-namespace cost 0 column writes and about 40 seconds on 2026-08-24. It is not
+namespace cost 0 column writes and about 40 seconds on 2026-08-25. It is not
 otherwise read-only, and still writes any missing table descriptions and the
 schema identity properties. The path it replaced
 applied one column at a time, one catalog commit each, and on 2026-08-20 it ran
