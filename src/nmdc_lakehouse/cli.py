@@ -603,6 +603,64 @@ def berdl_apply_metadata_command(
     click.echo(f"outcome={destination.resolve()}", err=True)
 
 
+@cli.command("berdl-promotion-plan")
+@click.option("--plan", "publication_plan_path", type=click.Path(path_type=Path, dir_okay=False), required=True)
+@click.option(
+    "--staging-outcome",
+    "staging_outcome_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    required=True,
+    help="Credential-free data-verified outcome from berdl-upload.",
+)
+@click.option(
+    "--metadata-outcome",
+    "metadata_outcome_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    required=True,
+    help="Credential-free metadata-verified outcome from berdl-apply-metadata.",
+)
+@click.option("--canonical-namespace", required=True, help="Catalog-qualified promotion target, e.g. nmdc.metadata.")
+@click.option(
+    "--recovery",
+    required=True,
+    help="The one recovery operation that will be attempted if promotion fails part way.",
+)
+@click.option("--output", type=click.Path(path_type=Path, dir_okay=False), required=True)
+def berdl_promotion_plan_command(
+    publication_plan_path: Path,
+    staging_outcome_path: Path,
+    metadata_outcome_path: Path,
+    canonical_namespace: str,
+    recovery: str,
+    output: Path,
+) -> None:
+    """Describe the promotion that verified staging authorizes, changing nothing.
+
+    This reads evidence and writes a description. It does not promote, and there is deliberately
+    no flag here that makes it promote: the authorization step is a separate reviewable artifact.
+    """
+    from nmdc_lakehouse.berdl_promotion import (
+        PromotionPlanError,
+        plan_berdl_promotion_from_files,
+        render_promotion_plan,
+        write_berdl_promotion_plan,
+    )
+
+    try:
+        plan = plan_berdl_promotion_from_files(
+            publication_plan_path=publication_plan_path,
+            staging_outcome_path=staging_outcome_path,
+            metadata_outcome_path=metadata_outcome_path,
+            canonical_namespace=canonical_namespace,
+            recovery=recovery,
+        )
+        destination = write_berdl_promotion_plan(output, plan)
+    except (PromotionPlanError, OSError) as error:
+        raise click.ClickException(str(error)) from error
+    click.echo(render_promotion_plan(plan))
+    click.echo(f"plan={destination}", err=True)
+
+
 @cli.command("berdl-promotion-probe")
 @click.argument("tenant")
 @click.argument("source_namespace")

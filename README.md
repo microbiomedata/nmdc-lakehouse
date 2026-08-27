@@ -187,12 +187,13 @@ operational-command inventory.
 
 Two separate gates, measuring different things. Neither replaces the other.
 
-**Total floor, 75%, `fail_under` in `pyproject.toml`.** It was raised on
-2026-08-18 after the Python 3.13 suite exceeded 76% coverage. The initial
-ratchet was 71.462%: parent commit `ada7f3f` covered 606 of 848 statements on
-2026-08-17. The two live-MongoDB integration tests remain explicitly skipped.
-Raise `fail_under` as focused tests improve coverage; do not lower it merely to
-merge a regression.
+**Total floor, 80%, `fail_under` in `pyproject.toml`.** Raised from 75% on
+2026-08-27. The Python 3.13 suite measured 88.053% that day, covering 4,717 of
+5,357 statements, so the floor sits 8.053 percentage points below where the
+suite actually is. It was 75% from 2026-08-18, and 71.462% before that: parent
+commit `ada7f3f` covered 606 of 848 statements on 2026-08-17. The two
+live-MongoDB integration tests remain explicitly skipped. Raise `fail_under` as
+focused tests improve coverage; do not lower it merely to merge a regression.
 
 **Changed-line floor, 90%, `just diff-cover`.** The total floor cannot protect
 new code. A wholly untested function arriving in a well-tested codebase moves
@@ -204,7 +205,7 @@ branch adds or changes, against the base branch, and reports which added lines a
 uncovered. CI passes the pull request's base; `just diff-cover` defaults to
 `origin/main` and takes a different base as its argument.
 
-The two numbers differ on purpose and are not in tension. 75% is a statement
+The two numbers differ on purpose and are not in tension. 80% is a statement
 about a codebase carrying legacy paths that predate the test suite. 90% is a
 statement about code being written now, where there is no such excuse. The
 changed-line gate never asks for coverage of unchanged lines, so raising it does
