@@ -61,6 +61,9 @@ ISSUE_REFERENCE = re.compile(r"nmdc-lakehouse/issues/(\d+)|(?<![\w/])#(\d+)\b")
 # reported 83 hits, of which the ones worth acting on were the unverified ones.
 MARKER_START = re.compile(r"<!--\s*unverified:", re.IGNORECASE)
 
+#: The only values this checker can act on. Anything else is an unread state, not a new rule.
+_KNOWN_STATES = frozenset({"OPEN", "CLOSED"})
+
 # Deliberately not a tense heuristic. A first attempt matched phrases like "tracked in" and
 # "future work", and missed three of five known cases because a marker reading "Declaring the 81
 # blocks that predate this rule is <url>" carries no such phrase. Guessing whether prose treats a
@@ -131,8 +134,17 @@ def _issue_states(numbers: set[str], repo: str) -> dict[str, str]:
         if result.returncode != 0:
             continue
         try:
-            states[number] = json.loads(result.stdout)["state"]
+            state = json.loads(result.stdout)["state"]
         except (json.JSONDecodeError, KeyError, TypeError):
+            continue
+        if state not in _KNOWN_STATES:
+            # `{"state": null}` or an enum this does not know parses fine and means nothing here.
+            # Recording it would take the number out of `unreadable` and pass silently, which is
+            # the same hole as the unparseable case wearing valid JSON.
+            continue
+        try:
+            states[number] = state
+        except TypeError:
             # Exit 0 with output this cannot read is still an unread state. Letting it raise
             # would abandon the remaining issues, so one malformed response would stop the
             # check rather than report one unreadable reference.

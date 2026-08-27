@@ -435,8 +435,9 @@ export lands in the tenant's own staging area, on the same platform as the table
 it came from, and the next paragraph says no off-platform transfer is documented
 here. A second copy beside the first is not an independent backup, so it does not
 carry a deletion. Whatever its parts parse as, treat it as a staging artifact
-until someone has performed and recorded a transfer off the platform, which is
-tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/250, now closed.
+until someone has performed and recorded a transfer off the platform. Nothing
+tracks doing that; https://github.com/microbiomedata/nmdc-lakehouse/issues/250
+covered it and closed.
 
 **Moving the data anywhere else is not documented here, deliberately.** The
 transfer mechanics live in the historical transport section below, which needs
@@ -459,8 +460,9 @@ repository offers.
 
 A complete, tested export procedure needs someone to perform one. Until then this
 section records the trap and the rule, which are what cost a day on 2026-08-20,
-rather than a runbook nobody has executed. Was tracked in
-https://github.com/microbiomedata/nmdc-lakehouse/issues/250, now closed.
+rather than a runbook nobody has executed. Nothing tracks writing one;
+https://github.com/microbiomedata/nmdc-lakehouse/issues/250 covered it and
+closed.
 
 See [#250](https://github.com/microbiomedata/nmdc-lakehouse/issues/250).
 

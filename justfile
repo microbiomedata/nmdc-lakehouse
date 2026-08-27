@@ -180,8 +180,10 @@ test-prose-lint-exit:
 doc-references:
     uv run python scripts/python/doc_references.py docs
 
-# The same checker plus one GitHub query per cited issue. Kept out of `check` because `check` must
-# run offline, and a network failure there would read as a pass.
+# The same checker plus one GitHub query per cited issue. Kept out of `check` because a transient
+# network failure would fail `check` for a reason that has nothing to do with the change under
+# test. It is not that a failure would pass unnoticed: an unreadable state fails this command
+# deliberately, which is the opposite problem and the reason it cannot live in an offline gate.
 doc-references-issues:
     uv run python scripts/python/doc_references.py docs --check-issues
 

@@ -153,14 +153,26 @@ def test_a_verified_marker_is_not_checked(tmp_path: Path, monkeypatch) -> None:
         types.SimpleNamespace(returncode=1, stdout=""),
         types.SimpleNamespace(returncode=0, stdout="not json"),
         types.SimpleNamespace(returncode=0, stdout='{"unexpected": "shape"}'),
+        types.SimpleNamespace(returncode=0, stdout='{"state": null}'),
+        types.SimpleNamespace(returncode=0, stdout='{"state": "TRIAGED"}'),
     ],
-    ids=["non-zero exit", "unparseable output", "wrong shape"],
+    ids=[
+        "non-zero exit",
+        "unparseable output",
+        "wrong shape",
+        "null state",
+        "state this checker does not know",
+    ],
 )
 def test_a_state_that_cannot_be_read_is_unreadable_rather_than_absent(tmp_path: Path, monkeypatch, response) -> None:
     """Every one of these must reach the caller as unreadable, which the caller fails on.
 
-    The middle case used to raise out of `_issue_states`, so one malformed response abandoned every
-    remaining issue: the check stopped instead of reporting one unread reference.
+    Two of these are valid JSON. `{"state": null}` and an unknown enum parse fine and mean nothing
+    to this checker, so recording them would take the number out of `unreadable` and pass it
+    silently: the unparseable hole wearing valid JSON.
+
+    The unparseable case used to raise out of `_issue_states`, so one malformed response abandoned
+    every remaining issue: the check stopped instead of reporting one unread reference.
     """
     document = _write(tmp_path, "d.md", "<!-- unverified: x, see #1 -->\n")
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: response)
