@@ -8,21 +8,35 @@ This document describes the mechanism. Decisions about it live in issues.
 
 ## The path
 
+It branches rather than running in a line, which matters when you are working
+out where a description went missing.
+
 1. **A LinkML slot description** in `nmdc-schema`. This is the only place the
    text is authored.
 2. **The flattener** reads it with `class_induced_slots`, not `get_slot`, so a
    class-specific `slot_usage` description wins over the schema-level one. See
    `src/nmdc_lakehouse/transforms/schema_generator.py`.
-3. **Arrow field metadata** on each field of the table being written.
-4. **The Parquet footer**, under the key
-   `org.apache.spark.sql.parquet.row.metadata`, which holds Spark's schema as
-   JSON with each description as a field `comment`. Written by
-   `src/nmdc_lakehouse/sinks/parquet_sink.py`. This is one key inside the
+3. **`class_def_to_arrow_schema()` writes it in two places at once**, in
+   `src/nmdc_lakehouse/sinks/parquet_sink.py`:
+   - as Arrow field metadata under the key `nmdc_lakehouse.description`, and
+   - directly into the Spark schema JSON, as that field's `comment`.
+
+   The second is not derived from the first. Both are read from the same
+   flattened attribute, so they can only disagree if that function changes.
+4. **The Parquet footer** carries that JSON under
+   `org.apache.spark.sql.parquet.row.metadata`. This is one key inside the
    ordinary Parquet footer; there is no separate Spark footer.
 5. **The Iceberg column comment**, created by Spark when the table is created.
 
 Nobody applies step 5. Spark reads the footer key and creates an
 already-described table in the commit it was making anyway.
+
+The one place the JSON is rebuilt from the Arrow metadata is pruning:
+`with_spark_schema()` regenerates the footer entry from the fields a schema
+actually has, because a stale entry naming a dropped column is worse than none,
+since Spark would ask for data the file does not contain. So a description that
+survives in Arrow metadata but is missing from the footer points at that
+rebuild, not at the flattener.
 
 ## What it costs, and what it replaced
 
@@ -68,15 +82,18 @@ failed on 2026-08-20.
 The footer key and the agreement between its comments and the slot descriptions
 are covered by tests in this repository. Spark turning those comments into
 catalog column comments was unobserved until the 2026-08-24 probe above, and the
-documentation said so until 2026-08-27. It is now measured rather than inferred.
+documentation said so until 2026-08-27, in this file, in
+[`mongodb-connection.md`](mongodb-connection.md), and in a comment beside the
+footer key in `src/nmdc_lakehouse/sinks/parquet_sink.py`. All three now record
+the measurement instead.
 
 What has **not** been established is a supported way to change one column
 description on a live table that is not being reloaded. That is the open half,
 and it is [#297](https://github.com/microbiomedata/nmdc-lakehouse/issues/297).
 
-## Coverage today
+## Coverage
 
-2,036 of 2,059 columns, 98.9%, against `nmdc-schema` 11.23.0. All 23 blanks are
+2,036 of 2,059 columns, 98.9%, measured 2026-08-27 against `nmdc-schema` 11.23.0. All 23 blanks are
 slots with no description upstream, not losses in this pipeline. The figure, the
 list, and the command that reproduces it are in
 [`nmdc_metadata_tables.md`](nmdc_metadata_tables.md).

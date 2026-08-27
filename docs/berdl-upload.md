@@ -222,11 +222,13 @@ it, which is why the verified and written counts differ on a rerun. The estimate
 is rated on written columns only: a skip costs a catalog read and a write costs a
 catalog commit, so counting them together would look fast while skipping and be
 wrong as soon as writing resumed. Standard output stays reserved for the parseable
-outcome JSON. Expect the run to be dominated by the widest table: descriptions
-are applied one column at a time and each is a separate catalog commit, so a
-table with over a thousand columns takes far longer than the data load it
-describes. See
-[#258](https://github.com/microbiomedata/nmdc-lakehouse/issues/258).
+outcome JSON. Expect it to write nothing. Descriptions arrive in the Parquet
+footer and Spark applies them when it creates each table, so this step finds
+them already present and only reads back to confirm: a full 53-table namespace
+cost 0 column writes and about 40 seconds on 2026-08-24. The path it replaced
+applied one column at a time, one catalog commit each, and on 2026-08-20 it ran
+for 117 minutes and failed. See
+[`column-description-path.md`](column-description-path.md).
 
 ## Move the snapshot and evidence into the pod
 
@@ -636,15 +638,21 @@ a promotion does not exist; see
 
 ## Running a script in the pod
 
-Every step past the local Parquet file needs a Spark session, and a Spark
-session means a pod. The method is not obvious and `labctl status` is misleading
+Anything that touches the live catalog needs a Spark session, and a Spark
+session means a pod. Plenty of this guide does not: the metadata application
+plan, the publication preflight, and `berdl-promotion-plan` all read local files
+and contact nothing. The method is not obvious and `labctl status` is misleading
 about it: there is no programmatic exec, but the JupyterHub terminal in a
 browser is a real shell in the pod.
 
-Stage the file with `labctl pod put` rather than pasting it. Then, in the
-browser terminal, run it with `ipython script.py` and not `python script.py`:
-the notebook environment's Spark session helpers are configured for the
-interactive shell, and plain `python` starts without them.
+Stage the file with `labctl pod put` rather than pasting it. Then run it in the
+browser terminal.
+
+Use `python script.py` when the script builds its own session, which is what
+`get_spark_session()` does; the inventory capture below is run that way. Use
+`ipython script.py` only when the script relies on the interactive shell's
+startup helpers to have a session already, because plain `python` starts without
+them and the failure is an unbound name rather than anything about Spark.
 
 Redirect to a log and read that, rather than watching the terminal:
 
