@@ -918,3 +918,70 @@ def test_a_version_2_outcome_that_reports_none_is_still_readable() -> None:
     document["targets"][0]["schema_properties_already_correct"] = False
 
     assert BerdlMetadataOutcome.model_validate(document).outcome_format_version == 2
+
+
+def _in_namespace(namespace: str) -> tuple[MetadataApplicationPlan, BerdlStagingOutcome]:
+    """The same plan and outcome, both pointed at one namespace so the pair still agree."""
+    plan = _plan().model_dump()
+    plan["staging_namespace"] = namespace
+    # The operations carry the namespace too, and the plan validates that they agree, so moving
+    # only the header would fail validation before ever reaching the guard under test.
+    for operation in plan["supported_operations"] + plan["unsupported_operations"]:
+        operation["namespace"] = namespace
+    staging = _staging().model_dump()
+    staging["staging_namespace"] = namespace
+    return (
+        MetadataApplicationPlan.model_validate(plan),
+        BerdlStagingOutcome.model_validate(staging),
+    )
+
+
+def test_describing_a_canonical_namespace_one_column_at_a_time_is_refused() -> None:
+    """Mark's decision on 2026-08-27, and the reason is measured rather than preference.
+
+    On 2026-08-20 this path applied 560 columns to biosample_set and raised RESTException on the
+    remaining 833, so it does not slow down at width, it stops, and it stops with the table partly
+    described.
+    """
+    plan, staging = _in_namespace("nmdc.metadata")
+
+    with pytest.raises(BerdlMetadataError, match="not a staging namespace"):
+        build_berdl_metadata_preview(plan, staging, metadata_plan_sha256="5" * 64, staging_outcome_sha256="6" * 64)
+
+
+def test_the_refusal_names_the_measurement_and_the_alternative() -> None:
+    """An operator told only "not supported" reasonably tries it another way.
+
+    The grouped form is the obvious other way and it applied 0 of 120 comments while reporting a
+    successful commit, so the message has to carry enough for someone to stop rather than retry.
+    """
+    plan, staging = _in_namespace("nmdc.metadata")
+
+    with pytest.raises(BerdlMetadataError) as caught:
+        build_berdl_metadata_preview(plan, staging, metadata_plan_sha256="5" * 64, staging_outcome_sha256="6" * 64)
+
+    message = str(caught.value)
+    assert "560" in message and "833" in message, "the measurement, so nobody re-derives it"
+    assert "Reload the table" in message, "the alternative, not only the refusal"
+    assert "docs/column-description-path.md" in message
+
+
+def test_a_staging_namespace_is_still_accepted() -> None:
+    """The control. A refusal that rejects everything is not a guard, it is an outage."""
+    plan, staging = _in_namespace("nmdc.nmdc_metadata_staging_20260824")
+
+    preview = build_berdl_metadata_preview(
+        plan, staging, metadata_plan_sha256="5" * 64, staging_outcome_sha256="6" * 64
+    )
+
+    assert preview.staging_namespace == "nmdc.nmdc_metadata_staging_20260824"
+
+
+def test_the_staging_rule_is_the_one_staging_itself_enforces() -> None:
+    """Two rules for "looks like staging" disagree silently until one admits a canonical name."""
+    from nmdc_lakehouse.berdl_staging import _STAGING_DATASET, is_staging_dataset
+
+    for dataset in ("nmdc_metadata_staging_20260824", "metadata_staging_20260820"):
+        assert is_staging_dataset(dataset) is bool(_STAGING_DATASET.fullmatch(dataset))
+    for dataset in ("metadata", "results", "staging", "nmdc_metadata"):
+        assert is_staging_dataset(dataset) is False, dataset
