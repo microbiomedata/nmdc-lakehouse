@@ -570,3 +570,46 @@ def test_an_unimportable_runtime_is_refused_by_name(tmp_path: Path) -> None:
 
     with pytest.raises(DerivedTableError, match="not importable"):
         spark_session(tmp_path)
+
+
+def test_a_derived_table_with_no_rebuild_procedure_is_refused(monkeypatch) -> None:
+    """An else branch sent anything that was not graph_edges to the walk.
+
+    So a third entry in DERIVED_TABLES would have been rebuilt by the wrong function and reported
+    as a success, which is the shape of failure that looks like it worked.
+    """
+    import nmdc_lakehouse.derived_tables as dt
+
+    monkeypatch.setattr(dt, "DERIVED_TABLES", ("graph_edges", "biosample_to_workflow_run", "something_new"))
+
+    with pytest.raises(DerivedTableError, match="No rebuild procedure exists for: something_new"):
+        dt.rebuild_all(ScriptedSpark({"walk_frontier_1": 0}), NAMESPACE)
+
+
+def test_a_session_imported_from_outside_the_checkout_is_refused(tmp_path: Path, monkeypatch) -> None:
+    """Importing is not evidence of where it came from.
+
+    The checkout going first on `sys.path` does not displace a copy installed in the environment,
+    and an already-imported module comes back from `sys.modules` without the path being consulted.
+    """
+    import sys as sys_module
+    import types
+
+    from nmdc_lakehouse.derived_tables import spark_session
+
+    elsewhere = tmp_path / "elsewhere" / "setup_spark_session.py"
+    elsewhere.parent.mkdir(parents=True)
+    elsewhere.write_text("", encoding="utf-8")
+
+    package = types.ModuleType("berdl_notebook_utils")
+    module = types.ModuleType("berdl_notebook_utils.setup_spark_session")
+    module.__file__ = str(elsewhere)
+    module.get_spark_session = lambda: object()
+    monkeypatch.setitem(sys_module.modules, "berdl_notebook_utils", package)
+    monkeypatch.setitem(sys_module.modules, "berdl_notebook_utils.setup_spark_session", module)
+
+    checkout = tmp_path / "checkout"
+    (checkout / "src").mkdir(parents=True)
+
+    with pytest.raises(DerivedTableError, match="not inside"):
+        spark_session(checkout)

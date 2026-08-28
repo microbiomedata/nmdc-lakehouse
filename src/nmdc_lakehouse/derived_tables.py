@@ -226,12 +226,22 @@ def spark_session(checkout: Path) -> object:
     source_root = (checkout.expanduser() / "src").resolve()
     sys.path.insert(0, str(source_root))
     try:
-        from berdl_notebook_utils.setup_spark_session import get_spark_session
+        import berdl_notebook_utils.setup_spark_session as session_module
     except ImportError as error:
         raise DerivedTableError("The selected BERDL runtime is not importable.") from error
     finally:
         sys.path.remove(str(source_root))
-    return get_spark_session()
+    # Where it came from, not merely that it imported. Putting the checkout first on sys.path does
+    # not displace a copy installed in the environment, and an already-imported module is returned
+    # from sys.modules without consulting the path at all. Without this the docstring's claim that
+    # the session comes from the reviewed checkout was a hope.
+    module_file = getattr(session_module, "__file__", None)
+    if module_file is None or not Path(module_file).resolve().is_relative_to(source_root):
+        raise DerivedTableError(
+            f"berdl_notebook_utils was imported from {module_file!r}, which is not inside "
+            f"{source_root}. The session must come from the reviewed checkout."
+        )
+    return session_module.get_spark_session()
 
 
 def rebuild_all(
@@ -248,13 +258,22 @@ def rebuild_all(
     """
     _check_namespace(namespace)
     say = progress if callable(progress) else (lambda _message: None)
+    # Named rather than defaulted. An `else` branch sent anything that was not `graph_edges` to
+    # the walk, so a third entry in DERIVED_TABLES would have been rebuilt by the wrong function
+    # and reported as a success. A table this cannot rebuild is refused instead.
+    builders = {
+        "graph_edges": lambda: rebuild_graph_edges(spark, namespace),
+        "biosample_to_workflow_run": lambda: rebuild_biosample_to_workflow_run(
+            spark, namespace, max_depth=max_depth, progress=say
+        ),
+    }
+    unknown = sorted(set(DERIVED_TABLES) - set(builders))
+    if unknown:
+        raise DerivedTableError("No rebuild procedure exists for: " + ", ".join(unknown) + ".")
     outcomes = []
     for table in DERIVED_TABLES:
         say(f"rebuilding {namespace}.{table}")
-        if table == "graph_edges":
-            outcomes.append(rebuild_graph_edges(spark, namespace))
-        else:
-            outcomes.append(rebuild_biosample_to_workflow_run(spark, namespace, max_depth=max_depth, progress=say))
+        outcomes.append(builders[table]())
     return outcomes
 
 
