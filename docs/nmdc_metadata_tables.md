@@ -55,8 +55,8 @@ Spark overhead of exploding a repeated field.**
 This is the standard path from a row in `nmdc_results.annotation_kegg_orthology`
 (or `annotation_enzyme_commission`) to its originating biosample:
 
-<!-- unverified: no run of this procedure is recorded, and nothing tracks
-     running it. -->
+<!-- unverified: no run of this procedure is recorded, and no tracking issue is
+     named here. -->
 ```sql
 SELECT bs.id AS biosample_id,
        bs.env_broad_scale_term_id,
@@ -78,8 +78,8 @@ row per (workflow run, data generation) pair.
 
 Add one more join:
 
-<!-- unverified: no run of this procedure is recorded, and nothing tracks
-     running it. -->
+<!-- unverified: no run of this procedure is recorded, and no tracking issue is
+     named here. -->
 ```sql
 JOIN nmdc_metadata.data_generation_set_associated_studies dgs
   ON dgs.parent_id = wib.was_informed_by

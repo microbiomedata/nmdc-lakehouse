@@ -137,9 +137,14 @@ statement that nothing tracks it:
 <!-- unverified: needs a pod terminal, tracked in
      https://github.com/microbiomedata/nmdc-lakehouse/issues/136 -->
 
-<!-- unverified: no run of this procedure is recorded, and nothing tracks
-     running it. -->
+<!-- unverified: no run of this procedure is recorded, and no tracking issue is
+     named here. -->
 ```
+
+The second form says something about the marker rather than about the world, on
+purpose. An earlier wording claimed nothing tracked the procedure, which was
+wrong for five markers whose work is tracked by an open issue. If you know the
+tracker, name it; if you have not checked, say only that none is named here.
 
 The second form exists because a tracker does not always exist. The rule once
 required one unconditionally, and 80 markers ended up naming an issue that had

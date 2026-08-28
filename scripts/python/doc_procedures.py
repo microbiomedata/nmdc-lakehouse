@@ -116,10 +116,11 @@ _TRACKER = re.compile(r"https?://\S+|#\d+", re.IGNORECASE)
 #: the continuation indented. Matching a literal space passed every one-line fixture and failed on
 #: all 80 real markers.
 #:
-#: Only "nothing tracks" is required, not a fixed object. The first version demanded the phrase end
-#: in "it", which rejected "nothing tracks writing a tested export procedure": a marker saying
-#: exactly the right thing, in the natural words for its own case.
-_UNTRACKED = re.compile(r"nothing\s+tracks\b", re.IGNORECASE)
+#: Either wording is accepted. "nothing tracks" is a claim about the world and was wrong for at
+#: least five markers whose procedures are tracked by open issues; "no tracking issue is named
+#: here" is a claim about the marker and is true by construction. Prefer the second when you have
+#: not checked, and name the issue when you have.
+_UNTRACKED = re.compile(r"nothing\s+tracks\b|no\s+tracking\s+issue\s+is\s+named", re.IGNORECASE)
 
 #: CommonMark tokeniser. Hand-written fence matching was tried and abandoned: it
 #: diverged from Markdown in seven ways review had to find, and every one was a
