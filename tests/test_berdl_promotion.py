@@ -1076,8 +1076,10 @@ def test_an_add_does_not_overwrite_a_table_that_appeared_since_the_plan_was_buil
         metadata_outcome_sha256="b" * 64,
         publication_plan_sha256="c" * 64,
         operations=[
-            PromotionOperation(table="new_table", disposition=Disposition.ADD, rationale="absent"),
-            PromotionOperation(table="old_table", disposition=Disposition.REPLACE, rationale="present"),
+            PromotionOperation(table="new_table", disposition=Disposition.ADD, rationale="absent", expected_rows=1),
+            PromotionOperation(
+                table="old_table", disposition=Disposition.REPLACE, rationale="present", expected_rows=2
+            ),
         ],
         derived_rebuilds=[],
         recovery=RECOVERY,
@@ -1347,36 +1349,24 @@ def test_a_preserve_only_plan_does_not_claim_statements_built_tables(tmp_path: P
     assert "NOT VERIFIED" in result.output, result.output
 
 
-def test_a_copied_table_with_no_expected_count_is_refused(tmp_path: Path) -> None:
-    """The staging preflight was optional exactly where it protects something.
+def test_a_copied_table_with_no_expected_count_is_refused_at_load(tmp_path: Path) -> None:
+    """Refused where the plan is read, not where it is run.
 
-    The builder always records a count for a copied table, so a missing one means the file was
-    edited, and skipping the check for it turns the guard off for the tables it exists to guard.
+    `expected_rows` is optional on the field because `preserve` and `rebuild` have nothing to
+    count. Leaving it optional for the copied tables let an edited file switch off the only
+    staging check there is, for exactly the tables that check protects. The refusal lives in the
+    model rather than beside the statements, so there is one rule instead of a rule and a guard
+    that has to agree with it.
     """
-    plan, digest = _executable_plan(tmp_path)
-    stripped = plan.model_copy(
-        update={
-            "operations": [
-                operation.model_copy(update={"expected_rows": None})
-                if operation.disposition is Disposition.REPLACE
-                else operation
-                for operation in plan.operations
-            ]
-        }
-    )
-    spark = _RecordingSpark()
+    path = _promotion_plan_file(tmp_path)
+    document = json.loads(path.read_text())
+    for operation in document["operations"]:
+        if operation["disposition"] in ("replace", "add"):
+            operation["expected_rows"] = None
+    tampered = _write(tmp_path / "uncounted.json", document)
 
-    with pytest.raises(PromotionRefused, match="records no expected row count"):
-        execute_promotion(
-            spark,
-            stripped,
-            plan_sha256=digest,
-            authorize_plan_sha256=digest,
-            authorize_canonical_namespace=CANONICAL,
-            authorize_destination_id=plan.destination_id,
-        )
-
-    assert spark.statements == []
+    with pytest.raises(PromotionPlanError, match="must record the row count it was decided against"):
+        load_promotion_plan(tampered)
 
 
 def test_the_statements_name_the_format_the_probe_actually_ran() -> None:
@@ -1406,3 +1396,40 @@ def test_the_statements_name_the_format_the_probe_actually_ran() -> None:
 
     for _step, _table, statement in promotion_statements(plan):
         assert " USING iceberg AS SELECT " in statement, statement
+
+
+def test_the_printed_follow_up_is_the_command_that_actually_rebuilds(tmp_path: Path, monkeypatch) -> None:
+    """Without --authorize-namespace it previews and returns, leaving the tables dropped.
+
+    An operator copying the printed line during an outage would see it exit cleanly and rebuild
+    nothing, which is the worst moment to hand someone a command that does not do its job.
+    """
+    from click.testing import CliRunner
+
+    import nmdc_lakehouse.derived_tables as derived_tables
+    from nmdc_lakehouse.cli import cli
+
+    path = _promotion_plan_file(tmp_path)
+    plan, digest = load_promotion_plan(path)
+    assert plan.derived_rebuilds, "this test needs a plan that drops a derived table"
+    monkeypatch.setattr(derived_tables, "spark_session", lambda _checkout: _RecordingSpark())
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "berdl-promote",
+            str(path),
+            "--ingest-checkout",
+            str(tmp_path),
+            "--authorize-plan-sha256",
+            digest,
+            "--authorize-canonical-namespace",
+            CANONICAL,
+            "--authorize-destination-id",
+            plan.destination_id,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    printed = next(line for line in result.output.splitlines() if "rebuild-derived-tables" in line)
+    assert f"--authorize-namespace {CANONICAL}" in printed, printed

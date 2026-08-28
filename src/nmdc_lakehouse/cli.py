@@ -845,7 +845,10 @@ def berdl_promote_command(
         # bare instruction would have an operator mutate a table this plan preserved.
         selection = " ".join(f"--table {table}" for table in plan.derived_rebuilds)
         click.echo("  the derived table(s) are dropped and not yet rebuilt: " + ", ".join(plan.derived_rebuilds) + ".")
-        click.echo(f"  run: just rebuild-derived-tables {plan.canonical_namespace} <checkout> {selection}")
+        click.echo(
+            f"  run: just rebuild-derived-tables {plan.canonical_namespace} <checkout> {selection} "
+            f"--authorize-namespace {plan.canonical_namespace}"
+        )
     # A statement that succeeded is not a table that holds what it should, and the plan's last
     # step is a read-back this command does not perform. Saying only how many statements ran
     # would let the output stand in for the verification nobody has done yet.

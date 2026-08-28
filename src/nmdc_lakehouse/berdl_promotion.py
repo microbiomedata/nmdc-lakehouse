@@ -211,6 +211,20 @@ class BerdlPromotionPlan(BaseModel):
         """
         if not self.operations:
             raise ValueError("A promotion plan must describe at least one operation.")
+        # A copied table must carry the count it was decided against. `expected_rows` is optional
+        # on the field because `preserve` and `rebuild` have nothing to count, and leaving it
+        # optional for `add` and `replace` let an edited file switch off the only staging check
+        # there is, for exactly the tables that check protects.
+        uncounted = sorted(
+            operation.table
+            for operation in self.operations
+            if operation.disposition in (Disposition.REPLACE, Disposition.ADD) and operation.expected_rows is None
+        )
+        if uncounted:
+            raise ValueError(
+                "A table this promotion copies must record the row count it was decided against, "
+                "and these do not: " + ", ".join(uncounted) + "."
+            )
         tables = [operation.table for operation in self.operations]
         if len(tables) != len(set(tables)):
             raise ValueError("A promotion plan must not name the same table twice.")
@@ -669,14 +683,10 @@ def check_staging_matches_plan(spark: object, plan: BerdlPromotionPlan, progress
     for operation in plan.operations:
         if operation.disposition not in (Disposition.REPLACE, Disposition.ADD):
             continue
-        if operation.expected_rows is None:
-            # Refused, not skipped. The builder always records a count for a copied table, so a
-            # missing one means the file was edited, and treating the guard as optional lets an
-            # edit turn the only staging preflight off for exactly the tables it protects.
-            raise PromotionRefused(
-                f"The plan records no expected row count for '{operation.table}', which it "
-                f"{operation.disposition.value}s, so nothing can be checked before it is copied."
-            )
+        # Guaranteed by `validate_operations_and_rebuilds`, which refuses a copied table with no
+        # count. Asserted rather than re-checked: a second rule here is one more thing that has to
+        # agree with the first.
+        assert operation.expected_rows is not None
         source = f"{plan.staging_namespace}.{operation.table}"
         try:
             rows = spark.sql(f"SELECT COUNT(*) AS n FROM {source}").collect()  # type: ignore[attr-defined]
@@ -757,12 +767,12 @@ def execute_promotion(
             say(f"{step}: {plan.canonical_namespace}.{table}")
             spark.sql(statement)  # type: ignore[attr-defined]
             performed.append(statement)
-        # BaseException, not Exception. Ctrl-C raises KeyboardInterrupt, which does not derive from
-        # Exception, so an operator interrupting this loop got a generic abort and no record of
-        # what had already run. That is the moment the record matters most: the interrupt lands
-        # between statements or inside one, and nothing here can tell which, so the in-flight
-        # statement is reported as unknown rather than as failed or as skipped.
-        except BaseException as error:
+        # KeyboardInterrupt as well as Exception, because it derives from BaseException and an
+        # operator hitting Ctrl-C got a generic abort with no record of what had already run. Not
+        # BaseException itself: that also catches SystemExit and GeneratorExit, which are the
+        # process going away rather than a promotion failing, and reporting them as a refusal
+        # describes something that did not happen.
+        except (Exception, KeyboardInterrupt) as error:
             # Named, and with what already ran. A promotion that stops part way leaves the
             # namespace in a state nobody planned, and the operator's first question is which
             # objects moved.
