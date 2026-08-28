@@ -603,6 +603,75 @@ def berdl_apply_metadata_command(
     click.echo(f"outcome={destination.resolve()}", err=True)
 
 
+@cli.command("rebuild-derived-tables")
+@click.argument("namespace")
+@click.option("--ingest-checkout", type=click.Path(path_type=Path, file_okay=False), required=True)
+@click.option(
+    "--max-depth",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Refuse rather than truncate past this many hops.",
+)
+@click.option(
+    "--authorize-namespace",
+    help="Exact namespace, required to run. Without it this prints what it would do and stops.",
+)
+def rebuild_derived_tables_command(
+    namespace: str,
+    ingest_checkout: Path,
+    max_depth: int | None,
+    authorize_namespace: str | None,
+) -> None:
+    """Rebuild graph_edges and biosample_to_workflow_run in a namespace.
+
+    Both tables are replaced. Nothing here is incremental, and a reload of the tables they are
+    computed from leaves them describing data that no longer exists, which is why they exist as a
+    rebuild rather than as something maintained in place.
+
+    Previewing is the default. Execution needs `--authorize-namespace` naming the same namespace,
+    so the destructive form cannot be reached by editing a path in a shell history entry.
+    """
+    from nmdc_lakehouse.derived_tables import (
+        DEFAULT_MAX_DEPTH,
+        DERIVED_TABLES,
+        DerivedTableError,
+        check_namespace,
+        rebuild_all,
+        spark_session,
+    )
+
+    # Refused before the preview, not after it. A preview that renders for a namespace the rebuild
+    # will always reject reads as an actionable plan for something that can never run.
+    try:
+        check_namespace(namespace)
+    except DerivedTableError as error:
+        raise click.ClickException(str(error)) from error
+
+    depth = DEFAULT_MAX_DEPTH if max_depth is None else max_depth
+    targets = ", ".join(f"{namespace}.{table}" for table in DERIVED_TABLES)
+    click.echo(f"rebuild plan for {namespace}")
+    click.echo(f"  replaces      {targets}")
+    click.echo(f"  order         {' then '.join(DERIVED_TABLES)}, because the second walks the first")
+    click.echo(f"  max depth     {depth}")
+
+    if authorize_namespace is None:
+        click.echo("  nothing has been changed; rerun with --authorize-namespace to execute")
+        return
+    if authorize_namespace != namespace:
+        raise click.ClickException(f"--authorize-namespace is '{authorize_namespace}' but the target is '{namespace}'.")
+
+    try:
+        spark = spark_session(ingest_checkout)
+        outcomes = rebuild_all(spark, namespace, max_depth=depth, progress=lambda message: click.echo(f"  {message}"))
+    except DerivedTableError as error:
+        raise click.ClickException(str(error)) from error
+    for outcome in outcomes:
+        detail = f", depth {outcome.depth_reached}" if outcome.depth_reached else ""
+        # outcome.table is already catalog-qualified. Prefixing it again produced
+        # nmdc.metadata.nmdc.metadata.biosample_to_workflow_run, which reads as a real name.
+        click.echo(f"  rebuilt {outcome.table}: {outcome.rows} rows{detail}")
+
+
 @cli.command("berdl-promotion-plan")
 @click.option("--plan", "publication_plan_path", type=click.Path(path_type=Path, dir_okay=False), required=True)
 @click.option(

@@ -23,7 +23,9 @@ where the cell printed a warning.
 from __future__ import annotations
 
 import re
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 # One row per side table that contributes provenance edges: (table, source column, destination
 # column, slot label). Direction is not a field; it is which column goes on which side. The
@@ -72,7 +74,7 @@ class RebuildOutcome:
     depth_reached: int = 0
 
 
-def _check_namespace(namespace: str) -> str:
+def check_namespace(namespace: str) -> str:
     """Require `<catalog>.<namespace>`, for the reason the rest of this repository does.
 
     An unqualified name resolves in whatever catalog the session points at, and these statements
@@ -84,9 +86,21 @@ def _check_namespace(namespace: str) -> str:
     return namespace
 
 
+def check_max_depth(max_depth: int) -> int:
+    """Refuse a depth no walk can use, wherever the walk is entered from.
+
+    This lives beside `check_namespace` because it has to run in the same place: before anything
+    is written. `rebuild_all` replaces `graph_edges` first, so a depth checked only inside the
+    walk is checked after a table has already been destroyed.
+    """
+    if max_depth < 1:
+        raise DerivedTableError("max_depth must be at least 1.")
+    return max_depth
+
+
 def graph_edges_statement(namespace: str) -> str:
     """Return the single statement that rebuilds `graph_edges` from its four side tables."""
-    _check_namespace(namespace)
+    check_namespace(namespace)
     unions = "\n    UNION ALL\n".join(
         f"    SELECT {src} AS src, {dst} AS next_id, '{slot}' AS slot\n    FROM {namespace}.{table}"
         for table, src, dst, slot in _EDGE_SOURCES
@@ -96,7 +110,7 @@ def graph_edges_statement(namespace: str) -> str:
 
 def seed_frontier_statement(namespace: str) -> str:
     """Every workflow run is its own origin at depth zero."""
-    _check_namespace(namespace)
+    check_namespace(namespace)
     return f"SELECT id AS origin, id AS id FROM {namespace}.workflow_execution_set WHERE id IS NOT NULL"
 
 
@@ -106,7 +120,7 @@ def hop_statement(namespace: str, frontier_view: str) -> str:
     A join, not an `IN (...)` list. The notebook inlined every frontier id into the statement
     text, so the statement grew with the data and at 33,234 workflow runs was megabytes wide.
     """
-    _check_namespace(namespace)
+    check_namespace(namespace)
     return (
         f"SELECT DISTINCT f.origin AS origin, e.next_id AS id "
         f"FROM {frontier_view} f JOIN {namespace}.graph_edges e ON e.src = f.id "
@@ -129,7 +143,7 @@ def continuing_frontier_statement(step_view: str) -> str:
 
 def processing_types_statement(namespace: str, frontier_view: str) -> str:
     """Which MaterialProcessing classes the current frontier passes through."""
-    _check_namespace(namespace)
+    check_namespace(namespace)
     return (
         f"SELECT DISTINCT f.origin AS workflow_run_id, m.type AS processing_type "
         f"FROM {frontier_view} f JOIN {namespace}.material_processing_set m ON m.id = f.id "
@@ -145,7 +159,7 @@ def unaccounted_processing_types_statement(namespace: str) -> str:
     as false for every processing step it did take. The table is then wrong in the direction that
     looks right: it says the processing did not happen rather than that it was not measured.
     """
-    _check_namespace(namespace)
+    check_namespace(namespace)
     known = ", ".join(f"'{nmdc_type}'" for nmdc_type in PROCESSING_TYPES)
     return (
         f"SELECT DISTINCT type FROM {namespace}.material_processing_set "
@@ -161,7 +175,7 @@ def check_processing_types_are_accounted_for(spark: object, namespace: str) -> N
     output. Carried over from the preflight cell of the notebook this replaced, which printed a
     warning and left it to the operator to notice.
     """
-    _check_namespace(namespace)
+    check_namespace(namespace)
     try:
         rows = spark.sql(unaccounted_processing_types_statement(namespace)).collect()  # type: ignore[attr-defined]
     except Exception as error:
@@ -182,7 +196,7 @@ def pair_statement(namespace: str, reached_view: str, processing_view: str) -> s
     `MIN(n_hops)` because a biosample can be reached by more than one path and the documented
     meaning of the column is the minimum number of edges.
     """
-    _check_namespace(namespace)
+    check_namespace(namespace)
     flags = ",\n       ".join(
         f"MAX(CASE WHEN p.processing_type = '{nmdc_type}' THEN true ELSE false END) AS {column}"
         for nmdc_type, column in PROCESSING_TYPES.items()
@@ -215,13 +229,76 @@ def _count(spark: object, table: str) -> int:
     return value
 
 
+def spark_session(checkout: Path) -> object:
+    """A Spark session from the reviewed BERDL checkout, not from whatever is importable.
+
+    Same shape as `berdl_metadata._runtime` and for the same reason: the helper has to come from
+    the checkout that was reviewed, so an unrelated copy on the path cannot decide what runs.
+    """
+    source_root = (checkout.expanduser() / "src").resolve()
+    sys.path.insert(0, str(source_root))
+    try:
+        import berdl_notebook_utils.setup_spark_session as session_module
+    except ImportError as error:
+        raise DerivedTableError("The selected BERDL runtime is not importable.") from error
+    finally:
+        sys.path.remove(str(source_root))
+    # Where it came from, not merely that it imported. Putting the checkout first on sys.path does
+    # not displace a copy installed in the environment, and an already-imported module is returned
+    # from sys.modules without consulting the path at all. Without this the docstring's claim that
+    # the session comes from the reviewed checkout was a hope.
+    module_file = getattr(session_module, "__file__", None)
+    if module_file is None or not Path(module_file).resolve().is_relative_to(source_root):
+        raise DerivedTableError(
+            f"berdl_notebook_utils was imported from {module_file!r}, which is not inside "
+            f"{source_root}. The session must come from the reviewed checkout."
+        )
+    return session_module.get_spark_session()
+
+
+def rebuild_all(
+    spark: object,
+    namespace: str,
+    max_depth: int = DEFAULT_MAX_DEPTH,
+    progress: object = None,
+) -> list[RebuildOutcome]:
+    """Rebuild both derived tables, in the order one depends on the other.
+
+    `graph_edges` first, because `biosample_to_workflow_run` walks it. The order comes from
+    `DERIVED_TABLES` rather than from this function, so a caller reading either sees the same
+    answer, and the promotion plan built in `berdl_promotion` orders its rebuilds the same way.
+    """
+    check_namespace(namespace)
+    # Every precondition is checked before the first builder runs. graph_edges is replaced first,
+    # so a depth checked inside the walk is checked one destroyed table too late.
+    check_max_depth(max_depth)
+    say = progress if callable(progress) else (lambda _message: None)
+    # Named rather than defaulted. An `else` branch sent anything that was not `graph_edges` to
+    # the walk, so a third entry in DERIVED_TABLES would have been rebuilt by the wrong function
+    # and reported as a success. A table this cannot rebuild is refused instead.
+    builders = {
+        "graph_edges": lambda: rebuild_graph_edges(spark, namespace),
+        "biosample_to_workflow_run": lambda: rebuild_biosample_to_workflow_run(
+            spark, namespace, max_depth=max_depth, progress=say
+        ),
+    }
+    unknown = sorted(set(DERIVED_TABLES) - set(builders))
+    if unknown:
+        raise DerivedTableError("No rebuild procedure exists for: " + ", ".join(unknown) + ".")
+    outcomes = []
+    for table in DERIVED_TABLES:
+        say(f"rebuilding {namespace}.{table}")
+        outcomes.append(builders[table]())
+    return outcomes
+
+
 def rebuild_graph_edges(spark: object, namespace: str) -> RebuildOutcome:
     """Rebuild `graph_edges` and report the count the catalog gives back.
 
     No `USING DELTA`. The notebook pinned the format, which was right for the Hive namespace it
     targeted and wrong for an Iceberg one; leaving it out lets the catalog decide.
     """
-    _check_namespace(namespace)
+    check_namespace(namespace)
     try:
         spark.sql(graph_edges_statement(namespace))  # type: ignore[attr-defined]
     except Exception as error:
@@ -250,9 +327,8 @@ def rebuild_biosample_to_workflow_run(
     because a silently truncated walk loses provenance for the deepest samples only, which is the
     hardest kind of gap to notice.
     """
-    _check_namespace(namespace)
-    if max_depth < 1:
-        raise DerivedTableError("max_depth must be at least 1.")
+    check_namespace(namespace)
+    check_max_depth(max_depth)
     say = progress if callable(progress) else (lambda _message: None)
     # Before the walk, not after. A rebuild that runs to completion and then reports the mapping
     # was incomplete has already replaced the table with the wrong one.
