@@ -321,3 +321,46 @@ def test_a_longer_filename_is_not_matched_by_its_prefix(tmp_path: Path) -> None:
     document = _write(tmp_path, "d.md", "run `scripts/tool.py.bak` and `scripts/tool.pyc`\n")
 
     assert dr.unresolvable_scripts([document], tmp_path) == [], "neither is extracted at all"
+
+
+@pytest.mark.parametrize(
+    ("block", "issue", "settled"),
+    [
+        ("tracked in #1 (closed), follow-up in #2", "1", True),
+        ("tracked in #1 (closed), follow-up in #2", "2", False),
+        ("#1 is closed and #2 is tracked", "1", True),
+        ("#1 is closed and #2 is tracked", "2", False),
+        ("#1 has not been closed", "1", False),
+        ("#1 was never actually resolved", "1", False),
+        ("#1 is not yet closed", "1", False),
+        ("the export is not done; tracked in #1", "1", False),
+        ("tracked in #3, now closed", "3", True),
+    ],
+    ids=[
+        "attached settles its own",
+        "and not the next one",
+        "same clause, first settles",
+        "same clause, second does not",
+        "negation between reference and word",
+        "never, with a word in between",
+        "not yet",
+        "a settled-looking word about something else",
+        "now closed",
+    ],
+)
+def test_settlement_is_attached_to_the_reference(block: str, issue: str, settled: bool) -> None:
+    """Two attempts at inferring this from English failed, each in a narrower way.
+
+    A keyword search matched `done` inside "not done". A lookbehind missed "has not been closed",
+    where the negation is not adjacent. Splitting on punctuation still let "#1 is closed and #2 is
+    tracked" settle #2. The form is fixed now: the word follows the reference, with only
+    punctuation and an optional "now" between, and before any other reference.
+    """
+    assert dr._settled_near(block, issue) is settled
+
+
+def test_a_dot_slash_path_is_matched_but_a_nested_one_is_not() -> None:
+    """`./scripts/x.py` is the same path; `a/scripts/x.py` and `../scripts/x.py` are not."""
+    assert dr.SCRIPT_REFERENCE.findall("run ./scripts/nope.py") == ["scripts/nope.py"]
+    assert dr.SCRIPT_REFERENCE.findall("run ../scripts/nope.py") == []
+    assert dr.SCRIPT_REFERENCE.findall("see a/scripts/nope.py") == []

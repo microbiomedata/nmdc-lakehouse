@@ -3,8 +3,10 @@
 Six findings in one day on
 https://github.com/microbiomedata/nmdc-lakehouse/pull/310 shared a shape: a file
 that is correct on its own and wrong against something it does not mention.
-Nothing here compares one file to another, or a file to GitHub, so every one of
-them was found by a person reading two things at once.
+At the time nothing compared one file to another, or a file to GitHub, so every
+one of them was found by a person reading two things at once. This module is the
+part of that gap now closed: it compares cited paths to the checkout, and cited
+issues to GitHub.
 
 Two rules, both cheap:
 
@@ -36,11 +38,13 @@ import sys
 from pathlib import Path
 
 # Components may contain dots, so `scripts/migrate.v2.py` is matched rather than silently passing.
+# An optional leading `./` is consumed, because `./scripts/x.py` is how people write a path they
+# mean to be relative and the left boundary alone made it invisible.
 # `.` and `..` are excluded so a traversal component cannot be read as a filename. The trailing
 # guard stops a match ending inside a longer name: without it `scripts/tool.py.bak` yielded
 # `scripts/tool.py`, which exists, so a citation of a file that does not exist passed.
 SCRIPT_REFERENCE = re.compile(
-    r"(?<![\w/.-])(scripts/(?:(?!\.{1,2}/)[\w.-]+/)*(?!\.{1,2}\.)[\w.-]+\.(?:py|sh))(?![\w.-])"
+    r"(?<![\w/.-])(?:\./)?(scripts/(?:(?!\.{1,2}/)[\w.-]+/)*(?!\.{1,2}\.)[\w.-]+\.(?:py|sh))(?![\w.-])"
 )
 
 #: A document may declare that its ``scripts/`` paths belong to another checkout, which is the
@@ -86,12 +90,25 @@ _KNOWN_STATES = frozenset({"OPEN", "CLOSED"})
 # https://github.com/microbiomedata/nmdc-lakehouse/issues/312 asks for, it needs no parsing, and
 # a reader who meets the reference learns the same thing the checker does.
 
-#: Words that describe an issue's state, not an ordinary English sense of finished. `done`,
-#: `complete` and `fixed` were here and are gone: a marker reading "the export is not done;
-#: tracked in #1" matched `done` and suppressed a genuinely live finding. Negation is guarded
-#: directly rather than by hoping the words do not appear in one.
-_NOT = r"(?<!not )(?<!isn't )(?<!is not )(?<!never )(?<!yet )"
-SETTLED = re.compile(rf"{_NOT}\b(closed|resolved|merged|superseded)\b", re.IGNORECASE)
+#: Settlement, required to sit immediately after the reference it applies to.
+#:
+#: Two attempts at reading English failed before this. A keyword search over the marker matched
+#: `done` inside "the export is not done". A lookbehind for negation matched "#1 has not been
+#: closed", because the negation is not adjacent to the word. Splitting on punctuation still let
+#: "#1 is closed and #2 is tracked" settle #2. Each fix produced a narrower wrong answer.
+#:
+#: So the form is fixed rather than inferred: the settled word follows the reference, separated by
+#: nothing but punctuation and the optional word "now", and before any other issue reference. Both
+#: of these settle #1 and neither settles #2:
+#:
+#:     tracked in #1 (closed), follow-up in #2
+#:     tracked in #1, now closed. See #2
+#:
+#: This rejects prose that means the same thing, which is the trade. A contributor is told the
+#: form in CONTRIBUTING.md, and a rule people can satisfy deliberately is worth more than one that
+#: guesses and is wrong in a new way each round.
+_SETTLED_WORD = r"(?:closed|resolved|merged|superseded)"
+_ANY_REFERENCE = r"(?:(?<![\w/])#\d+\b|/issues/\d+\b)"
 
 
 def _markdown_files(targets: list[Path]) -> list[Path]:
@@ -198,16 +215,17 @@ def _marker_blocks(text: str) -> list[tuple[int, str]]:
 
 
 def _settled_near(block: str, issue: str) -> bool:
-    """Whether the text around this issue's mention says it closed.
+    """Whether this issue's reference is immediately followed by a statement that it closed.
 
-    Scoped to the clause the reference sits in rather than the whole marker, split on the
-    punctuation that separates one statement from the next. Searching the whole block let one
-    settled reference speak for every other reference beside it.
+    Attached to the reference, not merely present in the marker. The settled word must follow the
+    reference with only punctuation and an optional "now" between them, and must come before any
+    other issue reference, so one settled pointer cannot speak for another beside it.
     """
-    for clause in re.split(r"[;.]\s|\bfollow-up\b|\bbut\b", block):
-        if re.search(rf"(?<![\w/])#{issue}\b|/issues/{issue}\b", clause) and SETTLED.search(clause):
-            return True
-    return False
+    # The gap may not contain another reference, nor a negation. "#1 has not been closed" puts the
+    # negation between the two, where a lookbehind on the word could never see it.
+    gap = rf"(?:(?!{_ANY_REFERENCE}|\b(?:not|never|yet)\b|n't).)*?"
+    pattern = rf"(?:(?<![\w/])#{issue}\b|/issues/{issue}\b){gap}\b(?:now\s+)?{_SETTLED_WORD}\b"
+    return re.search(pattern, block, re.IGNORECASE | re.DOTALL) is not None
 
 
 def markers_citing_closed_issues(paths: list[Path], repo: str) -> tuple[list[tuple[Path, int, str]], set[str]]:
