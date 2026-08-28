@@ -55,6 +55,10 @@ berdl-upload-plan SNAPSHOT_ROOT BUNDLE INVENTORY PLAN METADATA_PLAN TARGET_VALID
 berdl-upload PLAN UPSTREAM_OUTCOME OUTCOME *ARGS:
     uv run --no-sync nmdc-lakehouse berdl-upload "{{ PLAN }}" --upstream-outcome "{{ UPSTREAM_OUTCOME }}" --output "{{ OUTCOME }}" {{ ARGS }}
 
+# Rebuild the two derived tables. Previews by default; needs --authorize-namespace to execute.
+rebuild-derived-tables NAMESPACE INGEST_CHECKOUT *ARGS:
+    uv run --no-sync nmdc-lakehouse rebuild-derived-tables "{{ NAMESPACE }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" {{ ARGS }}
+
 # Describe the promotion that verified staging authorizes. Reads evidence, changes nothing.
 berdl-promotion-plan PUBLICATION_PLAN STAGING_OUTCOME METADATA_OUTCOME CANONICAL_NAMESPACE RECOVERY OUTPUT *ARGS:
     uv run --no-sync nmdc-lakehouse berdl-promotion-plan --plan "{{ PUBLICATION_PLAN }}" --staging-outcome "{{ STAGING_OUTCOME }}" --metadata-outcome "{{ METADATA_OUTCOME }}" --canonical-namespace "{{ CANONICAL_NAMESPACE }}" --recovery "{{ RECOVERY }}" --output "{{ OUTPUT }}" {{ ARGS }}

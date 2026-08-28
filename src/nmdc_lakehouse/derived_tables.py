@@ -23,7 +23,9 @@ where the cell printed a warning.
 from __future__ import annotations
 
 import re
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 # One row per side table that contributes provenance edges: (table, source column, destination
 # column, slot label). Direction is not a field; it is which column goes on which side. The
@@ -213,6 +215,47 @@ def _count(spark: object, table: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise DerivedTableError(f"Counting '{table}' returned an invalid count: {value!r}")
     return value
+
+
+def spark_session(checkout: Path) -> object:
+    """A Spark session from the reviewed BERDL checkout, not from whatever is importable.
+
+    Same shape as `berdl_metadata._runtime` and for the same reason: the helper has to come from
+    the checkout that was reviewed, so an unrelated copy on the path cannot decide what runs.
+    """
+    source_root = (checkout.expanduser() / "src").resolve()
+    sys.path.insert(0, str(source_root))
+    try:
+        from berdl_notebook_utils.setup_spark_session import get_spark_session
+    except ImportError as error:
+        raise DerivedTableError("The selected BERDL runtime is not importable.") from error
+    finally:
+        sys.path.remove(str(source_root))
+    return get_spark_session()
+
+
+def rebuild_all(
+    spark: object,
+    namespace: str,
+    max_depth: int = DEFAULT_MAX_DEPTH,
+    progress: object = None,
+) -> list[RebuildOutcome]:
+    """Rebuild both derived tables, in the order one depends on the other.
+
+    `graph_edges` first, because `biosample_to_workflow_run` walks it. The order comes from
+    `DERIVED_TABLES` rather than from this function, so a caller reading either sees the same
+    answer, and the promotion plan built in `berdl_promotion` orders its rebuilds the same way.
+    """
+    _check_namespace(namespace)
+    say = progress if callable(progress) else (lambda _message: None)
+    outcomes = []
+    for table in DERIVED_TABLES:
+        say(f"rebuilding {namespace}.{table}")
+        if table == "graph_edges":
+            outcomes.append(rebuild_graph_edges(spark, namespace))
+        else:
+            outcomes.append(rebuild_biosample_to_workflow_run(spark, namespace, max_depth=max_depth, progress=say))
+    return outcomes
 
 
 def rebuild_graph_edges(spark: object, namespace: str) -> RebuildOutcome:
