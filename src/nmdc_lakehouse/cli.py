@@ -11,10 +11,16 @@ import logging
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
 from nmdc_lakehouse.service_doctor import SERVICE_CHECKS
+
+if TYPE_CHECKING:
+    # Import-time cost is why every command imports its own module inside the function body; this
+    # one is only for the annotation.
+    from nmdc_lakehouse.berdl_promotion import BerdlPromotionPlan
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -838,7 +844,20 @@ def berdl_promote_command(
     # A statement that succeeded is not a table that holds what it should, and the plan's last
     # step is a read-back this command does not perform. Saying only how many statements ran
     # would let the output stand in for the verification nobody has done yet.
+    # Only when a table was built. A preserve-only plan issues nothing and a rebuild-only plan
+    # issues drops, and telling either operator that "these statements build tables from a query"
+    # describes statements that did not run.
+    if any(step in ("replace", "add") for step, _table, _statement in promotion_statements(plan)):
+        click.echo("")
+        _echo_metadata_warning(plan)
+
     click.echo("")
+    click.echo("  NOT VERIFIED: no table has been read back. This ran statements; it did not")
+    click.echo(f"  check results. Verify all {len(plan.operations)} object(s) in {plan.canonical_namespace}")
+    click.echo("  before anyone is told the promotion is complete.")
+
+
+def _echo_metadata_warning(plan: "BerdlPromotionPlan") -> None:
     # A table comment and TBLPROPERTIES are not part of a query result, so the statements above
     # cannot have carried them. There is no follow-up command that fixes this: berdl-apply-metadata
     # refuses a canonical namespace on purpose, because applying descriptions one column at a time
@@ -847,10 +866,6 @@ def berdl_promote_command(
     click.echo("  and properties are not part of one, and no command applies them to a canonical")
     click.echo("  namespace afterwards; berdl-apply-metadata refuses one by design. The verified")
     click.echo(f"  metadata is on the staging tables, not on {plan.canonical_namespace}. See issue 320.")
-    click.echo("")
-    click.echo("  NOT VERIFIED: no table has been read back. This ran statements; it did not")
-    click.echo(f"  check results. Verify all {len(plan.operations)} object(s) in {plan.canonical_namespace}")
-    click.echo("  before anyone is told the promotion is complete.")
 
 
 @cli.command("berdl-promotion-probe")

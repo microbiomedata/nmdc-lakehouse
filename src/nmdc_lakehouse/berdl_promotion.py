@@ -222,11 +222,16 @@ class BerdlPromotionPlan(BaseModel):
         # Exactly the rebuild operations, in `DERIVED_TABLES` order, which is how the builder
         # derives this list. Anything else means the file was edited: a name that is not a derived
         # table would be dropped by a statement nobody planned.
-        expected = [
-            table
-            for table in DERIVED_TABLES
-            if table in {op.table for op in self.operations if op.disposition is Disposition.REBUILD}
-        ]
+        rebuilt = {op.table for op in self.operations if op.disposition is Disposition.REBUILD}
+        # Refused rather than filtered. Filtering is what let `rebuild mystery_set` validate with
+        # an empty derived_rebuilds and then be skipped by the statements, so the operator
+        # authorized a rebuild that was never going to happen and nothing said so.
+        unrebuildable = sorted(rebuilt - set(DERIVED_TABLES))
+        if unrebuildable:
+            raise ValueError(
+                "A rebuild operation must name a derived table, and these are not: " + ", ".join(unrebuildable) + "."
+            )
+        expected = [table for table in DERIVED_TABLES if table in rebuilt]
         if self.derived_rebuilds != expected:
             raise ValueError(
                 f"derived_rebuilds must be exactly the rebuild operations in DERIVED_TABLES order, which is {expected}."
@@ -650,6 +655,39 @@ def promotion_statements(plan: BerdlPromotionPlan) -> list[tuple[str, str, str]]
     return statements
 
 
+def check_staging_matches_plan(spark: object, plan: BerdlPromotionPlan, progress: object = None) -> None:
+    """Refuse if a staging table no longer holds the rows the plan was decided against.
+
+    Only the tables that get copied, and only the ones the plan gave a count for. `preserve` reads
+    nothing and `expected_rows` is optional, so a plan that never recorded a count for a table
+    cannot be checked against one and says so by having none rather than by being skipped quietly.
+    """
+    say = progress if callable(progress) else (lambda _message: None)
+    for operation in plan.operations:
+        if operation.disposition not in (Disposition.REPLACE, Disposition.ADD):
+            continue
+        if operation.expected_rows is None:
+            say(f"{operation.table}: the plan records no expected row count, so nothing is compared")
+            continue
+        source = f"{plan.staging_namespace}.{operation.table}"
+        try:
+            rows = spark.sql(f"SELECT COUNT(*) AS n FROM {source}").collect()  # type: ignore[attr-defined]
+        except Exception as error:
+            raise PromotionRefused(f"Cannot count rows in '{source}' to check it against the plan.") from error
+        if len(rows) != 1:
+            raise PromotionRefused(f"Counting '{source}' returned {len(rows)} rows, expected 1.")
+        observed = rows[0][0]
+        if isinstance(observed, bool) or not isinstance(observed, int) or observed < 0:
+            raise PromotionRefused(f"Counting '{source}' returned an invalid count: {observed!r}")
+        if observed != operation.expected_rows:
+            raise PromotionRefused(
+                f"'{source}' holds {observed} row(s) and the plan was decided against "
+                f"{operation.expected_rows}. Staging changed after the plan was built, so the "
+                f"authorization does not describe this data. Nothing has been changed."
+            )
+        say(f"{operation.table}: {observed} row(s), as the plan recorded")
+
+
 def execute_promotion(
     spark: object,
     plan: BerdlPromotionPlan,
@@ -694,6 +732,13 @@ def execute_promotion(
             f"one deployment, and which one this session reaches is decided by the checkout, not "
             f"by anything checked here."
         )
+
+    # Before anything is dropped or replaced. The plan decided its dispositions against row counts
+    # the staging outcome recorded, and the statements copy whatever staging holds at execution.
+    # Staging is a live namespace: a reload between the plan and the run changes the data without
+    # changing the plan, and every authorization would still pass. This is the check that binds the
+    # authorized decision to the data it was decided against.
+    check_staging_matches_plan(spark, plan, progress=say)
 
     performed: list[str] = []
     for step, table, statement in promotion_statements(plan):

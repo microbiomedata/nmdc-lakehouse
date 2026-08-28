@@ -629,7 +629,8 @@ the outage:
   2. replace 2 table(s) from staging
   3. add 1 table(s) absent from the destination
   4. rebuild those derived table(s) from the replaced provenance side tables
-  5. verify all 5 object(s) by read-back
+  5. note that table comments and properties do not travel with these statements
+  6. verify all 5 object(s) by read-back
 
   OUTAGE: graph_edges, biosample_to_workflow_run are dropped at step 1 and do
   not exist again until the rebuild. Queries against them, and joins from them

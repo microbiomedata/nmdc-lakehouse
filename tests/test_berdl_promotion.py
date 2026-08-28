@@ -754,14 +754,33 @@ def test_the_refusal_survives_a_file_appearing_after_the_check(tmp_path: Path, m
     assert not leftovers, f"the temporary file must be cleaned up, found {leftovers}"
 
 
-class _RecordingSpark:
-    """Records what was issued, and can be told to fail on the nth statement."""
+class _Count:
+    def __init__(self, value: int) -> None:
+        self._value = value
 
-    def __init__(self, fail_on: int | None = None) -> None:
+    def collect(self) -> list[tuple[int]]:
+        return [(self._value,)]
+
+
+class _RecordingSpark:
+    """Records mutations, answers counts, and can be told to fail on the nth mutation.
+
+    Counts are answered from `counts`, keyed by table name, defaulting to what the fixture plan
+    records. They are not recorded in `statements`: the tests compare that list against the
+    promotion statements, and a read is not one of them.
+    """
+
+    def __init__(self, fail_on: int | None = None, counts: dict[str, int] | None = None) -> None:
         self.statements: list[str] = []
         self._fail_on = fail_on
+        self._counts = {"biosample_set": 27352} if counts is None else counts
 
     def sql(self, statement: str) -> object:
+        if statement.startswith("SELECT COUNT(*)"):
+            for table, value in self._counts.items():
+                if statement.endswith(f".{table}"):
+                    return _Count(value)
+            raise AssertionError(f"no count configured for: {statement}")
         self.statements.append(statement)
         if self._fail_on is not None and len(self.statements) == self._fail_on:
             raise RuntimeError("the engine refused this statement")
@@ -1141,15 +1160,12 @@ def test_an_interrupted_promotion_still_names_what_already_ran(tmp_path: Path) -
     or inside one, so the in-flight statement is reported as unknown rather than as skipped.
     """
 
-    class InterruptingSpark:
-        def __init__(self) -> None:
-            self.statements: list[str] = []
-
+    class InterruptingSpark(_RecordingSpark):
         def sql(self, statement: str) -> object:
-            self.statements.append(statement)
+            result = super().sql(statement)
             if len(self.statements) == 2:
                 raise KeyboardInterrupt
-            return object()
+            return result
 
     plan, digest = _executable_plan(tmp_path)
     expected = [statement for _step, _table, statement in promotion_statements(plan)]
@@ -1250,3 +1266,82 @@ def test_a_version_one_plan_is_refused_rather_than_loaded_without_its_provider(t
 
     with pytest.raises(PromotionPlanError, match="plan_format_version"):
         load_promotion_plan(old)
+
+
+def test_promotion_refuses_staging_that_no_longer_holds_the_rows_the_plan_names(tmp_path: Path) -> None:
+    """Staging is a live namespace and the statements copy whatever it holds at execution.
+
+    A reload between building the plan and running it changes the data without changing the plan,
+    and all three authorizations still pass. This is the check that binds the authorized decision
+    to the data it was decided against.
+    """
+    plan, digest = _executable_plan(tmp_path)
+    expected = {op.table: op.expected_rows for op in plan.operations if op.expected_rows is not None}
+    assert expected, "this test needs a plan that records at least one row count"
+    table, count = next(iter(expected.items()))
+    spark = _RecordingSpark(counts={table: count + 1})
+
+    with pytest.raises(PromotionRefused, match="Staging changed after the plan was built"):
+        execute_promotion(
+            spark,
+            plan,
+            plan_sha256=digest,
+            authorize_plan_sha256=digest,
+            authorize_canonical_namespace=CANONICAL,
+            authorize_destination_id=plan.destination_id,
+        )
+
+    assert spark.statements == [], "nothing may be dropped or replaced before the counts agree"
+
+
+def test_a_rebuild_naming_something_that_is_not_a_derived_table_is_refused(tmp_path: Path) -> None:
+    """It was filtered out of the derived list, so it validated and was then silently skipped.
+
+    The operator authorized a rebuild that was never going to run and nothing reported that.
+    """
+    path = _promotion_plan_file(tmp_path)
+    document = json.loads(path.read_text())
+    document["operations"].append({"table": "mystery_set", "disposition": "rebuild", "rationale": "r"})
+    tampered = _write(tmp_path / "mystery.json", document)
+
+    with pytest.raises(PromotionPlanError, match="must name a derived table"):
+        load_promotion_plan(tampered)
+
+
+def test_a_preserve_only_plan_does_not_claim_statements_built_tables(tmp_path: Path, monkeypatch) -> None:
+    """The metadata warning describes statements. A preserve-only plan issues none."""
+    from click.testing import CliRunner
+
+    import nmdc_lakehouse.derived_tables as derived_tables
+    from nmdc_lakehouse.cli import cli
+
+    path = _promotion_plan_file(tmp_path)
+    document = json.loads(path.read_text())
+    document["operations"] = [
+        {"table": "biosample_set", "disposition": "preserve", "rationale": "nobody decided to touch it"}
+    ]
+    document["derived_rebuilds"] = []
+    preserve_only = _write(tmp_path / "preserve-only.json", document)
+    plan, digest = load_promotion_plan(preserve_only)
+    monkeypatch.setattr(derived_tables, "spark_session", lambda _checkout: _RecordingSpark())
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "berdl-promote",
+            str(preserve_only),
+            "--ingest-checkout",
+            str(tmp_path),
+            "--authorize-plan-sha256",
+            digest,
+            "--authorize-canonical-namespace",
+            CANONICAL,
+            "--authorize-destination-id",
+            plan.destination_id,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "METADATA NOT CARRIED" not in result.output, result.output
+    # The read-back notice still applies: preserving is a claim about the destination too.
+    assert "NOT VERIFIED" in result.output, result.output
