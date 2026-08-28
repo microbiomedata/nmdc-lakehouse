@@ -82,9 +82,7 @@ ISSUE_REFERENCE = re.compile(rf"github\.com/{re.escape(REPOSITORY)}/issues/(\d+)
 #: A markdown link whose target is an issue somewhere other than this repository. Removed before
 #: scanning, because its label is a bare `#N` that would otherwise be queried against this repo,
 #: which is how the owner exclusion was bypassed by the ordinary link form.
-FOREIGN_LINK = re.compile(
-    r"\[[^\]]*\]\(https?://(?!github\.com/microbiomedata/nmdc-lakehouse/)[^)]*?/issues/\d+[^)]*\)"
-)
+FOREIGN_LINK = re.compile(rf"\[[^\]]*\]\(https?://(?!github\.com/{re.escape(REPOSITORY)}/)[^)]*?/issues/\d+[^)]*\)")
 # `unverified:` only. A `verified:` marker naming a closed issue is the normal case and not a
 # defect: it records what was being verified, and the issue closed because the verification
 # worked. An `unverified:` marker is a live pointer to where an unrun procedure is tracked, so a

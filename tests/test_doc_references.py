@@ -329,3 +329,20 @@ def test_a_future_tense_cannot_slip_past(tmp_path: Path, monkeypatch) -> None:
     problems, _ = dr.markers_citing_closed_issues([document], "o/r")
 
     assert problems == [(document, 1, "1")], "reported, because nothing here judges the sentence"
+
+
+def test_both_patterns_follow_the_repository_constant(tmp_path: Path, monkeypatch) -> None:
+    """They were anchored separately, one through the constant and one by hand.
+
+    A checker that queries one repository and matches another answers a different issue's number
+    with confidence, which is the failure the constant exists to prevent. Rebuilding both from a
+    changed constant is the only way to see that they still agree.
+    """
+    import re
+
+    other = "someone/other-repo"
+    reference = re.compile(rf"github\.com/{re.escape(other)}/issues/(\d+)|(?<![\w/])#(\d+)\b")
+    foreign = re.compile(rf"\[[^\]]*\]\(https?://(?!github\.com/{re.escape(other)}/)[^)]*?/issues/\d+[^)]*\)")
+
+    assert dr.ISSUE_REFERENCE.pattern == reference.pattern.replace(re.escape(other), re.escape(dr.REPOSITORY))
+    assert dr.FOREIGN_LINK.pattern == foreign.pattern.replace(re.escape(other), re.escape(dr.REPOSITORY))
