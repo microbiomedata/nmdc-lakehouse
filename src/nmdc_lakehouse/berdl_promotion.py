@@ -35,6 +35,9 @@ PROMOTION_PLAN_FORMAT_VERSION: Literal[1] = 1
 _PLANNED_DISPOSITIONS = frozenset({Disposition.REPLACE, Disposition.ADD, Disposition.REBUILD, Disposition.PRESERVE})
 
 _QUALIFIED = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\Z")
+# One unquoted table name. `\Z` and not `$`, because `$` matches before a trailing newline and a
+# name ending in one would pass while carrying a line break into the statement.
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 
 
 class StagedTableLike(Protocol):
@@ -148,6 +151,26 @@ class BerdlPromotionPlan(BaseModel):
     # 2026-08-26. These tables are absent, and queries against them fail, for the whole run.
     derived_rebuilds: list[str]
     recovery: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_table_names(self) -> "BerdlPromotionPlan":
+        """Refuse any table name that is not a plain identifier.
+
+        Every name here ends up interpolated into SQL.
+
+        The plan is JSON read from disk. Nothing about that file is authenticated beyond the
+        digest an operator types, and the digest is of the file as it is, not of a file anyone
+        vouched for. A name carrying a semicolon or a backtick would become extra statements
+        inside a DROP or a CREATE OR REPLACE, which is the one place in this repository where
+        that is unrecoverable.
+        """
+        for table in self.derived_rebuilds:
+            if not _IDENTIFIER.fullmatch(table):
+                raise ValueError(f"Derived rebuild {table!r} is not a plain table identifier.")
+        for operation in self.operations:
+            if not _IDENTIFIER.fullmatch(operation.table):
+                raise ValueError(f"Operation table {operation.table!r} is not a plain table identifier.")
+        return self
 
     @model_validator(mode="after")
     def validate_namespaces(self) -> "BerdlPromotionPlan":
@@ -410,8 +433,16 @@ def _read_evidence(path: Path, model: type[_Evidence], label: str) -> tuple[_Evi
     try:
         contents = document.read_bytes()
         parsed = model.model_validate_json(contents, strict=True)
-    except (OSError, UnicodeDecodeError, ValidationError) as error:
-        raise PromotionPlanError(f"The {label} is not valid.") from error
+    except ValidationError as error:
+        # Naming the reason, not only the file. An operator holding a plan this refuses cannot act
+        # on "not valid": the whole point of refusing is that they go and look at what is wrong.
+        reasons = "; ".join(
+            f"{'.'.join(str(part) for part in problem['loc']) or '<plan>'}: {problem['msg']}"
+            for problem in error.errors()
+        )
+        raise PromotionPlanError(f"The {label} is not valid. {reasons}") from error
+    except (OSError, UnicodeDecodeError) as error:
+        raise PromotionPlanError(f"The {label} could not be read.") from error
     return parsed, hashlib.sha256(contents).hexdigest()
 
 

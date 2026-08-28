@@ -893,3 +893,64 @@ def test_the_promote_command_previews_without_both_authorizations(tmp_path: Path
         # because it is what the next invocation has to name.
         assert digest in result.output, extra
         assert "DROP TABLE IF EXISTS" in result.output, extra
+
+
+def test_the_promote_command_executes_and_refuses_to_call_it_verified(tmp_path: Path, monkeypatch) -> None:
+    """The plan's last step is a read-back this command does not perform.
+
+    Reporting only a statement count lets the output stand in for a verification nobody has run,
+    which is the failure mode where a promotion is announced complete and is not.
+    """
+    from click.testing import CliRunner
+
+    import nmdc_lakehouse.derived_tables as derived_tables
+    from nmdc_lakehouse.cli import cli
+
+    path = _promotion_plan_file(tmp_path)
+    plan, digest = load_promotion_plan(path)
+    spark = _RecordingSpark()
+    monkeypatch.setattr(derived_tables, "spark_session", lambda _checkout: spark)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "berdl-promote",
+            str(path),
+            "--ingest-checkout",
+            str(tmp_path),
+            "--authorize-plan-sha256",
+            digest,
+            "--authorize-canonical-namespace",
+            CANONICAL,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert spark.statements == [statement for _step, _table, statement in promotion_statements(plan)]
+    assert "NOT VERIFIED" in result.output, result.output
+    assert "rerun with both --authorize- options" not in result.output, result.output
+    for table in plan.derived_rebuilds:
+        assert table in result.output, result.output
+
+
+def test_a_plan_naming_a_table_that_is_not_an_identifier_is_refused(tmp_path: Path) -> None:
+    """The plan is JSON on disk, and its digest is of the file as it is, not of one anyone vouched
+    for. A name carrying a semicolon becomes extra statements inside a DROP."""
+    path = _promotion_plan_file(tmp_path)
+    document = json.loads(path.read_text())
+    document["derived_rebuilds"] = ["graph_edges; DROP TABLE nmdc.metadata.biosample_set"]
+    tampered = _write(tmp_path / "tampered.json", document)
+
+    with pytest.raises(PromotionPlanError, match="not a plain table identifier"):
+        load_promotion_plan(tampered)
+
+
+def test_a_plan_whose_operation_names_a_bad_table_is_refused(tmp_path: Path) -> None:
+    """Both lists of table names reach SQL, so both are checked. Fixing one would leave the other."""
+    path = _promotion_plan_file(tmp_path)
+    document = json.loads(path.read_text())
+    document["operations"][0]["table"] = "biosample_set`; DROP TABLE x"
+    tampered = _write(tmp_path / "tampered-operation.json", document)
+
+    with pytest.raises(PromotionPlanError, match="not a plain table identifier"):
+        load_promotion_plan(tampered)

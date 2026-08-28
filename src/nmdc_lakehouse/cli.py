@@ -799,6 +799,13 @@ def berdl_promote_command(
             + ", ".join(plan.derived_rebuilds)
             + ". Run rebuild-derived-tables next."
         )
+    # A statement that succeeded is not a table that holds what it should, and the plan's last
+    # step is a read-back this command does not perform. Saying only how many statements ran
+    # would let the output stand in for the verification nobody has done yet.
+    click.echo("")
+    click.echo("  NOT VERIFIED: no table has been read back. This ran statements; it did not")
+    click.echo(f"  check results. Verify all {len(plan.operations)} object(s) in {plan.canonical_namespace}")
+    click.echo("  before anyone is told the promotion is complete.")
 
 
 @cli.command("berdl-promotion-probe")
