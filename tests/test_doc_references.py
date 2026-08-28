@@ -11,15 +11,12 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 import types
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "python"))
-
-import doc_references as dr  # noqa: E402
+from scripts.python import doc_references as dr
 
 
 def _write(tmp_path: Path, name: str, text: str) -> Path:
