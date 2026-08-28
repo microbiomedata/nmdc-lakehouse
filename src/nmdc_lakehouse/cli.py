@@ -730,6 +730,77 @@ def berdl_promotion_plan_command(
     click.echo(f"plan={destination}", err=True)
 
 
+@cli.command("berdl-promote")
+@click.argument("plan_path", type=click.Path(path_type=Path, dir_okay=False))
+@click.option("--ingest-checkout", type=click.Path(path_type=Path, file_okay=False), required=True)
+@click.option("--authorize-plan-sha256", help="Exact SHA-256 of the plan being run.")
+@click.option("--authorize-canonical-namespace", help="Exact namespace the plan promotes into.")
+def berdl_promote_command(
+    plan_path: Path,
+    ingest_checkout: Path,
+    authorize_plan_sha256: str | None,
+    authorize_canonical_namespace: str | None,
+) -> None:
+    """Perform the promotion a reviewed plan describes.
+
+    This is the destructive half. It replaces canonical tables and drops the derived ones first,
+    which is a deliberate outage: they do not exist again until the rebuild.
+
+    Previewing is the default and prints the plan, the digest to authorize with, and the exact
+    statements. Execution needs both authorizations, and neither is optional: the digest binds the
+    run to the plan a human read, and the namespace is typed again because a digest gets copied
+    from a previous command while a namespace does not.
+
+    Rebuilding the derived tables is `rebuild-derived-tables`, run after this. Doing it here would
+    make one command that cannot be stopped between the drop and the rebuild.
+    """
+    from nmdc_lakehouse.berdl_promotion import (
+        PromotionPlanError,
+        execute_promotion,
+        load_promotion_plan,
+        promotion_statements,
+        render_promotion_plan,
+    )
+    from nmdc_lakehouse.derived_tables import DerivedTableError, spark_session
+
+    try:
+        plan, plan_sha256 = load_promotion_plan(plan_path)
+    except PromotionPlanError as error:
+        raise click.ClickException(str(error)) from error
+
+    click.echo(render_promotion_plan(plan))
+    click.echo("")
+    click.echo(f"  plan sha256    {plan_sha256}")
+    for step, _table, statement in promotion_statements(plan):
+        click.echo(f"    {step:8s} {statement}")
+
+    if authorize_plan_sha256 is None or authorize_canonical_namespace is None:
+        click.echo("")
+        click.echo("  nothing has been changed; rerun with both --authorize- options to execute")
+        return
+
+    try:
+        spark = spark_session(ingest_checkout)
+        performed = execute_promotion(
+            spark,
+            plan,
+            plan_sha256=plan_sha256,
+            authorize_plan_sha256=authorize_plan_sha256,
+            authorize_canonical_namespace=authorize_canonical_namespace,
+            progress=lambda message: click.echo(f"  {message}"),
+        )
+    except (PromotionPlanError, DerivedTableError) as error:
+        raise click.ClickException(str(error)) from error
+
+    click.echo(f"  performed {len(performed)} statement(s)")
+    if plan.derived_rebuilds:
+        click.echo(
+            "  the derived table(s) are dropped and not yet rebuilt: "
+            + ", ".join(plan.derived_rebuilds)
+            + ". Run rebuild-derived-tables next."
+        )
+
+
 @cli.command("berdl-promotion-probe")
 @click.argument("tenant")
 @click.argument("source_namespace")

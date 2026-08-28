@@ -504,3 +504,92 @@ def write_berdl_promotion_plan(path: Path, plan: BerdlPromotionPlan) -> Path:
             except OSError:
                 pass
     return destination
+
+
+class PromotionRefused(PromotionPlanError):
+    """Raised when a promotion is asked for and the evidence or authorization does not allow it."""
+
+
+def load_promotion_plan(path: Path) -> tuple[BerdlPromotionPlan, str]:
+    """Read a written plan and hash the exact bytes read, so authorization names this file."""
+    return _read_evidence(path, BerdlPromotionPlan, "BERDL promotion plan")
+
+
+def promotion_statements(plan: BerdlPromotionPlan) -> list[tuple[str, str, str]]:
+    """The SQL this promotion runs, in order, paired with the step and the table each belongs to.
+
+    Built from the plan rather than decided here, so what runs and what an operator authorized
+    cannot diverge. The order is `promotion_steps`, and the derived tables are dropped before the
+    replacements for the reason recorded there: leaving them in place while the tables they are
+    computed from change underneath returns provenance that no longer exists, and those answers
+    look correct.
+
+    `preserve` contributes nothing, which is the point of it: a table nobody decided to touch is
+    a table this must not touch.
+    """
+    statements: list[tuple[str, str, str]] = []
+    for table in plan.derived_rebuilds:
+        statements.append(("drop", table, f"DROP TABLE IF EXISTS {plan.canonical_namespace}.{table}"))
+    for operation in plan.operations:
+        if operation.disposition not in (Disposition.REPLACE, Disposition.ADD):
+            continue
+        # One statement per table, and the same statement for `replace` and `add`. The difference
+        # between them is whether the destination already held the table, which the plan decided
+        # against evidence; it is not a difference in what has to run.
+        statements.append(
+            (
+                operation.disposition.value,
+                operation.table,
+                f"CREATE OR REPLACE TABLE {plan.canonical_namespace}.{operation.table} "
+                f"AS SELECT * FROM {plan.staging_namespace}.{operation.table}",
+            )
+        )
+    return statements
+
+
+def execute_promotion(
+    spark: object,
+    plan: BerdlPromotionPlan,
+    *,
+    plan_sha256: str,
+    authorize_plan_sha256: str,
+    authorize_canonical_namespace: str,
+    progress: object = None,
+) -> list[str]:
+    """Perform the promotion this plan describes, or refuse.
+
+    Two authorizations, because they fail differently. The digest binds this run to the exact plan
+    a human read: a plan regenerated after the evidence moved has a different digest and is
+    refused, even though it may describe the same tables. The namespace is typed again because a
+    digest is copied from a previous command and a namespace is not, so an operator promoting into
+    the wrong place gets caught by the argument they had to write themselves.
+
+    Refuses rather than warns on both, and the read-back afterwards is the check, not the counts
+    this returns: a statement that succeeded is not a table that holds what it should.
+    """
+    say = progress if callable(progress) else (lambda _message: None)
+    if plan.status != "plan-only":
+        raise PromotionRefused(f"The plan status is {plan.status!r}, not 'plan-only'.")
+    if authorize_plan_sha256 != plan_sha256:
+        raise PromotionRefused("Execution requires --authorize-plan-sha256 with the digest of the plan being run.")
+    if authorize_canonical_namespace != plan.canonical_namespace:
+        raise PromotionRefused(
+            f"--authorize-canonical-namespace is {authorize_canonical_namespace!r} but the plan "
+            f"promotes into {plan.canonical_namespace!r}."
+        )
+
+    performed: list[str] = []
+    for step, table, statement in promotion_statements(plan):
+        say(f"{step}: {plan.canonical_namespace}.{table}")
+        try:
+            spark.sql(statement)  # type: ignore[attr-defined]
+        except Exception as error:
+            # Named, and with what already ran. A promotion that stops part way leaves the
+            # namespace in a state nobody planned, and the operator's first question is which
+            # objects moved.
+            raise PromotionRefused(
+                f"The promotion failed during {step}: {statement}. "
+                f"{len(performed)} statement(s) had already run: {', '.join(performed) or 'none'}."
+            ) from error
+        performed.append(statement)
+    return performed

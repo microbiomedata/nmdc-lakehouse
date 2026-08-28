@@ -21,7 +21,11 @@ from pydantic import ValidationError
 from nmdc_lakehouse.berdl_promotion import (
     BerdlPromotionPlan,
     PromotionPlanError,
+    PromotionRefused,
     build_berdl_promotion_plan,
+    execute_promotion,
+    load_promotion_plan,
+    promotion_statements,
     render_promotion_plan,
 )
 from nmdc_lakehouse.publication_plan import Disposition, PlanEntry, PublicationPlan
@@ -747,3 +751,145 @@ def test_the_refusal_survives_a_file_appearing_after_the_check(tmp_path: Path, m
     assert output.read_text(encoding="utf-8") == "{}", "the existing file must be untouched"
     leftovers = [item.name for item in tmp_path.iterdir() if item.name.startswith(".promotion.json.")]
     assert not leftovers, f"the temporary file must be cleaned up, found {leftovers}"
+
+
+class _RecordingSpark:
+    """Records what was issued, and can be told to fail on the nth statement."""
+
+    def __init__(self, fail_on: int | None = None) -> None:
+        self.statements: list[str] = []
+        self._fail_on = fail_on
+
+    def sql(self, statement: str) -> object:
+        self.statements.append(statement)
+        if self._fail_on is not None and len(self.statements) == self._fail_on:
+            raise RuntimeError("the engine refused this statement")
+        return object()
+
+
+def _executable_plan(tmp_path: Path) -> tuple[BerdlPromotionPlan, str]:
+    from nmdc_lakehouse.berdl_promotion import plan_berdl_promotion_from_files
+
+    plan = plan_berdl_promotion_from_files(canonical_namespace=CANONICAL, recovery=RECOVERY, **_files(tmp_path))
+    path = _write(tmp_path / "promotion.json", json.loads(plan.model_dump_json()))
+    return load_promotion_plan(path)
+
+
+def test_the_drops_precede_every_replacement(tmp_path: Path) -> None:
+    """Order is the decision this encodes. A derived table left standing over replaced provenance
+    answers questions about rows that no longer exist, and those answers look correct."""
+    plan, _digest = _executable_plan(tmp_path)
+
+    steps = [step for step, _table, _statement in promotion_statements(plan)]
+
+    assert "drop" in steps, steps
+    assert max(index for index, step in enumerate(steps) if step == "drop") < min(
+        index for index, step in enumerate(steps) if step != "drop"
+    ), steps
+
+
+def test_promotion_refuses_a_digest_that_does_not_match_the_plan(tmp_path: Path) -> None:
+    """The digest binds the run to the exact plan a human read, not to one that resembles it."""
+    plan, digest = _executable_plan(tmp_path)
+    spark = _RecordingSpark()
+
+    with pytest.raises(PromotionRefused, match="--authorize-plan-sha256"):
+        execute_promotion(
+            spark,
+            plan,
+            plan_sha256=digest,
+            authorize_plan_sha256="0" * 64,
+            authorize_canonical_namespace=CANONICAL,
+        )
+
+    assert spark.statements == []
+
+
+def test_promotion_refuses_a_namespace_that_is_not_the_one_the_plan_promotes_into(tmp_path: Path) -> None:
+    """A digest is copied from a previous command; a namespace is typed. This catches the typing."""
+    plan, digest = _executable_plan(tmp_path)
+    spark = _RecordingSpark()
+
+    with pytest.raises(PromotionRefused, match="nmdc.somewhere_else"):
+        execute_promotion(
+            spark,
+            plan,
+            plan_sha256=digest,
+            authorize_plan_sha256=digest,
+            authorize_canonical_namespace="nmdc.somewhere_else",
+        )
+
+    assert spark.statements == []
+
+
+def test_promotion_runs_exactly_the_statements_the_plan_describes(tmp_path: Path) -> None:
+    """What runs and what an operator authorized cannot diverge, so they are compared directly."""
+    plan, digest = _executable_plan(tmp_path)
+    spark = _RecordingSpark()
+
+    performed = execute_promotion(
+        spark,
+        plan,
+        plan_sha256=digest,
+        authorize_plan_sha256=digest,
+        authorize_canonical_namespace=CANONICAL,
+    )
+
+    expected = [statement for _step, _table, statement in promotion_statements(plan)]
+    assert spark.statements == expected
+    assert performed == expected
+
+
+def test_a_promotion_that_stops_part_way_names_what_already_ran(tmp_path: Path) -> None:
+    """The operator's first question is which objects moved, so the refusal answers it."""
+    plan, digest = _executable_plan(tmp_path)
+    spark = _RecordingSpark(fail_on=2)
+    expected = [statement for _step, _table, statement in promotion_statements(plan)]
+    assert len(expected) >= 2, "this test needs a plan with at least two statements"
+
+    with pytest.raises(PromotionRefused) as refusal:
+        execute_promotion(
+            spark,
+            plan,
+            plan_sha256=digest,
+            authorize_plan_sha256=digest,
+            authorize_canonical_namespace=CANONICAL,
+        )
+
+    message = str(refusal.value)
+    assert expected[0] in message, message
+    assert "1 statement(s) had already run" in message, message
+    # The one that failed is named as the failure, not as something that ran.
+    assert f"failed during {promotion_statements(plan)[1][0]}" in message, message
+
+
+def _promotion_plan_file(tmp_path: Path) -> Path:
+    from nmdc_lakehouse.berdl_promotion import plan_berdl_promotion_from_files
+
+    plan = plan_berdl_promotion_from_files(canonical_namespace=CANONICAL, recovery=RECOVERY, **_files(tmp_path))
+    return _write(tmp_path / "promotion.json", json.loads(plan.model_dump_json()))
+
+
+def test_the_promote_command_previews_without_both_authorizations(tmp_path: Path) -> None:
+    """Half an authorization is not one. Neither flag alone reaches the destructive path."""
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    path = _promotion_plan_file(tmp_path)
+    _plan, digest = load_promotion_plan(path)
+    runner = CliRunner()
+
+    for extra in (
+        [],
+        ["--authorize-plan-sha256", digest],
+        ["--authorize-canonical-namespace", CANONICAL],
+    ):
+        result = runner.invoke(cli, ["berdl-promote", str(path), "--ingest-checkout", str(tmp_path), *extra])
+
+        assert result.exit_code == 0, result.output
+        assert "nothing has been changed" in result.output, extra
+        # The statements are shown so a reviewer reads what would run, and the digest is shown
+        # because it is what the next invocation has to name.
+        assert digest in result.output, extra
+        assert "DROP TABLE IF EXISTS" in result.output, extra
