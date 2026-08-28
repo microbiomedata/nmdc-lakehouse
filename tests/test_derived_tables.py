@@ -7,6 +7,8 @@ with real data. That gap is stated in the pull request rather than implied by a 
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from nmdc_lakehouse.derived_tables import (
@@ -439,3 +441,222 @@ def test_a_check_that_cannot_read_the_table_refuses_rather_than_assuming_coverag
 
     with pytest.raises(DerivedTableError, match="Could not read material_processing_set"):
         rebuild_biosample_to_workflow_run(SparkThatCannotRead(), NAMESPACE)
+
+
+def test_rebuild_all_runs_graph_edges_before_the_table_that_walks_it() -> None:
+    """The order is the dependency, and it comes from DERIVED_TABLES rather than from this call.
+
+    `biosample_to_workflow_run` walks `graph_edges`, so rebuilding the consumer first would walk
+    provenance that is about to be replaced. Sorting the names alphabetically gives exactly that
+    wrong order, which is why the promotion plan derives its order from the same tuple.
+    """
+    from nmdc_lakehouse.derived_tables import DERIVED_TABLES, rebuild_all
+
+    # The frontier empties at the first hop, so the walk terminates rather than refusing at depth.
+    spark = ScriptedSpark({"walk_frontier_1": 0})
+    outcomes = rebuild_all(spark, NAMESPACE)
+
+    assert [outcome.table for outcome in outcomes] == [f"{NAMESPACE}.{t}" for t in DERIVED_TABLES]
+    creates = [s for s in spark.statements if s.startswith("CREATE OR REPLACE TABLE")]
+    assert "graph_edges" in creates[0]
+
+
+def test_rebuild_all_refuses_an_unqualified_namespace() -> None:
+    """It replaces two tables, so an ambiguous catalog is not a small mistake."""
+    from nmdc_lakehouse.derived_tables import rebuild_all
+
+    with pytest.raises(DerivedTableError, match="catalog-qualified"):
+        rebuild_all(ScriptedSpark({"walk_frontier_1": 0}), "nmdc_metadata")
+
+
+def test_the_command_previews_without_authorization() -> None:
+    """Default is a description. A destructive default is one typo away from a rebuild."""
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    result = CliRunner().invoke(cli, ["rebuild-derived-tables", "nmdc.metadata", "--ingest-checkout", "/tmp"])
+
+    assert result.exit_code == 0, result.output
+    assert "nothing has been changed" in result.output
+    assert "graph_edges then biosample_to_workflow_run" in result.output
+
+
+def test_the_command_refuses_authorization_for_a_different_namespace() -> None:
+    """Naming the namespace twice is what stops a path edited in shell history from executing."""
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "rebuild-derived-tables",
+            "nmdc.metadata",
+            "--ingest-checkout",
+            "/tmp",
+            "--authorize-namespace",
+            "nmdc.something_else",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "nmdc.something_else" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_the_command_executes_when_the_namespace_is_named_twice(monkeypatch) -> None:
+    """The authorized path, with the session stubbed so no pod is needed."""
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse import cli as cli_module
+    from nmdc_lakehouse.cli import cli
+
+    spark = ScriptedSpark({"walk_frontier_1": 0})
+    monkeypatch.setattr("nmdc_lakehouse.derived_tables.spark_session", lambda _checkout: spark)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "rebuild-derived-tables",
+            NAMESPACE,
+            "--ingest-checkout",
+            "/tmp",
+            "--authorize-namespace",
+            NAMESPACE,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert f"rebuilt {NAMESPACE}.graph_edges" in result.output
+    assert f"rebuilt {NAMESPACE}.biosample_to_workflow_run" in result.output
+    assert "nothing has been changed" not in result.output, "it did change something"
+    assert cli_module is not None
+
+
+def test_a_refusal_during_execution_is_a_message_not_a_traceback(monkeypatch) -> None:
+    """An operator reading a stack trace cannot tell a refusal from a crash."""
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    monkeypatch.setattr(
+        "nmdc_lakehouse.derived_tables.spark_session",
+        lambda _checkout: ScriptedSpark({}, default_count=7),
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "rebuild-derived-tables",
+            NAMESPACE,
+            "--ingest-checkout",
+            "/tmp",
+            "--authorize-namespace",
+            NAMESPACE,
+            "--max-depth",
+            "2",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "still finding paths" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_an_unimportable_runtime_is_refused_by_name(tmp_path: Path) -> None:
+    """The session must come from the reviewed checkout, not from whatever is on the path."""
+    from nmdc_lakehouse.derived_tables import spark_session
+
+    with pytest.raises(DerivedTableError, match="not importable"):
+        spark_session(tmp_path)
+
+
+def test_a_derived_table_with_no_rebuild_procedure_is_refused(monkeypatch) -> None:
+    """An else branch sent anything that was not graph_edges to the walk.
+
+    So a third entry in DERIVED_TABLES would have been rebuilt by the wrong function and reported
+    as a success, which is the shape of failure that looks like it worked.
+    """
+    import nmdc_lakehouse.derived_tables as dt
+
+    monkeypatch.setattr(dt, "DERIVED_TABLES", ("graph_edges", "biosample_to_workflow_run", "something_new"))
+
+    with pytest.raises(DerivedTableError, match="No rebuild procedure exists for: something_new"):
+        dt.rebuild_all(ScriptedSpark({"walk_frontier_1": 0}), NAMESPACE)
+
+
+def test_a_session_imported_from_outside_the_checkout_is_refused(tmp_path: Path, monkeypatch) -> None:
+    """Importing is not evidence of where it came from.
+
+    The checkout going first on `sys.path` does not displace a copy installed in the environment,
+    and an already-imported module comes back from `sys.modules` without the path being consulted.
+    """
+    import sys as sys_module
+    import types
+
+    from nmdc_lakehouse.derived_tables import spark_session
+
+    elsewhere = tmp_path / "elsewhere" / "setup_spark_session.py"
+    elsewhere.parent.mkdir(parents=True)
+    elsewhere.write_text("", encoding="utf-8")
+
+    package = types.ModuleType("berdl_notebook_utils")
+    module = types.ModuleType("berdl_notebook_utils.setup_spark_session")
+    module.__file__ = str(elsewhere)
+    module.get_spark_session = lambda: object()
+    monkeypatch.setitem(sys_module.modules, "berdl_notebook_utils", package)
+    monkeypatch.setitem(sys_module.modules, "berdl_notebook_utils.setup_spark_session", module)
+
+    checkout = tmp_path / "checkout"
+    (checkout / "src").mkdir(parents=True)
+
+    with pytest.raises(DerivedTableError, match="not inside"):
+        spark_session(checkout)
+
+
+def test_the_command_refuses_an_unqualified_namespace_before_previewing() -> None:
+    """A preview that renders for a value the rebuild always rejects reads as an actionable plan."""
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    result = CliRunner().invoke(cli, ["rebuild-derived-tables", "nmdc_metadata", "--ingest-checkout", "/tmp"])
+
+    assert result.exit_code != 0, result.output
+    assert "must be catalog-qualified" in result.output
+    assert "nothing has been changed" not in result.output
+
+
+def test_the_command_refuses_a_max_depth_below_one_before_previewing() -> None:
+    """rebuild_all refuses max_depth < 1, so accepting it at the boundary previews an impossible run."""
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    result = CliRunner().invoke(
+        cli,
+        ["rebuild-derived-tables", "nmdc.metadata", "--ingest-checkout", "/tmp", "--max-depth", "0"],
+    )
+
+    assert result.exit_code != 0, result.output
+    assert "nothing has been changed" not in result.output
+
+
+def test_rebuild_all_refuses_a_bad_max_depth_before_replacing_anything() -> None:
+    """graph_edges is replaced first, so a depth checked inside the walk is checked too late."""
+    from nmdc_lakehouse.derived_tables import DerivedTableError, rebuild_all
+
+    class RecordingSpark:
+        def __init__(self) -> None:
+            self.statements: list[str] = []
+
+        def sql(self, statement: str) -> object:
+            self.statements.append(statement)
+            raise AssertionError("no statement should reach the engine")
+
+    spark = RecordingSpark()
+    with pytest.raises(DerivedTableError, match="max_depth must be at least 1"):
+        rebuild_all(spark, "nmdc.metadata", max_depth=0)
+
+    assert spark.statements == []
