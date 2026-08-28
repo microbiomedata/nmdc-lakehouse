@@ -635,11 +635,16 @@ def rebuild_derived_tables_command(
     tables: tuple[str, ...],
     authorize_namespace: str | None,
 ) -> None:
-    """Rebuild graph_edges and biosample_to_workflow_run in a namespace.
+    """Rebuild the derived tables in a namespace.
 
-    Both tables are replaced. Nothing here is incremental, and a reload of the tables they are
-    computed from leaves them describing data that no longer exists, which is why they exist as a
-    rebuild rather than as something maintained in place.
+    Every derived table by default, or only those named by `--table`. The selection exists because
+    a promotion plan can rebuild one and preserve the other, and rebuilding both would replace a
+    table nobody authorized touching. Whatever is selected is ordered by `DERIVED_TABLES`, since
+    the second walks the first.
+
+    Nothing here is incremental, and a reload of the tables they are computed from leaves them
+    describing data that no longer exists, which is why they exist as a rebuild rather than as
+    something maintained in place.
 
     Previewing is the default. Execution needs `--authorize-namespace` naming the same namespace,
     so the destructive form cannot be reached by editing a path in a shell history entry.

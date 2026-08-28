@@ -644,11 +644,14 @@ def promotion_statements(plan: BerdlPromotionPlan) -> list[tuple[str, str, str]]
         # overwrite whatever appeared in between without saying so. A plain `CREATE TABLE` fails,
         # which is the outcome an operator who authorized an `add` should get.
         verb = "CREATE OR REPLACE TABLE" if operation.disposition is Disposition.REPLACE else "CREATE TABLE"
+        # `USING iceberg`, because that is the statement the promotion probe actually ran against
+        # BERDL. Without it these differ from the only form with evidence behind them, and the
+        # probe would be proving a statement the promotion does not issue.
         statements.append(
             (
                 operation.disposition.value,
                 operation.table,
-                f"{verb} {plan.canonical_namespace}.{operation.table} "
+                f"{verb} {plan.canonical_namespace}.{operation.table} USING iceberg "
                 f"AS SELECT * FROM {plan.staging_namespace}.{operation.table}",
             )
         )
@@ -667,8 +670,13 @@ def check_staging_matches_plan(spark: object, plan: BerdlPromotionPlan, progress
         if operation.disposition not in (Disposition.REPLACE, Disposition.ADD):
             continue
         if operation.expected_rows is None:
-            say(f"{operation.table}: the plan records no expected row count, so nothing is compared")
-            continue
+            # Refused, not skipped. The builder always records a count for a copied table, so a
+            # missing one means the file was edited, and treating the guard as optional lets an
+            # edit turn the only staging preflight off for exactly the tables it protects.
+            raise PromotionRefused(
+                f"The plan records no expected row count for '{operation.table}', which it "
+                f"{operation.disposition.value}s, so nothing can be checked before it is copied."
+            )
         source = f"{plan.staging_namespace}.{operation.table}"
         try:
             rows = spark.sql(f"SELECT COUNT(*) AS n FROM {source}").collect()  # type: ignore[attr-defined]
@@ -742,9 +750,13 @@ def execute_promotion(
 
     performed: list[str] = []
     for step, table, statement in promotion_statements(plan):
-        say(f"{step}: {plan.canonical_namespace}.{table}")
         try:
+            # Inside the guard, with the bookkeeping, as one iteration. A progress line emitted
+            # outside it is a window where Ctrl-C escapes this handler, and so is the gap between
+            # `spark.sql` returning and the statement being recorded as performed.
+            say(f"{step}: {plan.canonical_namespace}.{table}")
             spark.sql(statement)  # type: ignore[attr-defined]
+            performed.append(statement)
         # BaseException, not Exception. Ctrl-C raises KeyboardInterrupt, which does not derive from
         # Exception, so an operator interrupting this loop got a generic abort and no record of
         # what had already run. That is the moment the record matters most: the interrupt lands
@@ -760,5 +772,4 @@ def execute_promotion(
                 f"taken effect. {len(performed)} statement(s) had already run: "
                 f"{', '.join(performed) or 'none'}."
             ) from error
-        performed.append(statement)
     return performed

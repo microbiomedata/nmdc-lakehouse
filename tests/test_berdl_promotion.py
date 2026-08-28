@@ -1345,3 +1345,64 @@ def test_a_preserve_only_plan_does_not_claim_statements_built_tables(tmp_path: P
     assert "METADATA NOT CARRIED" not in result.output, result.output
     # The read-back notice still applies: preserving is a claim about the destination too.
     assert "NOT VERIFIED" in result.output, result.output
+
+
+def test_a_copied_table_with_no_expected_count_is_refused(tmp_path: Path) -> None:
+    """The staging preflight was optional exactly where it protects something.
+
+    The builder always records a count for a copied table, so a missing one means the file was
+    edited, and skipping the check for it turns the guard off for the tables it exists to guard.
+    """
+    plan, digest = _executable_plan(tmp_path)
+    stripped = plan.model_copy(
+        update={
+            "operations": [
+                operation.model_copy(update={"expected_rows": None})
+                if operation.disposition is Disposition.REPLACE
+                else operation
+                for operation in plan.operations
+            ]
+        }
+    )
+    spark = _RecordingSpark()
+
+    with pytest.raises(PromotionRefused, match="records no expected row count"):
+        execute_promotion(
+            spark,
+            stripped,
+            plan_sha256=digest,
+            authorize_plan_sha256=digest,
+            authorize_canonical_namespace=CANONICAL,
+            authorize_destination_id=plan.destination_id,
+        )
+
+    assert spark.statements == []
+
+
+def test_the_statements_name_the_format_the_probe_actually_ran() -> None:
+    """The probe is the only one of these statements with evidence behind it.
+
+    `berdl_promotion_probe.py` runs `CREATE OR REPLACE TABLE ... USING iceberg AS SELECT`. Without
+    `USING iceberg` here the probe proves a statement the promotion does not issue.
+    """
+    plan = BerdlPromotionPlan(
+        plan_format_version=2,
+        status="plan-only",
+        snapshot_id="snapshot",
+        staging_namespace=STAGING,
+        canonical_namespace=CANONICAL,
+        destination_id="nmdc-production",
+        destination_provider="nmdc",
+        staging_outcome_sha256="a" * 64,
+        metadata_outcome_sha256="b" * 64,
+        publication_plan_sha256="c" * 64,
+        operations=[
+            PromotionOperation(table="added", disposition=Disposition.ADD, rationale="r", expected_rows=1),
+            PromotionOperation(table="replaced", disposition=Disposition.REPLACE, rationale="r", expected_rows=1),
+        ],
+        derived_rebuilds=[],
+        recovery=RECOVERY,
+    )
+
+    for _step, _table, statement in promotion_statements(plan):
+        assert " USING iceberg AS SELECT " in statement, statement
