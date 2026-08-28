@@ -147,18 +147,11 @@ closed when a different piece of work finished, so the pointer looked live and
 was not. Inventing an issue so the pointer resolves is worse than saying there is
 none: it sends the reader somewhere that will not help them.
 
-If the marker names an issue that has since closed, say so **immediately after
-that reference**, with nothing but punctuation and an optional "now" in between:
-
-```
-<!-- unverified: x, tracked in #250 (closed) -->
-<!-- unverified: x, tracked in #250, now closed. Follow-up in #251 -->
-```
-
-The form is fixed rather than inferred because inferring it kept going wrong.
-"the export is not done; tracked in #1" was read as settled, and so was "#1 is
-closed and #2 is tracked" for #2. Attaching the word to the reference removes the
-guessing: settlement before another issue reference belongs to the first one.
+If the issue a marker names has since closed, the marker needs changing: point at
+a live issue, or say that nothing tracks the work. Saying "now closed" beside the
+old reference is not accepted, because deciding from prose whether an issue is
+settled cannot be done reliably. "#1 is still open and expected to be closed
+later" defeated three attempts at it.
 
 `just doc-references-issues` reports markers pointing at a closed issue, and it
 is not part of `just check` because it queries GitHub.

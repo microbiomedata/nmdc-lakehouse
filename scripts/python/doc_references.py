@@ -90,26 +90,6 @@ _KNOWN_STATES = frozenset({"OPEN", "CLOSED"})
 # https://github.com/microbiomedata/nmdc-lakehouse/issues/312 asks for, it needs no parsing, and
 # a reader who meets the reference learns the same thing the checker does.
 
-#: Settlement, required to sit immediately after the reference it applies to.
-#:
-#: Two attempts at reading English failed before this. A keyword search over the marker matched
-#: `done` inside "the export is not done". A lookbehind for negation matched "#1 has not been
-#: closed", because the negation is not adjacent to the word. Splitting on punctuation still let
-#: "#1 is closed and #2 is tracked" settle #2. Each fix produced a narrower wrong answer.
-#:
-#: So the form is fixed rather than inferred: the settled word follows the reference, separated by
-#: nothing but punctuation and the optional word "now", and before any other issue reference. Both
-#: of these settle #1 and neither settles #2:
-#:
-#:     tracked in #1 (closed), follow-up in #2
-#:     tracked in #1, now closed. See #2
-#:
-#: This rejects prose that means the same thing, which is the trade. A contributor is told the
-#: form in CONTRIBUTING.md, and a rule people can satisfy deliberately is worth more than one that
-#: guesses and is wrong in a new way each round.
-_SETTLED_WORD = r"(?:closed|resolved|merged|superseded)"
-_ANY_REFERENCE = r"(?:(?<![\w/])#\d+\b|/issues/\d+\b)"
-
 
 def _markdown_files(targets: list[Path]) -> list[Path]:
     found: list[Path] = []
@@ -214,26 +194,21 @@ def _marker_blocks(text: str) -> list[tuple[int, str]]:
     return blocks
 
 
-def _settled_near(block: str, issue: str) -> bool:
-    """Whether this issue's reference is immediately followed by a statement that it closed.
-
-    Attached to the reference, not merely present in the marker. The settled word must follow the
-    reference with only punctuation and an optional "now" between them, and must come before any
-    other issue reference, so one settled pointer cannot speak for another beside it.
-    """
-    # The gap may not contain another reference, nor a negation. "#1 has not been closed" puts the
-    # negation between the two, where a lookbehind on the word could never see it.
-    gap = rf"(?:(?!{_ANY_REFERENCE}|\b(?:not|never|yet)\b|n't).)*?"
-    pattern = rf"(?:(?<![\w/])#{issue}\b|/issues/{issue}\b){gap}\b(?:now\s+)?{_SETTLED_WORD}\b"
-    return re.search(pattern, block, re.IGNORECASE | re.DOTALL) is not None
-
-
 def markers_citing_closed_issues(paths: list[Path], repo: str) -> tuple[list[tuple[Path, int, str]], set[str]]:
-    """Markers naming a closed issue without saying so, and the issues whose state was unreadable.
+    """Markers naming a closed issue, and the issues whose state could not be read.
 
-    Two conditions, not one. A marker is reported when the issue it names is CLOSED **and** the
-    marker does not contain a word marking it settled. A marker reading "tracked in <url>, now
-    closed" is the remedy, so reporting it would make the fix look like the defect.
+    One condition. There is deliberately no escape for a marker that says the issue closed.
+
+    Three attempts at reading that from prose each produced a narrower wrong answer: a keyword
+    search matched `done` inside "not done"; a lookbehind missed "has not been closed"; anchoring
+    the word to the reference still accepted "#1 is still open and expected to be closed later".
+    The last is the one that settles it. No anchoring rule makes a regular expression understand a
+    future tense, and a check that reports success for something that has not happened is the
+    defect this module exists to catch.
+
+    So the remedy for a marker naming a closed issue is to stop naming it: point at a live issue,
+    or say that nothing tracks the work. Both are mechanical, and neither needs this code to judge
+    a sentence.
     """
     found: list[tuple[Path, int, str, str]] = []
     numbers: set[str] = set()
@@ -260,9 +235,7 @@ def markers_citing_closed_issues(paths: list[Path], repo: str) -> tuple[list[tup
     # reading "#1 is closed; follow-up tracked in #2" said `closed` once and suppressed both, so a
     # genuinely live pointer was hidden by a sentence about a different issue.
     problems = [
-        (document, line_number, issue)
-        for document, line_number, block, issue in found
-        if states.get(issue) == "CLOSED" and not _settled_near(block, issue)
+        (document, line_number, issue) for document, line_number, block, issue in found if states.get(issue) == "CLOSED"
     ]
     return problems, unreadable
 

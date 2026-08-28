@@ -92,20 +92,6 @@ def test_an_open_issue_is_not_reported(tmp_path: Path, monkeypatch) -> None:
     assert problems == []
 
 
-def test_saying_the_issue_closed_is_the_remedy_not_the_defect(tmp_path: Path, monkeypatch) -> None:
-    """Reporting a marker that already says "now closed" would report the fix."""
-    document = _write(
-        tmp_path,
-        "d.md",
-        "<!-- unverified: x, was https://github.com/microbiomedata/nmdc-lakehouse/issues/1, now closed -->\n",
-    )
-    monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
-
-    problems, _ = dr.markers_citing_closed_issues([document], "o/r")
-
-    assert problems == []
-
-
 def test_a_bare_issue_reference_is_queried_too(tmp_path: Path, monkeypatch) -> None:
     """doc_procedures accepts `#136`, so matching only URLs let a closed issue evade this rule."""
     document = _write(tmp_path, "d.md", "<!-- unverified: x, see #1 -->\n")
@@ -199,45 +185,6 @@ def test_a_missing_gh_is_unreadable_rather_than_a_crash(tmp_path: Path, monkeypa
     assert unreadable == {"1"}
 
 
-def test_a_settled_word_inside_a_negation_does_not_suppress(tmp_path: Path, monkeypatch) -> None:
-    """ "not done" contains "done", and the marker presents the work as unfinished.
-
-    `done`, `complete` and `fixed` were in the settled set and are gone, because each reads as
-    ordinary English rather than as a statement about issue state. Negation is guarded directly
-    rather than by hoping those words never appear inside one.
-    """
-    document = _write(tmp_path, "d.md", "<!-- unverified: the export is not done; tracked in #1 -->\n")
-    monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
-
-    problems, _ = dr.markers_citing_closed_issues([document], "o/r")
-
-    assert problems == [(document, 1, "1")], "a live finding must not be suppressed by 'not done'"
-
-
-def test_saying_it_is_not_closed_yet_does_not_suppress(tmp_path: Path, monkeypatch) -> None:
-    """The same trap with the word the rule is actually about."""
-    document = _write(tmp_path, "d.md", "<!-- unverified: this is not closed yet, see #1 -->\n")
-    monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
-
-    problems, _ = dr.markers_citing_closed_issues([document], "o/r")
-
-    assert problems == [(document, 1, "1")]
-
-
-def test_settlement_applies_to_the_reference_it_sits_beside(tmp_path: Path, monkeypatch) -> None:
-    """One settled reference must not speak for another beside it.
-
-    "#1 is closed; follow-up tracked in #2" said `closed` once and suppressed both, hiding a live
-    pointer behind a sentence about a different issue.
-    """
-    document = _write(tmp_path, "d.md", "<!-- unverified: #1 is closed; follow-up tracked in #2 -->\n")
-    monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED", "2": "CLOSED"}))
-
-    problems, _ = dr.markers_citing_closed_issues([document], "o/r")
-
-    assert problems == [(document, 1, "2")], "1 is settled in its own clause, 2 is not"
-
-
 def test_one_marker_naming_an_issue_twice_is_reported_once(tmp_path: Path, monkeypatch) -> None:
     """A markdown link matches for the label and for the URL, and it is still one marker."""
     document = _write(
@@ -323,44 +270,38 @@ def test_a_longer_filename_is_not_matched_by_its_prefix(tmp_path: Path) -> None:
     assert dr.unresolvable_scripts([document], tmp_path) == [], "neither is extracted at all"
 
 
-@pytest.mark.parametrize(
-    ("block", "issue", "settled"),
-    [
-        ("tracked in #1 (closed), follow-up in #2", "1", True),
-        ("tracked in #1 (closed), follow-up in #2", "2", False),
-        ("#1 is closed and #2 is tracked", "1", True),
-        ("#1 is closed and #2 is tracked", "2", False),
-        ("#1 has not been closed", "1", False),
-        ("#1 was never actually resolved", "1", False),
-        ("#1 is not yet closed", "1", False),
-        ("the export is not done; tracked in #1", "1", False),
-        ("tracked in #3, now closed", "3", True),
-    ],
-    ids=[
-        "attached settles its own",
-        "and not the next one",
-        "same clause, first settles",
-        "same clause, second does not",
-        "negation between reference and word",
-        "never, with a word in between",
-        "not yet",
-        "a settled-looking word about something else",
-        "now closed",
-    ],
-)
-def test_settlement_is_attached_to_the_reference(block: str, issue: str, settled: bool) -> None:
-    """Two attempts at inferring this from English failed, each in a narrower way.
-
-    A keyword search matched `done` inside "not done". A lookbehind missed "has not been closed",
-    where the negation is not adjacent. Splitting on punctuation still let "#1 is closed and #2 is
-    tracked" settle #2. The form is fixed now: the word follows the reference, with only
-    punctuation and an optional "now" between, and before any other reference.
-    """
-    assert dr._settled_near(block, issue) is settled
-
-
 def test_a_dot_slash_path_is_matched_but_a_nested_one_is_not() -> None:
     """`./scripts/x.py` is the same path; `a/scripts/x.py` and `../scripts/x.py` are not."""
     assert dr.SCRIPT_REFERENCE.findall("run ./scripts/nope.py") == ["scripts/nope.py"]
     assert dr.SCRIPT_REFERENCE.findall("run ../scripts/nope.py") == []
     assert dr.SCRIPT_REFERENCE.findall("see a/scripts/nope.py") == []
+
+
+def test_saying_the_issue_closed_does_not_excuse_naming_it(tmp_path: Path, monkeypatch) -> None:
+    """There is deliberately no settlement escape, and this is the case that removed it.
+
+    Three attempts at reading settlement from prose each produced a narrower wrong answer, and the
+    last accepted "#1 is still open and expected to be closed later": a check reporting success
+    for something that had not happened, inside a checker built to catch exactly that. The remedy
+    is to stop naming the closed issue, which needs no judgement.
+    """
+    document = _write(tmp_path, "d.md", "<!-- unverified: x, tracked in #1, now closed -->\n")
+    monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
+
+    problems, _ = dr.markers_citing_closed_issues([document], "o/r")
+
+    assert problems == [(document, 1, "1")]
+
+
+def test_a_future_tense_cannot_slip_past(tmp_path: Path, monkeypatch) -> None:
+    """The input no regular expression was going to read correctly."""
+    document = _write(
+        tmp_path,
+        "d.md",
+        "<!-- unverified: #1 is still open and expected to be closed later -->\n",
+    )
+    monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
+
+    problems, _ = dr.markers_citing_closed_issues([document], "o/r")
+
+    assert problems == [(document, 1, "1")], "reported, because nothing here judges the sentence"

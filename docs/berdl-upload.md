@@ -364,8 +364,7 @@ rather than an established one:
 
 <!-- unverified: the identifier generation was run, producing 500 distinct
      values inside one second, but nobody has run this write against the tenant.
-     A tested export procedure was tracked in
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/250, now closed. -->
+     Nothing tracks writing a tested export procedure. -->
 ```python
 from datetime import UTC, datetime
 from uuid import uuid4

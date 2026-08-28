@@ -115,7 +115,11 @@ _TRACKER = re.compile(r"https?://\S+|#\d+", re.IGNORECASE)
 #: `\s+` rather than a space: a marker wraps, so the phrase is routinely split across lines with
 #: the continuation indented. Matching a literal space passed every one-line fixture and failed on
 #: all 80 real markers.
-_UNTRACKED = re.compile(r"nothing\s+tracks\s+(running\s+)?it", re.IGNORECASE)
+#:
+#: Only "nothing tracks" is required, not a fixed object. The first version demanded the phrase end
+#: in "it", which rejected "nothing tracks writing a tested export procedure": a marker saying
+#: exactly the right thing, in the natural words for its own case.
+_UNTRACKED = re.compile(r"nothing\s+tracks\b", re.IGNORECASE)
 
 #: CommonMark tokeniser. Hand-written fence matching was tried and abandoned: it
 #: diverged from Markdown in seven ways review had to find, and every one was a
