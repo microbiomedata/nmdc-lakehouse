@@ -800,6 +800,7 @@ def test_promotion_refuses_a_digest_that_does_not_match_the_plan(tmp_path: Path)
             plan_sha256=digest,
             authorize_plan_sha256="0" * 64,
             authorize_canonical_namespace=CANONICAL,
+            authorize_destination_id=plan.destination_id,
         )
 
     assert spark.statements == []
@@ -817,6 +818,7 @@ def test_promotion_refuses_a_namespace_that_is_not_the_one_the_plan_promotes_int
             plan_sha256=digest,
             authorize_plan_sha256=digest,
             authorize_canonical_namespace="nmdc.somewhere_else",
+            authorize_destination_id=plan.destination_id,
         )
 
     assert spark.statements == []
@@ -833,6 +835,7 @@ def test_promotion_runs_exactly_the_statements_the_plan_describes(tmp_path: Path
         plan_sha256=digest,
         authorize_plan_sha256=digest,
         authorize_canonical_namespace=CANONICAL,
+        authorize_destination_id=plan.destination_id,
     )
 
     expected = [statement for _step, _table, statement in promotion_statements(plan)]
@@ -854,6 +857,7 @@ def test_a_promotion_that_stops_part_way_names_what_already_ran(tmp_path: Path) 
             plan_sha256=digest,
             authorize_plan_sha256=digest,
             authorize_canonical_namespace=CANONICAL,
+            authorize_destination_id=plan.destination_id,
         )
 
     message = str(refusal.value)
@@ -922,13 +926,15 @@ def test_the_promote_command_executes_and_refuses_to_call_it_verified(tmp_path: 
             digest,
             "--authorize-canonical-namespace",
             CANONICAL,
+            "--authorize-destination-id",
+            plan.destination_id,
         ],
     )
 
     assert result.exit_code == 0, result.output
     assert spark.statements == [statement for _step, _table, statement in promotion_statements(plan)]
     assert "NOT VERIFIED" in result.output, result.output
-    assert "rerun with both --authorize- options" not in result.output, result.output
+    assert "rerun with all three --authorize- options" not in result.output, result.output
     for table in plan.derived_rebuilds:
         assert table in result.output, result.output
 
@@ -954,3 +960,72 @@ def test_a_plan_whose_operation_names_a_bad_table_is_refused(tmp_path: Path) -> 
 
     with pytest.raises(PromotionPlanError, match="not a plain table identifier"):
         load_promotion_plan(tampered)
+
+
+def test_the_plan_says_promotion_does_not_carry_table_metadata(tmp_path: Path) -> None:
+    """The plan consumes a metadata outcome, which is evidence about staging, not about here.
+
+    `CREATE OR REPLACE TABLE ... AS SELECT` builds a table from a query result, and a table
+    comment and TBLPROPERTIES are not part of one. An operator reading a plan that cites a
+    verified metadata outcome would otherwise assume promotion carries it.
+    """
+    plan, _digest = _executable_plan(tmp_path)
+
+    rendered = render_promotion_plan(plan)
+
+    assert "re-apply table comments and properties" in rendered, rendered
+
+
+def test_the_promote_command_says_the_metadata_did_not_come_with_it(tmp_path: Path, monkeypatch) -> None:
+    """Same claim, at the point where someone would otherwise call the promotion finished."""
+    from click.testing import CliRunner
+
+    import nmdc_lakehouse.derived_tables as derived_tables
+    from nmdc_lakehouse.cli import cli
+
+    path = _promotion_plan_file(tmp_path)
+    plan, digest = load_promotion_plan(path)
+    monkeypatch.setattr(derived_tables, "spark_session", lambda _checkout: _RecordingSpark())
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "berdl-promote",
+            str(path),
+            "--ingest-checkout",
+            str(tmp_path),
+            "--authorize-plan-sha256",
+            digest,
+            "--authorize-canonical-namespace",
+            CANONICAL,
+            "--authorize-destination-id",
+            plan.destination_id,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "METADATA NOT CARRIED" in result.output, result.output
+    assert "berdl-apply-metadata" in result.output, result.output
+
+
+def test_promotion_refuses_a_destination_the_plan_was_not_decided_against(tmp_path: Path) -> None:
+    """Nothing here can verify which deployment a session reaches, so the operator asserts it.
+
+    The runtime comes from a checkout named at execution time and `spark_session` establishes only
+    that the helper was imported from it, not what it is configured to talk to. The same namespace
+    name exists in more than one deployment.
+    """
+    plan, digest = _executable_plan(tmp_path)
+    spark = _RecordingSpark()
+
+    with pytest.raises(PromotionRefused, match="nmdc-somewhere-else"):
+        execute_promotion(
+            spark,
+            plan,
+            plan_sha256=digest,
+            authorize_plan_sha256=digest,
+            authorize_canonical_namespace=CANONICAL,
+            authorize_destination_id="nmdc-somewhere-else",
+        )
+
+    assert spark.statements == []

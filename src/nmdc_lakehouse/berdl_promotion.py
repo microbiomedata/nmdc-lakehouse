@@ -373,6 +373,13 @@ def promotion_steps(plan: BerdlPromotionPlan) -> list[str]:
             else "the provenance side tables already in the destination"
         )
         steps.append(f"rebuild those derived table(s) from {source}")
+    # Named as a step because it is one, and because the plan consumes the metadata outcome as
+    # evidence. Consuming it says the staging tables were verified; it does not say the verified
+    # metadata arrives here. `CREATE OR REPLACE TABLE ... AS SELECT` builds a table from a query,
+    # and a table comment and TBLPROPERTIES are not part of a query result. An operator reading a
+    # plan that cites a metadata outcome will otherwise assume promotion carries it.
+    if counts.get(Disposition.REPLACE.value) or counts.get(Disposition.ADD.value):
+        steps.append("re-apply table comments and properties, which these statements do not carry")
     steps.append(f"verify all {len(plan.operations)} object(s) by read-back")
     return steps
 
@@ -585,6 +592,7 @@ def execute_promotion(
     plan_sha256: str,
     authorize_plan_sha256: str,
     authorize_canonical_namespace: str,
+    authorize_destination_id: str,
     progress: object = None,
 ) -> list[str]:
     """Perform the promotion this plan describes, or refuse.
@@ -595,8 +603,14 @@ def execute_promotion(
     digest is copied from a previous command and a namespace is not, so an operator promoting into
     the wrong place gets caught by the argument they had to write themselves.
 
-    Refuses rather than warns on both, and the read-back afterwards is the check, not the counts
-    this returns: a statement that succeeded is not a table that holds what it should.
+    The destination is the third, and it is the weakest of them, deliberately. Nothing here can
+    verify which deployment a session actually reaches: the runtime comes from a checkout named at
+    execution time, and `spark_session` establishes only that the helper was imported from that
+    checkout, not what the checkout is configured to talk to. So the operator asserts it. That
+    turns an unchecked assumption into a stated one, which is all this can honestly do offline.
+
+    Refuses rather than warns on all three, and the read-back afterwards is the check, not the
+    counts this returns: a statement that succeeded is not a table that holds what it should.
     """
     say = progress if callable(progress) else (lambda _message: None)
     if plan.status != "plan-only":
@@ -607,6 +621,13 @@ def execute_promotion(
         raise PromotionRefused(
             f"--authorize-canonical-namespace is {authorize_canonical_namespace!r} but the plan "
             f"promotes into {plan.canonical_namespace!r}."
+        )
+    if authorize_destination_id != plan.destination_id:
+        raise PromotionRefused(
+            f"--authorize-destination-id is {authorize_destination_id!r} but the dispositions were "
+            f"decided against {plan.destination_id!r}. The same namespace name exists in more than "
+            f"one deployment, and which one this session reaches is decided by the checkout, not "
+            f"by anything checked here."
         )
 
     performed: list[str] = []

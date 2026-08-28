@@ -735,11 +735,16 @@ def berdl_promotion_plan_command(
 @click.option("--ingest-checkout", type=click.Path(path_type=Path, file_okay=False), required=True)
 @click.option("--authorize-plan-sha256", help="Exact SHA-256 of the plan being run.")
 @click.option("--authorize-canonical-namespace", help="Exact namespace the plan promotes into.")
+@click.option(
+    "--authorize-destination-id",
+    help="Exact destination the plan's dispositions were decided against.",
+)
 def berdl_promote_command(
     plan_path: Path,
     ingest_checkout: Path,
     authorize_plan_sha256: str | None,
     authorize_canonical_namespace: str | None,
+    authorize_destination_id: str | None,
 ) -> None:
     """Perform the promotion a reviewed plan describes.
 
@@ -771,12 +776,13 @@ def berdl_promote_command(
     click.echo(render_promotion_plan(plan))
     click.echo("")
     click.echo(f"  plan sha256    {plan_sha256}")
+    click.echo(f"  destination    {plan.destination_id}")
     for step, _table, statement in promotion_statements(plan):
         click.echo(f"    {step:8s} {statement}")
 
-    if authorize_plan_sha256 is None or authorize_canonical_namespace is None:
+    if authorize_plan_sha256 is None or authorize_canonical_namespace is None or authorize_destination_id is None:
         click.echo("")
-        click.echo("  nothing has been changed; rerun with both --authorize- options to execute")
+        click.echo("  nothing has been changed; rerun with all three --authorize- options to execute")
         return
 
     try:
@@ -787,6 +793,7 @@ def berdl_promote_command(
             plan_sha256=plan_sha256,
             authorize_plan_sha256=authorize_plan_sha256,
             authorize_canonical_namespace=authorize_canonical_namespace,
+            authorize_destination_id=authorize_destination_id,
             progress=lambda message: click.echo(f"  {message}"),
         )
     except (PromotionPlanError, DerivedTableError) as error:
@@ -802,6 +809,13 @@ def berdl_promote_command(
     # A statement that succeeded is not a table that holds what it should, and the plan's last
     # step is a read-back this command does not perform. Saying only how many statements ran
     # would let the output stand in for the verification nobody has done yet.
+    click.echo("")
+    # A table comment and TBLPROPERTIES are not part of a query result, so the statements above
+    # cannot have carried them. The plan cites a metadata outcome, which says the staging tables
+    # were verified and says nothing about what reached the destination.
+    click.echo("  METADATA NOT CARRIED: these statements build tables from a query. Table comments")
+    click.echo("  and properties are not part of one. Run berdl-apply-metadata against")
+    click.echo(f"  {plan.canonical_namespace} before treating its metadata as the verified metadata.")
     click.echo("")
     click.echo("  NOT VERIFIED: no table has been read back. This ran statements; it did not")
     click.echo(f"  check results. Verify all {len(plan.operations)} object(s) in {plan.canonical_namespace}")

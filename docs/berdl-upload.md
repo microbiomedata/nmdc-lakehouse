@@ -642,9 +642,65 @@ while the tables they are computed from are replaced underneath would have them
 return provenance that no longer exists, and those answers look correct.
 
 The output file is created once and never replaced, because it is the artifact a
-human authorizes against. **Nothing yet consumes it.** The command that performs
-a promotion does not exist; see
-[#234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
+human authorizes against.
+
+### Performing the promotion
+
+`berdl-promote` consumes that file. It previews by default, printing the plan,
+the digest to authorize with, the destination the dispositions were decided
+against, and the exact statements:
+
+<!-- unverified: no run of this command against a live catalog is recorded.
+     Running it is tracked in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
+```bash
+uv run nmdc-lakehouse berdl-promote local/promotion-plan.json \
+    --ingest-checkout ~/gitrepos/BERIL-research-observatory
+```
+
+Execution needs all three authorizations, and none is optional:
+
+<!-- unverified: no run of this command against a live catalog is recorded.
+     Running it is tracked in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
+```bash
+uv run nmdc-lakehouse berdl-promote local/promotion-plan.json \
+    --ingest-checkout ~/gitrepos/BERIL-research-observatory \
+    --authorize-plan-sha256 <digest the preview printed> \
+    --authorize-canonical-namespace nmdc.metadata \
+    --authorize-destination-id <destination the preview printed>
+```
+
+The digest binds the run to the exact plan a human read, so a plan regenerated
+after the evidence moved is refused even when it describes the same tables. The
+namespace is typed again because a digest is copied from a previous command and a
+namespace is not. The destination is the weakest of the three and is there
+because nothing in this repository can verify which deployment a session reaches:
+the runtime comes from the checkout named by `--ingest-checkout`, and the code
+establishes only that the session helper was imported from that checkout, not
+what it is configured to talk to.
+
+**The outage starts at the first statement.** The derived tables are dropped
+before the replacements, so queries against them fail from then until
+`rebuild-derived-tables` finishes. The command does not rebuild them, so that
+cannot be run as one step that nobody can stop in between.
+
+Two things are not done by promotion and are easy to assume are:
+
+- **Table comments and properties do not come with it.** The statements build
+  tables from a query result, and a table comment and `TBLPROPERTIES` are not
+  part of one. Run `berdl-apply-metadata` against the canonical namespace
+  afterwards. The metadata outcome the plan consumes is evidence about the
+  staging tables.
+- **Nothing is read back.** The command reports which statements ran. A statement
+  that succeeded is not a table that holds what it should, and verifying every
+  object is still the operator's step, tracked in
+  [#234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
+
+If it fails part way it names the statement that failed and every statement that
+had already run, because the first question is which objects moved. Recovery is
+the operation the plan records: reload the immutable snapshot into a fresh
+staging namespace. Nobody has performed a recovery from a partial promotion.
 
 ## Running a script in the pod
 
