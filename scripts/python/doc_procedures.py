@@ -104,14 +104,14 @@ _DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 #: bare issue reference both count.
 _TRACKER = re.compile(r"https?://\S+|#\d+", re.IGNORECASE)
 
-#: Or an explicit statement that nothing tracks it. The rule originally required a tracker
+#: Or an explicit statement that no tracking issue is named. The rule originally required a tracker
 #: unconditionally, on the reasoning that a marker saying only "nobody ran it" leaves a reader no
 #: way to find out whether that is still true. That assumed a tracker always exists. It does not:
 #: issue 291 tracked *declaring* these blocks, closed when the declaring was done, and left 80
 #: markers pointing at finished work. Inventing an issue so the pointer resolves is worse than
 #: saying there is none, because it tells the reader to go and read something that will not help.
-#: A marker that says nothing tracks it is complete: the reader knows the state and knows there is
-#: no more to find.
+#: A marker that names no tracking issue is still complete: the reader knows the state and knows
+#: there is no pointer to follow.
 #: `\s+` rather than a space: a marker wraps, so the phrase is routinely split across lines with
 #: the continuation indented. Matching a literal space passed every one-line fixture and failed on
 #: all 80 real markers.
@@ -119,7 +119,8 @@ _TRACKER = re.compile(r"https?://\S+|#\d+", re.IGNORECASE)
 #: Either wording is accepted. "nothing tracks" is a claim about the world and was wrong for at
 #: least five markers whose procedures are tracked by open issues; "no tracking issue is named
 #: here" is a claim about the marker and is true by construction. Prefer the second when you have
-#: not checked, and name the issue when you have.
+#: not checked, and name the issue when you have. The failure message offers only the second
+#: form, because offering both sends an author who has not checked to the stronger claim.
 _UNTRACKED = re.compile(r"nothing\s+tracks\b|no\s+tracking\s+issue\s+is\s+named", re.IGNORECASE)
 
 #: CommonMark tokeniser. Hand-written fence matching was tried and abandoned: it
@@ -181,7 +182,8 @@ def marker_fault(comment: str) -> str | None:
             return f"names {found.group(0)}, which is not a real date"
     elif not _TRACKER.search(detail) and not _UNTRACKED.search(detail):
         return (
-            "says nobody ran it without saying where that is tracked; add an issue URL, or say that nothing tracks it"
+            "says nobody ran it without saying where that is tracked; name the issue, or say that no "
+            "tracking issue is named here"
         )
     return None
 

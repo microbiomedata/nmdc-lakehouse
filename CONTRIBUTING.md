@@ -131,7 +131,7 @@ A `verified` marker must carry a date, because that is the claim worth holding t
 a format. "verified: ok" asserts something with nothing behind it, which is the
 failure this exists to prevent. An `unverified` marker concedes rather than
 claims, so it needs only a reason and either somewhere it is tracked or a
-statement that nothing tracks it:
+statement that no tracking issue is named here:
 
 ```
 <!-- unverified: needs a pod terminal, tracked in
@@ -153,7 +153,7 @@ was not. Inventing an issue so the pointer resolves is worse than saying there i
 none: it sends the reader somewhere that will not help them.
 
 If the issue a marker names has since closed, the marker needs changing: point at
-a live issue, or say that nothing tracks the work. Saying "now closed" beside the
+a live issue, or say that no tracking issue is named here. Saying "now closed" beside the
 old reference is not accepted, because deciding from prose whether an issue is
 settled cannot be done reliably. "#1 is still open and expected to be closed
 later" defeated three attempts at it.

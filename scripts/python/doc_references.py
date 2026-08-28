@@ -21,7 +21,7 @@ signalled that both were elsewhere.
 
 **An ``unverified`` marker must not name a closed issue.** There is no exception
 for a marker that says the issue closed: the fix is to point at a live issue, or
-to say that nothing tracks the work. Only markers, and only ``unverified`` ones,
+to say that no tracking issue is named here. Only markers, and only ``unverified`` ones,
 so ordinary prose citing a closed issue is **not** checked and a stale sentence
 elsewhere in a document has to be found by reading.
 
@@ -228,7 +228,7 @@ def markers_citing_closed_issues(
     defect this module exists to catch.
 
     So the remedy for a marker naming a closed issue is to stop naming it: point at a live issue,
-    or say that nothing tracks the work. Both are mechanical, and neither needs this code to judge
+    or say that no tracking issue is named here. Both are mechanical, and neither needs this code to judge
     a sentence.
     """
     found: list[tuple[Path, int, str, str]] = []
