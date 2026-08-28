@@ -125,15 +125,15 @@ def unresolvable_scripts(paths: list[Path], root: Path) -> list[tuple[Path, int,
     """
     problems = []
     for document in paths:
-        declared_from: int | None = None
+        declared_external = False
         for number, line in enumerate(document.read_text(encoding="utf-8").splitlines(), start=1):
             if EXTERNAL_DECLARATION.search(line):
-                declared_from = number
+                declared_external = True
                 continue
             if EXTERNAL_DECLARATION_END.search(line):
-                declared_from = None
+                declared_external = False
                 continue
-            if declared_from is not None:
+            if declared_external:
                 continue
             for reference in SCRIPT_REFERENCE.findall(line):
                 if not (root / reference).is_file():
@@ -211,9 +211,7 @@ def _marker_blocks(text: str) -> list[tuple[int, str]]:
     return blocks
 
 
-def markers_citing_closed_issues(
-    paths: list[Path], repo: str = REPOSITORY
-) -> tuple[list[tuple[Path, int, str]], set[str]]:
+def markers_citing_closed_issues(paths: list[Path]) -> tuple[list[tuple[Path, int, str]], set[str]]:
     """Markers naming a closed issue, and the issues whose state could not be read.
 
     One condition. There is deliberately no escape for a marker that says the issue closed.
@@ -248,7 +246,7 @@ def markers_citing_closed_issues(
                 seen.add(issue)
                 numbers.add(issue)
                 found.append((document, line_number, block, issue))
-    states = _issue_states(numbers, repo)
+    states = _issue_states(numbers, REPOSITORY)
     unreadable = numbers - set(states)
     # No settlement filter, deliberately. Every marker naming a CLOSED issue is reported, whatever
     # the marker says about it, because deciding that from prose is the judgement that failed
@@ -279,7 +277,7 @@ def main() -> int:
         print("\nSay which checkout the path is in, or use a path that resolves here.")
 
     if arguments.check_issues:
-        stale, unreadable = markers_citing_closed_issues(documents, REPOSITORY)
+        stale, unreadable = markers_citing_closed_issues(documents)
         print(f"doc references: {len(stale)} marker(s) pointing at a closed issue")
         # Grouped by issue. One closed tracking issue named by eighty markers is one thing to fix,
         # and printing it eighty times buries the second finding under the first.

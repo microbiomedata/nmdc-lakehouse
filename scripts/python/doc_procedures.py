@@ -121,7 +121,10 @@ _TRACKER = re.compile(r"https?://\S+|#\d+", re.IGNORECASE)
 #: here" is a claim about the marker and is true by construction. Prefer the second when you have
 #: not checked, and name the issue when you have. The failure message offers only the second
 #: form, because offering both sends an author who has not checked to the stronger claim.
-_UNTRACKED = re.compile(r"nothing\s+tracks\b|no\s+tracking\s+issue\s+is\s+named", re.IGNORECASE)
+#: `here` is required. Without it the gate accepted "no tracking issue is named", which reads as
+#: the start of a sentence that names one somewhere else, and is a weaker statement than the
+#: message and CONTRIBUTING both ask for.
+_UNTRACKED = re.compile(r"nothing\s+tracks\b|no\s+tracking\s+issue\s+is\s+named\s+here\b", re.IGNORECASE)
 
 #: CommonMark tokeniser. Hand-written fence matching was tried and abandoned: it
 #: diverged from Markdown in seven ways review had to find, and every one was a

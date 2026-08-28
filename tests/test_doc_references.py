@@ -96,7 +96,7 @@ def test_a_marker_naming_a_closed_issue_is_reported(tmp_path: Path, monkeypatch)
     )
     monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
 
-    problems, unreadable = dr.markers_citing_closed_issues([document], "o/r")
+    problems, unreadable = dr.markers_citing_closed_issues([document])
 
     assert problems == [(document, 1, "1")]
     assert not unreadable
@@ -111,7 +111,7 @@ def test_an_open_issue_is_not_reported(tmp_path: Path, monkeypatch) -> None:
     )
     monkeypatch.setattr(subprocess, "run", _states({"1": "OPEN"}))
 
-    problems, _ = dr.markers_citing_closed_issues([document], "o/r")
+    problems, _ = dr.markers_citing_closed_issues([document])
 
     assert problems == []
 
@@ -121,7 +121,7 @@ def test_a_bare_issue_reference_is_queried_too(tmp_path: Path, monkeypatch) -> N
     document = _write(tmp_path, "d.md", "<!-- unverified: x, see #1 -->\n")
     monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
 
-    problems, _ = dr.markers_citing_closed_issues([document], "o/r")
+    problems, _ = dr.markers_citing_closed_issues([document])
 
     assert problems == [(document, 1, "1")]
 
@@ -136,7 +136,7 @@ def test_a_marker_wrapped_across_lines_is_read_whole(tmp_path: Path, monkeypatch
     )
     monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
 
-    problems, _ = dr.markers_citing_closed_issues([document], "o/r")
+    problems, _ = dr.markers_citing_closed_issues([document])
 
     assert problems == [(document, 1, "1")], "reported against the line the marker opens"
 
@@ -151,7 +151,7 @@ def test_a_verified_marker_is_not_checked(tmp_path: Path, monkeypatch) -> None:
     )
     monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
 
-    problems, unreadable = dr.markers_citing_closed_issues([document], "o/r")
+    problems, unreadable = dr.markers_citing_closed_issues([document])
 
     assert problems == []
     assert not unreadable, "and it is not even queried"
@@ -189,7 +189,7 @@ def test_a_state_that_cannot_be_read_is_unreadable_rather_than_absent(tmp_path: 
     document = _write(tmp_path, "d.md", "<!-- unverified: x, see #1 -->\n")
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: response)
 
-    problems, unreadable = dr.markers_citing_closed_issues([document], "o/r")
+    problems, unreadable = dr.markers_citing_closed_issues([document])
 
     assert problems == []
     assert unreadable == {"1"}
@@ -204,7 +204,7 @@ def test_a_missing_gh_is_unreadable_rather_than_a_crash(tmp_path: Path, monkeypa
     document = _write(tmp_path, "d.md", "<!-- unverified: x, see #1 -->\n")
     monkeypatch.setattr(subprocess, "run", missing)
 
-    _problems, unreadable = dr.markers_citing_closed_issues([document], "o/r")
+    _problems, unreadable = dr.markers_citing_closed_issues([document])
 
     assert unreadable == {"1"}
 
@@ -218,7 +218,7 @@ def test_one_marker_naming_an_issue_twice_is_reported_once(tmp_path: Path, monke
     )
     monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
 
-    problems, _ = dr.markers_citing_closed_issues([document], "o/r")
+    problems, _ = dr.markers_citing_closed_issues([document])
 
     assert problems == [(document, 1, "1")], "one marker, one finding"
 
@@ -232,7 +232,7 @@ def test_an_issue_in_another_repository_is_not_checked_against_this_one(tmp_path
     )
     monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
 
-    problems, unreadable = dr.markers_citing_closed_issues([document], "o/r")
+    problems, unreadable = dr.markers_citing_closed_issues([document])
 
     assert problems == []
     assert not unreadable, "and it is not queried at all"
@@ -265,7 +265,7 @@ def test_a_markdown_link_to_another_repository_is_not_queried(tmp_path: Path, mo
     )
     monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
 
-    problems, unreadable = dr.markers_citing_closed_issues([document], "o/r")
+    problems, unreadable = dr.markers_citing_closed_issues([document])
 
     assert problems == []
     assert not unreadable
@@ -280,7 +280,7 @@ def test_a_markdown_link_to_this_repository_is_still_queried(tmp_path: Path, mon
     )
     monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
 
-    problems, _ = dr.markers_citing_closed_issues([document], "o/r")
+    problems, _ = dr.markers_citing_closed_issues([document])
 
     assert problems == [(document, 1, "1")]
 
@@ -312,7 +312,7 @@ def test_saying_the_issue_closed_does_not_excuse_naming_it(tmp_path: Path, monke
     document = _write(tmp_path, "d.md", "<!-- unverified: x, tracked in #1, now closed -->\n")
     monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
 
-    problems, _ = dr.markers_citing_closed_issues([document], "o/r")
+    problems, _ = dr.markers_citing_closed_issues([document])
 
     assert problems == [(document, 1, "1")]
 
@@ -326,7 +326,7 @@ def test_a_future_tense_cannot_slip_past(tmp_path: Path, monkeypatch) -> None:
     )
     monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
 
-    problems, _ = dr.markers_citing_closed_issues([document], "o/r")
+    problems, _ = dr.markers_citing_closed_issues([document])
 
     assert problems == [(document, 1, "1")], "reported, because nothing here judges the sentence"
 
