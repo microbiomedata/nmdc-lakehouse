@@ -1067,7 +1067,7 @@ SELECT COUNT(*) FROM nmdc_nmdc_linkml_store.functional_annotation_agg;
 
 - `docs/publication-contract.md`: destination-neutral safety, metadata, staging, validation,
   promotion, and rollback requirements for a current replacement.
-- [#50](https://github.com/microbiomedata/nmdc-lakehouse/issues/50): consolidating ETL output to `LAKEHOUSE_ROOT` so this doc's paths are stable.
+- [#50](https://github.com/microbiomedata/nmdc-lakehouse/issues/50): consolidated ETL output to `LAKEHOUSE_ROOT` so this doc's paths are stable. Closed.
 - [#51](https://github.com/microbiomedata/nmdc-lakehouse/issues/51): the original automation issue; this doc is the runbook half of it. A
   `just berdl-upload` recipe wrapping the tunnel/preflight/upload/ingest steps is
   still open there.

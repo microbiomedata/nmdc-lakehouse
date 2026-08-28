@@ -222,3 +222,60 @@ def test_saying_it_is_not_closed_yet_does_not_suppress(tmp_path: Path, monkeypat
     problems, _ = dr.markers_citing_closed_issues([document], "o/r")
 
     assert problems == [(document, 1, "1")]
+
+
+def test_settlement_applies_to_the_reference_it_sits_beside(tmp_path: Path, monkeypatch) -> None:
+    """One settled reference must not speak for another beside it.
+
+    "#1 is closed; follow-up tracked in #2" said `closed` once and suppressed both, hiding a live
+    pointer behind a sentence about a different issue.
+    """
+    document = _write(tmp_path, "d.md", "<!-- unverified: #1 is closed; follow-up tracked in #2 -->\n")
+    monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED", "2": "CLOSED"}))
+
+    problems, _ = dr.markers_citing_closed_issues([document], "o/r")
+
+    assert problems == [(document, 1, "2")], "1 is settled in its own clause, 2 is not"
+
+
+def test_one_marker_naming_an_issue_twice_is_reported_once(tmp_path: Path, monkeypatch) -> None:
+    """A markdown link matches for the label and for the URL, and it is still one marker."""
+    document = _write(
+        tmp_path,
+        "d.md",
+        "<!-- unverified: x, see [#1](https://github.com/microbiomedata/nmdc-lakehouse/issues/1) -->\n",
+    )
+    monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
+
+    problems, _ = dr.markers_citing_closed_issues([document], "o/r")
+
+    assert problems == [(document, 1, "1")], "one marker, one finding"
+
+
+def test_an_issue_in_another_repository_is_not_checked_against_this_one(tmp_path: Path, monkeypatch) -> None:
+    """`_issue_states` queries a single --repo, so matching a fork's URL asks the wrong question."""
+    document = _write(
+        tmp_path,
+        "d.md",
+        "<!-- unverified: x, tracked in https://github.com/a-fork/nmdc-lakehouse/issues/1 -->\n",
+    )
+    monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
+
+    problems, unreadable = dr.markers_citing_closed_issues([document], "o/r")
+
+    assert problems == []
+    assert not unreadable, "and it is not queried at all"
+
+
+def test_a_dotted_script_name_is_matched(tmp_path: Path) -> None:
+    """`scripts/migrate.v2.py` is a legal name, and excluding dots let it pass while missing."""
+    document = _write(tmp_path, "d.md", "run `scripts/migrate.v2.py`\n")
+
+    assert dr.unresolvable_scripts([document], tmp_path) == [(document, 1, "scripts/migrate.v2.py")]
+
+
+def test_a_traversal_component_is_not_read_as_a_filename(tmp_path: Path) -> None:
+    """Allowing dots must not turn `..` into a path this reports on."""
+    document = _write(tmp_path, "d.md", "run `scripts/../elsewhere.py`\n")
+
+    assert dr.unresolvable_scripts([document], tmp_path) == []

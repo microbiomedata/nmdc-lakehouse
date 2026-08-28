@@ -35,7 +35,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-SCRIPT_REFERENCE = re.compile(r"(?<![\w/.-])(scripts/[\w/-]+\.(?:py|sh))")
+# Components may contain dots, so `scripts/migrate.v2.py` is matched rather than silently passing.
+# `.` and `..` are excluded so a traversal component cannot be read as a filename.
+SCRIPT_REFERENCE = re.compile(r"(?<![\w/.-])(scripts/(?:(?!\.{1,2}/)[\w.-]+/)*(?!\.{1,2}\.)[\w.-]+\.(?:py|sh))")
 
 #: A document may declare that its ``scripts/`` paths belong to another checkout, which is the
 #: honest shape for a runbook whose prose says "from <repo>:" before each block. Rewriting those
@@ -50,7 +52,10 @@ EXTERNAL_DECLARATION = re.compile(r"<!--\s*external-scripts:\s*(?P<repo>\S+)\s*-
 # Both forms `doc_procedures` accepts. It takes a URL or a bare `#136` (see its `_TRACKER`), so
 # matching only URLs left every bare reference unqueried: a marker could name a closed issue as
 # `#136`, pass that gate, and never reach this one.
-ISSUE_REFERENCE = re.compile(r"nmdc-lakehouse/issues/(\d+)|(?<![\w/])#(\d+)\b")
+# Anchored to this repository's URLs, because `_issue_states` queries a single `--repo`. A marker
+# naming `a-fork/nmdc-lakehouse/issues/12` was matched and then checked against
+# `microbiomedata/nmdc-lakehouse#12`, so a differing state produced a confident wrong answer.
+ISSUE_REFERENCE = re.compile(r"github\.com/microbiomedata/nmdc-lakehouse/issues/(\d+)|(?<![\w/])#(\d+)\b")
 # `unverified:` only. A `verified:` marker naming a closed issue is the normal case and not a
 # defect: it records what was being verified, and the issue closed because the verification
 # worked. An `unverified:` marker is a live pointer to where an unrun procedure is tracked, so a
@@ -181,6 +186,19 @@ def _marker_blocks(text: str) -> list[tuple[int, str]]:
     return blocks
 
 
+def _settled_near(block: str, issue: str) -> bool:
+    """Whether the text around this issue's mention says it closed.
+
+    Scoped to the clause the reference sits in rather than the whole marker, split on the
+    punctuation that separates one statement from the next. Searching the whole block let one
+    settled reference speak for every other reference beside it.
+    """
+    for clause in re.split(r"[;.]\s|\bfollow-up\b|\bbut\b", block):
+        if re.search(rf"(?<![\w/])#{issue}\b|/issues/{issue}\b", clause) and SETTLED.search(clause):
+            return True
+    return False
+
+
 def markers_citing_closed_issues(paths: list[Path], repo: str) -> tuple[list[tuple[Path, int, str]], set[str]]:
     """Markers naming a closed issue without saying so, and the issues whose state was unreadable.
 
@@ -192,16 +210,26 @@ def markers_citing_closed_issues(paths: list[Path], repo: str) -> tuple[list[tup
     numbers: set[str] = set()
     for document in paths:
         for line_number, block in _marker_blocks(document.read_text(encoding="utf-8")):
+            # Deduplicated within the block. `[#1](.../issues/1)` matches twice, once for the
+            # label and once for the URL, and reporting "2 markers point at issue 1" for one
+            # marker overstates the problem in the output people act on.
+            seen: set[str] = set()
             for url_issue, bare_issue in ISSUE_REFERENCE.findall(block):
                 issue = url_issue or bare_issue
+                if issue in seen:
+                    continue
+                seen.add(issue)
                 numbers.add(issue)
                 found.append((document, line_number, block, issue))
     states = _issue_states(numbers, repo)
     unreadable = numbers - set(states)
+    # Settlement is judged against the text around each reference, not the whole marker. A marker
+    # reading "#1 is closed; follow-up tracked in #2" said `closed` once and suppressed both, so a
+    # genuinely live pointer was hidden by a sentence about a different issue.
     problems = [
         (document, line_number, issue)
         for document, line_number, block, issue in found
-        if states.get(issue) == "CLOSED" and not SETTLED.search(block)
+        if states.get(issue) == "CLOSED" and not _settled_near(block, issue)
     ]
     return problems, unreadable
 

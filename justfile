@@ -211,7 +211,19 @@ test-doc-references-issues-exit:
     printf '<!-- unverified: x, tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/0 -->\n' > "$tmp/unreadable.md"
     rc=0; uv run --no-sync python scripts/python/doc_references.py "$tmp/unreadable.md" --check-issues >/dev/null 2>&1 || rc=$?
     [ "$rc" -ne 0 ] || { echo "an unreadable issue state passed; a network failure would read as clean"; exit 1; }
-    echo "doc-references-issues exit contract holds: unreadable state fails"
+    # The case the rule is actually for. The check above only proves the unreadable branch fails,
+    # so main() could stop failing on a stale marker and this recipe would still pass. A stub gh
+    # on PATH makes it deterministic and offline, unlike issue 0.
+    mkdir -p "$tmp/bin"
+    printf '#!/bin/sh\nprintf %%s "{\\"state\\": \\"CLOSED\\"}"\n' > "$tmp/bin/gh"
+    chmod +x "$tmp/bin/gh"
+    printf '<!-- unverified: x, tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/1 -->\n' > "$tmp/stale.md"
+    rc=0; PATH="$tmp/bin:$PATH" uv run --no-sync python scripts/python/doc_references.py "$tmp/stale.md" --check-issues >/dev/null 2>&1 || rc=$?
+    [ "$rc" -ne 0 ] || { echo "a marker naming a CLOSED issue passed; the rule does not fail the command"; exit 1; }
+    printf '<!-- unverified: x, tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/1, now closed -->\n' > "$tmp/settled.md"
+    rc=0; PATH="$tmp/bin:$PATH" uv run --no-sync python scripts/python/doc_references.py "$tmp/settled.md" --check-issues >/dev/null 2>&1 || rc=$?
+    [ "$rc" -eq 0 ] || { echo "a marker that says the issue closed was rejected; the rule is too strict"; exit 1; }
+    echo "doc-references-issues exit contract holds: unreadable fails, stale fails, settled passes"
 
 doc-procedures:
     uv run python scripts/python/doc_procedures.py docs
