@@ -155,6 +155,7 @@ def test_a_verified_marker_is_not_checked(tmp_path: Path, monkeypatch) -> None:
         types.SimpleNamespace(returncode=0, stdout='{"unexpected": "shape"}'),
         types.SimpleNamespace(returncode=0, stdout='{"state": null}'),
         types.SimpleNamespace(returncode=0, stdout='{"state": "TRIAGED"}'),
+        types.SimpleNamespace(returncode=0, stdout='{"state": []}'),
     ],
     ids=[
         "non-zero exit",
@@ -162,6 +163,7 @@ def test_a_verified_marker_is_not_checked(tmp_path: Path, monkeypatch) -> None:
         "wrong shape",
         "null state",
         "state this checker does not know",
+        "unhashable state",
     ],
 )
 def test_a_state_that_cannot_be_read_is_unreadable_rather_than_absent(tmp_path: Path, monkeypatch, response) -> None:
@@ -195,3 +197,28 @@ def test_a_missing_gh_is_unreadable_rather_than_a_crash(tmp_path: Path, monkeypa
     _problems, unreadable = dr.markers_citing_closed_issues([document], "o/r")
 
     assert unreadable == {"1"}
+
+
+def test_a_settled_word_inside_a_negation_does_not_suppress(tmp_path: Path, monkeypatch) -> None:
+    """ "not done" contains "done", and the marker presents the work as unfinished.
+
+    `done`, `complete` and `fixed` were in the settled set and are gone, because each reads as
+    ordinary English rather than as a statement about issue state. Negation is guarded directly
+    rather than by hoping those words never appear inside one.
+    """
+    document = _write(tmp_path, "d.md", "<!-- unverified: the export is not done; tracked in #1 -->\n")
+    monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
+
+    problems, _ = dr.markers_citing_closed_issues([document], "o/r")
+
+    assert problems == [(document, 1, "1")], "a live finding must not be suppressed by 'not done'"
+
+
+def test_saying_it_is_not_closed_yet_does_not_suppress(tmp_path: Path, monkeypatch) -> None:
+    """The same trap with the word the rule is actually about."""
+    document = _write(tmp_path, "d.md", "<!-- unverified: this is not closed yet, see #1 -->\n")
+    monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
+
+    problems, _ = dr.markers_citing_closed_issues([document], "o/r")
+
+    assert problems == [(document, 1, "1")]

@@ -17,13 +17,10 @@ https://github.com/microbiomedata/nmdc-lakehouse/pull/310 named
 ``scripts/configure_mc.sh``, which sets the alias, and nothing about either path
 signalled that both were elsewhere.
 
-**A cited closed issue must say that it is closed.** Five references pointed at
-closed issues, including four ``unverified`` markers whose entire job is to say
-where an undeclared block is tracked. A marker pointing at a closed issue says
-less than nothing: it looks live and is not. The rule is written this way round
-because deciding whether prose *treats* a reference as open needs parsing that
-does not work; requiring the word is checkable and tells the reader the same
-thing.
+**An ``unverified`` marker must say so if the issue it names has closed.** Only
+markers, and only ``unverified`` ones. Ordinary prose citing a closed issue is
+**not** checked, so a stale sentence elsewhere in a document will not be caught
+here and has to be found by reading.
 
 The issue rule needs the network, so it is a separate entry point and not part of
 ``just check``. The script rule is offline and belongs in the gate.
@@ -72,7 +69,13 @@ _KNOWN_STATES = frozenset({"OPEN", "CLOSED"})
 # The rule is inverted instead: cite a closed issue and say it is closed. That is what
 # https://github.com/microbiomedata/nmdc-lakehouse/issues/312 asks for, it needs no parsing, and
 # a reader who meets the reference learns the same thing the checker does.
-SETTLED = re.compile(r"\b(closed|resolved|merged|fixed|superseded|done|complete)\b", re.IGNORECASE)
+
+#: Words that describe an issue's state, not an ordinary English sense of finished. `done`,
+#: `complete` and `fixed` were here and are gone: a marker reading "the export is not done;
+#: tracked in #1" matched `done` and suppressed a genuinely live finding. Negation is guarded
+#: directly rather than by hoping the words do not appear in one.
+_NOT = r"(?<!not )(?<!isn't )(?<!is not )(?<!never )(?<!yet )"
+SETTLED = re.compile(rf"{_NOT}\b(closed|resolved|merged|superseded)\b", re.IGNORECASE)
 
 
 def _markdown_files(targets: list[Path]) -> list[Path]:
@@ -137,8 +140,11 @@ def _issue_states(numbers: set[str], repo: str) -> dict[str, str]:
             state = json.loads(result.stdout)["state"]
         except (json.JSONDecodeError, KeyError, TypeError):
             continue
-        if state not in _KNOWN_STATES:
-            # `{"state": null}` or an enum this does not know parses fine and means nothing here.
+        if not isinstance(state, str) or state not in _KNOWN_STATES:
+            # `{"state": null}`, `{"state": []}` or an enum this does not know. The isinstance
+            # check comes first because an unhashable value raises TypeError from the membership
+            # test itself, so guarding the value without guarding its type moved the crash rather
+            # than removing it.
             # Recording it would take the number out of `unreadable` and pass silently, which is
             # the same hole as the unparseable case wearing valid JSON.
             continue

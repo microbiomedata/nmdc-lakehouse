@@ -130,7 +130,26 @@ the check is to say which kind your block is.
 A `verified` marker must carry a date, because that is the claim worth holding to
 a format. "verified: ok" asserts something with nothing behind it, which is the
 failure this exists to prevent. An `unverified` marker concedes rather than
-claims, so it needs only a reason and somewhere it is tracked.
+claims, so it needs only a reason and either somewhere it is tracked or a
+statement that nothing tracks it:
+
+```
+<!-- unverified: needs a pod terminal, tracked in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/136 -->
+
+<!-- unverified: no run of this procedure is recorded, and nothing tracks
+     running it. -->
+```
+
+The second form exists because a tracker does not always exist. The rule once
+required one unconditionally, and 80 markers ended up naming an issue that had
+closed when a different piece of work finished, so the pointer looked live and
+was not. Inventing an issue so the pointer resolves is worse than saying there is
+none: it sends the reader somewhere that will not help them.
+
+If the marker names an issue that has since closed, say so. `just
+doc-references-issues` reports markers pointing at a closed issue, and it is not
+part of `just check` because it queries GitHub.
 
 Most of the existing markers say `unverified`, which is the honest state: nobody
 has recorded running those procedures. Changing one to `verified` means you ran
