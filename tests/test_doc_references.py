@@ -279,3 +279,45 @@ def test_a_traversal_component_is_not_read_as_a_filename(tmp_path: Path) -> None
     document = _write(tmp_path, "d.md", "run `scripts/../elsewhere.py`\n")
 
     assert dr.unresolvable_scripts([document], tmp_path) == []
+
+
+def test_a_markdown_link_to_another_repository_is_not_queried(tmp_path: Path, monkeypatch) -> None:
+    """The owner exclusion was bypassed by the ordinary link form.
+
+    The URL alternative correctly ignored a foreign owner, and the link's `#1` label did not, so
+    `[#1](https://github.com/a-fork/...)` was still answered with this repository's issue 1.
+    """
+    document = _write(
+        tmp_path,
+        "d.md",
+        "<!-- unverified: x, see [#1](https://github.com/a-fork/nmdc-lakehouse/issues/1) -->\n",
+    )
+    monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
+
+    problems, unreadable = dr.markers_citing_closed_issues([document], "o/r")
+
+    assert problems == []
+    assert not unreadable
+
+
+def test_a_markdown_link_to_this_repository_is_still_queried(tmp_path: Path, monkeypatch) -> None:
+    """The control. Stripping foreign links must not strip ours."""
+    document = _write(
+        tmp_path,
+        "d.md",
+        "<!-- unverified: x, see [#1](https://github.com/microbiomedata/nmdc-lakehouse/issues/1) -->\n",
+    )
+    monkeypatch.setattr(subprocess, "run", _states({"1": "CLOSED"}))
+
+    problems, _ = dr.markers_citing_closed_issues([document], "o/r")
+
+    assert problems == [(document, 1, "1")]
+
+
+def test_a_longer_filename_is_not_matched_by_its_prefix(tmp_path: Path) -> None:
+    """`scripts/tool.py.bak` yielded `scripts/tool.py`, which exists, so a missing file passed."""
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "tool.py").write_text("", encoding="utf-8")
+    document = _write(tmp_path, "d.md", "run `scripts/tool.py.bak` and `scripts/tool.pyc`\n")
+
+    assert dr.unresolvable_scripts([document], tmp_path) == [], "neither is extracted at all"

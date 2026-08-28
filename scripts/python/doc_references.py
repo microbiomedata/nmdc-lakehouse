@@ -36,8 +36,12 @@ import sys
 from pathlib import Path
 
 # Components may contain dots, so `scripts/migrate.v2.py` is matched rather than silently passing.
-# `.` and `..` are excluded so a traversal component cannot be read as a filename.
-SCRIPT_REFERENCE = re.compile(r"(?<![\w/.-])(scripts/(?:(?!\.{1,2}/)[\w.-]+/)*(?!\.{1,2}\.)[\w.-]+\.(?:py|sh))")
+# `.` and `..` are excluded so a traversal component cannot be read as a filename. The trailing
+# guard stops a match ending inside a longer name: without it `scripts/tool.py.bak` yielded
+# `scripts/tool.py`, which exists, so a citation of a file that does not exist passed.
+SCRIPT_REFERENCE = re.compile(
+    r"(?<![\w/.-])(scripts/(?:(?!\.{1,2}/)[\w.-]+/)*(?!\.{1,2}\.)[\w.-]+\.(?:py|sh))(?![\w.-])"
+)
 
 #: A document may declare that its ``scripts/`` paths belong to another checkout, which is the
 #: honest shape for a runbook whose prose says "from <repo>:" before each block. Rewriting those
@@ -56,6 +60,13 @@ EXTERNAL_DECLARATION = re.compile(r"<!--\s*external-scripts:\s*(?P<repo>\S+)\s*-
 # naming `a-fork/nmdc-lakehouse/issues/12` was matched and then checked against
 # `microbiomedata/nmdc-lakehouse#12`, so a differing state produced a confident wrong answer.
 ISSUE_REFERENCE = re.compile(r"github\.com/microbiomedata/nmdc-lakehouse/issues/(\d+)|(?<![\w/])#(\d+)\b")
+
+#: A markdown link whose target is an issue somewhere other than this repository. Removed before
+#: scanning, because its label is a bare `#N` that would otherwise be queried against this repo,
+#: which is how the owner exclusion was bypassed by the ordinary link form.
+FOREIGN_LINK = re.compile(
+    r"\[[^\]]*\]\(https?://(?!github\.com/microbiomedata/nmdc-lakehouse/)[^)]*?/issues/\d+[^)]*\)"
+)
 # `unverified:` only. A `verified:` marker naming a closed issue is the normal case and not a
 # defect: it records what was being verified, and the issue closed because the verification
 # worked. An `unverified:` marker is a live pointer to where an unrun procedure is tracked, so a
@@ -213,8 +224,12 @@ def markers_citing_closed_issues(paths: list[Path], repo: str) -> tuple[list[tup
             # Deduplicated within the block. `[#1](.../issues/1)` matches twice, once for the
             # label and once for the URL, and reporting "2 markers point at issue 1" for one
             # marker overstates the problem in the output people act on.
+            # A markdown link to another repository is stripped first. The URL alternative
+            # already ignores a foreign owner, but `[#1](https://github.com/a-fork/...)` left the
+            # bare `#1` label behind, so the exclusion was bypassed by the ordinary link form.
+            scanned = FOREIGN_LINK.sub("", block)
             seen: set[str] = set()
-            for url_issue, bare_issue in ISSUE_REFERENCE.findall(block):
+            for url_issue, bare_issue in ISSUE_REFERENCE.findall(scanned):
                 issue = url_issue or bare_issue
                 if issue in seen:
                     continue
