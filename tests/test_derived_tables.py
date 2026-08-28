@@ -641,3 +641,22 @@ def test_the_command_refuses_a_max_depth_below_one_before_previewing() -> None:
 
     assert result.exit_code != 0, result.output
     assert "nothing has been changed" not in result.output
+
+
+def test_rebuild_all_refuses_a_bad_max_depth_before_replacing_anything() -> None:
+    """graph_edges is replaced first, so a depth checked inside the walk is checked too late."""
+    from nmdc_lakehouse.derived_tables import DerivedTableError, rebuild_all
+
+    class RecordingSpark:
+        def __init__(self) -> None:
+            self.statements: list[str] = []
+
+        def sql(self, statement: str) -> object:
+            self.statements.append(statement)
+            raise AssertionError("no statement should reach the engine")
+
+    spark = RecordingSpark()
+    with pytest.raises(DerivedTableError, match="max_depth must be at least 1"):
+        rebuild_all(spark, "nmdc.metadata", max_depth=0)
+
+    assert spark.statements == []

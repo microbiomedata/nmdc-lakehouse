@@ -86,6 +86,18 @@ def check_namespace(namespace: str) -> str:
     return namespace
 
 
+def check_max_depth(max_depth: int) -> int:
+    """Refuse a depth no walk can use, wherever the walk is entered from.
+
+    This lives beside `check_namespace` because it has to run in the same place: before anything
+    is written. `rebuild_all` replaces `graph_edges` first, so a depth checked only inside the
+    walk is checked after a table has already been destroyed.
+    """
+    if max_depth < 1:
+        raise DerivedTableError("max_depth must be at least 1.")
+    return max_depth
+
+
 def graph_edges_statement(namespace: str) -> str:
     """Return the single statement that rebuilds `graph_edges` from its four side tables."""
     check_namespace(namespace)
@@ -257,6 +269,9 @@ def rebuild_all(
     answer, and the promotion plan built in `berdl_promotion` orders its rebuilds the same way.
     """
     check_namespace(namespace)
+    # Every precondition is checked before the first builder runs. graph_edges is replaced first,
+    # so a depth checked inside the walk is checked one destroyed table too late.
+    check_max_depth(max_depth)
     say = progress if callable(progress) else (lambda _message: None)
     # Named rather than defaulted. An `else` branch sent anything that was not `graph_edges` to
     # the walk, so a third entry in DERIVED_TABLES would have been rebuilt by the wrong function
@@ -313,8 +328,7 @@ def rebuild_biosample_to_workflow_run(
     hardest kind of gap to notice.
     """
     check_namespace(namespace)
-    if max_depth < 1:
-        raise DerivedTableError("max_depth must be at least 1.")
+    check_max_depth(max_depth)
     say = progress if callable(progress) else (lambda _message: None)
     # Before the walk, not after. A rebuild that runs to completion and then reports the mapping
     # was incomplete has already replaced the table with the wrong one.
