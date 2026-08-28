@@ -20,6 +20,7 @@ from pydantic import ValidationError
 
 from nmdc_lakehouse.berdl_promotion import (
     BerdlPromotionPlan,
+    PromotionOperation,
     PromotionPlanError,
     PromotionRefused,
     build_berdl_promotion_plan,
@@ -973,7 +974,7 @@ def test_the_plan_says_promotion_does_not_carry_table_metadata(tmp_path: Path) -
 
     rendered = render_promotion_plan(plan)
 
-    assert "re-apply table comments and properties" in rendered, rendered
+    assert "table comments and properties do not travel" in rendered, rendered
 
 
 def test_the_promote_command_says_the_metadata_did_not_come_with_it(tmp_path: Path, monkeypatch) -> None:
@@ -1005,7 +1006,7 @@ def test_the_promote_command_says_the_metadata_did_not_come_with_it(tmp_path: Pa
 
     assert result.exit_code == 0, result.output
     assert "METADATA NOT CARRIED" in result.output, result.output
-    assert "berdl-apply-metadata" in result.output, result.output
+    assert "refuses one by design" in result.output, result.output
 
 
 def test_promotion_refuses_a_destination_the_plan_was_not_decided_against(tmp_path: Path) -> None:
@@ -1029,3 +1030,97 @@ def test_promotion_refuses_a_destination_the_plan_was_not_decided_against(tmp_pa
         )
 
     assert spark.statements == []
+
+
+def test_an_add_does_not_overwrite_a_table_that_appeared_since_the_plan_was_built() -> None:
+    """The inventory proved the destination was absent when the plan was built, not now.
+
+    `CREATE OR REPLACE` for an `add` would overwrite whatever appeared in between and report
+    success. A plain `CREATE TABLE` fails, which is what an operator who authorized an add wants.
+    """
+    plan = BerdlPromotionPlan(
+        plan_format_version=1,
+        status="plan-only",
+        snapshot_id="snapshot",
+        staging_namespace=STAGING,
+        canonical_namespace=CANONICAL,
+        destination_id="nmdc-production",
+        destination_provider="nmdc",
+        staging_outcome_sha256="a" * 64,
+        metadata_outcome_sha256="b" * 64,
+        publication_plan_sha256="c" * 64,
+        operations=[
+            PromotionOperation(table="new_table", disposition=Disposition.ADD, rationale="absent"),
+            PromotionOperation(table="old_table", disposition=Disposition.REPLACE, rationale="present"),
+        ],
+        derived_rebuilds=[],
+        recovery=RECOVERY,
+    )
+
+    by_table = {table: statement for _step, table, statement in promotion_statements(plan)}
+
+    assert by_table["new_table"].startswith("CREATE TABLE "), by_table["new_table"]
+    assert by_table["old_table"].startswith("CREATE OR REPLACE TABLE "), by_table["old_table"]
+
+
+def test_a_plan_whose_provider_is_not_the_catalog_it_writes_into_is_refused() -> None:
+    """A provider is a label and nothing addresses a table with it, which is why it drifts.
+
+    `BerdlStagingPlan` already binds its own provider to its namespace's catalog. Without the same
+    binding here, a plan whose evidence describes one provider can name, authorize and destroy a
+    namespace in another catalog, and all three authorizations pass.
+    """
+    with pytest.raises(ValidationError, match="must name the catalog the promotion writes into"):
+        BerdlPromotionPlan(
+            plan_format_version=1,
+            status="plan-only",
+            snapshot_id="snapshot",
+            staging_namespace=STAGING,
+            canonical_namespace="other.metadata",
+            destination_id="nmdc-production",
+            destination_provider="nmdc",
+            staging_outcome_sha256="a" * 64,
+            metadata_outcome_sha256="b" * 64,
+            publication_plan_sha256="c" * 64,
+            operations=[PromotionOperation(table="t", disposition=Disposition.REPLACE, rationale="r")],
+            derived_rebuilds=[],
+            recovery=RECOVERY,
+        )
+
+
+def test_a_plan_naming_a_rebuild_that_is_not_a_rebuild_operation_is_refused(tmp_path: Path) -> None:
+    """derived_rebuilds is dropped from, so an edited entry destroys a table nobody planned.
+
+    The builder derives this list from the rebuild operations. Loading a file re-derives nothing,
+    so every invariant that lived only in the builder was absent for an edited plan.
+    """
+    path = _promotion_plan_file(tmp_path)
+    document = json.loads(path.read_text())
+    document["derived_rebuilds"] = ["biosample_set"]
+    tampered = _write(tmp_path / "tampered-rebuilds.json", document)
+
+    with pytest.raises(PromotionPlanError, match="derived_rebuilds must be exactly"):
+        load_promotion_plan(tampered)
+
+
+def test_a_plan_naming_one_table_twice_is_refused(tmp_path: Path) -> None:
+    """Two operations on one table means one of them silently loses, whichever runs second."""
+    path = _promotion_plan_file(tmp_path)
+    document = json.loads(path.read_text())
+    document["operations"].append(dict(document["operations"][0]))
+    tampered = _write(tmp_path / "tampered-duplicate.json", document)
+
+    with pytest.raises(PromotionPlanError, match="must not name the same table twice"):
+        load_promotion_plan(tampered)
+
+
+def test_a_plan_carrying_retire_is_refused(tmp_path: Path) -> None:
+    """The statements skip `retire` and the header counts it, so the operator authorizes a
+    removal that never happens."""
+    path = _promotion_plan_file(tmp_path)
+    document = json.loads(path.read_text())
+    document["operations"][0]["disposition"] = "retire"
+    tampered = _write(tmp_path / "tampered-retire.json", document)
+
+    with pytest.raises(PromotionPlanError, match="cannot express: retire"):
+        load_promotion_plan(tampered)

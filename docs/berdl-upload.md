@@ -687,11 +687,18 @@ cannot be run as one step that nobody can stop in between.
 
 Two things are not done by promotion and are easy to assume are:
 
-- **Table comments and properties do not come with it.** The statements build
-  tables from a query result, and a table comment and `TBLPROPERTIES` are not
-  part of one. Run `berdl-apply-metadata` against the canonical namespace
-  afterwards. The metadata outcome the plan consumes is evidence about the
-  staging tables.
+- **Table comments and properties do not come with it, and no command fixes
+  that afterwards.** The statements build tables from a query result, and a
+  table comment and `TBLPROPERTIES` are not part of one. `berdl-apply-metadata`
+  cannot be pointed at a canonical namespace: it refuses one deliberately,
+  because applying descriptions a column at a time stopped partway through
+  `biosample_set` on 2026-08-20 and left it half described
+  ([#297](https://github.com/microbiomedata/nmdc-lakehouse/issues/297)).
+  Descriptions are meant to arrive in the Parquet footer at table creation
+  instead. The metadata outcome the plan consumes is evidence about the staging
+  tables, so after a promotion the verified metadata is still on staging. How it
+  should travel is
+  [#320](https://github.com/microbiomedata/nmdc-lakehouse/issues/320).
 - **Nothing is read back.** The command reports which statements ran. A statement
   that succeeded is not a table that holds what it should, and verifying every
   object is still the operator's step, tracked in

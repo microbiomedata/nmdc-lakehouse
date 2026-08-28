@@ -25,6 +25,7 @@ from typing import Literal, Protocol, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from nmdc_lakehouse.derived_tables import DERIVED_TABLES
+from nmdc_lakehouse.metadata_application import catalog_of_namespace
 from nmdc_lakehouse.publication_plan import Disposition, PublicationPlan
 
 PROMOTION_PLAN_FORMAT_VERSION: Literal[1] = 1
@@ -143,6 +144,10 @@ class BerdlPromotionPlan(BaseModel):
     staging_namespace: str
     canonical_namespace: str
     destination_id: str
+    #: Catalog the destination evidence describes. Persisted rather than derived, so the file
+    #: carries the same fact the builder checked; `validate_namespaces` binds it to the namespace
+    #: this actually writes into, the way `BerdlStagingPlan` binds its own.
+    destination_provider: str
     staging_outcome_sha256: str
     metadata_outcome_sha256: str
     publication_plan_sha256: str
@@ -180,6 +185,44 @@ class BerdlPromotionPlan(BaseModel):
                 raise ValueError(f"The {label} namespace must be catalog-qualified as <catalog>.<namespace>.")
         if self.staging_namespace == self.canonical_namespace:
             raise ValueError("Promotion cannot target the staging namespace it reads from.")
+        # The same binding `BerdlStagingPlan` makes. A provider is a label and nothing addresses a
+        # table with it, which is exactly why it drifts: without this a plan whose evidence
+        # describes provider `nmdc` can name, authorize and destroy `other.metadata`.
+        if self.destination_provider != catalog_of_namespace(self.canonical_namespace, "canonical namespace"):
+            raise ValueError("The destination provider must name the catalog the promotion writes into.")
+        return self
+
+    @model_validator(mode="after")
+    def validate_operations_and_rebuilds(self) -> "BerdlPromotionPlan":
+        """Re-establish what the builder established, because a file is not a builder.
+
+        `load_promotion_plan` validates this model and nothing else. Every invariant that lived
+        only in `build_berdl_promotion_plan` was therefore absent for an edited plan, which could
+        name an unrelated table as a derived rebuild and drop it, duplicate an operation, or carry
+        a `retire` that the statements silently skip while the header counts it.
+        """
+        if not self.operations:
+            raise ValueError("A promotion plan must describe at least one operation.")
+        tables = [operation.table for operation in self.operations]
+        if len(tables) != len(set(tables)):
+            raise ValueError("A promotion plan must not name the same table twice.")
+        unsupported = sorted(
+            {operation.disposition.value for operation in self.operations} - {d.value for d in _PLANNED_DISPOSITIONS}
+        )
+        if unsupported:
+            raise ValueError("A promotion plan cannot express: " + ", ".join(unsupported) + ".")
+        # Exactly the rebuild operations, in `DERIVED_TABLES` order, which is how the builder
+        # derives this list. Anything else means the file was edited: a name that is not a derived
+        # table would be dropped by a statement nobody planned.
+        expected = [
+            table
+            for table in DERIVED_TABLES
+            if table in {op.table for op in self.operations if op.disposition is Disposition.REBUILD}
+        ]
+        if self.derived_rebuilds != expected:
+            raise ValueError(
+                f"derived_rebuilds must be exactly the rebuild operations in DERIVED_TABLES order, which is {expected}."
+            )
         return self
 
 
@@ -259,6 +302,14 @@ def build_berdl_promotion_plan(
         f"metadata outcome describes '{metadata_outcome.destination_id}'.",
     )
 
+    # A provider is optional on a publication plan and required here, because promotion is what
+    # binds it to a catalog. Defaulting it would put an unchecked label in the file and make the
+    # binding vacuous, which is the failure the binding is for.
+    _require(
+        publication_plan.destination_provider is not None,
+        "The publication plan does not name a destination provider, so nothing can bind the promotion to a catalog.",
+    )
+
     # Row counts, table by table. The publication plan decided what to do on the strength of
     # candidate row counts, and the staging outcome is what actually landed. Promoting on a plan
     # whose numbers no longer match the data is promoting on a stale decision.
@@ -334,6 +385,8 @@ def build_berdl_promotion_plan(
         staging_namespace=staging_outcome.staging_namespace,
         canonical_namespace=canonical_namespace,
         destination_id=staging_outcome.destination_id,
+        # Narrowed by the `_require` above; mypy cannot see through it.
+        destination_provider=str(publication_plan.destination_provider),
         staging_outcome_sha256=staging_outcome_sha256,
         metadata_outcome_sha256=metadata_outcome_sha256,
         publication_plan_sha256=publication_plan_sha256,
@@ -379,7 +432,7 @@ def promotion_steps(plan: BerdlPromotionPlan) -> list[str]:
     # and a table comment and TBLPROPERTIES are not part of a query result. An operator reading a
     # plan that cites a metadata outcome will otherwise assume promotion carries it.
     if counts.get(Disposition.REPLACE.value) or counts.get(Disposition.ADD.value):
-        steps.append("re-apply table comments and properties, which these statements do not carry")
+        steps.append("note that table comments and properties do not travel with these statements")
     steps.append(f"verify all {len(plan.operations)} object(s) by read-back")
     return steps
 
@@ -571,14 +624,18 @@ def promotion_statements(plan: BerdlPromotionPlan) -> list[tuple[str, str, str]]
     for operation in plan.operations:
         if operation.disposition not in (Disposition.REPLACE, Disposition.ADD):
             continue
-        # One statement per table, and the same statement for `replace` and `add`. The difference
-        # between them is whether the destination already held the table, which the plan decided
-        # against evidence; it is not a difference in what has to run.
+        # `add` is CREATE TABLE and `replace` is CREATE OR REPLACE TABLE. They were the same
+        # statement, on the reasoning that the difference is only whether the destination already
+        # held the table. That reasoning is about when the plan was built. The inventory proved the
+        # table was absent then; nothing proves it is absent now, and `CREATE OR REPLACE` would
+        # overwrite whatever appeared in between without saying so. A plain `CREATE TABLE` fails,
+        # which is the outcome an operator who authorized an `add` should get.
+        verb = "CREATE OR REPLACE TABLE" if operation.disposition is Disposition.REPLACE else "CREATE TABLE"
         statements.append(
             (
                 operation.disposition.value,
                 operation.table,
-                f"CREATE OR REPLACE TABLE {plan.canonical_namespace}.{operation.table} "
+                f"{verb} {plan.canonical_namespace}.{operation.table} "
                 f"AS SELECT * FROM {plan.staging_namespace}.{operation.table}",
             )
         )

@@ -751,10 +751,11 @@ def berdl_promote_command(
     This is the destructive half. It replaces canonical tables and drops the derived ones first,
     which is a deliberate outage: they do not exist again until the rebuild.
 
-    Previewing is the default and prints the plan, the digest to authorize with, and the exact
-    statements. Execution needs both authorizations, and neither is optional: the digest binds the
-    run to the plan a human read, and the namespace is typed again because a digest gets copied
-    from a previous command while a namespace does not.
+    Previewing is the default and prints the plan, the digest to authorize with, the destination,
+    and the exact statements. Execution needs all three authorizations and none is optional: the
+    digest binds the run to the plan a human read, the namespace is typed again because a digest
+    gets copied from a previous command while a namespace does not, and the destination is
+    asserted because nothing here can verify which deployment the session reaches.
 
     Rebuilding the derived tables is `rebuild-derived-tables`, run after this. Doing it here would
     make one command that cannot be stopped between the drop and the rebuild.
@@ -811,11 +812,13 @@ def berdl_promote_command(
     # would let the output stand in for the verification nobody has done yet.
     click.echo("")
     # A table comment and TBLPROPERTIES are not part of a query result, so the statements above
-    # cannot have carried them. The plan cites a metadata outcome, which says the staging tables
-    # were verified and says nothing about what reached the destination.
+    # cannot have carried them. There is no follow-up command that fixes this: berdl-apply-metadata
+    # refuses a canonical namespace on purpose, because applying descriptions one column at a time
+    # stopped partway through biosample_set on 2026-08-20 and left it half described.
     click.echo("  METADATA NOT CARRIED: these statements build tables from a query. Table comments")
-    click.echo("  and properties are not part of one. Run berdl-apply-metadata against")
-    click.echo(f"  {plan.canonical_namespace} before treating its metadata as the verified metadata.")
+    click.echo("  and properties are not part of one, and no command applies them to a canonical")
+    click.echo("  namespace afterwards; berdl-apply-metadata refuses one by design. The verified")
+    click.echo(f"  metadata is on the staging tables, not on {plan.canonical_namespace}. See issue 320.")
     click.echo("")
     click.echo("  NOT VERIFIED: no table has been read back. This ran statements; it did not")
     click.echo(f"  check results. Verify all {len(plan.operations)} object(s) in {plan.canonical_namespace}")
