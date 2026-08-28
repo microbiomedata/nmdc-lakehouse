@@ -62,6 +62,28 @@ column every workflow that passed through one reads as false for the steps it
 did take. Query the current breakdown with
 `SELECT type, COUNT(*) FROM nmdc_metadata.material_processing_set GROUP BY type`.
 
+## Rebuilding it
+
+Both derived tables are replaced together, `graph_edges` first because this one
+walks it. Previewing is the default; execution needs the namespace named twice.
+
+<!-- unverified: this command has not been run against a live namespace. Running
+     it is tracked in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
+
+```bash
+just rebuild-derived-tables nmdc.metadata /path/to/data-lakehouse-ingest \
+  --authorize-namespace nmdc.metadata
+```
+
+Without `--authorize-namespace` it prints what it would replace and stops. The
+namespace has to be given twice, so a destructive run cannot be reached by
+editing one argument in a shell history entry.
+
+The walk refuses rather than truncates if it is still finding paths at
+`--max-depth`, which defaults to 15. A truncated walk loses provenance only for
+the deepest biosamples, which is the hardest kind of gap to notice afterwards.
+
 ## Example queries
 
 ### All taxa detected in a biosample (Kraken2)
