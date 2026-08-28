@@ -660,3 +660,40 @@ def test_rebuild_all_refuses_a_bad_max_depth_before_replacing_anything() -> None
         rebuild_all(spark, "nmdc.metadata", max_depth=0)
 
     assert spark.statements == []
+
+
+def test_rebuilding_a_subset_leaves_the_other_table_alone() -> None:
+    """rebuild_all replaced every derived table regardless of what a caller wanted.
+
+    A promotion plan can rebuild one and preserve the other, so the documented follow-up to such a
+    promotion replaced a table nobody authorized touching.
+    """
+    from nmdc_lakehouse.derived_tables import DERIVED_TABLES, rebuild_all
+
+    class RecordingSpark:
+        def __init__(self) -> None:
+            self.statements: list[str] = []
+
+        def sql(self, statement: str) -> object:
+            self.statements.append(statement)
+            return FakeFrame([(7,)], self.statements)
+
+    spark = RecordingSpark()
+    rebuild_all(spark, "nmdc.metadata", tables=["graph_edges"])
+
+    issued = " ".join(spark.statements)
+    assert "graph_edges" in issued
+    for untouched in set(DERIVED_TABLES) - {"graph_edges"}:
+        assert untouched not in issued, issued
+
+
+def test_rebuilding_an_empty_selection_is_refused() -> None:
+    """An empty list is a caller mistake, and defaulting it to everything is the destructive read."""
+    from nmdc_lakehouse.derived_tables import DerivedTableError, rebuild_all
+
+    class RefusingSpark:
+        def sql(self, statement: str) -> object:
+            raise AssertionError("no statement should reach the engine")
+
+    with pytest.raises(DerivedTableError, match="No derived tables were named"):
+        rebuild_all(RefusingSpark(), "nmdc.metadata", tables=[])

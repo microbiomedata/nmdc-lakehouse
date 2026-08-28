@@ -885,10 +885,17 @@ def test_the_promote_command_previews_without_both_authorizations(tmp_path: Path
     _plan, digest = load_promotion_plan(path)
     runner = CliRunner()
 
+    plan, _again = load_promotion_plan(path)
+    # Every proper subset, not a sample of them. Two of the three present is the case a regression
+    # that stopped requiring the third would pass, and the earlier version of this test omitted it.
     for extra in (
         [],
         ["--authorize-plan-sha256", digest],
         ["--authorize-canonical-namespace", CANONICAL],
+        ["--authorize-destination-id", plan.destination_id],
+        ["--authorize-plan-sha256", digest, "--authorize-canonical-namespace", CANONICAL],
+        ["--authorize-plan-sha256", digest, "--authorize-destination-id", plan.destination_id],
+        ["--authorize-canonical-namespace", CANONICAL, "--authorize-destination-id", plan.destination_id],
     ):
         result = runner.invoke(cli, ["berdl-promote", str(path), "--ingest-checkout", str(tmp_path), *extra])
 
@@ -1039,7 +1046,7 @@ def test_an_add_does_not_overwrite_a_table_that_appeared_since_the_plan_was_buil
     success. A plain `CREATE TABLE` fails, which is what an operator who authorized an add wants.
     """
     plan = BerdlPromotionPlan(
-        plan_format_version=1,
+        plan_format_version=2,
         status="plan-only",
         snapshot_id="snapshot",
         staging_namespace=STAGING,
@@ -1072,10 +1079,10 @@ def test_a_plan_whose_provider_is_not_the_catalog_it_writes_into_is_refused() ->
     """
     with pytest.raises(ValidationError, match="must name the catalog the promotion writes into"):
         BerdlPromotionPlan(
-            plan_format_version=1,
+            plan_format_version=2,
             status="plan-only",
             snapshot_id="snapshot",
-            staging_namespace=STAGING,
+            staging_namespace="other.staging_20260824",
             canonical_namespace="other.metadata",
             destination_id="nmdc-production",
             destination_provider="nmdc",
@@ -1163,3 +1170,83 @@ def test_an_interrupted_promotion_still_names_what_already_ran(tmp_path: Path) -
     assert "may or may not have taken effect" in message, message
     assert expected[0] in message, message
     assert "1 statement(s) had already run" in message, message
+
+
+def test_a_plan_whose_provider_is_not_the_catalog_it_reads_from_is_refused() -> None:
+    """Binding only the destination left the source unchecked, and promotion reads from staging.
+
+    The wrong catalog there copies the wrong data in, which the destination binding cannot see.
+    """
+    with pytest.raises(ValidationError, match="the promotion reads from"):
+        BerdlPromotionPlan(
+            plan_format_version=2,
+            status="plan-only",
+            snapshot_id="snapshot",
+            staging_namespace="other.staging_20260824",
+            canonical_namespace=CANONICAL,
+            destination_id="nmdc-production",
+            destination_provider="nmdc",
+            staging_outcome_sha256="a" * 64,
+            metadata_outcome_sha256="b" * 64,
+            publication_plan_sha256="c" * 64,
+            operations=[PromotionOperation(table="t", disposition=Disposition.REPLACE, rationale="r")],
+            derived_rebuilds=[],
+            recovery=RECOVERY,
+        )
+
+
+def test_a_plan_rebuilding_one_derived_table_names_only_that_one_in_the_follow_up(tmp_path: Path, monkeypatch) -> None:
+    """A plan can rebuild one derived table and preserve the other, and the fixture does.
+
+    `rebuild-derived-tables` with no `--table` replaces every table in DERIVED_TABLES, so an
+    instruction that named only the command would have an operator mutate a table this plan
+    preserved. The command prints the selection instead.
+    """
+    from click.testing import CliRunner
+
+    import nmdc_lakehouse.derived_tables as derived_tables
+    from nmdc_lakehouse.cli import cli
+    from nmdc_lakehouse.derived_tables import DERIVED_TABLES
+
+    path = _promotion_plan_file(tmp_path)
+    plan, digest = load_promotion_plan(path)
+    assert 0 < len(plan.derived_rebuilds) < len(DERIVED_TABLES), plan.derived_rebuilds
+    monkeypatch.setattr(derived_tables, "spark_session", lambda _checkout: _RecordingSpark())
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "berdl-promote",
+            str(path),
+            "--ingest-checkout",
+            str(tmp_path),
+            "--authorize-plan-sha256",
+            digest,
+            "--authorize-canonical-namespace",
+            CANONICAL,
+            "--authorize-destination-id",
+            plan.destination_id,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    for table in plan.derived_rebuilds:
+        assert f"--table {table}" in result.output, result.output
+    for untouched in set(DERIVED_TABLES) - set(plan.derived_rebuilds):
+        assert f"--table {untouched}" not in result.output, result.output
+
+
+def test_a_version_one_plan_is_refused_rather_than_loaded_without_its_provider(tmp_path: Path) -> None:
+    """destination_provider became required, so a v1 plan cannot be bound to a catalog.
+
+    Loading one anyway would either fail on a missing field, which says nothing useful, or pass a
+    vacuous binding if the field were optional. The version says which it is.
+    """
+    path = _promotion_plan_file(tmp_path)
+    document = json.loads(path.read_text())
+    document["plan_format_version"] = 1
+    del document["destination_provider"]
+    old = _write(tmp_path / "v1.json", document)
+
+    with pytest.raises(PromotionPlanError, match="plan_format_version"):
+        load_promotion_plan(old)

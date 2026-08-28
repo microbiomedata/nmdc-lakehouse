@@ -28,7 +28,11 @@ from nmdc_lakehouse.derived_tables import DERIVED_TABLES
 from nmdc_lakehouse.metadata_application import catalog_of_namespace
 from nmdc_lakehouse.publication_plan import Disposition, PublicationPlan
 
-PROMOTION_PLAN_FORMAT_VERSION: Literal[1] = 1
+# 2 since destination_provider became a required field. A v1 plan does not carry it, so it cannot
+# be bound to the catalog it writes into, and loading one under the current rules would either
+# fail with a message about a missing field or, if the field were made optional, pass the binding
+# vacuously. Refusing it by version says which of those it is.
+PROMOTION_PLAN_FORMAT_VERSION: Literal[2] = 2
 
 # Dispositions this planner can express as a step. `retire` is absent on purpose: it removes
 # canonical tables, nothing here implements that, and a plan whose header counts a disposition its
@@ -138,7 +142,7 @@ class BerdlPromotionPlan(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    plan_format_version: Literal[1]
+    plan_format_version: Literal[2]
     status: Literal["plan-only"]
     snapshot_id: str
     staging_namespace: str
@@ -188,8 +192,12 @@ class BerdlPromotionPlan(BaseModel):
         # The same binding `BerdlStagingPlan` makes. A provider is a label and nothing addresses a
         # table with it, which is exactly why it drifts: without this a plan whose evidence
         # describes provider `nmdc` can name, authorize and destroy `other.metadata`.
-        if self.destination_provider != catalog_of_namespace(self.canonical_namespace, "canonical namespace"):
-            raise ValueError("The destination provider must name the catalog the promotion writes into.")
+        for namespace, label in (
+            (self.canonical_namespace, "writes into"),
+            (self.staging_namespace, "reads from"),
+        ):
+            if self.destination_provider != catalog_of_namespace(namespace, "namespace"):
+                raise ValueError(f"The destination provider must name the catalog the promotion {label}.")
         return self
 
     @model_validator(mode="after")
@@ -654,7 +662,7 @@ def execute_promotion(
 ) -> list[str]:
     """Perform the promotion this plan describes, or refuse.
 
-    Two authorizations, because they fail differently. The digest binds this run to the exact plan
+    Three authorizations, because they fail differently. The digest binds this run to the exact plan
     a human read: a plan regenerated after the evidence moved has a different digest and is
     refused, even though it may describe the same tables. The namespace is typed again because a
     digest is copied from a previous command and a namespace is not, so an operator promoting into

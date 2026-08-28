@@ -613,6 +613,12 @@ def berdl_apply_metadata_command(
     help="Refuse rather than truncate past this many hops.",
 )
 @click.option(
+    "--table",
+    "tables",
+    multiple=True,
+    help="Rebuild only these derived tables. Repeatable. Defaults to all of them.",
+)
+@click.option(
     "--authorize-namespace",
     help="Exact namespace, required to run. Without it this prints what it would do and stops.",
 )
@@ -620,6 +626,7 @@ def rebuild_derived_tables_command(
     namespace: str,
     ingest_checkout: Path,
     max_depth: int | None,
+    tables: tuple[str, ...],
     authorize_namespace: str | None,
 ) -> None:
     """Rebuild graph_edges and biosample_to_workflow_run in a namespace.
@@ -647,11 +654,25 @@ def rebuild_derived_tables_command(
     except DerivedTableError as error:
         raise click.ClickException(str(error)) from error
 
+    # An unknown name is refused here rather than after the first table has been replaced, for the
+    # same reason the namespace is.
+    unknown = sorted(set(tables) - set(DERIVED_TABLES))
+    if unknown:
+        raise click.ClickException(
+            "No rebuild procedure exists for: " + ", ".join(unknown) + ". Known: " + ", ".join(DERIVED_TABLES) + "."
+        )
+    # Ordered by DERIVED_TABLES whatever order they were typed in, because the second walks the
+    # first and that does not stop being true because a caller listed them differently.
+    selected = [table for table in DERIVED_TABLES if table in set(tables)] if tables else list(DERIVED_TABLES)
+
     depth = DEFAULT_MAX_DEPTH if max_depth is None else max_depth
-    targets = ", ".join(f"{namespace}.{table}" for table in DERIVED_TABLES)
+    targets = ", ".join(f"{namespace}.{table}" for table in selected)
     click.echo(f"rebuild plan for {namespace}")
     click.echo(f"  replaces      {targets}")
-    click.echo(f"  order         {' then '.join(DERIVED_TABLES)}, because the second walks the first")
+    click.echo(
+        f"  order         {' then '.join(selected)}"
+        + (", because the second walks the first" if len(selected) > 1 else "")
+    )
     click.echo(f"  max depth     {depth}")
 
     if authorize_namespace is None:
@@ -662,7 +683,13 @@ def rebuild_derived_tables_command(
 
     try:
         spark = spark_session(ingest_checkout)
-        outcomes = rebuild_all(spark, namespace, max_depth=depth, progress=lambda message: click.echo(f"  {message}"))
+        outcomes = rebuild_all(
+            spark,
+            namespace,
+            max_depth=depth,
+            progress=lambda message: click.echo(f"  {message}"),
+            tables=selected,
+        )
     except DerivedTableError as error:
         raise click.ClickException(str(error)) from error
     for outcome in outcomes:
@@ -802,11 +829,12 @@ def berdl_promote_command(
 
     click.echo(f"  performed {len(performed)} statement(s)")
     if plan.derived_rebuilds:
-        click.echo(
-            "  the derived table(s) are dropped and not yet rebuilt: "
-            + ", ".join(plan.derived_rebuilds)
-            + ". Run rebuild-derived-tables next."
-        )
+        # Naming the exact tables, not just the command. A plan can rebuild one derived table and
+        # preserve the other, and `rebuild-derived-tables` with no `--table` replaces both, so a
+        # bare instruction would have an operator mutate a table this plan preserved.
+        selection = " ".join(f"--table {table}" for table in plan.derived_rebuilds)
+        click.echo("  the derived table(s) are dropped and not yet rebuilt: " + ", ".join(plan.derived_rebuilds) + ".")
+        click.echo(f"  run: just rebuild-derived-tables {plan.canonical_namespace} <checkout> {selection}")
     # A statement that succeeded is not a table that holds what it should, and the plan's last
     # step is a read-back this command does not perform. Saying only how many statements ran
     # would let the output stand in for the verification nobody has done yet.

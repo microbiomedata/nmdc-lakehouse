@@ -654,8 +654,7 @@ against, and the exact statements:
      Running it is tracked in
      https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
 ```bash
-uv run nmdc-lakehouse berdl-promote local/promotion-plan.json \
-    --ingest-checkout ~/gitrepos/BERIL-research-observatory
+just berdl-promote local/promotion-plan.json ~/gitrepos/BERIL-research-observatory
 ```
 
 Execution needs all three authorizations, and none is optional:
@@ -664,8 +663,7 @@ Execution needs all three authorizations, and none is optional:
      Running it is tracked in
      https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
 ```bash
-uv run nmdc-lakehouse berdl-promote local/promotion-plan.json \
-    --ingest-checkout ~/gitrepos/BERIL-research-observatory \
+just berdl-promote local/promotion-plan.json ~/gitrepos/BERIL-research-observatory \
     --authorize-plan-sha256 <digest the preview printed> \
     --authorize-canonical-namespace nmdc.metadata \
     --authorize-destination-id <destination the preview printed>
@@ -684,6 +682,20 @@ what it is configured to talk to.
 before the replacements, so queries against them fail from then until
 `rebuild-derived-tables` finishes. The command does not rebuild them, so that
 cannot be run as one step that nobody can stop in between.
+
+Rebuild exactly the tables the plan dropped, which the command prints for you:
+
+<!-- unverified: no run of this command against a live catalog is recorded.
+     Running it is tracked in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
+```bash
+just rebuild-derived-tables nmdc.metadata ~/gitrepos/BERIL-research-observatory \
+    --table graph_edges \
+    --authorize-namespace nmdc.metadata
+```
+
+Without `--table` it rebuilds every derived table, which replaces any the plan
+deliberately preserved.
 
 Two things are not done by promotion and are easy to assume are:
 
@@ -704,10 +716,22 @@ Two things are not done by promotion and are easy to assume are:
   object is still the operator's step, tracked in
   [#234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
 
-If it fails part way it names the statement that failed and every statement that
-had already run, because the first question is which objects moved. Recovery is
-the operation the plan records: reload the immutable snapshot into a fresh
-staging namespace. Nobody has performed a recovery from a partial promotion.
+If it fails part way, or is interrupted, it names the statement that stopped it
+and every statement that had already run, because the first question is which
+objects moved. An interrupt is reported separately from a failure, and the
+statement in flight is reported as possibly having taken effect, because nothing
+can tell whether the interrupt landed between two statements or inside one.
+
+**Recovery from a partial promotion is not implemented.** The plan carries a
+`recovery` string and `berdl-promote` never applies it. That string describes
+reloading the snapshot into a fresh staging namespace, which rebuilds the source
+and does not touch a canonical namespace that has been partly mutated, so it is
+not a rollback. A table that an `add` created is now there, and the same plan
+cannot be replayed against it because `add` is a plain `CREATE TABLE` that fails
+on an existing table. Someone has to decide what the destination should hold and
+put it there by hand. Nobody has done that, and no procedure for it is written
+down; it is part of
+[#234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
 
 ## Running a script in the pod
 
