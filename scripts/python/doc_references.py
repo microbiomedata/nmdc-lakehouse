@@ -19,10 +19,11 @@ https://github.com/microbiomedata/nmdc-lakehouse/pull/310 named
 ``scripts/configure_mc.sh``, which sets the alias, and nothing about either path
 signalled that both were elsewhere.
 
-**An ``unverified`` marker must say so if the issue it names has closed.** Only
-markers, and only ``unverified`` ones. Ordinary prose citing a closed issue is
-**not** checked, so a stale sentence elsewhere in a document will not be caught
-here and has to be found by reading.
+**An ``unverified`` marker must not name a closed issue.** There is no exception
+for a marker that says the issue closed: the fix is to point at a live issue, or
+to say that nothing tracks the work. Only markers, and only ``unverified`` ones,
+so ordinary prose citing a closed issue is **not** checked and a stale sentence
+elsewhere in a document has to be found by reading.
 
 The issue rule needs the network, so it is a separate entry point and not part of
 ``just check``. The script rule is offline and belongs in the gate.
@@ -63,7 +64,13 @@ EXTERNAL_DECLARATION = re.compile(r"<!--\s*external-scripts:\s*(?P<repo>\S+)\s*-
 # Anchored to this repository's URLs, because `_issue_states` queries a single `--repo`. A marker
 # naming `a-fork/nmdc-lakehouse/issues/12` was matched and then checked against
 # `microbiomedata/nmdc-lakehouse#12`, so a differing state produced a confident wrong answer.
-ISSUE_REFERENCE = re.compile(r"github\.com/microbiomedata/nmdc-lakehouse/issues/(\d+)|(?<![\w/])#(\d+)\b")
+#: The one repository this checker is about. There was a `--repo` option, and it configured only
+#: half of the behaviour: `gh` queried the given repository while the patterns below stayed
+#: anchored here, so `--repo owner/fork` ignored a fork URL and answered an NMDC URL's number
+#: against the fork. A confident answer about the wrong issue is worse than no option.
+REPOSITORY = "microbiomedata/nmdc-lakehouse"
+
+ISSUE_REFERENCE = re.compile(rf"github\.com/{re.escape(REPOSITORY)}/issues/(\d+)|(?<![\w/])#(\d+)\b")
 
 #: A markdown link whose target is an issue somewhere other than this repository. Removed before
 #: scanning, because its label is a bare `#N` that would otherwise be queried against this repo,
@@ -86,9 +93,10 @@ _KNOWN_STATES = frozenset({"OPEN", "CLOSED"})
 # blocks that predate this rule is <url>" carries no such phrase. Guessing whether prose treats a
 # reference as live is the wrong problem.
 #
-# The rule is inverted instead: cite a closed issue and say it is closed. That is what
-# https://github.com/microbiomedata/nmdc-lakehouse/issues/312 asks for, it needs no parsing, and
-# a reader who meets the reference learns the same thing the checker does.
+# The rule is mechanical instead: an unverified marker may not name a closed issue at all. Whether
+# the surrounding prose concedes that it closed is a judgement, and three attempts at making it
+# were each wrong in a new way, so the check does not make it. See
+# https://github.com/microbiomedata/nmdc-lakehouse/issues/312.
 
 
 def _markdown_files(targets: list[Path]) -> list[Path]:
@@ -194,7 +202,9 @@ def _marker_blocks(text: str) -> list[tuple[int, str]]:
     return blocks
 
 
-def markers_citing_closed_issues(paths: list[Path], repo: str) -> tuple[list[tuple[Path, int, str]], set[str]]:
+def markers_citing_closed_issues(
+    paths: list[Path], repo: str = REPOSITORY
+) -> tuple[list[tuple[Path, int, str]], set[str]]:
     """Markers naming a closed issue, and the issues whose state could not be read.
 
     One condition. There is deliberately no escape for a marker that says the issue closed.
@@ -231,9 +241,9 @@ def markers_citing_closed_issues(paths: list[Path], repo: str) -> tuple[list[tup
                 found.append((document, line_number, block, issue))
     states = _issue_states(numbers, repo)
     unreadable = numbers - set(states)
-    # Settlement is judged against the text around each reference, not the whole marker. A marker
-    # reading "#1 is closed; follow-up tracked in #2" said `closed` once and suppressed both, so a
-    # genuinely live pointer was hidden by a sentence about a different issue.
+    # No settlement filter, deliberately. Every marker naming a CLOSED issue is reported, whatever
+    # the marker says about it, because deciding that from prose is the judgement that failed
+    # three times. The remedy is to stop naming the issue.
     problems = [
         (document, line_number, issue) for document, line_number, block, issue in found if states.get(issue) == "CLOSED"
     ]
@@ -245,7 +255,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("targets", nargs="+", type=Path)
     parser.add_argument("--check-issues", action="store_true", help="Also query GitHub for issue state.")
-    parser.add_argument("--repo", default="microbiomedata/nmdc-lakehouse")
     parser.add_argument("--root", type=Path, default=Path("."))
     arguments = parser.parse_args()
 
@@ -261,7 +270,7 @@ def main() -> int:
         print("\nSay which checkout the path is in, or use a path that resolves here.")
 
     if arguments.check_issues:
-        stale, unreadable = markers_citing_closed_issues(documents, arguments.repo)
+        stale, unreadable = markers_citing_closed_issues(documents, REPOSITORY)
         print(f"doc references: {len(stale)} marker(s) pointing at a closed issue")
         # Grouped by issue. One closed tracking issue named by eighty markers is one thing to fix,
         # and printing it eighty times buries the second finding under the first.

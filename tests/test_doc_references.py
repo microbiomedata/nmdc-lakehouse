@@ -200,7 +200,7 @@ def test_one_marker_naming_an_issue_twice_is_reported_once(tmp_path: Path, monke
 
 
 def test_an_issue_in_another_repository_is_not_checked_against_this_one(tmp_path: Path, monkeypatch) -> None:
-    """`_issue_states` queries a single --repo, so matching a fork's URL asks the wrong question."""
+    """Every query goes to one repository, so matching a fork URL would ask about the wrong issue."""
     document = _write(
         tmp_path,
         "d.md",

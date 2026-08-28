@@ -220,10 +220,12 @@ test-doc-references-issues-exit:
     printf '<!-- unverified: x, tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/1 -->\n' > "$tmp/stale.md"
     rc=0; PATH="$tmp/bin:$PATH" uv run --no-sync python scripts/python/doc_references.py "$tmp/stale.md" --check-issues >/dev/null 2>&1 || rc=$?
     [ "$rc" -ne 0 ] || { echo "a marker naming a CLOSED issue passed; the rule does not fail the command"; exit 1; }
-    printf '<!-- unverified: x, tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/1, now closed -->\n' > "$tmp/settled.md"
-    rc=0; PATH="$tmp/bin:$PATH" uv run --no-sync python scripts/python/doc_references.py "$tmp/settled.md" --check-issues >/dev/null 2>&1 || rc=$?
-    [ "$rc" -eq 0 ] || { echo "a marker that says the issue closed was rejected; the rule is too strict"; exit 1; }
-    echo "doc-references-issues exit contract holds: unreadable fails, stale fails, settled passes"
+    # No "settled passes" case. There is no settlement escape: saying the issue closed does not
+    # excuse naming it, because reading that from prose is the judgement this checker does not make.
+    printf '<!-- unverified: x, and nothing tracks running it -->\n' > "$tmp/untracked.md"
+    rc=0; PATH="$tmp/bin:$PATH" uv run --no-sync python scripts/python/doc_references.py "$tmp/untracked.md" --check-issues >/dev/null 2>&1 || rc=$?
+    [ "$rc" -eq 0 ] || { echo "a marker naming no issue was rejected; the rule is too strict"; exit 1; }
+    echo "doc-references-issues exit contract holds: unreadable fails, closed fails, no-issue passes"
 
 doc-procedures:
     uv run python scripts/python/doc_procedures.py docs
