@@ -8,6 +8,7 @@ changing the source / transform / sink modules.
 from __future__ import annotations
 
 import logging
+import shlex
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -843,11 +844,17 @@ def berdl_promote_command(
         # Naming the exact tables, not just the command. A plan can rebuild one derived table and
         # preserve the other, and `rebuild-derived-tables` with no `--table` replaces both, so a
         # bare instruction would have an operator mutate a table this plan preserved.
-        selection = " ".join(f"--table {table}" for table in plan.derived_rebuilds)
+        selection = " ".join(f"--table {shlex.quote(table)}" for table in plan.derived_rebuilds)
         click.echo("  the derived table(s) are dropped and not yet rebuilt: " + ", ".join(plan.derived_rebuilds) + ".")
+        # PATH_TO_CHECKOUT, not <checkout>. Angle brackets are two redirections: `<checkout` reads
+        # from a file and `>` takes the next word as an output file, so a shell swallowed the
+        # `--table` flag as a redirection target, left the table name in the checkout position, and
+        # wrote every message into a file named `--table`. A rebuild with no `--table` replaces
+        # every derived table, which is the exact hazard the selection three lines up exists to
+        # avoid, and this is the instruction an operator follows while the tables are dropped.
         click.echo(
-            f"  run: just rebuild-derived-tables {plan.canonical_namespace} <checkout> {selection} "
-            f"--authorize-namespace {plan.canonical_namespace}"
+            f"  run: just rebuild-derived-tables {shlex.quote(plan.canonical_namespace)} PATH_TO_CHECKOUT "
+            f"{selection} --authorize-namespace {shlex.quote(plan.canonical_namespace)}"
         )
     # A statement that succeeded is not a table that holds what it should, and the plan's last
     # step is a read-back this command does not perform. Saying only how many statements ran

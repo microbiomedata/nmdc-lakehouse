@@ -658,16 +658,20 @@ against, and the exact statements:
 just berdl-promote local/promotion-plan.json ~/gitrepos/BERIL-research-observatory
 ```
 
-Execution needs all three authorizations, and none is optional:
+Execution needs all three authorizations, and none is optional. Substitute the
+two placeholders with what the preview printed; they are written this way because
+angle brackets in a command line redirect input and output rather than standing
+in for a value, so a copied line containing them does something other than what
+it looks like:
 
 <!-- unverified: no run of this command against a live catalog is recorded.
      Running it is tracked in
      https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
 ```bash
 just berdl-promote local/promotion-plan.json ~/gitrepos/BERIL-research-observatory \
-    --authorize-plan-sha256 <digest the preview printed> \
+    --authorize-plan-sha256 DIGEST_THE_PREVIEW_PRINTED \
     --authorize-canonical-namespace nmdc.metadata \
-    --authorize-destination-id <destination the preview printed>
+    --authorize-destination-id DESTINATION_THE_PREVIEW_PRINTED
 ```
 
 The digest binds the run to the exact plan a human read, so a plan regenerated
@@ -832,7 +836,7 @@ rather than bootstrapped for the run. -->
 
 ```bash
 mc cp --recursive /absolute/path/to/snapshot/ \
-  berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/staging/<date>/
+  berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/staging/DATE/
 ```
 
 **No proxy is set here, and that is what the 2026-08-24 run used**, from a

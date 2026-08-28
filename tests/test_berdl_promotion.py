@@ -1433,3 +1433,52 @@ def test_the_printed_follow_up_is_the_command_that_actually_rebuilds(tmp_path: P
     assert result.exit_code == 0, result.output
     printed = next(line for line in result.output.splitlines() if "rebuild-derived-tables" in line)
     assert f"--authorize-namespace {CANONICAL}" in printed, printed
+
+
+def test_the_printed_follow_up_survives_a_shell(tmp_path: Path, monkeypatch) -> None:
+    """It was printed with `<checkout>`, which a shell reads as two redirections.
+
+    `<checkout` opens a file and `>` takes the next word as an output target, so the shell
+    consumed the `--table` flag, left the table name in the checkout position, and diverted every
+    message into a file named `--table`. A rebuild with no `--table` replaces every derived table,
+    which is what the selection exists to prevent, and this is the instruction an operator follows
+    while the tables are already dropped.
+    """
+    import shlex
+
+    from click.testing import CliRunner
+
+    import nmdc_lakehouse.derived_tables as derived_tables
+    from nmdc_lakehouse.cli import cli
+
+    path = _promotion_plan_file(tmp_path)
+    plan, digest = load_promotion_plan(path)
+    assert plan.derived_rebuilds, "this test needs a plan that drops a derived table"
+    monkeypatch.setattr(derived_tables, "spark_session", lambda _checkout: _RecordingSpark())
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "berdl-promote",
+            str(path),
+            "--ingest-checkout",
+            str(tmp_path),
+            "--authorize-plan-sha256",
+            digest,
+            "--authorize-canonical-namespace",
+            CANONICAL,
+            "--authorize-destination-id",
+            plan.destination_id,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    printed = next(line for line in result.output.splitlines() if "rebuild-derived-tables" in line)
+    command = printed.split("run: ", 1)[1]
+    # shlex is the shell's own tokenizer, so this asks what a shell would actually receive rather
+    # than what the string looks like.
+    assert "<" not in command and ">" not in command, command
+    words = shlex.split(command)
+    for table in plan.derived_rebuilds:
+        assert words[words.index("--table") + 1] == table, words
+    assert words[words.index("--authorize-namespace") + 1] == CANONICAL, words
