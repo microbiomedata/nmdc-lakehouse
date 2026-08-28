@@ -606,7 +606,12 @@ def berdl_apply_metadata_command(
 @cli.command("rebuild-derived-tables")
 @click.argument("namespace")
 @click.option("--ingest-checkout", type=click.Path(path_type=Path, file_okay=False), required=True)
-@click.option("--max-depth", type=int, default=None, help="Refuse rather than truncate past this many hops.")
+@click.option(
+    "--max-depth",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Refuse rather than truncate past this many hops.",
+)
 @click.option(
     "--authorize-namespace",
     help="Exact namespace, required to run. Without it this prints what it would do and stops.",
@@ -630,9 +635,17 @@ def rebuild_derived_tables_command(
         DEFAULT_MAX_DEPTH,
         DERIVED_TABLES,
         DerivedTableError,
+        check_namespace,
         rebuild_all,
         spark_session,
     )
+
+    # Refused before the preview, not after it. A preview that renders for a namespace the rebuild
+    # will always reject reads as an actionable plan for something that can never run.
+    try:
+        check_namespace(namespace)
+    except DerivedTableError as error:
+        raise click.ClickException(str(error)) from error
 
     depth = DEFAULT_MAX_DEPTH if max_depth is None else max_depth
     targets = ", ".join(f"{namespace}.{table}" for table in DERIVED_TABLES)

@@ -74,7 +74,7 @@ class RebuildOutcome:
     depth_reached: int = 0
 
 
-def _check_namespace(namespace: str) -> str:
+def check_namespace(namespace: str) -> str:
     """Require `<catalog>.<namespace>`, for the reason the rest of this repository does.
 
     An unqualified name resolves in whatever catalog the session points at, and these statements
@@ -88,7 +88,7 @@ def _check_namespace(namespace: str) -> str:
 
 def graph_edges_statement(namespace: str) -> str:
     """Return the single statement that rebuilds `graph_edges` from its four side tables."""
-    _check_namespace(namespace)
+    check_namespace(namespace)
     unions = "\n    UNION ALL\n".join(
         f"    SELECT {src} AS src, {dst} AS next_id, '{slot}' AS slot\n    FROM {namespace}.{table}"
         for table, src, dst, slot in _EDGE_SOURCES
@@ -98,7 +98,7 @@ def graph_edges_statement(namespace: str) -> str:
 
 def seed_frontier_statement(namespace: str) -> str:
     """Every workflow run is its own origin at depth zero."""
-    _check_namespace(namespace)
+    check_namespace(namespace)
     return f"SELECT id AS origin, id AS id FROM {namespace}.workflow_execution_set WHERE id IS NOT NULL"
 
 
@@ -108,7 +108,7 @@ def hop_statement(namespace: str, frontier_view: str) -> str:
     A join, not an `IN (...)` list. The notebook inlined every frontier id into the statement
     text, so the statement grew with the data and at 33,234 workflow runs was megabytes wide.
     """
-    _check_namespace(namespace)
+    check_namespace(namespace)
     return (
         f"SELECT DISTINCT f.origin AS origin, e.next_id AS id "
         f"FROM {frontier_view} f JOIN {namespace}.graph_edges e ON e.src = f.id "
@@ -131,7 +131,7 @@ def continuing_frontier_statement(step_view: str) -> str:
 
 def processing_types_statement(namespace: str, frontier_view: str) -> str:
     """Which MaterialProcessing classes the current frontier passes through."""
-    _check_namespace(namespace)
+    check_namespace(namespace)
     return (
         f"SELECT DISTINCT f.origin AS workflow_run_id, m.type AS processing_type "
         f"FROM {frontier_view} f JOIN {namespace}.material_processing_set m ON m.id = f.id "
@@ -147,7 +147,7 @@ def unaccounted_processing_types_statement(namespace: str) -> str:
     as false for every processing step it did take. The table is then wrong in the direction that
     looks right: it says the processing did not happen rather than that it was not measured.
     """
-    _check_namespace(namespace)
+    check_namespace(namespace)
     known = ", ".join(f"'{nmdc_type}'" for nmdc_type in PROCESSING_TYPES)
     return (
         f"SELECT DISTINCT type FROM {namespace}.material_processing_set "
@@ -163,7 +163,7 @@ def check_processing_types_are_accounted_for(spark: object, namespace: str) -> N
     output. Carried over from the preflight cell of the notebook this replaced, which printed a
     warning and left it to the operator to notice.
     """
-    _check_namespace(namespace)
+    check_namespace(namespace)
     try:
         rows = spark.sql(unaccounted_processing_types_statement(namespace)).collect()  # type: ignore[attr-defined]
     except Exception as error:
@@ -184,7 +184,7 @@ def pair_statement(namespace: str, reached_view: str, processing_view: str) -> s
     `MIN(n_hops)` because a biosample can be reached by more than one path and the documented
     meaning of the column is the minimum number of edges.
     """
-    _check_namespace(namespace)
+    check_namespace(namespace)
     flags = ",\n       ".join(
         f"MAX(CASE WHEN p.processing_type = '{nmdc_type}' THEN true ELSE false END) AS {column}"
         for nmdc_type, column in PROCESSING_TYPES.items()
@@ -256,7 +256,7 @@ def rebuild_all(
     `DERIVED_TABLES` rather than from this function, so a caller reading either sees the same
     answer, and the promotion plan built in `berdl_promotion` orders its rebuilds the same way.
     """
-    _check_namespace(namespace)
+    check_namespace(namespace)
     say = progress if callable(progress) else (lambda _message: None)
     # Named rather than defaulted. An `else` branch sent anything that was not `graph_edges` to
     # the walk, so a third entry in DERIVED_TABLES would have been rebuilt by the wrong function
@@ -283,7 +283,7 @@ def rebuild_graph_edges(spark: object, namespace: str) -> RebuildOutcome:
     No `USING DELTA`. The notebook pinned the format, which was right for the Hive namespace it
     targeted and wrong for an Iceberg one; leaving it out lets the catalog decide.
     """
-    _check_namespace(namespace)
+    check_namespace(namespace)
     try:
         spark.sql(graph_edges_statement(namespace))  # type: ignore[attr-defined]
     except Exception as error:
@@ -312,7 +312,7 @@ def rebuild_biosample_to_workflow_run(
     because a silently truncated walk loses provenance for the deepest samples only, which is the
     hardest kind of gap to notice.
     """
-    _check_namespace(namespace)
+    check_namespace(namespace)
     if max_depth < 1:
         raise DerivedTableError("max_depth must be at least 1.")
     say = progress if callable(progress) else (lambda _message: None)

@@ -613,3 +613,31 @@ def test_a_session_imported_from_outside_the_checkout_is_refused(tmp_path: Path,
 
     with pytest.raises(DerivedTableError, match="not inside"):
         spark_session(checkout)
+
+
+def test_the_command_refuses_an_unqualified_namespace_before_previewing() -> None:
+    """A preview that renders for a value the rebuild always rejects reads as an actionable plan."""
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    result = CliRunner().invoke(cli, ["rebuild-derived-tables", "nmdc_metadata", "--ingest-checkout", "/tmp"])
+
+    assert result.exit_code != 0, result.output
+    assert "must be catalog-qualified" in result.output
+    assert "nothing has been changed" not in result.output
+
+
+def test_the_command_refuses_a_max_depth_below_one_before_previewing() -> None:
+    """rebuild_all refuses max_depth < 1, so accepting it at the boundary previews an impossible run."""
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    result = CliRunner().invoke(
+        cli,
+        ["rebuild-derived-tables", "nmdc.metadata", "--ingest-checkout", "/tmp", "--max-depth", "0"],
+    )
+
+    assert result.exit_code != 0, result.output
+    assert "nothing has been changed" not in result.output
