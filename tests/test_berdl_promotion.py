@@ -1124,3 +1124,42 @@ def test_a_plan_carrying_retire_is_refused(tmp_path: Path) -> None:
 
     with pytest.raises(PromotionPlanError, match="cannot express: retire"):
         load_promotion_plan(tampered)
+
+
+def test_an_interrupted_promotion_still_names_what_already_ran(tmp_path: Path) -> None:
+    """KeyboardInterrupt does not derive from Exception, so Ctrl-C bypassed the reporting entirely.
+
+    That is the moment the record matters most: the operator stopped a destructive loop by hand and
+    Click printed a generic abort. Nothing can tell whether the interrupt landed between statements
+    or inside one, so the in-flight statement is reported as unknown rather than as skipped.
+    """
+
+    class InterruptingSpark:
+        def __init__(self) -> None:
+            self.statements: list[str] = []
+
+        def sql(self, statement: str) -> object:
+            self.statements.append(statement)
+            if len(self.statements) == 2:
+                raise KeyboardInterrupt
+            return object()
+
+    plan, digest = _executable_plan(tmp_path)
+    expected = [statement for _step, _table, statement in promotion_statements(plan)]
+    assert len(expected) >= 2, "this test needs a plan with at least two statements"
+
+    with pytest.raises(PromotionRefused) as refusal:
+        execute_promotion(
+            InterruptingSpark(),
+            plan,
+            plan_sha256=digest,
+            authorize_plan_sha256=digest,
+            authorize_canonical_namespace=CANONICAL,
+            authorize_destination_id=plan.destination_id,
+        )
+
+    message = str(refusal.value)
+    assert "was interrupted during" in message, message
+    assert "may or may not have taken effect" in message, message
+    assert expected[0] in message, message
+    assert "1 statement(s) had already run" in message, message

@@ -692,13 +692,20 @@ def execute_promotion(
         say(f"{step}: {plan.canonical_namespace}.{table}")
         try:
             spark.sql(statement)  # type: ignore[attr-defined]
-        except Exception as error:
+        # BaseException, not Exception. Ctrl-C raises KeyboardInterrupt, which does not derive from
+        # Exception, so an operator interrupting this loop got a generic abort and no record of
+        # what had already run. That is the moment the record matters most: the interrupt lands
+        # between statements or inside one, and nothing here can tell which, so the in-flight
+        # statement is reported as unknown rather than as failed or as skipped.
+        except BaseException as error:
             # Named, and with what already ran. A promotion that stops part way leaves the
             # namespace in a state nobody planned, and the operator's first question is which
             # objects moved.
+            stopped = "was interrupted during" if isinstance(error, KeyboardInterrupt) else "failed during"
             raise PromotionRefused(
-                f"The promotion failed during {step}: {statement}. "
-                f"{len(performed)} statement(s) had already run: {', '.join(performed) or 'none'}."
+                f"The promotion {stopped} {step}: {statement}. That statement may or may not have "
+                f"taken effect. {len(performed)} statement(s) had already run: "
+                f"{', '.join(performed) or 'none'}."
             ) from error
         performed.append(statement)
     return performed
