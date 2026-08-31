@@ -79,26 +79,26 @@ expansion. Vale matches text, so it cannot tell a term being used from a term
 being discussed; a bare-reference or undefined-term alert on a document about
 those rules is expected.
 
-`MinAlertLevel` in `.vale.ini` must stay at `error`, and a non-blocking rule
-works by Vale not emitting it rather than by CI ignoring it.
+CI runs `just prose-lint`, the same command you run. Severity decides the
+build: Vale 3.17.1 exits non-zero on an error-severity alert and zero on
+warnings and suggestions, and the recipe passes `--minAlertLevel=suggestion` so
+the others are printed rather than hidden. A clean run currently reports 0
+errors alongside 20 warnings and 118 suggestions, and passes.
 
-The Vale step in `.github/workflows/ci.yml` sets `fail_on_error: true`. The
-action installs reviewdog 0.17.0, and at that version `-fail-on-error` returns 1
-if any result is reported, with no severity threshold: its own flag
-documentation reads "Returns 1 as exit code if any errors/warnings found in
-input". Later reviewdog versions branch on the reporter; 0.17.0 does not, so
-pin the version when repeating this. The action also passes no
-`--minAlertLevel` to Vale, so `MinAlertLevel` above decides what Vale prints,
-and everything Vale prints can fail the build.
+`just test-prose-lint-exit` asserts both halves of that, and CI runs it too. It
+is the reason a silent gate and a working gate can be told apart.
 
-Lowering `MinAlertLevel` therefore makes every warning a failed build. Observed
-rather than inferred: a push with `MinAlertLevel = suggestion` failed the
-`check` job with 196 annotations, none of them error severity.
+`MinAlertLevel = error` in `.vale.ini` is therefore not what protects the build.
+The recipe overrides it. It stays at `error` so that a bare `vale` invocation
+without the recipe's flag is quiet rather than noisy. A non-blocking rule still
+works by Vale not emitting at error severity rather than by CI ignoring it.
 
-There is deliberately no `level:` input on that step. At the pinned action SHA
-it is never read; the action derives reviewdog's `-level` from Vale's own exit
-code. It was present and inert, and its presence convinced two readers that a
-severity threshold existed.
+CI used to run `vale-cli/vale-action` with `fail_on_error: true`, and under that
+setup any alert failed the build whatever its severity, because the reviewdog
+0.17.0 it installed returns 1 if any result is reported. That is why lowering
+`MinAlertLevel` once failed a build with 196 annotations and no errors in it.
+None of that applies now, and `.vale.ini` keeps the detail in case an action is
+ever reintroduced.
 
 Run `just prose-lint` rather than `vale` directly. The recipe sets `HOME` to a
 scratch directory, which is what stops a personal Vale configuration on the

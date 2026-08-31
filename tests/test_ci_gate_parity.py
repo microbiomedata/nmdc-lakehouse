@@ -59,6 +59,35 @@ def test_an_unbalanced_quote_does_not_stop_the_scan(tmp_path: Path) -> None:
     assert found == {"lint"}
 
 
+def test_a_recipe_run_only_by_an_unrelated_workflow_does_not_satisfy_parity(tmp_path: Path) -> None:
+    """This globbed every workflow, so any file mentioning a recipe made it look covered.
+
+    A gate that looks covered and is not is the exact failure this check exists to catch, and
+    issue 290 asks for every `check` dependency to appear in `ci.yml` specifically.
+    """
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "ci.yml").write_text("jobs:\n  check:\n    steps:\n      - run: just lint\n", encoding="utf-8")
+    (workflows / "unrelated.yml").write_text(
+        "jobs:\n  other:\n    steps:\n      - run: just typecheck\n", encoding="utf-8"
+    )
+    (tmp_path / "justfile").write_text(
+        "check: lint typecheck\n\nlint:\n    @true\n\ntypecheck:\n    @true\n", encoding="utf-8"
+    )
+
+    assert parity.missing_from_ci(tmp_path) == ["typecheck"]
+
+
+def test_a_missing_gate_workflow_is_an_error_rather_than_a_pass(tmp_path: Path) -> None:
+    """An absent ci.yml would otherwise mean nothing is invoked, so every recipe reports missing,
+    or worse, a future refactor makes the empty set read as agreement. Say which it is."""
+    (tmp_path / ".github" / "workflows").mkdir(parents=True)
+    (tmp_path / "justfile").write_text("check: lint\n\nlint:\n    @true\n", encoding="utf-8")
+
+    with pytest.raises(FileNotFoundError, match="gate parity cannot be established"):
+        parity.missing_from_ci(tmp_path)
+
+
 def test_this_repository_passes() -> None:
     """The check running against the real pair, which is what CI runs.
 

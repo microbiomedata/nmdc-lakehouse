@@ -119,7 +119,7 @@ jobs:
         run: just test-doc-procedures-exit
 
       - name: Check CI runs every gate `just check` runs
-        run: uv run python scripts/python/ci_gate_parity.py
+        run: just ci-gate-parity
 
       - name: Verify the gate-parity check can fail
         run: just test-ci-gate-parity-exit

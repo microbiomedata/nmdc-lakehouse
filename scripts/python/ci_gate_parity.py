@@ -70,11 +70,19 @@ def recipes_invoked_by(workflow: Path) -> set[str]:
     return invoked
 
 
+#: The workflow that has to run the gates. Named, not globbed. Globbing every file under
+#: `.github/workflows/` let a recipe mentioned in any unrelated workflow satisfy the comparison
+#: while `ci.yml` never ran it, which is the exact failure this check exists to catch: a gate that
+#: looks covered and is not. Issue 290 asks for every `check` dependency to appear in `ci.yml`.
+GATE_WORKFLOW = Path(".github") / "workflows" / "ci.yml"
+
+
 def missing_from_ci(root: Path) -> list[str]:
-    """Recipes `just check` runs that no CI workflow runs, excluding explained exemptions."""
-    invoked: set[str] = set()
-    for workflow in sorted((root / ".github" / "workflows").glob("*.yml")):
-        invoked |= recipes_invoked_by(workflow)
+    """Recipes `just check` runs that the gate workflow does not, excluding explained exemptions."""
+    workflow = root / GATE_WORKFLOW
+    if not workflow.is_file():
+        raise FileNotFoundError(f"{GATE_WORKFLOW} is missing, so gate parity cannot be established.")
+    invoked = recipes_invoked_by(workflow)
     return [name for name in check_dependencies(root) if name not in invoked and name not in EXEMPT]
 
 
