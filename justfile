@@ -63,6 +63,11 @@ rebuild-derived-tables NAMESPACE INGEST_CHECKOUT *ARGS:
 berdl-promotion-plan PUBLICATION_PLAN STAGING_OUTCOME METADATA_OUTCOME CANONICAL_NAMESPACE RECOVERY OUTPUT *ARGS:
     uv run --no-sync nmdc-lakehouse berdl-promotion-plan --plan "{{ PUBLICATION_PLAN }}" --staging-outcome "{{ STAGING_OUTCOME }}" --metadata-outcome "{{ METADATA_OUTCOME }}" --canonical-namespace "{{ CANONICAL_NAMESPACE }}" --recovery "{{ RECOVERY }}" --output "{{ OUTPUT }}" {{ ARGS }}
 
+# Perform the promotion a reviewed plan describes. Previews by default; the three --authorize-
+# options are passed through ARGS, so the destructive form is never the shorter command.
+berdl-promote PROMOTION_PLAN INGEST_CHECKOUT *ARGS:
+    uv run --no-sync nmdc-lakehouse berdl-promote "{{ PROMOTION_PLAN }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" {{ ARGS }}
+
 # Preview or apply approved table/column descriptions to verified BERDL staging tables.
 berdl-apply-metadata METADATA_PLAN STAGING_OUTCOME INGEST_CHECKOUT OUTCOME *ARGS:
     uv run --no-sync nmdc-lakehouse berdl-apply-metadata "{{ METADATA_PLAN }}" "{{ STAGING_OUTCOME }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" --output "{{ OUTCOME }}" {{ ARGS }}

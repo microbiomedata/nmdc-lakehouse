@@ -64,8 +64,10 @@ did take. Query the current breakdown with
 
 ## Rebuilding it
 
-Both derived tables are replaced together, `graph_edges` first because this one
-walks it. Previewing is the default; execution needs the namespace named twice.
+Every derived table is replaced by default, `graph_edges` first because this one
+walks it. `--table` selects a subset, which is what a promotion that rebuilt one
+and preserved the other needs; without it a rebuild replaces the preserved one
+too. Previewing is the default; execution needs the namespace named twice.
 
 <!-- unverified: this command has not been run against a live namespace. Running
      it is tracked in

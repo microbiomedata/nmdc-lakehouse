@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import re
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -261,12 +262,19 @@ def rebuild_all(
     namespace: str,
     max_depth: int = DEFAULT_MAX_DEPTH,
     progress: object = None,
+    tables: Sequence[str] | None = None,
 ) -> list[RebuildOutcome]:
-    """Rebuild both derived tables, in the order one depends on the other.
+    """Rebuild the derived tables, in the order one depends on the other.
 
     `graph_edges` first, because `biosample_to_workflow_run` walks it. The order comes from
     `DERIVED_TABLES` rather than from this function, so a caller reading either sees the same
     answer, and the promotion plan built in `berdl_promotion` orders its rebuilds the same way.
+
+    `tables` names a subset. It exists because a promotion plan can legitimately rebuild one
+    derived table and preserve the other, and this replaced both regardless, so the documented
+    follow-up to such a promotion would have replaced a table nobody authorized touching. Whatever
+    is named is still ordered by `DERIVED_TABLES`, since the dependency does not stop applying
+    because a caller listed them differently.
     """
     check_namespace(namespace)
     # Every precondition is checked before the first builder runs. graph_edges is replaced first,
@@ -282,11 +290,15 @@ def rebuild_all(
             spark, namespace, max_depth=max_depth, progress=say
         ),
     }
-    unknown = sorted(set(DERIVED_TABLES) - set(builders))
+    wanted = list(DERIVED_TABLES) if tables is None else list(tables)
+    if not wanted:
+        raise DerivedTableError("No derived tables were named to rebuild.")
+    unknown = sorted(set(wanted) - set(builders))
     if unknown:
         raise DerivedTableError("No rebuild procedure exists for: " + ", ".join(unknown) + ".")
+    selected = [table for table in DERIVED_TABLES if table in set(wanted)]
     outcomes = []
-    for table in DERIVED_TABLES:
+    for table in selected:
         say(f"rebuilding {namespace}.{table}")
         outcomes.append(builders[table]())
     return outcomes

@@ -1,7 +1,10 @@
 # Probing BERDL promotion and recovery capability
 
-Canonical promotion is not implemented. Before it can be, the platform has to
-answer three questions that no BERDL runbook currently answers: whether a table
+`berdl-promote` performs a canonical promotion; see
+[the runbook](berdl-upload.md#performing-the-promotion). It has never been run
+against a live catalog, and recovery from a partial promotion is still not
+implemented, which is what this probe is for. The platform has to answer three
+questions that no BERDL runbook currently answers: whether a table
 can be renamed across two namespaces in the same tenant catalog, whether a
 supported recovery operation exists and is permitted, and how long a snapshot
 survives so a recovery promise can be bounded. This command establishes those
