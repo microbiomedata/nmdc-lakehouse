@@ -70,6 +70,10 @@ def check_dependencies(root: Path) -> list[str]:
 _DEFINITELY_BLOCKING = frozenset({None, False, "false", "False"})
 _DEFINITELY_RUNS = frozenset({None, True, "true", "True"})
 
+#: Literally never runs. Distinguished from "cannot be proved to run", because an exemption may be
+#: backed by a step that might run and must not be backed by one that cannot.
+_NEVER_RUNS = frozenset({False, "false", "False", "${{ false }}", "${{false}}"})
+
 
 def _can_fail_the_build(node: dict) -> bool:
     """Whether this job or step is provably able to fail the build."""
@@ -129,9 +133,14 @@ def _gate_steps(workflow: Path) -> tuple[set[str], set[str]]:
             matched = _GATE_STEP.match(line)
             if not matched:
                 continue
-            if job_runs and step.get("if") in _DEFINITELY_RUNS:
+            step_if = step.get("if")
+            if job_runs and step_if in _DEFINITELY_RUNS:
                 blocking.add(matched.group("recipe"))
-            else:
+            elif step_if not in _NEVER_RUNS and job.get("if") not in _NEVER_RUNS:
+                # Conditional means "might run", not "does not run". A literal `if: false` was
+                # landing here, and since an exemption may be backed by a conditional step, that
+                # let an exempt gate be switched off by changing its condition to false while
+                # parity stayed green.
                 conditional.add(matched.group("recipe"))
     return blocking, conditional
 
@@ -215,7 +224,13 @@ def main() -> int:
         print(f"gate parity: {len(missing)} recipe(s) in `just check` that CI does not run")
         for name in missing:
             print(f"  {name}")
-        print("\nAdd a step running each, or add it to EXEMPT with the reason it is not run.")
+        print(
+            "\nAdd a step to "
+            + str(GATE_WORKFLOW)
+            + " running each as `just <recipe>`. EXEMPT is not an alternative to that: it only "
+            "covers a gate that already has a step this cannot prove will run, such as one behind "
+            "an `if` expression, and it records why."
+        )
         return 1
     # Naming the exemptions, because "CI runs all 15" is false when one of them is exempt, and a
     # success line that overstates what was checked is the same defect this whole check is about.

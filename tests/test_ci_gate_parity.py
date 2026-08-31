@@ -294,3 +294,25 @@ def test_a_conditional_gate_is_reported_as_conditional_not_blocking(tmp_path: Pa
 
     assert parity.recipes_invoked_by(path) == {"lint"}
     assert parity.recipes_conditionally_invoked_by(path) == {"guarded"}
+
+
+def test_a_step_that_literally_never_runs_cannot_back_an_exemption(tmp_path: Path, monkeypatch) -> None:
+    """Conditional means "might run", not "does not run".
+
+    A literal `if: false` was landing in the conditional set, and since an exemption may be backed
+    by a conditional step, that let an exempt gate be switched off by changing its condition to
+    false while parity stayed green.
+    """
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "ci.yml").write_text(
+        "jobs:\n  check:\n    steps:\n      - run: just lint\n      - run: just guarded\n        if: false\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "justfile").write_text(
+        "check: lint guarded\n\nlint:\n    @true\n\nguarded:\n    @true\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(parity, "EXEMPT", {"guarded": "runs on pull requests only"})
+
+    with pytest.raises(ValueError, match="covering their absence"):
+        parity.missing_from_ci(tmp_path)
