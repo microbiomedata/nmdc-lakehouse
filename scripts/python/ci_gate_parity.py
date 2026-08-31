@@ -18,6 +18,7 @@ itself sees it, and `ci.yml` is read with a YAML parser and its `run:` scripts t
 from __future__ import annotations
 
 import json
+import re
 import shlex
 import subprocess
 import sys
@@ -67,6 +68,11 @@ _IGNORED_RESULT = frozenset({True, "true", "True", "${{ true }}", "${{true}}"})
 #: request is a gate. Guessing at expressions would trade a real hole for a bigger one.
 _NEVER_RUNS = frozenset({False, "false", "False", "${{ false }}", "${{false}}"})
 
+#: Start of a heredoc, and the word that ends it. Lines inside one are data being written, not
+#: commands being run, so `just something` in a heredoc body is text. Matched on the raw line
+#: because `shlex` strips the quotes that distinguish `<<'EOF'` from `<<EOF`.
+_HEREDOC = re.compile(r"<<-?\s*[\'\"]?(?P<word>[A-Za-z_][A-Za-z0-9_]*)")
+
 
 def recipes_invoked_by(workflow: Path) -> set[str]:
     """Every recipe name a `run:` step in this workflow invokes as `just <name>`, blockingly.
@@ -89,7 +95,16 @@ def recipes_invoked_by(workflow: Path) -> set[str]:
             script = step.get("run")
             if not script:
                 continue
+            terminator: str | None = None
             for line in script.splitlines():
+                # Inside a heredoc body until its terminator. What is written there is data.
+                if terminator is not None:
+                    if line.strip() == terminator:
+                        terminator = None
+                    continue
+                opened = _HEREDOC.search(line)
+                if opened:
+                    terminator = opened.group("word")
                 if not line.strip():
                     continue
                 try:
@@ -107,11 +122,17 @@ def recipes_invoked_by(workflow: Path) -> set[str]:
                     if word.startswith("#"):
                         words = words[:index]
                         break
-                # Anywhere in the line, not only at the start: `echo go && just lint` runs the
-                # gate and takes its status. A recipe name, not a flag; `just --summary` invokes
-                # nothing.
+                # Only where `just` is the command being run: the start of the line, or straight
+                # after `&&`. `echo just new-gate` mentions a recipe and runs nothing, and
+                # counting it is a false pass, which is the direction that matters.
+                #
+                # Deliberately not a shell parser. Accepting the two positions that occur here is
+                # conservative: an unusual but real invocation is reported missing, which is
+                # visible and fixable, while the alternative is a gate that looks covered.
                 for index, word in enumerate(words[:-1]):
-                    if word == "just" and not words[index + 1].startswith("-"):
+                    if word != "just" or words[index + 1].startswith("-"):
+                        continue
+                    if index == 0 or words[index - 1] == "&&":
                         invoked.add(words[index + 1])
     return invoked
 

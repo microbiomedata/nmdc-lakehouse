@@ -249,3 +249,33 @@ def test_an_explained_exemption_is_honoured(tmp_path: Path, monkeypatch) -> None
     monkeypatch.setattr(parity, "EXEMPT", {"typecheck": "run by a separate scheduled workflow"})
 
     assert parity.missing_from_ci(_tiny_repo(tmp_path)) == []
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "          echo just new-gate",
+        "          echo 'run just new-gate first'",
+        "          printf '%s' just new-gate",
+    ],
+)
+def test_a_mention_of_a_recipe_is_not_an_invocation(tmp_path: Path, line: str) -> None:
+    """`echo just new-gate` names a recipe and runs nothing.
+
+    Counting it would let adding that recipe to `check` pass parity while CI never executes it,
+    which is a false pass and the direction that matters.
+    """
+    assert parity.recipes_invoked_by(_workflow(tmp_path, line)) == set()
+
+
+def test_a_heredoc_body_is_data_rather_than_commands(tmp_path: Path) -> None:
+    """What a heredoc writes is text. A gate named inside one is not run by naming it."""
+    script = "          cat > note.md <<'EOF'\n          just new-gate\n          EOF\n          just lint"
+
+    assert parity.recipes_invoked_by(_workflow(tmp_path, script)) == {"lint"}
+
+
+def test_the_two_command_positions_still_count(tmp_path: Path) -> None:
+    """The rejections must not reject real invocations, or parity fails for any input."""
+    assert parity.recipes_invoked_by(_workflow(tmp_path, "          just lint")) == {"lint"}
+    assert parity.recipes_invoked_by(_workflow(tmp_path, "          echo go && just lint")) == {"lint"}
