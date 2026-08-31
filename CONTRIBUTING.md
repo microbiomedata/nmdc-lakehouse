@@ -130,7 +130,36 @@ the check is to say which kind your block is.
 A `verified` marker must carry a date, because that is the claim worth holding to
 a format. "verified: ok" asserts something with nothing behind it, which is the
 failure this exists to prevent. An `unverified` marker concedes rather than
-claims, so it needs only a reason and somewhere it is tracked.
+claims, so it needs only a reason and either somewhere it is tracked or a
+statement that no tracking issue is named here:
+
+```
+<!-- unverified: needs a pod terminal, tracked in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/136 -->
+
+<!-- unverified: no run of this procedure is recorded, and no tracking issue is
+     named here. -->
+```
+
+The second form says something about the marker rather than about the world, on
+purpose. An earlier wording claimed nothing tracked the procedure, which was
+wrong for five markers whose work is tracked by an open issue. If you know the
+tracker, name it; if you have not checked, say only that none is named here.
+
+The second form exists because a tracker does not always exist. The rule once
+required one unconditionally, and 80 markers ended up naming an issue that had
+closed when a different piece of work finished, so the pointer looked live and
+was not. Inventing an issue so the pointer resolves is worse than saying there is
+none: it sends the reader somewhere that will not help them.
+
+If the issue a marker names has since closed, the marker needs changing: point at
+a live issue, or say that no tracking issue is named here. Saying "now closed" beside the
+old reference is not accepted, because deciding from prose whether an issue is
+settled cannot be done reliably. "#1 is still open and expected to be closed
+later" defeated three attempts at it.
+
+`just doc-references-issues` reports markers pointing at a closed issue, and it
+is not part of `just check` because it queries GitHub.
 
 Most of the existing markers say `unverified`, which is the honest state: nobody
 has recorded running those procedures. Changing one to `verified` means you ran

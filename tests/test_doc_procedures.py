@@ -383,3 +383,15 @@ def test_an_unverified_marker_must_say_where_it_is_tracked() -> None:
         )
         is None
     )
+
+
+def test_an_untracked_marker_must_say_here() -> None:
+    """Without `here` the gate accepted the opening of a sentence that names one somewhere else.
+
+    Both CONTRIBUTING and the failure message ask for "no tracking issue is named here", so a gate
+    accepting less than that lets a weaker marker through than the documentation describes.
+    """
+    assert marker_fault("<!-- unverified: nobody ran it, and no tracking issue is named -->") is not None
+    assert marker_fault("<!-- unverified: nobody ran it, and no tracking issue is named here. -->") is None
+    # Markers wrap, and the continuation is indented, so the phrase is routinely split.
+    assert marker_fault("<!-- unverified: nobody ran it, and no tracking issue is\n     named here. -->") is None

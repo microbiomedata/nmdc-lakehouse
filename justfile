@@ -183,6 +183,66 @@ test-prose-lint-exit:
 # There is no exemption list. One was tried, grandfathering the blocks that predated the rule by
 # content hash, and it produced seven distinct defects across eight rounds of review, each a way
 # for the check to stop applying. All 81 were declared instead.
+# Check that references in docs resolve for a reader. Offline: a cited scripts/ path must exist,
+# unless the file declares its paths belong to another checkout. The closed-issue rule needs the
+# network, so it is `doc-references-issues` and is not part of `check`.
+doc-references:
+    uv run python scripts/python/doc_references.py docs
+
+# The same checker plus one GitHub query per cited issue. Kept out of `check` because a transient
+# network failure would fail `check` for a reason that has nothing to do with the change under
+# test. It is not that a failure would pass unnoticed: an unreadable state fails this command
+# deliberately, which is the opposite problem and the reason it cannot live in an offline gate.
+doc-references-issues:
+    uv run python scripts/python/doc_references.py docs --check-issues
+
+# Prove doc-references can fail. A checker that has never rejected anything is not evidence.
+test-doc-references-exit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    printf 'cites scripts/nope.py which is not here\n' > "$tmp/bad.md"
+    printf '<!-- external-scripts: some/other-repo -->\ncites scripts/nope.py\n' > "$tmp/declared.md"
+    # --root "$tmp", so what this proves does not depend on the checkout's contents. Without it the
+    # test asserted that scripts/nope.py is absent from this repository, and adding such a file
+    # would have broken the exit contract for a reason unrelated to the gate.
+    rc=0; uv run --no-sync python scripts/python/doc_references.py --root "$tmp" "$tmp/bad.md" >/dev/null 2>&1 || rc=$?
+    [ "$rc" -ne 0 ] || { echo "doc-references did NOT fail on a missing script; the gate is inert"; exit 1; }
+    # And the positive half needs a file that really is there, or it passes because the path is
+    # declared and because it is missing, which proves only one of the two.
+    mkdir -p "$tmp/scripts"; : > "$tmp/scripts/nope.py"
+    rc=0; uv run --no-sync python scripts/python/doc_references.py --root "$tmp" "$tmp/declared.md" >/dev/null 2>&1 || rc=$?
+    [ "$rc" -eq 0 ] || { echo "doc-references rejected a declared external path; the gate is too strict"; exit 1; }
+    rm "$tmp/scripts/nope.py"
+    echo "doc-references exit contract holds: missing fails, declared passes"
+
+# Prove the issues rule fails on an unreadable state rather than passing. Not in `check`: it
+# queries GitHub, and a network failure inside `check` is exactly what the offline split avoids.
+test-doc-references-issues-exit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    # Issue 0, not a large number. GitHub issue numbers start at 1, so this can never become
+    # readable; 999999 would start passing for the wrong reason if the repository ever got there.
+    printf '<!-- unverified: x, tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/0 -->\n' > "$tmp/unreadable.md"
+    rc=0; uv run --no-sync python scripts/python/doc_references.py "$tmp/unreadable.md" --check-issues >/dev/null 2>&1 || rc=$?
+    [ "$rc" -ne 0 ] || { echo "an unreadable issue state passed; a network failure would read as clean"; exit 1; }
+    # The case the rule is actually for. The check above only proves the unreadable branch fails,
+    # so main() could stop failing on a stale marker and this recipe would still pass. A stub gh
+    # on PATH makes it deterministic and offline, unlike issue 0.
+    mkdir -p "$tmp/bin"
+    printf '#!/bin/sh\nprintf %%s "{\\"state\\": \\"CLOSED\\"}"\n' > "$tmp/bin/gh"
+    chmod +x "$tmp/bin/gh"
+    printf '<!-- unverified: x, tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/1 -->\n' > "$tmp/stale.md"
+    rc=0; PATH="$tmp/bin:$PATH" uv run --no-sync python scripts/python/doc_references.py "$tmp/stale.md" --check-issues >/dev/null 2>&1 || rc=$?
+    [ "$rc" -ne 0 ] || { echo "a marker naming a CLOSED issue passed; the rule does not fail the command"; exit 1; }
+    # No "settled passes" case. There is no settlement escape: saying the issue closed does not
+    # excuse naming it, because reading that from prose is the judgement this checker does not make.
+    printf '<!-- unverified: x, and nothing tracks running it -->\n' > "$tmp/untracked.md"
+    rc=0; PATH="$tmp/bin:$PATH" uv run --no-sync python scripts/python/doc_references.py "$tmp/untracked.md" --check-issues >/dev/null 2>&1 || rc=$?
+    [ "$rc" -eq 0 ] || { echo "a marker naming no issue was rejected; the rule is too strict"; exit 1; }
+    echo "doc-references-issues exit contract holds: unreadable fails, closed fails, no-issue passes"
+
 doc-procedures:
     uv run python scripts/python/doc_procedures.py docs
 
@@ -399,7 +459,7 @@ test-dist:
     bash scripts/check_distribution.sh
 
 # Run the deterministic local quality checks.
-check: lint-just prose-lint test-prose-lint-exit doc-procedures test-doc-procedures-exit shellcheck actionlint lint deps-lint typecheck check-flat-schema test-cov diff-cover
+check: lint-just prose-lint test-prose-lint-exit doc-procedures test-doc-procedures-exit doc-references test-doc-references-exit shellcheck actionlint lint deps-lint typecheck check-flat-schema test-cov diff-cover
 
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
 # See scripts/README.md for details. These recipes shell out to utilities under
