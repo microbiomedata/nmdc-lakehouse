@@ -184,6 +184,12 @@ def _gate_steps(workflow: Path) -> tuple[set[str], dict[str, str]]:
                 # exempted step used to record only the step condition, so an exemption naming
                 # that condition matched and parity passed while the gate could never run.
                 # Joining them means an exemption has to name the whole thing that guards it.
+                # A gate behind a guard that never runs is not conditional, it is off, and it is
+                # recorded in neither set. That is the same rule already applied to a step's own
+                # `if`, extended to the job's: without it a caller could write the disabled guard
+                # into EXEMPT as the condition it expects and match it exactly.
+                if any(str(guard).strip().lower() in _NEVER for guard in (job.get("if"), step_if)):
+                    continue
                 guards = []
                 if job.get("if") not in _DEFINITELY_RUNS:
                     guards.append(f"job-if: {job['if']}")

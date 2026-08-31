@@ -473,11 +473,26 @@ def test_the_recorded_condition_names_every_guard(tmp_path: Path) -> None:
     """What an exemption has to name, shown directly rather than implied by a refusal."""
     path = tmp_path / "w.yml"
     path.write_text(
-        "jobs:\n  gated:\n    if: false\n    needs: other\n    steps:\n"
+        "jobs:\n  gated:\n    needs: other\n    steps:\n"
         "      - run: just guarded\n        if: github.event_name == 'pull_request'\n",
         encoding="utf-8",
     )
 
-    assert parity.conditional_gates(path) == {
-        "guarded": "job-if: False; needs: other; github.event_name == 'pull_request'"
-    }
+    assert parity.conditional_gates(path) == {"guarded": "needs: other; github.event_name == 'pull_request'"}
+
+
+def test_a_never_running_job_guard_means_off_rather_than_conditional(tmp_path: Path) -> None:
+    """A gate behind a guard that never runs is in neither set.
+
+    Recording it as conditional let the disabled guard itself be written into EXEMPT as the
+    condition expected, and matched exactly. Off is not a kind of conditional.
+    """
+    path = tmp_path / "w.yml"
+    path.write_text(
+        "jobs:\n  gated:\n    if: false\n    steps:\n"
+        "      - run: just guarded\n        if: github.event_name == 'pull_request'\n",
+        encoding="utf-8",
+    )
+
+    assert parity.recipes_invoked_by(path) == set()
+    assert parity.conditional_gates(path) == {}
