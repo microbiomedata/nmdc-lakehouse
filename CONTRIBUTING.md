@@ -105,9 +105,9 @@ ever reintroduced.
 Run `just prose-lint` rather than `vale` directly. The recipe sets `HOME` to a
 scratch directory, which is what stops a personal Vale configuration on the
 machine leaking in; without it a local run can report problems CI will not, or
-miss the vocabulary CI uses. It lints the same file set as CI, and passes
-`--minAlertLevel=suggestion` so warnings and suggestions stay visible to you
-without reaching CI.
+miss the vocabulary CI uses. It is the same command CI runs, on the same file
+set, and passes `--minAlertLevel=suggestion` so warnings and suggestions stay
+visible. CI prints them too; they do not fail the build.
 
 ## Say whether a documented procedure has been run
 

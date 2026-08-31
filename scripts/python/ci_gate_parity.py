@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import re
-import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -48,115 +47,66 @@ def check_dependencies(root: Path) -> list[str]:
     ]
 
 
-#: Shell tokens that mean the recipe's exit status stops deciding the step's. `just g || true`
-#: runs the gate and throws away its verdict, which is the silent gate this check exists to catch,
-#: so a line containing any of these is not counted as running that gate.
-#:
-#: `&&` is deliberately absent, and was wrongly included at first. An AND-list exits with the
-#: failing command's status: `just g && echo ok` short-circuits when `g` fails and the step fails
-#: with it. Rejecting `&&` reported a genuinely enforced gate as missing. `;` and `|` do discard
-#: it, because the list or pipeline takes the last command's status, and `&` backgrounds it.
-_NON_BLOCKING = frozenset({"||", ";", "|", "&"})
-
 #: Values of `continue-on-error` that mean GitHub ignores the result. The expression form is
 #: included because `${{ true }}` is how it is often written and reads as different from `true`.
 _IGNORED_RESULT = frozenset({True, "true", "True", "${{ true }}", "${{true}}"})
 
 #: Values of `if` that mean the job or step never runs. Only the statically decidable ones. An
-#: arbitrary expression is NOT evaluated and its step is counted: `diff-cover` in this repository
-#: runs under `if: github.event_name == 'pull_request'`, and a gate that runs on every pull
-#: request is a gate. Guessing at expressions would trade a real hole for a bigger one.
+#: arbitrary expression is NOT evaluated and its step still counts: `diff-cover` in this repository
+#: runs under `if: github.event_name == 'pull_request'`, and a gate that runs on every pull request
+#: is a gate. Guessing at expressions would trade a real hole for a bigger one.
 _NEVER_RUNS = frozenset({False, "false", "False", "${{ false }}", "${{false}}"})
 
-#: Start of a heredoc, and the word that ends it. Lines inside one are data being written, not
-#: commands being run, so `just something` in a heredoc body is text. Matched on the raw line
-#: because `shlex` strips the quotes that distinguish `<<'EOF'` from `<<EOF`.
-_HEREDOC = re.compile(r"<<-?\s*[\'\"]?(?P<word>[A-Za-z_][A-Za-z0-9_]*)")
+#: A step that runs exactly one gate and nothing else.
+#:
+#: This is the whole rule, and it replaced a scanner that tried to read arbitrary shell. That
+#: scanner was wrong four times in four review rounds, each time in a way that let a gate look
+#: enforced when it was not: `just g || true` discards the verdict, `bash -e` exempts the left of
+#: the final `&&` so a multi-line block continues past a failed gate, `echo just g` is a mention
+#: rather than a call, and `shlex.split` splits on whitespace so `just g ||true` hides the operator
+#: in a token. Every fix was correct and the next round found the next case, because reading shell
+#: correctly needs a shell parser and there is not one here.
+#:
+#: So the shell is not read at all. A gate step must be one line that is exactly `just <recipe>`.
+#: Every one of the 15 gates in this repository already is. Anything cleverer does not count and
+#: has to be listed in EXEMPT with its reason, which is a visible, deliberate act rather than a
+#: silent pass. The failure mode is now "a real gate is reported missing", which someone sees and
+#: fixes, instead of "a missing gate is reported present", which nobody sees.
+_GATE_STEP = re.compile(r"\Ajust (?P<recipe>[A-Za-z0-9_][A-Za-z0-9_-]*)(?P<rest> .*)?\Z")
+
+#: Characters that can put another command's exit status in place of the gate's: `|` covers both
+#: pipelines and `||`, `&` covers `&&` and backgrounding, and `;` starts a new command. Tested as
+#: characters rather than tokens on purpose. `shlex.split` splits on whitespace, so `just g ||true`
+#: became `['just', 'g', '||true']` and the operator hid inside a token; a character test cannot
+#: miss it. Arguments are allowed: `just diff-cover "origin/${GITHUB_BASE_REF}"` is a gate.
+_STATUS_MAY_BE_DISCARDED = frozenset("|&;")
 
 
 def recipes_invoked_by(workflow: Path) -> set[str]:
-    """Every recipe name a `run:` step in this workflow invokes as `just <name>`, blockingly.
+    """Recipes this workflow runs as a dedicated blocking step.
 
-    Blockingly is the whole point. A step that cannot fail the build asserts nothing, and counting
-    it would let parity pass while a green build says nothing about that gate, which is the
-    condition this check exists to prevent rather than a technicality.
+    A step whose `run` is exactly `just <recipe>`, in a job and step that can fail the build. That
+    is deliberately narrower than "every recipe mentioned": see `_GATE_STEP`.
     """
     document = yaml.safe_load(workflow.read_text(encoding="utf-8"))
     invoked: set[str] = set()
     for job in (document.get("jobs") or {}).values():
         # Checked at the job as well as the step. A job whose result is ignored, or which never
-        # runs, contains no gates however its steps are written, and looking only at steps left
-        # that hole open.
+        # runs, contains no gates however its steps are written.
         if job.get("continue-on-error") in _IGNORED_RESULT or job.get("if") in _NEVER_RUNS:
             continue
         for step in job.get("steps") or []:
             if step.get("continue-on-error") in _IGNORED_RESULT or step.get("if") in _NEVER_RUNS:
                 continue
             script = step.get("run")
-            if not script:
+            if not isinstance(script, str):
                 continue
-            # Collected first, because whether a line is the script's last command decides what
-            # `&&` means on it, and that cannot be known while streaming the lines.
-            commands: list[str] = []
-            terminator: str | None = None
-            for line in script.splitlines():
-                # Inside a heredoc body until its terminator. What is written there is data.
-                if terminator is not None:
-                    if line.strip() == terminator:
-                        terminator = None
-                    continue
-                opened = _HEREDOC.search(line)
-                if opened:
-                    terminator = opened.group("word")
-                if not line.strip() or line.strip().startswith("#"):
-                    continue
-                commands.append(line)
-
-            for position, line in enumerate(commands):
-                is_final = position == len(commands) - 1
-                try:
-                    words = shlex.split(line)
-                except ValueError:
-                    # An unbalanced quote is a shell problem, not this checker's; actionlint owns it.
-                    continue
-                # `just g || true` and friends run the gate and discard its verdict. Rejected for
-                # the whole line, because the operator can sit either side of the call.
-                if _NON_BLOCKING & set(words):
-                    continue
-                # Everything after a comment token is not run. A commented-out gate counting as a
-                # gate is a false pass, which is the direction that matters here.
-                for index, word in enumerate(words):
-                    if word.startswith("#"):
-                        words = words[:index]
-                        break
-                # Only where `just` is the command being run: the start of the line, or straight
-                # after `&&` when this is the script's last command. `echo just new-gate` mentions
-                # a recipe and runs nothing, and counting it is a false pass.
-                #
-                # The `&&` restriction is the subtle one. GitHub runs `run:` blocks under `bash -e`,
-                # and errexit exempts a command that fails on the left of an AND-list. So in
-                #
-                #     just lint && echo ok
-                #     echo later
-                #
-                # a failing `just lint` does not stop the script, and the script exits with
-                # `echo later`, which is 0. The gate ran and its verdict was thrown away. Only when
-                # the AND-list is the final command does its status become the script's.
-                #
-                # Deliberately not a shell parser. Accepting these positions is conservative: an
-                # unusual but real invocation is reported missing, which is visible and fixable,
-                # while the alternative is a gate that looks covered and is not.
-                positions = [0] + [index + 1 for index, word in enumerate(words) if word == "&&"]
-                # On a line that is not the script's last command, only the final position is
-                # enforced: errexit exempts everything to the left of the last `&&`, so those run
-                # and their verdicts are discarded. On the last line the AND-list's status becomes
-                # the script's, so every position in it is enforced.
-                enforced = positions if is_final else positions[-1:]
-                for index in enforced:
-                    if index + 1 >= len(words) or words[index] != "just":
-                        continue
-                    if not words[index + 1].startswith("-"):
-                        invoked.add(words[index + 1])
+            line = script.strip()
+            if "\n" in line or _STATUS_MAY_BE_DISCARDED & set(line):
+                continue
+            matched = _GATE_STEP.match(line)
+            if matched:
+                invoked.add(matched.group("recipe"))
     return invoked
 
 
@@ -179,11 +129,21 @@ def missing_from_ci(root: Path) -> list[str]:
             "An exemption must carry the reason it is not run, and these do not: " + ", ".join(unexplained) + "."
         )
     dependencies = check_dependencies(root)
-    stale = sorted(set(EXEMPT) - set(dependencies))
-    if stale:
+    # Stale in both directions. A name `check` dropped explains nothing, and a name CI now runs
+    # is worse: it would keep the gate exempt, so deleting that CI step later would be masked by
+    # an exemption nobody remembers writing.
+    departed = sorted(set(EXEMPT) - set(dependencies))
+    if departed:
         raise ValueError(
             "These exemptions name recipes `just check` no longer runs, so they explain nothing: "
-            + ", ".join(stale)
+            + ", ".join(departed)
+            + "."
+        )
+    enforced = sorted(set(EXEMPT) & invoked)
+    if enforced:
+        raise ValueError(
+            "CI runs these, so their exemptions are stale and would hide the gate being removed: "
+            + ", ".join(enforced)
             + "."
         )
     return [name for name in dependencies if name not in invoked and name not in EXEMPT]

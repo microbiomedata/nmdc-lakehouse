@@ -23,13 +23,6 @@ def test_a_recipe_invoked_by_a_run_step_is_found(tmp_path: Path) -> None:
     assert parity.recipes_invoked_by(_workflow(tmp_path, "          just typecheck")) == {"typecheck"}
 
 
-def test_every_line_of_a_multi_line_run_step_is_read(tmp_path: Path) -> None:
-    """A step that runs two recipes was a single string, and reading only the first missed one."""
-    found = parity.recipes_invoked_by(_workflow(tmp_path, "          just bootstrap\n          just lint"))
-
-    assert found == {"bootstrap", "lint"}
-
-
 def test_a_flag_is_not_mistaken_for_a_recipe(tmp_path: Path) -> None:
     """`just --summary` invokes nothing, and counting `--summary` as a gate would satisfy the
     comparison with a recipe nobody runs."""
@@ -49,14 +42,6 @@ def test_a_workflow_with_no_jobs_is_not_an_error(tmp_path: Path) -> None:
     path.write_text("name: nothing\n", encoding="utf-8")
 
     assert parity.recipes_invoked_by(path) == set()
-
-
-def test_an_unbalanced_quote_does_not_stop_the_scan(tmp_path: Path) -> None:
-    """actionlint owns shell syntax. This one must not fail closed on a line it cannot tokenise,
-    because that would report every later recipe as missing."""
-    found = parity.recipes_invoked_by(_workflow(tmp_path, '          echo "unbalanced\n          just lint'))
-
-    assert found == {"lint"}
 
 
 def test_a_recipe_run_only_by_an_unrelated_workflow_does_not_satisfy_parity(tmp_path: Path) -> None:
@@ -86,39 +71,6 @@ def test_a_missing_gate_workflow_is_an_error_rather_than_a_pass(tmp_path: Path) 
 
     with pytest.raises(FileNotFoundError, match="gate parity cannot be established"):
         parity.missing_from_ci(tmp_path)
-
-
-@pytest.mark.parametrize(
-    "line",
-    [
-        "          just lint || true",
-        "          just lint ; echo done",
-        "          just lint | tee out.txt",
-        "          just lint &",
-    ],
-)
-def test_a_gate_whose_verdict_is_discarded_does_not_count(tmp_path: Path, line: str) -> None:
-    """`just lint || true` runs the gate and throws away the answer.
-
-    Counting it would let parity pass while a green build says nothing about that gate, which is
-    the silent-gate condition this check exists to prevent rather than a technicality.
-    """
-    assert parity.recipes_invoked_by(_workflow(tmp_path, line)) == set()
-
-
-def test_an_and_list_still_counts(tmp_path: Path) -> None:
-    """`&&` was rejected and should not have been.
-
-    An AND-list exits with the failing command's status, so `just lint && echo ok` short-circuits
-    when the gate fails and the step fails with it. That is an enforced gate, and reporting it as
-    missing is a false alarm on a working setup.
-    """
-    assert parity.recipes_invoked_by(_workflow(tmp_path, "          just lint && echo ok")) == {"lint"}
-
-
-def test_a_gate_after_an_and_still_counts(tmp_path: Path) -> None:
-    """`echo starting && just lint` takes the gate's status too."""
-    assert parity.recipes_invoked_by(_workflow(tmp_path, "          echo go && just lint")) == {"lint"}
 
 
 @pytest.mark.parametrize("ignored", [True, "true", "${{ true }}"])
@@ -201,17 +153,10 @@ def test_check_has_dependencies_to_compare() -> None:
 def test_the_three_gates_this_check_was_written_for_are_in_ci(name: str) -> None:
     """The three the issue measured. Named so a regression says which one came back."""
     root = Path(__file__).resolve().parents[1]
-    invoked: set[str] = set()
-    for workflow in sorted((root / ".github" / "workflows").glob("*.yml")):
-        invoked |= parity.recipes_invoked_by(workflow)
 
-    assert name in invoked
-
-
-def test_a_commented_out_gate_does_not_count(tmp_path: Path) -> None:
-    """A commented gate counting as a gate is a false pass, which is the direction that matters."""
-    assert parity.recipes_invoked_by(_workflow(tmp_path, "          # just lint")) == set()
-    assert parity.recipes_invoked_by(_workflow(tmp_path, "          just lint # just typecheck")) == {"lint"}
+    # The gate workflow specifically. Aggregating every workflow here would let this pass because
+    # a gate appears somewhere unrelated, which is the hole `missing_from_ci` was changed to close.
+    assert name in parity.recipes_invoked_by(root / parity.GATE_WORKFLOW)
 
 
 def _tiny_repo(tmp_path: Path) -> Path:
@@ -252,63 +197,46 @@ def test_an_explained_exemption_is_honoured(tmp_path: Path, monkeypatch) -> None
 
 
 @pytest.mark.parametrize(
-    "line",
+    ("script", "expected"),
     [
-        "          echo just new-gate",
-        "          echo 'run just new-gate first'",
-        "          printf '%s' just new-gate",
+        ("just lint", {"lint"}),
+        ('just diff-cover "origin/${GITHUB_BASE_REF}"', {"diff-cover"}),
+        ("just lint || true", set()),
+        # `shlex.split` split on whitespace, so this hid the operator inside a token. A character
+        # test cannot miss it, which is why the rule tests characters rather than tokens.
+        ("just lint ||true", set()),
+        ("just lint&&echo ok", set()),
+        ("just lint ; echo done", set()),
+        ("just lint | tee out.txt", set()),
+        ("just lint &", set()),
+        ("echo just lint", set()),
+        ("just lint && echo ok\necho later", set()),
+        ("just --summary", set()),
+        ("# just lint", set()),
     ],
 )
-def test_a_mention_of_a_recipe_is_not_an_invocation(tmp_path: Path, line: str) -> None:
-    """`echo just new-gate` names a recipe and runs nothing.
+def test_only_a_dedicated_blocking_gate_step_counts(tmp_path: Path, script: str, expected: set[str]) -> None:
+    """One rule, replacing a scanner that read shell and was wrong four times in four rounds.
 
-    Counting it would let adding that recipe to `check` pass parity while CI never executes it,
-    which is a false pass and the direction that matters.
+    Every case here is one that scanner got wrong or had to grow a rule for. A gate step is one
+    line that runs `just <recipe>` and nothing that can put another command's status in its place.
+    Arguments are fine; operators are not. Anything cleverer is reported missing, which someone
+    sees and fixes, rather than counted, which nobody sees.
     """
-    assert parity.recipes_invoked_by(_workflow(tmp_path, line)) == set()
+    body = "\n".join("          " + line for line in script.split("\n"))
+    path = tmp_path / "w.yml"
+    path.write_text(f"jobs:\n  check:\n    steps:\n      - run: |\n{body}\n", encoding="utf-8")
+
+    assert parity.recipes_invoked_by(path) == expected
 
 
-def test_a_heredoc_body_is_data_rather_than_commands(tmp_path: Path) -> None:
-    """What a heredoc writes is text. A gate named inside one is not run by naming it."""
-    script = "          cat > note.md <<'EOF'\n          just new-gate\n          EOF\n          just lint"
+def test_an_exemption_for_a_gate_ci_already_runs_is_refused(tmp_path: Path, monkeypatch) -> None:
+    """Stale in the other direction, and the worse one.
 
-    assert parity.recipes_invoked_by(_workflow(tmp_path, script)) == {"lint"}
-
-
-def test_the_two_command_positions_still_count(tmp_path: Path) -> None:
-    """The rejections must not reject real invocations, or parity fails for any input."""
-    assert parity.recipes_invoked_by(_workflow(tmp_path, "          just lint")) == {"lint"}
-    assert parity.recipes_invoked_by(_workflow(tmp_path, "          echo go && just lint")) == {"lint"}
-
-
-def test_an_and_list_that_is_not_the_last_command_does_not_count(tmp_path: Path) -> None:
-    """GitHub runs `run:` blocks under `bash -e`, and errexit exempts the left of an AND-list.
-
-    So a failing `just lint` here does not stop the script, and the script exits with `echo later`,
-    which is 0. The gate ran and its verdict was discarded, which is a false green.
+    An exemption naming a gate CI runs keeps it exempt, so deleting that CI step later is masked
+    by an exemption nobody remembers writing.
     """
-    script = "          just lint && echo ok\n          echo later"
+    monkeypatch.setattr(parity, "EXEMPT", {"lint": "it is run elsewhere"})
 
-    assert parity.recipes_invoked_by(_workflow(tmp_path, script)) == set()
-
-
-def test_an_and_list_as_the_final_command_still_counts(tmp_path: Path) -> None:
-    """When the AND-list is last, its status is the script's, so the gate is enforced."""
-    script = "          echo starting\n          just lint && echo ok"
-
-    assert parity.recipes_invoked_by(_workflow(tmp_path, script)) == {"lint"}
-
-
-def test_trailing_blank_and_comment_lines_do_not_hide_the_final_command(tmp_path: Path) -> None:
-    """`just lint && echo ok` is still last if only blanks and comments follow it."""
-    script = "          just lint && echo ok\n\n          # done"
-
-    assert parity.recipes_invoked_by(_workflow(tmp_path, script)) == {"lint"}
-
-
-def test_a_gate_after_the_final_and_counts_even_when_the_line_is_not_last(tmp_path: Path) -> None:
-    """The command following the final `&&` is not exempt from errexit, so its failure stops the
-    script. That is the asymmetry: the left of the last `&&` is discarded, the right is not."""
-    script = "          echo go && just lint\n          echo later"
-
-    assert parity.recipes_invoked_by(_workflow(tmp_path, script)) == {"lint"}
+    with pytest.raises(ValueError, match="stale and would hide"):
+        parity.missing_from_ci(_tiny_repo(tmp_path))
