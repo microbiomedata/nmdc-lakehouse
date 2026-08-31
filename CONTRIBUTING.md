@@ -82,8 +82,10 @@ those rules is expected.
 CI runs `just prose-lint`, the same command you run. Severity decides the
 build: Vale 3.17.1 exits non-zero on an error-severity alert and zero on
 warnings and suggestions, and the recipe passes `--minAlertLevel=suggestion` so
-the others are printed rather than hidden. A clean run currently reports 0
-errors alongside 20 warnings and 118 suggestions, and passes.
+the others are printed rather than hidden. A run reporting no errors passes
+however many warnings and suggestions it lists, and this tree normally lists
+plenty. Do not record the totals here: they change with every prose edit, and a
+number written in two places is a number that will disagree with itself.
 
 `just test-prose-lint-exit` asserts both halves of that, and CI runs it too. It
 is the reason a silent gate and a working gate can be told apart.

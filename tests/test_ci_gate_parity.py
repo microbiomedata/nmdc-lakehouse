@@ -88,6 +88,41 @@ def test_a_missing_gate_workflow_is_an_error_rather_than_a_pass(tmp_path: Path) 
         parity.missing_from_ci(tmp_path)
 
 
+@pytest.mark.parametrize(
+    "line",
+    [
+        "          just lint || true",
+        "          just lint && echo ok",
+        "          just lint ; echo done",
+        "          just lint | tee out.txt",
+        "          just lint &",
+    ],
+)
+def test_a_gate_whose_verdict_is_discarded_does_not_count(tmp_path: Path, line: str) -> None:
+    """`just lint || true` runs the gate and throws away the answer.
+
+    Counting it would let parity pass while a green build says nothing about that gate, which is
+    the silent-gate condition this check exists to prevent rather than a technicality.
+    """
+    assert parity.recipes_invoked_by(_workflow(tmp_path, line)) == set()
+
+
+def test_a_continue_on_error_step_does_not_count(tmp_path: Path) -> None:
+    """GitHub is told to ignore the result, so the step cannot fail the build."""
+    path = tmp_path / "w.yml"
+    path.write_text(
+        "jobs:\n  check:\n    steps:\n      - run: just lint\n        continue-on-error: true\n",
+        encoding="utf-8",
+    )
+
+    assert parity.recipes_invoked_by(path) == set()
+
+
+def test_a_blocking_step_still_counts(tmp_path: Path) -> None:
+    """The rejections above must not reject everything, or parity fails for any input."""
+    assert parity.recipes_invoked_by(_workflow(tmp_path, "          just lint")) == {"lint"}
+
+
 def test_this_repository_passes() -> None:
     """The check running against the real pair, which is what CI runs.
 

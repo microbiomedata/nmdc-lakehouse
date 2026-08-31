@@ -47,12 +47,26 @@ def check_dependencies(root: Path) -> list[str]:
     ]
 
 
+#: Shell tokens that mean the recipe's exit status stops deciding the step's. `just g || true`
+#: runs the gate and throws away its verdict, which is the silent gate this check exists to catch,
+#: so a line containing any of these is not counted as running that gate.
+_NON_BLOCKING = frozenset({"||", "&&", ";", "|", "&"})
+
+
 def recipes_invoked_by(workflow: Path) -> set[str]:
-    """Every recipe name a `run:` step in this workflow invokes as `just <name>`."""
+    """Every recipe name a `run:` step in this workflow invokes as `just <name>`, blockingly.
+
+    Blockingly is the whole point. A step that cannot fail the build asserts nothing, and counting
+    it would let parity pass while a green build says nothing about that gate, which is the
+    condition this check exists to prevent rather than a technicality.
+    """
     document = yaml.safe_load(workflow.read_text(encoding="utf-8"))
     invoked: set[str] = set()
     for job in (document.get("jobs") or {}).values():
         for step in job.get("steps") or []:
+            # A step GitHub is told to ignore the result of. Its gates are not gates.
+            if step.get("continue-on-error") in (True, "true"):
+                continue
             script = step.get("run")
             if not script:
                 continue
@@ -65,8 +79,12 @@ def recipes_invoked_by(workflow: Path) -> set[str]:
                     # An unbalanced quote is a shell problem, not this checker's; actionlint owns it.
                     continue
                 # A recipe name, not a flag. `just --summary` invokes nothing.
-                if words[:1] == ["just"] and len(words) > 1 and not words[1].startswith("-"):
-                    invoked.add(words[1])
+                if words[:1] != ["just"] or len(words) < 2 or words[1].startswith("-"):
+                    continue
+                # `just g || true` and friends run the gate and discard its verdict.
+                if _NON_BLOCKING & set(words):
+                    continue
+                invoked.add(words[1])
     return invoked
 
 
