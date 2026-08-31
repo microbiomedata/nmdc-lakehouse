@@ -392,3 +392,51 @@ def test_a_step_whose_shell_does_not_run_the_script_is_not_a_gate(tmp_path: Path
 
     assert parity.recipes_invoked_by(path) == set()
     assert parity.recipes_invoked_by(_workflow(tmp_path, "          just lint")) == {"lint"}
+
+
+@pytest.mark.parametrize("scope", ["workflow", "job"])
+def test_an_inherited_shell_that_runs_nothing_is_not_a_gate(tmp_path: Path, scope: str) -> None:
+    """`defaults.run.shell` applies to steps that name no shell of their own.
+
+    Reading only the step treated an inherited `shell: /bin/true {0}` as bash and counted every
+    gate under it, which is a false green across a whole workflow rather than one step.
+    """
+    defaults = "defaults:\n  run:\n    shell: /bin/true {0}\n"
+    if scope == "workflow":
+        body = defaults + "jobs:\n  check:\n    steps:\n      - run: just lint\n"
+    else:
+        body = (
+            "jobs:\n  check:\n    "
+            + defaults.replace("\n  run", "\n      run").replace("\n    shell", "\n        shell")
+            + "    steps:\n      - run: just lint\n"
+        )
+    path = tmp_path / "w.yml"
+    path.write_text(body, encoding="utf-8")
+
+    assert parity.recipes_invoked_by(path) == set()
+
+
+def test_a_normal_workflow_is_unaffected_by_the_shell_resolution(tmp_path: Path) -> None:
+    """The rule must not reject steps in workflows that set no defaults at all."""
+    assert parity.recipes_invoked_by(_workflow(tmp_path, "          just lint")) == {"lint"}
+
+
+def test_an_exemption_naming_a_condition_that_never_runs_is_refused(tmp_path: Path, monkeypatch) -> None:
+    """A gate switched off is a missing gate, not an exempt one.
+
+    YAML parses `if: false` as the boolean, which was recorded as the string "False", so an
+    exemption naming that value would have matched it exactly and passed.
+    """
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "ci.yml").write_text(
+        "jobs:\n  check:\n    steps:\n      - run: just lint\n      - run: just guarded\n        if: false\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "justfile").write_text(
+        "check: lint guarded\n\nlint:\n    @true\n\nguarded:\n    @true\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(parity, "EXEMPT", {"guarded": parity.Exemption("False", "switched off")})
+
+    with pytest.raises(ValueError, match="cannot name a condition that never runs"):
+        parity.missing_from_ci(tmp_path)

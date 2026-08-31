@@ -105,6 +105,10 @@ def _can_fail_the_build(node: dict) -> bool:
 #: to defeat it. Anyone who can edit `ci.yml` to route a gate through a shell that discards it can
 #: equally delete the step and the recipe. Hardening past the forms that occur in practice trades
 #: real clarity for imagined adversaries.
+#: Conditions that never run, in the forms YAML produces. An exemption naming one of these would
+#: describe a gate that is switched off, which is a missing gate rather than an exempt one.
+_NEVER = frozenset({"false", "${{ false }}", "${{false}}", "0", "off"})
+
 _REAL_SHELLS = frozenset({None, "bash", "sh", "bash -e {0}", "bash --noprofile --norc -eo pipefail {0}"})
 
 #: A step that runs exactly one gate and nothing else.
@@ -118,7 +122,7 @@ _REAL_SHELLS = frozenset({None, "bash", "sh", "bash -e {0}", "bash --noprofile -
 #: correctly needs a shell parser and there is not one here.
 #:
 #: So the shell is not read at all. A gate step must be one line that is exactly `just <recipe>`.
-#: Every one of the 15 gates in this repository already is. Anything cleverer does not count and
+#: Every gate in this repository already is. Anything cleverer does not count and
 #: has to be listed in EXEMPT with its reason, which is a visible, deliberate act rather than a
 #: silent pass. The failure mode is now "a real gate is reported missing", which someone sees and
 #: fixes, instead of "a missing gate is reported present", which nobody sees.
@@ -142,6 +146,10 @@ def _gate_steps(workflow: Path) -> tuple[set[str], dict[str, str]]:
     cases matter to what an exemption is allowed to cover.
     """
     document = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+    # `defaults.run.shell` at workflow scope, overridden at job scope, overridden per step. A step
+    # with no `shell` of its own inherits whichever applies, so reading only the step treated an
+    # inherited `shell: /bin/true {0}` as bash and counted every gate under it.
+    workflow_shell = ((document.get("defaults") or {}).get("run") or {}).get("shell")
     blocking: set[str] = set()
     conditional: dict[str, str] = {}
     for job in (document.get("jobs") or {}).values():
@@ -153,10 +161,11 @@ def _gate_steps(workflow: Path) -> tuple[set[str], dict[str, str]]:
         # can be absent from a green workflow. Whether the dependency runs is not decidable here,
         # so a job with `needs` is treated as one that might not run rather than one that does.
         job_runs = job.get("if") in _DEFINITELY_RUNS and not job.get("needs")
+        job_shell = ((job.get("defaults") or {}).get("run") or {}).get("shell", workflow_shell)
         for step in job.get("steps") or []:
             if step.get("continue-on-error") not in _DEFINITELY_BLOCKING:
                 continue
-            if step.get("shell") not in _REAL_SHELLS:
+            if step.get("shell", job_shell) not in _REAL_SHELLS:
                 continue
             script = step.get("run")
             if not isinstance(script, str):
@@ -209,6 +218,13 @@ def missing_from_ci(root: Path) -> list[str]:
     if not workflow.is_file():
         raise FileNotFoundError(f"{GATE_WORKFLOW} is missing, so gate parity cannot be established.")
     invoked = recipes_invoked_by(workflow)
+    disabled = sorted(name for name, entry in EXEMPT.items() if entry.condition.strip().lower() in _NEVER)
+    if disabled:
+        raise ValueError(
+            "An exemption cannot name a condition that never runs, and these do: "
+            + ", ".join(disabled)
+            + ". A gate that is switched off is not an exempt gate, it is a missing one."
+        )
     unexplained = sorted(name for name, entry in EXEMPT.items() if not entry.reason.strip())
     if unexplained:
         raise ValueError(
