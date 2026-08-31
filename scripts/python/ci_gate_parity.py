@@ -11,8 +11,8 @@ A gate that exists locally and not in CI is worse than no gate, because a green 
 passed. This compares the two lists so adding a recipe to `check` without adding it to CI fails.
 
 Neither list is parsed by hand. `just --dump --dump-format json` is the recipe graph as `just`
-itself sees it, and `ci.yml` is read with a YAML parser and its `run:` scripts tokenised with
-`shlex`, which is the shell's own tokeniser.
+itself sees it, and `ci.yml` is read with a YAML parser and its `run:` scripts split with
+`shlex`, Python's shell-like lexer.
 """
 
 from __future__ import annotations
@@ -95,6 +95,9 @@ def recipes_invoked_by(workflow: Path) -> set[str]:
             script = step.get("run")
             if not script:
                 continue
+            # Collected first, because whether a line is the script's last command decides what
+            # `&&` means on it, and that cannot be known while streaming the lines.
+            commands: list[str] = []
             terminator: str | None = None
             for line in script.splitlines():
                 # Inside a heredoc body until its terminator. What is written there is data.
@@ -105,8 +108,12 @@ def recipes_invoked_by(workflow: Path) -> set[str]:
                 opened = _HEREDOC.search(line)
                 if opened:
                     terminator = opened.group("word")
-                if not line.strip():
+                if not line.strip() or line.strip().startswith("#"):
                     continue
+                commands.append(line)
+
+            for position, line in enumerate(commands):
+                is_final = position == len(commands) - 1
                 try:
                     words = shlex.split(line)
                 except ValueError:
@@ -123,16 +130,32 @@ def recipes_invoked_by(workflow: Path) -> set[str]:
                         words = words[:index]
                         break
                 # Only where `just` is the command being run: the start of the line, or straight
-                # after `&&`. `echo just new-gate` mentions a recipe and runs nothing, and
-                # counting it is a false pass, which is the direction that matters.
+                # after `&&` when this is the script's last command. `echo just new-gate` mentions
+                # a recipe and runs nothing, and counting it is a false pass.
                 #
-                # Deliberately not a shell parser. Accepting the two positions that occur here is
-                # conservative: an unusual but real invocation is reported missing, which is
-                # visible and fixable, while the alternative is a gate that looks covered.
-                for index, word in enumerate(words[:-1]):
-                    if word != "just" or words[index + 1].startswith("-"):
+                # The `&&` restriction is the subtle one. GitHub runs `run:` blocks under `bash -e`,
+                # and errexit exempts a command that fails on the left of an AND-list. So in
+                #
+                #     just lint && echo ok
+                #     echo later
+                #
+                # a failing `just lint` does not stop the script, and the script exits with
+                # `echo later`, which is 0. The gate ran and its verdict was thrown away. Only when
+                # the AND-list is the final command does its status become the script's.
+                #
+                # Deliberately not a shell parser. Accepting these positions is conservative: an
+                # unusual but real invocation is reported missing, which is visible and fixable,
+                # while the alternative is a gate that looks covered and is not.
+                positions = [0] + [index + 1 for index, word in enumerate(words) if word == "&&"]
+                # On a line that is not the script's last command, only the final position is
+                # enforced: errexit exempts everything to the left of the last `&&`, so those run
+                # and their verdicts are discarded. On the last line the AND-list's status becomes
+                # the script's, so every position in it is enforced.
+                enforced = positions if is_final else positions[-1:]
+                for index in enforced:
+                    if index + 1 >= len(words) or words[index] != "just":
                         continue
-                    if index == 0 or words[index - 1] == "&&":
+                    if not words[index + 1].startswith("-"):
                         invoked.add(words[index + 1])
     return invoked
 

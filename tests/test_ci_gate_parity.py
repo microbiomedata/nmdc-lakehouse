@@ -279,3 +279,36 @@ def test_the_two_command_positions_still_count(tmp_path: Path) -> None:
     """The rejections must not reject real invocations, or parity fails for any input."""
     assert parity.recipes_invoked_by(_workflow(tmp_path, "          just lint")) == {"lint"}
     assert parity.recipes_invoked_by(_workflow(tmp_path, "          echo go && just lint")) == {"lint"}
+
+
+def test_an_and_list_that_is_not_the_last_command_does_not_count(tmp_path: Path) -> None:
+    """GitHub runs `run:` blocks under `bash -e`, and errexit exempts the left of an AND-list.
+
+    So a failing `just lint` here does not stop the script, and the script exits with `echo later`,
+    which is 0. The gate ran and its verdict was discarded, which is a false green.
+    """
+    script = "          just lint && echo ok\n          echo later"
+
+    assert parity.recipes_invoked_by(_workflow(tmp_path, script)) == set()
+
+
+def test_an_and_list_as_the_final_command_still_counts(tmp_path: Path) -> None:
+    """When the AND-list is last, its status is the script's, so the gate is enforced."""
+    script = "          echo starting\n          just lint && echo ok"
+
+    assert parity.recipes_invoked_by(_workflow(tmp_path, script)) == {"lint"}
+
+
+def test_trailing_blank_and_comment_lines_do_not_hide_the_final_command(tmp_path: Path) -> None:
+    """`just lint && echo ok` is still last if only blanks and comments follow it."""
+    script = "          just lint && echo ok\n\n          # done"
+
+    assert parity.recipes_invoked_by(_workflow(tmp_path, script)) == {"lint"}
+
+
+def test_a_gate_after_the_final_and_counts_even_when_the_line_is_not_last(tmp_path: Path) -> None:
+    """The command following the final `&&` is not exempt from errexit, so its failure stops the
+    script. That is the asymmetry: the left of the last `&&` is discarded, the right is not."""
+    script = "          echo go && just lint\n          echo later"
+
+    assert parity.recipes_invoked_by(_workflow(tmp_path, script)) == {"lint"}

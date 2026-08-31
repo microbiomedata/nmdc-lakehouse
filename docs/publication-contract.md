@@ -92,8 +92,8 @@ namespace content plus only the human overrides that reviewers have approved:
 Start the review from a strict draft whose snapshot identity is read from the
 validated manifest rather than copied by hand:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
-     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
+<!-- unverified: no run of this procedure is recorded, and no tracking issue is
+     named here. -->
 ```bash
 just metadata-profile ./completed-snapshot \
   nmdc-metadata-2026-08-18 nmdc_metadata \
@@ -139,8 +139,8 @@ orchestrate later publication steps.
 
 The command operates entirely offline:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
-     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
+<!-- unverified: no run of this procedure is recorded, and no tracking issue is
+     named here. -->
 ```bash
 uv run nmdc-lakehouse metadata-bundle ./completed-snapshot \
   --profile ./metadata/nmdc-metadata-profile.json \
@@ -156,8 +156,8 @@ and `--output` contain the same document.
 
 The profile and bundle contracts are available without a snapshot or service:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
-     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
+<!-- unverified: no run of this procedure is recorded, and no tracking issue is
+     named here. -->
 ```bash
 uv run nmdc-lakehouse metadata-bundle-schema profile
 uv run nmdc-lakehouse metadata-bundle-schema bundle
@@ -192,8 +192,8 @@ change.
 The maintained offline planner implements this checkpoint without contacting a
 destination:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
-     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
+<!-- unverified: no run of this procedure is recorded, and no tracking issue is
+     named here. -->
 ```bash
 uv run nmdc-lakehouse publication-plan ./completed-snapshot \
   --inventory destination-inventory.json \
@@ -210,8 +210,8 @@ no discovery, upload, catalog change, metadata application, or promotion.
 
 The machine-readable input and output contracts are available without credentials:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
-     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
+<!-- unverified: no run of this procedure is recorded, and no tracking issue is
+     named here. -->
 ```bash
 uv run nmdc-lakehouse publication-plan-schema inventory
 uv run nmdc-lakehouse publication-plan-schema policy
@@ -229,8 +229,8 @@ Before any provider-specific staging, cross-check the independently reviewed
 snapshot, metadata bundle, destination inventory, and publication plan as one
 operation:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
-     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
+<!-- unverified: no run of this procedure is recorded, and no tracking issue is
+     named here. -->
 ```bash
 just publication-preflight ./completed-snapshot \
   ./metadata/nmdc-metadata-bundle.json \
@@ -250,8 +250,8 @@ required input to staging; it does not authorize or perform staging.
 Map the approved bundle to the capabilities declared by the same fresh
 destination inventory before a provider adapter renders any commands:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
-     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
+<!-- unverified: no run of this procedure is recorded, and no tracking issue is
+     named here. -->
 ```bash
 just metadata-application-plan ./metadata/nmdc-metadata-bundle.json \
   destination-inventory.json \
@@ -269,8 +269,8 @@ explicit. Description text is JSON data, never SQL or another provider command.
 The output is a strict, versioned review artifact. Its contract is available
 offline:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
-     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
+<!-- unverified: no run of this procedure is recorded, and no tracking issue is
+     named here. -->
 ```bash
 uv run nmdc-lakehouse metadata-application-plan-schema
 ```
