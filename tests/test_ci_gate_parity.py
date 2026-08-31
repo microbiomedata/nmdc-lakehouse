@@ -44,7 +44,7 @@ def test_a_workflow_with_no_jobs_is_not_an_error(tmp_path: Path) -> None:
     assert parity.recipes_invoked_by(path) == set()
 
 
-def test_a_recipe_run_only_by_an_unrelated_workflow_does_not_satisfy_parity(tmp_path: Path) -> None:
+def test_a_recipe_run_only_by_an_unrelated_workflow_does_not_satisfy_parity(tmp_path: Path, monkeypatch) -> None:
     """This globbed every workflow, so any file mentioning a recipe made it look covered.
 
     A gate that looks covered and is not is the exact failure this check exists to catch, and
@@ -59,6 +59,9 @@ def test_a_recipe_run_only_by_an_unrelated_workflow_does_not_satisfy_parity(tmp_
     (tmp_path / "justfile").write_text(
         "check: lint typecheck\n\nlint:\n    @true\n\ntypecheck:\n    @true\n", encoding="utf-8"
     )
+    # This repository's real exemption names a recipe this synthetic `check` does not have, and
+    # the staleness rule would fire on it first. That rule has its own tests.
+    monkeypatch.setattr(parity, "EXEMPT", {})
 
     assert parity.missing_from_ci(tmp_path) == ["typecheck"]
 
@@ -71,56 +74,6 @@ def test_a_missing_gate_workflow_is_an_error_rather_than_a_pass(tmp_path: Path) 
 
     with pytest.raises(FileNotFoundError, match="gate parity cannot be established"):
         parity.missing_from_ci(tmp_path)
-
-
-@pytest.mark.parametrize("ignored", [True, "true", "${{ true }}"])
-def test_a_job_whose_result_is_ignored_contains_no_gates(tmp_path: Path, ignored: object) -> None:
-    """Checked at the job, not only the step. Looking only at steps left the job-level hole open."""
-    path = tmp_path / "w.yml"
-    path.write_text(
-        f"jobs:\n  check:\n    continue-on-error: {ignored}\n    steps:\n      - run: just lint\n",
-        encoding="utf-8",
-    )
-
-    assert parity.recipes_invoked_by(path) == set()
-
-
-@pytest.mark.parametrize("never", ["false", "${{ false }}"])
-def test_a_step_that_never_runs_contains_no_gates(tmp_path: Path, never: str) -> None:
-    path = tmp_path / "w.yml"
-    path.write_text(
-        f"jobs:\n  check:\n    steps:\n      - run: just lint\n        if: {never}\n",
-        encoding="utf-8",
-    )
-
-    assert parity.recipes_invoked_by(path) == set()
-
-
-def test_a_conditional_step_that_might_run_still_counts(tmp_path: Path) -> None:
-    """An expression is not evaluated, and the step is counted.
-
-    `diff-cover` in this repository runs under `if: github.event_name == 'pull_request'`. A gate
-    that runs on every pull request is a gate, and guessing at expressions would trade a real hole
-    for a bigger one.
-    """
-    path = tmp_path / "w.yml"
-    path.write_text(
-        "jobs:\n  check:\n    steps:\n      - run: just lint\n        if: github.event_name == 'pull_request'\n",
-        encoding="utf-8",
-    )
-
-    assert parity.recipes_invoked_by(path) == {"lint"}
-
-
-def test_a_continue_on_error_step_does_not_count(tmp_path: Path) -> None:
-    """GitHub is told to ignore the result, so the step cannot fail the build."""
-    path = tmp_path / "w.yml"
-    path.write_text(
-        "jobs:\n  check:\n    steps:\n      - run: just lint\n        continue-on-error: true\n",
-        encoding="utf-8",
-    )
-
-    assert parity.recipes_invoked_by(path) == set()
 
 
 def test_a_blocking_step_still_counts(tmp_path: Path) -> None:
@@ -240,3 +193,52 @@ def test_an_exemption_for_a_gate_ci_already_runs_is_refused(tmp_path: Path, monk
 
     with pytest.raises(ValueError, match="stale and would hide"):
         parity.missing_from_ci(_tiny_repo(tmp_path))
+
+
+@pytest.mark.parametrize(
+    "control",
+    [
+        "    continue-on-error: true",
+        "    continue-on-error: ${{ true }}",
+        # The case the literal sets missed: an expression that is true and is not the word `true`.
+        "    continue-on-error: ${{ 1 == 1 }}",
+        "    if: false",
+        "    if: ${{ false }}",
+        "    if: ${{ 1 == 2 }}",
+        "    if: github.event_name == 'pull_request'",
+    ],
+)
+def test_a_job_that_cannot_be_proved_to_gate_does_not_count(tmp_path: Path, control: str) -> None:
+    """Proved, not guessed. Evaluating GitHub expressions is not something this should attempt.
+
+    The earlier version kept literal truthy and falsey sets and treated everything else as gating,
+    so `continue-on-error: ${{ 1 == 1 }}` counted as a gate while it cannot fail the build.
+    """
+    path = tmp_path / "w.yml"
+    path.write_text(f"jobs:\n  check:\n{control}\n    steps:\n      - run: just lint\n", encoding="utf-8")
+
+    assert parity.recipes_invoked_by(path) == set()
+
+
+@pytest.mark.parametrize("control", ["        continue-on-error: false", "        if: true", ""])
+def test_a_step_that_is_provably_blocking_counts(tmp_path: Path, control: str) -> None:
+    """The rule must not reject everything, or parity fails for any input and proves nothing."""
+    path = tmp_path / "w.yml"
+    body = (
+        f"jobs:\n  check:\n    steps:\n      - run: just lint\n{control}\n"
+        if control
+        else "jobs:\n  check:\n    steps:\n      - run: just lint\n"
+    )
+    path.write_text(body, encoding="utf-8")
+
+    assert parity.recipes_invoked_by(path) == {"lint"}
+
+
+def test_the_conditional_gate_in_this_repository_is_exempt_by_name_with_a_reason() -> None:
+    """diff-cover is conditional, so it is a written-down exception rather than a quiet decision.
+
+    This is the exemption mechanism doing its job: the reason is recorded, an empty one is refused,
+    and it becomes stale automatically if diff-cover ever leaves `check` or gains a plain step.
+    """
+    assert "diff-cover" in parity.EXEMPT
+    assert "pull_request" in parity.EXEMPT["diff-cover"]

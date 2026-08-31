@@ -28,7 +28,13 @@ import yaml
 #: Recipes CI may skip, each with the reason. An exemption is a claim that needs one, so this maps
 #: rather than lists: an unexplained name here is how a gate goes missing on purpose and then stays
 #: missing by accident.
-EXEMPT: dict[str, str] = {}
+EXEMPT: dict[str, str] = {
+    "diff-cover": (
+        "runs under `if: github.event_name == 'pull_request'`, which this cannot prove will run. "
+        "It is a real gate on every pull request, which is where changed-line coverage means "
+        "anything; on a push to main it would compare main against main and check nothing."
+    ),
+}
 
 
 def check_dependencies(root: Path) -> list[str]:
@@ -47,15 +53,27 @@ def check_dependencies(root: Path) -> list[str]:
     ]
 
 
-#: Values of `continue-on-error` that mean GitHub ignores the result. The expression form is
-#: included because `${{ true }}` is how it is often written and reads as different from `true`.
-_IGNORED_RESULT = frozenset({True, "true", "True", "${{ true }}", "${{true}}"})
+#: A job or step counts only when it can be *proved* to run and to fail the build. Absent or
+#: literally false `continue-on-error`, absent or literally true `if`. Anything else, including
+#: every `${{ ... }}` expression, is not evaluated and does not count.
+#:
+#: The earlier version kept two small sets of literal truthy and falsey values and treated
+#: everything else as gating, which left `continue-on-error: ${{ 1 == 1 }}` and `if: ${{ 1 == 2 }}`
+#: counting as gates while neither can fail the build. Evaluating GitHub expressions is not
+#: something this should attempt, so it proves rather than guesses, and an unprovable step is
+#: reported missing, which someone sees.
+#:
+#: `diff-cover` runs under `if: github.event_name == 'pull_request'` and is therefore exempt by
+#: name, with that reason recorded in EXEMPT. That is the mechanism working: a conditional gate is
+#: a deliberate, written-down exception rather than something the checker quietly decides for you.
+_DEFINITELY_BLOCKING = frozenset({None, False, "false", "False"})
+_DEFINITELY_RUNS = frozenset({None, True, "true", "True"})
 
-#: Values of `if` that mean the job or step never runs. Only the statically decidable ones. An
-#: arbitrary expression is NOT evaluated and its step still counts: `diff-cover` in this repository
-#: runs under `if: github.event_name == 'pull_request'`, and a gate that runs on every pull request
-#: is a gate. Guessing at expressions would trade a real hole for a bigger one.
-_NEVER_RUNS = frozenset({False, "false", "False", "${{ false }}", "${{false}}"})
+
+def _can_fail_the_build(node: dict) -> bool:
+    """Whether this job or step is provably able to fail the build."""
+    return node.get("continue-on-error") in _DEFINITELY_BLOCKING and node.get("if") in _DEFINITELY_RUNS
+
 
 #: A step that runs exactly one gate and nothing else.
 #:
@@ -91,12 +109,12 @@ def recipes_invoked_by(workflow: Path) -> set[str]:
     document = yaml.safe_load(workflow.read_text(encoding="utf-8"))
     invoked: set[str] = set()
     for job in (document.get("jobs") or {}).values():
-        # Checked at the job as well as the step. A job whose result is ignored, or which never
-        # runs, contains no gates however its steps are written.
-        if job.get("continue-on-error") in _IGNORED_RESULT or job.get("if") in _NEVER_RUNS:
+        # Checked at the job as well as the step. A job that cannot fail the build contains no
+        # gates however its steps are written.
+        if not _can_fail_the_build(job):
             continue
         for step in job.get("steps") or []:
-            if step.get("continue-on-error") in _IGNORED_RESULT or step.get("if") in _NEVER_RUNS:
+            if not _can_fail_the_build(step):
                 continue
             script = step.get("run")
             if not isinstance(script, str):
@@ -159,7 +177,15 @@ def main() -> int:
             print(f"  {name}")
         print("\nAdd a step running each, or add it to EXEMPT with the reason it is not run.")
         return 1
-    print(f"gate parity: CI runs all {len(check_dependencies(root))} recipe(s) in `just check`")
+    # Naming the exemptions, because "CI runs all 15" is false when one of them is exempt, and a
+    # success line that overstates what was checked is the same defect this whole check is about.
+    total = len(check_dependencies(root))
+    if EXEMPT:
+        print(f"gate parity: CI runs {total - len(EXEMPT)} of {total} recipe(s) in `just check`")
+        for name, reason in sorted(EXEMPT.items()):
+            print(f"  exempt: {name} -- {reason}")
+    else:
+        print(f"gate parity: CI runs all {total} recipe(s) in `just check`")
     return 0
 
 
