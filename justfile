@@ -86,9 +86,16 @@ test-ci-gate-parity-exit:
     cp -R .github "$tmp/.github"
     mkdir -p "$tmp/scripts/python"
     cp scripts/python/ci_gate_parity.py "$tmp/scripts/python/"
-    printf 'check: a-gate-ci-does-not-run\n\na-gate-ci-does-not-run:\n    @true\n' > "$tmp/justfile"
-    rc=0; uv run --no-sync python "$tmp/scripts/python/ci_gate_parity.py" >/dev/null 2>&1 || rc=$?
+    # diff-cover is in the fixture because the real EXEMPT names it, and a `check` without it
+    # would fail on a stale exemption instead. Accepting any nonzero status let this pass for that
+    # wrong reason, so the output is now matched rather than discarded.
+    printf 'check: a-gate-ci-does-not-run diff-cover\n\na-gate-ci-does-not-run:\n    @true\n\ndiff-cover:\n    @true\n' > "$tmp/justfile"
+    rc=0; out=$(uv run --no-sync python "$tmp/scripts/python/ci_gate_parity.py" 2>&1) || rc=$?
     [ "$rc" -ne 0 ] || { echo "gate parity did NOT fail on a recipe CI never runs; the check is inert"; exit 1; }
+    case "$out" in
+      *a-gate-ci-does-not-run*) ;;
+      *) echo "gate parity failed, but not about the missing gate. It said:"; echo "$out"; exit 1;;
+    esac
     # And it must still pass on the real pair, or it would fail for any input and prove nothing.
     rc=0; uv run --no-sync python scripts/python/ci_gate_parity.py >/dev/null 2>&1 || rc=$?
     [ "$rc" -eq 0 ] || { echo "gate parity fails on this repository; that is the real finding"; exit 1; }

@@ -11,8 +11,9 @@ A gate that exists locally and not in CI is worse than no gate, because a green 
 passed. This compares the two lists so adding a recipe to `check` without adding it to CI fails.
 
 Neither list is parsed by hand. `just --dump --dump-format json` is the recipe graph as `just`
-itself sees it, and `ci.yml` is read with a YAML parser and its `run:` scripts split with
-`shlex`, Python's shell-like lexer.
+itself sees it, and `ci.yml` is read with a YAML parser. Its `run:` scripts are not parsed as
+shell: a gate step is one line matching `just <recipe>` with no operator characters in it. See
+`_GATE_STEP` for why that is narrower than it could be.
 """
 
 from __future__ import annotations
@@ -100,21 +101,24 @@ _GATE_STEP = re.compile(r"\Ajust (?P<recipe>[A-Za-z0-9_][A-Za-z0-9_-]*)(?P<rest>
 _STATUS_MAY_BE_DISCARDED = frozenset("|&;")
 
 
-def recipes_invoked_by(workflow: Path) -> set[str]:
-    """Recipes this workflow runs as a dedicated blocking step.
+def _gate_steps(workflow: Path) -> tuple[set[str], set[str]]:
+    """Recipes this workflow runs as a gate step, split by whether that step provably blocks.
 
-    A step whose `run` is exactly `just <recipe>`, in a job and step that can fail the build. That
-    is deliberately narrower than "every recipe mentioned": see `_GATE_STEP`.
+    The second set is the conditional ones: gate-shaped steps disqualified only by an `if` this
+    cannot evaluate. They are not counted as gates, but an exemption has to be backed by one, or
+    the exemption would cover a step that is simply gone.
     """
     document = yaml.safe_load(workflow.read_text(encoding="utf-8"))
-    invoked: set[str] = set()
+    blocking: set[str] = set()
+    conditional: set[str] = set()
     for job in (document.get("jobs") or {}).values():
-        # Checked at the job as well as the step. A job that cannot fail the build contains no
-        # gates however its steps are written.
-        if not _can_fail_the_build(job):
+        # Checked at the job as well as the step. A job whose result is ignored contains no gates
+        # however its steps are written.
+        if job.get("continue-on-error") not in _DEFINITELY_BLOCKING:
             continue
+        job_runs = job.get("if") in _DEFINITELY_RUNS
         for step in job.get("steps") or []:
-            if not _can_fail_the_build(step):
+            if step.get("continue-on-error") not in _DEFINITELY_BLOCKING:
                 continue
             script = step.get("run")
             if not isinstance(script, str):
@@ -123,9 +127,27 @@ def recipes_invoked_by(workflow: Path) -> set[str]:
             if "\n" in line or _STATUS_MAY_BE_DISCARDED & set(line):
                 continue
             matched = _GATE_STEP.match(line)
-            if matched:
-                invoked.add(matched.group("recipe"))
-    return invoked
+            if not matched:
+                continue
+            if job_runs and step.get("if") in _DEFINITELY_RUNS:
+                blocking.add(matched.group("recipe"))
+            else:
+                conditional.add(matched.group("recipe"))
+    return blocking, conditional
+
+
+def recipes_invoked_by(workflow: Path) -> set[str]:
+    """Recipes this workflow runs as a dedicated blocking step.
+
+    A step whose `run` is exactly `just <recipe>`, in a job and step that can be proved to run and
+    to fail the build. Deliberately narrower than "every recipe mentioned": see `_GATE_STEP`.
+    """
+    return _gate_steps(workflow)[0]
+
+
+def recipes_conditionally_invoked_by(workflow: Path) -> set[str]:
+    """Gate steps this cannot prove will run, because of an `if` it will not evaluate."""
+    return _gate_steps(workflow)[1]
 
 
 #: The workflow that has to run the gates. Named, not globbed. Globbing every file under
@@ -164,13 +186,31 @@ def missing_from_ci(root: Path) -> list[str]:
             + ", ".join(enforced)
             + "."
         )
+    # An exemption has to be backed by a step that exists. Without this the exemption is a
+    # permanent blind spot: deleting the conditional `just diff-cover` step from ci.yml left every
+    # other check satisfied and parity green, which is the drift this whole module is about.
+    unbacked = sorted(set(EXEMPT) - invoked - recipes_conditionally_invoked_by(workflow))
+    if unbacked:
+        raise ValueError(
+            "These are exempt but no step in "
+            + str(GATE_WORKFLOW)
+            + " runs them at all, so the exemption is covering their absence: "
+            + ", ".join(unbacked)
+            + "."
+        )
     return [name for name in dependencies if name not in invoked and name not in EXEMPT]
 
 
 def main() -> int:
     """Report every gate CI is missing, and exit non-zero if there are any."""
     root = Path(__file__).resolve().parents[2]
-    missing = missing_from_ci(root)
+    try:
+        missing = missing_from_ci(root)
+    except (ValueError, FileNotFoundError) as error:
+        # A refusal, reported as one. A traceback out of a CI gate reads as the gate crashing
+        # rather than as the repository being wrong, and the message is the finding.
+        print(f"gate parity: {error}")
+        return 1
     if missing:
         print(f"gate parity: {len(missing)} recipe(s) in `just check` that CI does not run")
         for name in missing:

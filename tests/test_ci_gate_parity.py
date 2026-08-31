@@ -115,7 +115,12 @@ def test_the_three_gates_this_check_was_written_for_are_in_ci(name: str) -> None
 def _tiny_repo(tmp_path: Path) -> Path:
     workflows = tmp_path / ".github" / "workflows"
     workflows.mkdir(parents=True)
-    (workflows / "ci.yml").write_text("jobs:\n  check:\n    steps:\n      - run: just lint\n", encoding="utf-8")
+    # `typecheck` is present but conditional, so an exemption for it can be backed by a real step.
+    (workflows / "ci.yml").write_text(
+        "jobs:\n  check:\n    steps:\n      - run: just lint\n"
+        "      - run: just typecheck\n        if: github.event_name == 'pull_request'\n",
+        encoding="utf-8",
+    )
     (tmp_path / "justfile").write_text(
         "check: lint typecheck\n\nlint:\n    @true\n\ntypecheck:\n    @true\n", encoding="utf-8"
     )
@@ -242,3 +247,50 @@ def test_the_conditional_gate_in_this_repository_is_exempt_by_name_with_a_reason
     """
     assert "diff-cover" in parity.EXEMPT
     assert "pull_request" in parity.EXEMPT["diff-cover"]
+
+
+def test_an_exemption_covering_a_step_that_does_not_exist_is_refused(tmp_path: Path, monkeypatch) -> None:
+    """Without this an exemption is a permanent blind spot.
+
+    Deleting the conditional `just diff-cover` step from ci.yml left every other check satisfied
+    and parity green: it was never in `invoked`, so no staleness rule fired, and it was in EXEMPT,
+    so it was skipped. An exemption has to be backed by a step that is actually there.
+    """
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "ci.yml").write_text("jobs:\n  check:\n    steps:\n      - run: just lint\n", encoding="utf-8")
+    (tmp_path / "justfile").write_text("check: lint gone\n\nlint:\n    @true\n\ngone:\n    @true\n", encoding="utf-8")
+    monkeypatch.setattr(parity, "EXEMPT", {"gone": "used to run under a condition"})
+
+    with pytest.raises(ValueError, match="covering their absence"):
+        parity.missing_from_ci(tmp_path)
+
+
+def test_an_exemption_backed_by_a_conditional_step_is_honoured(tmp_path: Path, monkeypatch) -> None:
+    """The rule must not reject every exemption, or the mechanism is unusable and diff-cover fails."""
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "ci.yml").write_text(
+        "jobs:\n  check:\n    steps:\n      - run: just lint\n"
+        "      - run: just guarded\n        if: github.event_name == 'pull_request'\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "justfile").write_text(
+        "check: lint guarded\n\nlint:\n    @true\n\nguarded:\n    @true\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(parity, "EXEMPT", {"guarded": "runs on pull requests only"})
+
+    assert parity.missing_from_ci(tmp_path) == []
+
+
+def test_a_conditional_gate_is_reported_as_conditional_not_blocking(tmp_path: Path) -> None:
+    """The two sets are what let an exemption be checked against a step that exists."""
+    path = tmp_path / "w.yml"
+    path.write_text(
+        "jobs:\n  check:\n    steps:\n      - run: just lint\n"
+        "      - run: just guarded\n        if: github.event_name == 'pull_request'\n",
+        encoding="utf-8",
+    )
+
+    assert parity.recipes_invoked_by(path) == {"lint"}
+    assert parity.recipes_conditionally_invoked_by(path) == {"guarded"}
