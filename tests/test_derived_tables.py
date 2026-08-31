@@ -697,3 +697,47 @@ def test_rebuilding_an_empty_selection_is_refused() -> None:
 
     with pytest.raises(DerivedTableError, match="No derived tables were named"):
         rebuild_all(RefusingSpark(), "nmdc.metadata", tables=[])
+
+
+def test_the_table_option_reaches_the_rebuild_through_the_command(monkeypatch) -> None:
+    """The selection was only ever tested by calling rebuild_all directly.
+
+    So the Click option could stop being passed through and every test would still pass, on the
+    one path where the consequence is replacing a table the operator excluded.
+    """
+    from click.testing import CliRunner
+
+    import nmdc_lakehouse.derived_tables as derived_tables
+    from nmdc_lakehouse.cli import cli
+    from nmdc_lakehouse.derived_tables import DERIVED_TABLES
+
+    class RecordingSpark:
+        def __init__(self) -> None:
+            self.statements: list[str] = []
+
+        def sql(self, statement: str) -> object:
+            self.statements.append(statement)
+            return FakeFrame([(7,)], self.statements)
+
+    spark = RecordingSpark()
+    monkeypatch.setattr(derived_tables, "spark_session", lambda _checkout: spark)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "rebuild-derived-tables",
+            "nmdc.metadata",
+            "--ingest-checkout",
+            "/tmp",
+            "--table",
+            "graph_edges",
+            "--authorize-namespace",
+            "nmdc.metadata",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    issued = " ".join(spark.statements)
+    assert "graph_edges" in issued
+    for excluded in set(DERIVED_TABLES) - {"graph_edges"}:
+        assert excluded not in issued, issued

@@ -731,7 +731,10 @@ def rebuild_derived_tables_command(
 @click.option(
     "--recovery",
     required=True,
-    help="The one recovery operation that will be attempted if promotion fails part way.",
+    help=(
+        "The one recovery operation a human would perform if promotion fails part way. Recorded "
+        "for the operator to read and carry out; nothing attempts it automatically."
+    ),
 )
 @click.option("--output", type=click.Path(path_type=Path, dir_okay=False), required=True)
 def berdl_promotion_plan_command(
@@ -839,7 +842,13 @@ def berdl_promote_command(
             progress=lambda message: click.echo(f"  {message}"),
         )
     except (PromotionPlanError, DerivedTableError) as error:
-        raise click.ClickException(str(error)) from error
+        # Saying that nothing was attempted, because the plan names a recovery operation and the
+        # option describing it used to promise it would be attempted. An operator reading a
+        # failure beside a recorded recovery can reasonably assume it was tried.
+        raise click.ClickException(
+            f"{error}\n\nNo recovery was attempted; nothing here implements one. The plan records "
+            f"what a human would do: {plan.recovery}"
+        ) from error
 
     click.echo(f"  performed {len(performed)} statement(s)")
     if plan.derived_rebuilds:

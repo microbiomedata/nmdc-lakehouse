@@ -1,12 +1,17 @@
-"""Plan a canonical promotion without performing one.
+"""Plan a canonical promotion, and perform one that has been authorized.
 
-Staging proved that candidate tables load and verify. It authorizes nothing about the canonical
-namespace, and this module keeps that separation: it reads verified evidence and writes an
-immutable description of what a promotion would do, touching nothing.
+Two halves, and the separation between them is the point. `build_berdl_promotion_plan` and
+everything it uses read verified evidence and write an immutable description of what a promotion
+would do, touching nothing. `execute_promotion` is the destructive half: it drops and replaces
+canonical tables, and it runs only against a plan whose digest, namespace and destination an
+operator named, with the staging row counts checked first.
 
 The split mirrors `berdl_staging`, which has now run end to end, and it exists for the same
 reason: the point where a human authorizes a destructive act should be a distinct, reviewable
 artifact rather than a flag on the command that performs it.
+
+Recovery from a partial promotion is not implemented. The plan carries a `recovery` string and
+nothing here applies it.
 """
 
 from __future__ import annotations
@@ -497,7 +502,9 @@ def render_promotion_plan(plan: BerdlPromotionPlan) -> str:
         lines.append("")
         lines.extend(textwrap.wrap(outage, width=78, initial_indent="  ", subsequent_indent="  "))
     lines.append("")
-    lines.append(f"  recovery       {plan.recovery}")
+    # Labelled manual, because nothing applies it. A bare "recovery" line beside a destructive
+    # plan reads as something the tool will do.
+    lines.append(f"  recovery       {plan.recovery} (manual; nothing performs this)")
     lines.append("  nothing has been changed; this plan is a description")
     return "\n".join(lines)
 
