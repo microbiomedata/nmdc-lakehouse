@@ -72,6 +72,28 @@ berdl-promote PROMOTION_PLAN INGEST_CHECKOUT *ARGS:
 berdl-apply-metadata METADATA_PLAN STAGING_OUTCOME INGEST_CHECKOUT OUTCOME *ARGS:
     uv run --no-sync nmdc-lakehouse berdl-apply-metadata "{{ METADATA_PLAN }}" "{{ STAGING_OUTCOME }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" --output "{{ OUTCOME }}" {{ ARGS }}
 
+# Check that CI runs every gate `just check` runs. Not in `check` itself: it reads ci.yml and
+# would be checking the thing that is about to run it, which says nothing a CI run does not.
+ci-gate-parity:
+    uv run python scripts/python/ci_gate_parity.py
+
+# Prove the parity check can fail, by adding a recipe to `check` in a copy of the justfile that no
+# workflow runs. A checker that has never rejected anything is not evidence.
+test-ci-gate-parity-exit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    cp -R .github "$tmp/.github"
+    mkdir -p "$tmp/scripts/python"
+    cp scripts/python/ci_gate_parity.py "$tmp/scripts/python/"
+    printf 'check: a-gate-ci-does-not-run\n\na-gate-ci-does-not-run:\n    @true\n' > "$tmp/justfile"
+    rc=0; uv run --no-sync python "$tmp/scripts/python/ci_gate_parity.py" >/dev/null 2>&1 || rc=$?
+    [ "$rc" -ne 0 ] || { echo "gate parity did NOT fail on a recipe CI never runs; the check is inert"; exit 1; }
+    # And it must still pass on the real pair, or it would fail for any input and prove nothing.
+    rc=0; uv run --no-sync python scripts/python/ci_gate_parity.py >/dev/null 2>&1 || rc=$?
+    [ "$rc" -eq 0 ] || { echo "gate parity fails on this repository; that is the real finding"; exit 1; }
+    echo "gate-parity exit contract holds: an unrun gate fails, this repository passes"
+
 # Preserve an existing configured Git hooks-path policy instead of replacing it.
 [private]
 _install-pre-commit-hook:
