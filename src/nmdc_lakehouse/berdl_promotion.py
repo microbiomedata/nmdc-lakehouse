@@ -1,12 +1,17 @@
-"""Plan a canonical promotion without performing one.
+"""Plan a canonical promotion, and perform one that has been authorized.
 
-Staging proved that candidate tables load and verify. It authorizes nothing about the canonical
-namespace, and this module keeps that separation: it reads verified evidence and writes an
-immutable description of what a promotion would do, touching nothing.
+Two halves, and the separation between them is the point. `build_berdl_promotion_plan` and
+everything it uses read verified evidence and write an immutable description of what a promotion
+would do, touching nothing. `execute_promotion` is the destructive half: it drops and replaces
+canonical tables, and it runs only against a plan whose digest, namespace and destination an
+operator named, with the staging row counts checked first.
 
 The split mirrors `berdl_staging`, which has now run end to end, and it exists for the same
 reason: the point where a human authorizes a destructive act should be a distinct, reviewable
 artifact rather than a flag on the command that performs it.
+
+Recovery from a partial promotion is not implemented. The plan carries a `recovery` string and
+nothing here applies it.
 """
 
 from __future__ import annotations
@@ -25,9 +30,14 @@ from typing import Literal, Protocol, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from nmdc_lakehouse.derived_tables import DERIVED_TABLES
+from nmdc_lakehouse.metadata_application import catalog_of_namespace
 from nmdc_lakehouse.publication_plan import Disposition, PublicationPlan
 
-PROMOTION_PLAN_FORMAT_VERSION: Literal[1] = 1
+# 2 since destination_provider became a required field. A v1 plan does not carry it, so it cannot
+# be bound to the catalog it writes into, and loading one under the current rules would either
+# fail with a message about a missing field or, if the field were made optional, pass the binding
+# vacuously. Refusing it by version says which of those it is.
+PROMOTION_PLAN_FORMAT_VERSION: Literal[2] = 2
 
 # Dispositions this planner can express as a step. `retire` is absent on purpose: it removes
 # canonical tables, nothing here implements that, and a plan whose header counts a disposition its
@@ -35,6 +45,9 @@ PROMOTION_PLAN_FORMAT_VERSION: Literal[1] = 1
 _PLANNED_DISPOSITIONS = frozenset({Disposition.REPLACE, Disposition.ADD, Disposition.REBUILD, Disposition.PRESERVE})
 
 _QUALIFIED = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\Z")
+# One unquoted table name. `\Z` and not `$`, because `$` matches before a trailing newline and a
+# name ending in one would pass while carrying a line break into the statement.
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 
 
 class StagedTableLike(Protocol):
@@ -134,12 +147,16 @@ class BerdlPromotionPlan(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    plan_format_version: Literal[1]
+    plan_format_version: Literal[2]
     status: Literal["plan-only"]
     snapshot_id: str
     staging_namespace: str
     canonical_namespace: str
     destination_id: str
+    #: Catalog the destination evidence describes. Persisted rather than derived, so the file
+    #: carries the same fact the builder checked; `validate_namespaces` binds it to the namespace
+    #: this actually writes into, the way `BerdlStagingPlan` binds its own.
+    destination_provider: str
     staging_outcome_sha256: str
     metadata_outcome_sha256: str
     publication_plan_sha256: str
@@ -150,6 +167,26 @@ class BerdlPromotionPlan(BaseModel):
     recovery: str = Field(min_length=1)
 
     @model_validator(mode="after")
+    def validate_table_names(self) -> "BerdlPromotionPlan":
+        """Refuse any table name that is not a plain identifier.
+
+        Every name here ends up interpolated into SQL.
+
+        The plan is JSON read from disk. Nothing about that file is authenticated beyond the
+        digest an operator types, and the digest is of the file as it is, not of a file anyone
+        vouched for. A name carrying a semicolon or a backtick would become extra statements
+        inside a DROP or a CREATE OR REPLACE, which is the one place in this repository where
+        that is unrecoverable.
+        """
+        for table in self.derived_rebuilds:
+            if not _IDENTIFIER.fullmatch(table):
+                raise ValueError(f"Derived rebuild {table!r} is not a plain table identifier.")
+        for operation in self.operations:
+            if not _IDENTIFIER.fullmatch(operation.table):
+                raise ValueError(f"Operation table {operation.table!r} is not a plain table identifier.")
+        return self
+
+    @model_validator(mode="after")
     def validate_namespaces(self) -> "BerdlPromotionPlan":
         """Both namespaces must name a catalog, and promotion must not target the staging one."""
         for value, label in ((self.staging_namespace, "staging"), (self.canonical_namespace, "canonical")):
@@ -157,6 +194,67 @@ class BerdlPromotionPlan(BaseModel):
                 raise ValueError(f"The {label} namespace must be catalog-qualified as <catalog>.<namespace>.")
         if self.staging_namespace == self.canonical_namespace:
             raise ValueError("Promotion cannot target the staging namespace it reads from.")
+        # The same binding `BerdlStagingPlan` makes. A provider is a label and nothing addresses a
+        # table with it, which is exactly why it drifts: without this a plan whose evidence
+        # describes provider `nmdc` can name, authorize and destroy `other.metadata`.
+        for namespace, label in (
+            (self.canonical_namespace, "writes into"),
+            (self.staging_namespace, "reads from"),
+        ):
+            if self.destination_provider != catalog_of_namespace(namespace, "namespace"):
+                raise ValueError(f"The destination provider must name the catalog the promotion {label}.")
+        return self
+
+    @model_validator(mode="after")
+    def validate_operations_and_rebuilds(self) -> "BerdlPromotionPlan":
+        """Re-establish what the builder established, because a file is not a builder.
+
+        `load_promotion_plan` validates this model and nothing else. Every invariant that lived
+        only in `build_berdl_promotion_plan` was therefore absent for an edited plan, which could
+        name an unrelated table as a derived rebuild and drop it, duplicate an operation, or carry
+        a `retire` that the statements silently skip while the header counts it.
+        """
+        if not self.operations:
+            raise ValueError("A promotion plan must describe at least one operation.")
+        # A copied table must carry the count it was decided against. `expected_rows` is optional
+        # on the field because `preserve` and `rebuild` have nothing to count, and leaving it
+        # optional for `add` and `replace` let an edited file switch off the only staging check
+        # there is, for exactly the tables that check protects.
+        uncounted = sorted(
+            operation.table
+            for operation in self.operations
+            if operation.disposition in (Disposition.REPLACE, Disposition.ADD) and operation.expected_rows is None
+        )
+        if uncounted:
+            raise ValueError(
+                "A table this promotion copies must record the row count it was decided against, "
+                "and these do not: " + ", ".join(uncounted) + "."
+            )
+        tables = [operation.table for operation in self.operations]
+        if len(tables) != len(set(tables)):
+            raise ValueError("A promotion plan must not name the same table twice.")
+        unsupported = sorted(
+            {operation.disposition.value for operation in self.operations} - {d.value for d in _PLANNED_DISPOSITIONS}
+        )
+        if unsupported:
+            raise ValueError("A promotion plan cannot express: " + ", ".join(unsupported) + ".")
+        # Exactly the rebuild operations, in `DERIVED_TABLES` order, which is how the builder
+        # derives this list. Anything else means the file was edited: a name that is not a derived
+        # table would be dropped by a statement nobody planned.
+        rebuilt = {op.table for op in self.operations if op.disposition is Disposition.REBUILD}
+        # Refused rather than filtered. Filtering is what let `rebuild mystery_set` validate with
+        # an empty derived_rebuilds and then be skipped by the statements, so the operator
+        # authorized a rebuild that was never going to happen and nothing said so.
+        unrebuildable = sorted(rebuilt - set(DERIVED_TABLES))
+        if unrebuildable:
+            raise ValueError(
+                "A rebuild operation must name a derived table, and these are not: " + ", ".join(unrebuildable) + "."
+            )
+        expected = [table for table in DERIVED_TABLES if table in rebuilt]
+        if self.derived_rebuilds != expected:
+            raise ValueError(
+                f"derived_rebuilds must be exactly the rebuild operations in DERIVED_TABLES order, which is {expected}."
+            )
         return self
 
 
@@ -236,6 +334,14 @@ def build_berdl_promotion_plan(
         f"metadata outcome describes '{metadata_outcome.destination_id}'.",
     )
 
+    # A provider is optional on a publication plan and required here, because promotion is what
+    # binds it to a catalog. Defaulting it would put an unchecked label in the file and make the
+    # binding vacuous, which is the failure the binding is for.
+    _require(
+        publication_plan.destination_provider is not None,
+        "The publication plan does not name a destination provider, so nothing can bind the promotion to a catalog.",
+    )
+
     # Row counts, table by table. The publication plan decided what to do on the strength of
     # candidate row counts, and the staging outcome is what actually landed. Promoting on a plan
     # whose numbers no longer match the data is promoting on a stale decision.
@@ -311,6 +417,8 @@ def build_berdl_promotion_plan(
         staging_namespace=staging_outcome.staging_namespace,
         canonical_namespace=canonical_namespace,
         destination_id=staging_outcome.destination_id,
+        # Narrowed by the `_require` above; mypy cannot see through it.
+        destination_provider=str(publication_plan.destination_provider),
         staging_outcome_sha256=staging_outcome_sha256,
         metadata_outcome_sha256=metadata_outcome_sha256,
         publication_plan_sha256=publication_plan_sha256,
@@ -350,6 +458,13 @@ def promotion_steps(plan: BerdlPromotionPlan) -> list[str]:
             else "the provenance side tables already in the destination"
         )
         steps.append(f"rebuild those derived table(s) from {source}")
+    # Named as a step because it is one, and because the plan consumes the metadata outcome as
+    # evidence. Consuming it says the staging tables were verified; it does not say the verified
+    # metadata arrives here. `CREATE OR REPLACE TABLE ... AS SELECT` builds a table from a query,
+    # and a table comment and TBLPROPERTIES are not part of a query result. An operator reading a
+    # plan that cites a metadata outcome will otherwise assume promotion carries it.
+    if counts.get(Disposition.REPLACE.value) or counts.get(Disposition.ADD.value):
+        steps.append("note that table comments and properties do not travel with these statements")
     steps.append(f"verify all {len(plan.operations)} object(s) by read-back")
     return steps
 
@@ -387,7 +502,9 @@ def render_promotion_plan(plan: BerdlPromotionPlan) -> str:
         lines.append("")
         lines.extend(textwrap.wrap(outage, width=78, initial_indent="  ", subsequent_indent="  "))
     lines.append("")
-    lines.append(f"  recovery       {plan.recovery}")
+    # Labelled manual, because nothing applies it. A bare "recovery" line beside a destructive
+    # plan reads as something the tool will do.
+    lines.append(f"  recovery       {plan.recovery} (manual; nothing performs this)")
     lines.append("  nothing has been changed; this plan is a description")
     return "\n".join(lines)
 
@@ -410,8 +527,16 @@ def _read_evidence(path: Path, model: type[_Evidence], label: str) -> tuple[_Evi
     try:
         contents = document.read_bytes()
         parsed = model.model_validate_json(contents, strict=True)
-    except (OSError, UnicodeDecodeError, ValidationError) as error:
-        raise PromotionPlanError(f"The {label} is not valid.") from error
+    except ValidationError as error:
+        # Naming the reason, not only the file. An operator holding a plan this refuses cannot act
+        # on "not valid": the whole point of refusing is that they go and look at what is wrong.
+        reasons = "; ".join(
+            f"{'.'.join(str(part) for part in problem['loc']) or '<plan>'}: {problem['msg']}"
+            for problem in error.errors()
+        )
+        raise PromotionPlanError(f"The {label} is not valid. {reasons}") from error
+    except (OSError, UnicodeDecodeError) as error:
+        raise PromotionPlanError(f"The {label} could not be read.") from error
     return parsed, hashlib.sha256(contents).hexdigest()
 
 
@@ -504,3 +629,164 @@ def write_berdl_promotion_plan(path: Path, plan: BerdlPromotionPlan) -> Path:
             except OSError:
                 pass
     return destination
+
+
+class PromotionRefused(PromotionPlanError):
+    """Raised when a promotion is asked for and the evidence or authorization does not allow it."""
+
+
+def load_promotion_plan(path: Path) -> tuple[BerdlPromotionPlan, str]:
+    """Read a written plan and hash the exact bytes read, so authorization names this file."""
+    return _read_evidence(path, BerdlPromotionPlan, "BERDL promotion plan")
+
+
+def promotion_statements(plan: BerdlPromotionPlan) -> list[tuple[str, str, str]]:
+    """The SQL this promotion runs, in order, paired with the step and the table each belongs to.
+
+    Built from the plan rather than decided here, so what runs and what an operator authorized
+    cannot diverge. The order is `promotion_steps`, and the derived tables are dropped before the
+    replacements for the reason recorded there: leaving them in place while the tables they are
+    computed from change underneath returns provenance that no longer exists, and those answers
+    look correct.
+
+    `preserve` contributes nothing, which is the point of it: a table nobody decided to touch is
+    a table this must not touch.
+    """
+    statements: list[tuple[str, str, str]] = []
+    for table in plan.derived_rebuilds:
+        statements.append(("drop", table, f"DROP TABLE IF EXISTS {plan.canonical_namespace}.{table}"))
+    for operation in plan.operations:
+        if operation.disposition not in (Disposition.REPLACE, Disposition.ADD):
+            continue
+        # `add` is CREATE TABLE and `replace` is CREATE OR REPLACE TABLE. They were the same
+        # statement, on the reasoning that the difference is only whether the destination already
+        # held the table. That reasoning is about when the plan was built. The inventory proved the
+        # table was absent then; nothing proves it is absent now, and `CREATE OR REPLACE` would
+        # overwrite whatever appeared in between without saying so. A plain `CREATE TABLE` fails,
+        # which is the outcome an operator who authorized an `add` should get.
+        verb = "CREATE OR REPLACE TABLE" if operation.disposition is Disposition.REPLACE else "CREATE TABLE"
+        # `USING iceberg`, because that is the statement the promotion probe actually ran against
+        # BERDL. Without it these differ from the only form with evidence behind them, and the
+        # probe would be proving a statement the promotion does not issue.
+        statements.append(
+            (
+                operation.disposition.value,
+                operation.table,
+                f"{verb} {plan.canonical_namespace}.{operation.table} USING iceberg "
+                f"AS SELECT * FROM {plan.staging_namespace}.{operation.table}",
+            )
+        )
+    return statements
+
+
+def check_staging_matches_plan(spark: object, plan: BerdlPromotionPlan, progress: object = None) -> None:
+    """Refuse if a staging table no longer holds the rows the plan was decided against.
+
+    Only the tables that get copied, and only the ones the plan gave a count for. `preserve` reads
+    nothing and `expected_rows` is optional, so a plan that never recorded a count for a table
+    cannot be checked against one and says so by having none rather than by being skipped quietly.
+    """
+    say = progress if callable(progress) else (lambda _message: None)
+    for operation in plan.operations:
+        if operation.disposition not in (Disposition.REPLACE, Disposition.ADD):
+            continue
+        # Guaranteed by `validate_operations_and_rebuilds`, which refuses a copied table with no
+        # count. Asserted rather than re-checked: a second rule here is one more thing that has to
+        # agree with the first.
+        assert operation.expected_rows is not None
+        source = f"{plan.staging_namespace}.{operation.table}"
+        try:
+            rows = spark.sql(f"SELECT COUNT(*) AS n FROM {source}").collect()  # type: ignore[attr-defined]
+        except Exception as error:
+            raise PromotionRefused(f"Cannot count rows in '{source}' to check it against the plan.") from error
+        if len(rows) != 1:
+            raise PromotionRefused(f"Counting '{source}' returned {len(rows)} rows, expected 1.")
+        observed = rows[0][0]
+        if isinstance(observed, bool) or not isinstance(observed, int) or observed < 0:
+            raise PromotionRefused(f"Counting '{source}' returned an invalid count: {observed!r}")
+        if observed != operation.expected_rows:
+            raise PromotionRefused(
+                f"'{source}' holds {observed} row(s) and the plan was decided against "
+                f"{operation.expected_rows}. Staging changed after the plan was built, so the "
+                f"authorization does not describe this data. Nothing has been changed."
+            )
+        say(f"{operation.table}: {observed} row(s), as the plan recorded")
+
+
+def execute_promotion(
+    spark: object,
+    plan: BerdlPromotionPlan,
+    *,
+    plan_sha256: str,
+    authorize_plan_sha256: str,
+    authorize_canonical_namespace: str,
+    authorize_destination_id: str,
+    progress: object = None,
+) -> list[str]:
+    """Perform the promotion this plan describes, or refuse.
+
+    Three authorizations, because they fail differently. The digest binds this run to the exact plan
+    a human read: a plan regenerated after the evidence moved has a different digest and is
+    refused, even though it may describe the same tables. The namespace is typed again because a
+    digest is copied from a previous command and a namespace is not, so an operator promoting into
+    the wrong place gets caught by the argument they had to write themselves.
+
+    The destination is the third, and it is the weakest of them, deliberately. Nothing here can
+    verify which deployment a session actually reaches: the runtime comes from a checkout named at
+    execution time, and `spark_session` establishes only that the helper was imported from that
+    checkout, not what the checkout is configured to talk to. So the operator asserts it. That
+    turns an unchecked assumption into a stated one, which is all this can honestly do offline.
+
+    Refuses rather than warns on all three, and the read-back afterwards is the check, not the
+    counts this returns: a statement that succeeded is not a table that holds what it should.
+    """
+    say = progress if callable(progress) else (lambda _message: None)
+    if plan.status != "plan-only":
+        raise PromotionRefused(f"The plan status is {plan.status!r}, not 'plan-only'.")
+    if authorize_plan_sha256 != plan_sha256:
+        raise PromotionRefused("Execution requires --authorize-plan-sha256 with the digest of the plan being run.")
+    if authorize_canonical_namespace != plan.canonical_namespace:
+        raise PromotionRefused(
+            f"--authorize-canonical-namespace is {authorize_canonical_namespace!r} but the plan "
+            f"promotes into {plan.canonical_namespace!r}."
+        )
+    if authorize_destination_id != plan.destination_id:
+        raise PromotionRefused(
+            f"--authorize-destination-id is {authorize_destination_id!r} but the dispositions were "
+            f"decided against {plan.destination_id!r}. The same namespace name exists in more than "
+            f"one deployment, and which one this session reaches is decided by the checkout, not "
+            f"by anything checked here."
+        )
+
+    # Before anything is dropped or replaced. The plan decided its dispositions against row counts
+    # the staging outcome recorded, and the statements copy whatever staging holds at execution.
+    # Staging is a live namespace: a reload between the plan and the run changes the data without
+    # changing the plan, and every authorization would still pass. This is the check that binds the
+    # authorized decision to the data it was decided against.
+    check_staging_matches_plan(spark, plan, progress=say)
+
+    performed: list[str] = []
+    for step, table, statement in promotion_statements(plan):
+        try:
+            # Inside the guard, with the bookkeeping, as one iteration. A progress line emitted
+            # outside it is a window where Ctrl-C escapes this handler, and so is the gap between
+            # `spark.sql` returning and the statement being recorded as performed.
+            say(f"{step}: {plan.canonical_namespace}.{table}")
+            spark.sql(statement)  # type: ignore[attr-defined]
+            performed.append(statement)
+        # KeyboardInterrupt as well as Exception, because it derives from BaseException and an
+        # operator hitting Ctrl-C got a generic abort with no record of what had already run. Not
+        # BaseException itself: that also catches SystemExit and GeneratorExit, which are the
+        # process going away rather than a promotion failing, and reporting them as a refusal
+        # describes something that did not happen.
+        except (Exception, KeyboardInterrupt) as error:
+            # Named, and with what already ran. A promotion that stops part way leaves the
+            # namespace in a state nobody planned, and the operator's first question is which
+            # objects moved.
+            stopped = "was interrupted during" if isinstance(error, KeyboardInterrupt) else "failed during"
+            raise PromotionRefused(
+                f"The promotion {stopped} {step}: {statement}. That statement may or may not have "
+                f"taken effect. {len(performed)} statement(s) had already run: "
+                f"{', '.join(performed) or 'none'}."
+            ) from error
+    return performed

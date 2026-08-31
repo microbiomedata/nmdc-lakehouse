@@ -20,8 +20,13 @@ from pydantic import ValidationError
 
 from nmdc_lakehouse.berdl_promotion import (
     BerdlPromotionPlan,
+    PromotionOperation,
     PromotionPlanError,
+    PromotionRefused,
     build_berdl_promotion_plan,
+    execute_promotion,
+    load_promotion_plan,
+    promotion_statements,
     render_promotion_plan,
 )
 from nmdc_lakehouse.publication_plan import Disposition, PlanEntry, PublicationPlan
@@ -747,3 +752,809 @@ def test_the_refusal_survives_a_file_appearing_after_the_check(tmp_path: Path, m
     assert output.read_text(encoding="utf-8") == "{}", "the existing file must be untouched"
     leftovers = [item.name for item in tmp_path.iterdir() if item.name.startswith(".promotion.json.")]
     assert not leftovers, f"the temporary file must be cleaned up, found {leftovers}"
+
+
+class _Count:
+    def __init__(self, value: int) -> None:
+        self._value = value
+
+    def collect(self) -> list[tuple[int]]:
+        return [(self._value,)]
+
+
+class _RecordingSpark:
+    """Records mutations, answers counts, and can be told to fail on the nth mutation.
+
+    Counts are answered from `counts`, keyed by table name, defaulting to what the fixture plan
+    records. They are not recorded in `statements`: the tests compare that list against the
+    promotion statements, and a read is not one of them.
+    """
+
+    def __init__(self, fail_on: int | None = None, counts: dict[str, int] | None = None) -> None:
+        self.statements: list[str] = []
+        self._fail_on = fail_on
+        self._counts = {"biosample_set": 27352} if counts is None else counts
+
+    def sql(self, statement: str) -> object:
+        if statement.startswith("SELECT COUNT(*)"):
+            for table, value in self._counts.items():
+                if statement.endswith(f".{table}"):
+                    return _Count(value)
+            raise AssertionError(f"no count configured for: {statement}")
+        self.statements.append(statement)
+        if self._fail_on is not None and len(self.statements) == self._fail_on:
+            raise RuntimeError("the engine refused this statement")
+        return object()
+
+
+def _executable_plan(tmp_path: Path) -> tuple[BerdlPromotionPlan, str]:
+    from nmdc_lakehouse.berdl_promotion import plan_berdl_promotion_from_files
+
+    plan = plan_berdl_promotion_from_files(canonical_namespace=CANONICAL, recovery=RECOVERY, **_files(tmp_path))
+    path = _write(tmp_path / "promotion.json", json.loads(plan.model_dump_json()))
+    return load_promotion_plan(path)
+
+
+def test_the_drops_precede_every_replacement(tmp_path: Path) -> None:
+    """Order is the decision this encodes. A derived table left standing over replaced provenance
+    answers questions about rows that no longer exist, and those answers look correct."""
+    plan, _digest = _executable_plan(tmp_path)
+
+    steps = [step for step, _table, _statement in promotion_statements(plan)]
+
+    assert "drop" in steps, steps
+    assert max(index for index, step in enumerate(steps) if step == "drop") < min(
+        index for index, step in enumerate(steps) if step != "drop"
+    ), steps
+
+
+def test_promotion_refuses_a_digest_that_does_not_match_the_plan(tmp_path: Path) -> None:
+    """The digest binds the run to the exact plan a human read, not to one that resembles it."""
+    plan, digest = _executable_plan(tmp_path)
+    spark = _RecordingSpark()
+
+    with pytest.raises(PromotionRefused, match="--authorize-plan-sha256"):
+        execute_promotion(
+            spark,
+            plan,
+            plan_sha256=digest,
+            authorize_plan_sha256="0" * 64,
+            authorize_canonical_namespace=CANONICAL,
+            authorize_destination_id=plan.destination_id,
+        )
+
+    assert spark.statements == []
+
+
+def test_promotion_refuses_a_namespace_that_is_not_the_one_the_plan_promotes_into(tmp_path: Path) -> None:
+    """A digest is copied from a previous command; a namespace is typed. This catches the typing."""
+    plan, digest = _executable_plan(tmp_path)
+    spark = _RecordingSpark()
+
+    with pytest.raises(PromotionRefused, match="nmdc.somewhere_else"):
+        execute_promotion(
+            spark,
+            plan,
+            plan_sha256=digest,
+            authorize_plan_sha256=digest,
+            authorize_canonical_namespace="nmdc.somewhere_else",
+            authorize_destination_id=plan.destination_id,
+        )
+
+    assert spark.statements == []
+
+
+def test_promotion_runs_exactly_the_statements_the_plan_describes(tmp_path: Path) -> None:
+    """What runs and what an operator authorized cannot diverge, so they are compared directly."""
+    plan, digest = _executable_plan(tmp_path)
+    spark = _RecordingSpark()
+
+    performed = execute_promotion(
+        spark,
+        plan,
+        plan_sha256=digest,
+        authorize_plan_sha256=digest,
+        authorize_canonical_namespace=CANONICAL,
+        authorize_destination_id=plan.destination_id,
+    )
+
+    expected = [statement for _step, _table, statement in promotion_statements(plan)]
+    assert spark.statements == expected
+    assert performed == expected
+
+
+def test_a_promotion_that_stops_part_way_names_what_already_ran(tmp_path: Path) -> None:
+    """The operator's first question is which objects moved, so the refusal answers it."""
+    plan, digest = _executable_plan(tmp_path)
+    spark = _RecordingSpark(fail_on=2)
+    expected = [statement for _step, _table, statement in promotion_statements(plan)]
+    assert len(expected) >= 2, "this test needs a plan with at least two statements"
+
+    with pytest.raises(PromotionRefused) as refusal:
+        execute_promotion(
+            spark,
+            plan,
+            plan_sha256=digest,
+            authorize_plan_sha256=digest,
+            authorize_canonical_namespace=CANONICAL,
+            authorize_destination_id=plan.destination_id,
+        )
+
+    message = str(refusal.value)
+    assert expected[0] in message, message
+    assert "1 statement(s) had already run" in message, message
+    # The one that failed is named as the failure, not as something that ran.
+    assert f"failed during {promotion_statements(plan)[1][0]}" in message, message
+
+
+def _promotion_plan_file(tmp_path: Path) -> Path:
+    from nmdc_lakehouse.berdl_promotion import plan_berdl_promotion_from_files
+
+    plan = plan_berdl_promotion_from_files(canonical_namespace=CANONICAL, recovery=RECOVERY, **_files(tmp_path))
+    return _write(tmp_path / "promotion.json", json.loads(plan.model_dump_json()))
+
+
+def test_the_promote_command_previews_without_both_authorizations(tmp_path: Path) -> None:
+    """Half an authorization is not one. Neither flag alone reaches the destructive path."""
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    path = _promotion_plan_file(tmp_path)
+    _plan, digest = load_promotion_plan(path)
+    runner = CliRunner()
+
+    plan, _again = load_promotion_plan(path)
+    # Every proper subset, not a sample of them. Two of the three present is the case a regression
+    # that stopped requiring the third would pass, and the earlier version of this test omitted it.
+    for extra in (
+        [],
+        ["--authorize-plan-sha256", digest],
+        ["--authorize-canonical-namespace", CANONICAL],
+        ["--authorize-destination-id", plan.destination_id],
+        ["--authorize-plan-sha256", digest, "--authorize-canonical-namespace", CANONICAL],
+        ["--authorize-plan-sha256", digest, "--authorize-destination-id", plan.destination_id],
+        ["--authorize-canonical-namespace", CANONICAL, "--authorize-destination-id", plan.destination_id],
+    ):
+        result = runner.invoke(cli, ["berdl-promote", str(path), "--ingest-checkout", str(tmp_path), *extra])
+
+        assert result.exit_code == 0, result.output
+        assert "nothing has been changed" in result.output, extra
+        # The statements are shown so a reviewer reads what would run, and the digest is shown
+        # because it is what the next invocation has to name.
+        assert digest in result.output, extra
+        assert "DROP TABLE IF EXISTS" in result.output, extra
+
+
+def test_the_promote_command_executes_and_refuses_to_call_it_verified(tmp_path: Path, monkeypatch) -> None:
+    """The plan's last step is a read-back this command does not perform.
+
+    Reporting only a statement count lets the output stand in for a verification nobody has run,
+    which is the failure mode where a promotion is announced complete and is not.
+    """
+    from click.testing import CliRunner
+
+    import nmdc_lakehouse.derived_tables as derived_tables
+    from nmdc_lakehouse.cli import cli
+
+    path = _promotion_plan_file(tmp_path)
+    plan, digest = load_promotion_plan(path)
+    spark = _RecordingSpark()
+    monkeypatch.setattr(derived_tables, "spark_session", lambda _checkout: spark)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "berdl-promote",
+            str(path),
+            "--ingest-checkout",
+            str(tmp_path),
+            "--authorize-plan-sha256",
+            digest,
+            "--authorize-canonical-namespace",
+            CANONICAL,
+            "--authorize-destination-id",
+            plan.destination_id,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert spark.statements == [statement for _step, _table, statement in promotion_statements(plan)]
+    assert "NOT VERIFIED" in result.output, result.output
+    assert "rerun with all three --authorize- options" not in result.output, result.output
+    for table in plan.derived_rebuilds:
+        assert table in result.output, result.output
+
+
+def test_a_plan_naming_a_table_that_is_not_an_identifier_is_refused(tmp_path: Path) -> None:
+    """The plan is JSON on disk, and its digest is of the file as it is, not of one anyone vouched
+    for. A name carrying a semicolon becomes extra statements inside a DROP."""
+    path = _promotion_plan_file(tmp_path)
+    document = json.loads(path.read_text())
+    document["derived_rebuilds"] = ["graph_edges; DROP TABLE nmdc.metadata.biosample_set"]
+    tampered = _write(tmp_path / "tampered.json", document)
+
+    with pytest.raises(PromotionPlanError, match="not a plain table identifier"):
+        load_promotion_plan(tampered)
+
+
+def test_a_plan_whose_operation_names_a_bad_table_is_refused(tmp_path: Path) -> None:
+    """Both lists of table names reach SQL, so both are checked. Fixing one would leave the other."""
+    path = _promotion_plan_file(tmp_path)
+    document = json.loads(path.read_text())
+    document["operations"][0]["table"] = "biosample_set`; DROP TABLE x"
+    tampered = _write(tmp_path / "tampered-operation.json", document)
+
+    with pytest.raises(PromotionPlanError, match="not a plain table identifier"):
+        load_promotion_plan(tampered)
+
+
+def test_the_plan_says_promotion_does_not_carry_table_metadata(tmp_path: Path) -> None:
+    """The plan consumes a metadata outcome, which is evidence about staging, not about here.
+
+    `CREATE OR REPLACE TABLE ... AS SELECT` builds a table from a query result, and a table
+    comment and TBLPROPERTIES are not part of one. An operator reading a plan that cites a
+    verified metadata outcome would otherwise assume promotion carries it.
+    """
+    plan, _digest = _executable_plan(tmp_path)
+
+    rendered = render_promotion_plan(plan)
+
+    assert "table comments and properties do not travel" in rendered, rendered
+
+
+def test_the_promote_command_says_the_metadata_did_not_come_with_it(tmp_path: Path, monkeypatch) -> None:
+    """Same claim, at the point where someone would otherwise call the promotion finished."""
+    from click.testing import CliRunner
+
+    import nmdc_lakehouse.derived_tables as derived_tables
+    from nmdc_lakehouse.cli import cli
+
+    path = _promotion_plan_file(tmp_path)
+    plan, digest = load_promotion_plan(path)
+    monkeypatch.setattr(derived_tables, "spark_session", lambda _checkout: _RecordingSpark())
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "berdl-promote",
+            str(path),
+            "--ingest-checkout",
+            str(tmp_path),
+            "--authorize-plan-sha256",
+            digest,
+            "--authorize-canonical-namespace",
+            CANONICAL,
+            "--authorize-destination-id",
+            plan.destination_id,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "METADATA NOT CARRIED" in result.output, result.output
+    assert "refuses one by design" in result.output, result.output
+
+
+def test_promotion_refuses_a_destination_the_plan_was_not_decided_against(tmp_path: Path) -> None:
+    """Nothing here can verify which deployment a session reaches, so the operator asserts it.
+
+    The runtime comes from a checkout named at execution time and `spark_session` establishes only
+    that the helper was imported from it, not what it is configured to talk to. The same namespace
+    name exists in more than one deployment.
+    """
+    plan, digest = _executable_plan(tmp_path)
+    spark = _RecordingSpark()
+
+    with pytest.raises(PromotionRefused, match="nmdc-somewhere-else"):
+        execute_promotion(
+            spark,
+            plan,
+            plan_sha256=digest,
+            authorize_plan_sha256=digest,
+            authorize_canonical_namespace=CANONICAL,
+            authorize_destination_id="nmdc-somewhere-else",
+        )
+
+    assert spark.statements == []
+
+
+def test_an_add_does_not_overwrite_a_table_that_appeared_since_the_plan_was_built() -> None:
+    """The inventory proved the destination was absent when the plan was built, not now.
+
+    `CREATE OR REPLACE` for an `add` would overwrite whatever appeared in between and report
+    success. A plain `CREATE TABLE` fails, which is what an operator who authorized an add wants.
+    """
+    plan = BerdlPromotionPlan(
+        plan_format_version=2,
+        status="plan-only",
+        snapshot_id="snapshot",
+        staging_namespace=STAGING,
+        canonical_namespace=CANONICAL,
+        destination_id="nmdc-production",
+        destination_provider="nmdc",
+        staging_outcome_sha256="a" * 64,
+        metadata_outcome_sha256="b" * 64,
+        publication_plan_sha256="c" * 64,
+        operations=[
+            PromotionOperation(table="new_table", disposition=Disposition.ADD, rationale="absent", expected_rows=1),
+            PromotionOperation(
+                table="old_table", disposition=Disposition.REPLACE, rationale="present", expected_rows=2
+            ),
+        ],
+        derived_rebuilds=[],
+        recovery=RECOVERY,
+    )
+
+    by_table = {table: statement for _step, table, statement in promotion_statements(plan)}
+
+    assert by_table["new_table"].startswith("CREATE TABLE "), by_table["new_table"]
+    assert by_table["old_table"].startswith("CREATE OR REPLACE TABLE "), by_table["old_table"]
+
+
+def test_a_plan_whose_provider_is_not_the_catalog_it_writes_into_is_refused() -> None:
+    """A provider is a label and nothing addresses a table with it, which is why it drifts.
+
+    `BerdlStagingPlan` already binds its own provider to its namespace's catalog. Without the same
+    binding here, a plan whose evidence describes one provider can name, authorize and destroy a
+    namespace in another catalog, and all three authorizations pass.
+    """
+    with pytest.raises(ValidationError, match="must name the catalog the promotion writes into"):
+        BerdlPromotionPlan(
+            plan_format_version=2,
+            status="plan-only",
+            snapshot_id="snapshot",
+            staging_namespace="other.staging_20260824",
+            canonical_namespace="other.metadata",
+            destination_id="nmdc-production",
+            destination_provider="nmdc",
+            staging_outcome_sha256="a" * 64,
+            metadata_outcome_sha256="b" * 64,
+            publication_plan_sha256="c" * 64,
+            operations=[PromotionOperation(table="t", disposition=Disposition.REPLACE, rationale="r")],
+            derived_rebuilds=[],
+            recovery=RECOVERY,
+        )
+
+
+def test_a_plan_naming_a_rebuild_that_is_not_a_rebuild_operation_is_refused(tmp_path: Path) -> None:
+    """derived_rebuilds is dropped from, so an edited entry destroys a table nobody planned.
+
+    The builder derives this list from the rebuild operations. Loading a file re-derives nothing,
+    so every invariant that lived only in the builder was absent for an edited plan.
+    """
+    path = _promotion_plan_file(tmp_path)
+    document = json.loads(path.read_text())
+    document["derived_rebuilds"] = ["biosample_set"]
+    tampered = _write(tmp_path / "tampered-rebuilds.json", document)
+
+    with pytest.raises(PromotionPlanError, match="derived_rebuilds must be exactly"):
+        load_promotion_plan(tampered)
+
+
+def test_a_plan_naming_one_table_twice_is_refused(tmp_path: Path) -> None:
+    """Two operations on one table means one of them silently loses, whichever runs second."""
+    path = _promotion_plan_file(tmp_path)
+    document = json.loads(path.read_text())
+    document["operations"].append(dict(document["operations"][0]))
+    tampered = _write(tmp_path / "tampered-duplicate.json", document)
+
+    with pytest.raises(PromotionPlanError, match="must not name the same table twice"):
+        load_promotion_plan(tampered)
+
+
+def test_a_plan_carrying_retire_is_refused(tmp_path: Path) -> None:
+    """The statements skip `retire` and the header counts it, so the operator authorizes a
+    removal that never happens."""
+    path = _promotion_plan_file(tmp_path)
+    document = json.loads(path.read_text())
+    document["operations"][0]["disposition"] = "retire"
+    tampered = _write(tmp_path / "tampered-retire.json", document)
+
+    with pytest.raises(PromotionPlanError, match="cannot express: retire"):
+        load_promotion_plan(tampered)
+
+
+def test_an_interrupted_promotion_still_names_what_already_ran(tmp_path: Path) -> None:
+    """KeyboardInterrupt does not derive from Exception, so Ctrl-C bypassed the reporting entirely.
+
+    That is the moment the record matters most: the operator stopped a destructive loop by hand and
+    Click printed a generic abort. Nothing can tell whether the interrupt landed between statements
+    or inside one, so the in-flight statement is reported as unknown rather than as skipped.
+    """
+
+    class InterruptingSpark(_RecordingSpark):
+        def sql(self, statement: str) -> object:
+            result = super().sql(statement)
+            if len(self.statements) == 2:
+                raise KeyboardInterrupt
+            return result
+
+    plan, digest = _executable_plan(tmp_path)
+    expected = [statement for _step, _table, statement in promotion_statements(plan)]
+    assert len(expected) >= 2, "this test needs a plan with at least two statements"
+
+    with pytest.raises(PromotionRefused) as refusal:
+        execute_promotion(
+            InterruptingSpark(),
+            plan,
+            plan_sha256=digest,
+            authorize_plan_sha256=digest,
+            authorize_canonical_namespace=CANONICAL,
+            authorize_destination_id=plan.destination_id,
+        )
+
+    message = str(refusal.value)
+    assert "was interrupted during" in message, message
+    assert "may or may not have taken effect" in message, message
+    assert expected[0] in message, message
+    assert "1 statement(s) had already run" in message, message
+
+
+def test_a_plan_whose_provider_is_not_the_catalog_it_reads_from_is_refused() -> None:
+    """Binding only the destination left the source unchecked, and promotion reads from staging.
+
+    The wrong catalog there copies the wrong data in, which the destination binding cannot see.
+    """
+    with pytest.raises(ValidationError, match="the promotion reads from"):
+        BerdlPromotionPlan(
+            plan_format_version=2,
+            status="plan-only",
+            snapshot_id="snapshot",
+            staging_namespace="other.staging_20260824",
+            canonical_namespace=CANONICAL,
+            destination_id="nmdc-production",
+            destination_provider="nmdc",
+            staging_outcome_sha256="a" * 64,
+            metadata_outcome_sha256="b" * 64,
+            publication_plan_sha256="c" * 64,
+            operations=[PromotionOperation(table="t", disposition=Disposition.REPLACE, rationale="r")],
+            derived_rebuilds=[],
+            recovery=RECOVERY,
+        )
+
+
+def test_a_plan_rebuilding_one_derived_table_names_only_that_one_in_the_follow_up(tmp_path: Path, monkeypatch) -> None:
+    """A plan can rebuild one derived table and preserve the other, and the fixture does.
+
+    `rebuild-derived-tables` with no `--table` replaces every table in DERIVED_TABLES, so an
+    instruction that named only the command would have an operator mutate a table this plan
+    preserved. The command prints the selection instead.
+    """
+    from click.testing import CliRunner
+
+    import nmdc_lakehouse.derived_tables as derived_tables
+    from nmdc_lakehouse.cli import cli
+    from nmdc_lakehouse.derived_tables import DERIVED_TABLES
+
+    path = _promotion_plan_file(tmp_path)
+    plan, digest = load_promotion_plan(path)
+    assert 0 < len(plan.derived_rebuilds) < len(DERIVED_TABLES), plan.derived_rebuilds
+    monkeypatch.setattr(derived_tables, "spark_session", lambda _checkout: _RecordingSpark())
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "berdl-promote",
+            str(path),
+            "--ingest-checkout",
+            str(tmp_path),
+            "--authorize-plan-sha256",
+            digest,
+            "--authorize-canonical-namespace",
+            CANONICAL,
+            "--authorize-destination-id",
+            plan.destination_id,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    for table in plan.derived_rebuilds:
+        assert f"--table {table}" in result.output, result.output
+    for untouched in set(DERIVED_TABLES) - set(plan.derived_rebuilds):
+        assert f"--table {untouched}" not in result.output, result.output
+
+
+def test_a_version_one_plan_is_refused_rather_than_loaded_without_its_provider(tmp_path: Path) -> None:
+    """destination_provider became required, so a v1 plan cannot be bound to a catalog.
+
+    Loading one anyway would either fail on a missing field, which says nothing useful, or pass a
+    vacuous binding if the field were optional. The version says which it is.
+    """
+    path = _promotion_plan_file(tmp_path)
+    document = json.loads(path.read_text())
+    document["plan_format_version"] = 1
+    del document["destination_provider"]
+    old = _write(tmp_path / "v1.json", document)
+
+    with pytest.raises(PromotionPlanError, match="plan_format_version"):
+        load_promotion_plan(old)
+
+
+def test_promotion_refuses_staging_that_no_longer_holds_the_rows_the_plan_names(tmp_path: Path) -> None:
+    """Staging is a live namespace and the statements copy whatever it holds at execution.
+
+    A reload between building the plan and running it changes the data without changing the plan,
+    and all three authorizations still pass. This is the check that binds the authorized decision
+    to the data it was decided against.
+    """
+    plan, digest = _executable_plan(tmp_path)
+    expected = {op.table: op.expected_rows for op in plan.operations if op.expected_rows is not None}
+    assert expected, "this test needs a plan that records at least one row count"
+    table, count = next(iter(expected.items()))
+    spark = _RecordingSpark(counts={table: count + 1})
+
+    with pytest.raises(PromotionRefused, match="Staging changed after the plan was built"):
+        execute_promotion(
+            spark,
+            plan,
+            plan_sha256=digest,
+            authorize_plan_sha256=digest,
+            authorize_canonical_namespace=CANONICAL,
+            authorize_destination_id=plan.destination_id,
+        )
+
+    assert spark.statements == [], "nothing may be dropped or replaced before the counts agree"
+
+
+def test_a_rebuild_naming_something_that_is_not_a_derived_table_is_refused(tmp_path: Path) -> None:
+    """It was filtered out of the derived list, so it validated and was then silently skipped.
+
+    The operator authorized a rebuild that was never going to run and nothing reported that.
+    """
+    path = _promotion_plan_file(tmp_path)
+    document = json.loads(path.read_text())
+    document["operations"].append({"table": "mystery_set", "disposition": "rebuild", "rationale": "r"})
+    tampered = _write(tmp_path / "mystery.json", document)
+
+    with pytest.raises(PromotionPlanError, match="must name a derived table"):
+        load_promotion_plan(tampered)
+
+
+def test_a_preserve_only_plan_does_not_claim_statements_built_tables(tmp_path: Path, monkeypatch) -> None:
+    """The metadata warning describes statements. A preserve-only plan issues none."""
+    from click.testing import CliRunner
+
+    import nmdc_lakehouse.derived_tables as derived_tables
+    from nmdc_lakehouse.cli import cli
+
+    path = _promotion_plan_file(tmp_path)
+    document = json.loads(path.read_text())
+    document["operations"] = [
+        {"table": "biosample_set", "disposition": "preserve", "rationale": "nobody decided to touch it"}
+    ]
+    document["derived_rebuilds"] = []
+    preserve_only = _write(tmp_path / "preserve-only.json", document)
+    plan, digest = load_promotion_plan(preserve_only)
+    monkeypatch.setattr(derived_tables, "spark_session", lambda _checkout: _RecordingSpark())
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "berdl-promote",
+            str(preserve_only),
+            "--ingest-checkout",
+            str(tmp_path),
+            "--authorize-plan-sha256",
+            digest,
+            "--authorize-canonical-namespace",
+            CANONICAL,
+            "--authorize-destination-id",
+            plan.destination_id,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "METADATA NOT CARRIED" not in result.output, result.output
+    # The read-back notice still applies: preserving is a claim about the destination too.
+    assert "NOT VERIFIED" in result.output, result.output
+
+
+def test_a_copied_table_with_no_expected_count_is_refused_at_load(tmp_path: Path) -> None:
+    """Refused where the plan is read, not where it is run.
+
+    `expected_rows` is optional on the field because `preserve` and `rebuild` have nothing to
+    count. Leaving it optional for the copied tables let an edited file switch off the only
+    staging check there is, for exactly the tables that check protects. The refusal lives in the
+    model rather than beside the statements, so there is one rule instead of a rule and a guard
+    that has to agree with it.
+    """
+    path = _promotion_plan_file(tmp_path)
+    document = json.loads(path.read_text())
+    for operation in document["operations"]:
+        if operation["disposition"] in ("replace", "add"):
+            operation["expected_rows"] = None
+    tampered = _write(tmp_path / "uncounted.json", document)
+
+    with pytest.raises(PromotionPlanError, match="must record the row count it was decided against"):
+        load_promotion_plan(tampered)
+
+
+def test_the_statements_name_the_format_the_probe_actually_ran() -> None:
+    """The probe is the only one of these statements with evidence behind it.
+
+    `berdl_promotion_probe.py` runs `CREATE OR REPLACE TABLE ... USING iceberg AS SELECT`. Without
+    `USING iceberg` here the probe proves a statement the promotion does not issue.
+    """
+    plan = BerdlPromotionPlan(
+        plan_format_version=2,
+        status="plan-only",
+        snapshot_id="snapshot",
+        staging_namespace=STAGING,
+        canonical_namespace=CANONICAL,
+        destination_id="nmdc-production",
+        destination_provider="nmdc",
+        staging_outcome_sha256="a" * 64,
+        metadata_outcome_sha256="b" * 64,
+        publication_plan_sha256="c" * 64,
+        operations=[
+            PromotionOperation(table="added", disposition=Disposition.ADD, rationale="r", expected_rows=1),
+            PromotionOperation(table="replaced", disposition=Disposition.REPLACE, rationale="r", expected_rows=1),
+        ],
+        derived_rebuilds=[],
+        recovery=RECOVERY,
+    )
+
+    for _step, _table, statement in promotion_statements(plan):
+        assert " USING iceberg AS SELECT " in statement, statement
+
+
+def test_the_printed_follow_up_is_the_command_that_actually_rebuilds(tmp_path: Path, monkeypatch) -> None:
+    """Without --authorize-namespace it previews and returns, leaving the tables dropped.
+
+    An operator copying the printed line during an outage would see it exit cleanly and rebuild
+    nothing, which is the worst moment to hand someone a command that does not do its job.
+    """
+    from click.testing import CliRunner
+
+    import nmdc_lakehouse.derived_tables as derived_tables
+    from nmdc_lakehouse.cli import cli
+
+    path = _promotion_plan_file(tmp_path)
+    plan, digest = load_promotion_plan(path)
+    assert plan.derived_rebuilds, "this test needs a plan that drops a derived table"
+    monkeypatch.setattr(derived_tables, "spark_session", lambda _checkout: _RecordingSpark())
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "berdl-promote",
+            str(path),
+            "--ingest-checkout",
+            str(tmp_path),
+            "--authorize-plan-sha256",
+            digest,
+            "--authorize-canonical-namespace",
+            CANONICAL,
+            "--authorize-destination-id",
+            plan.destination_id,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    printed = next(line for line in result.output.splitlines() if "rebuild-derived-tables" in line)
+    assert f"--authorize-namespace {CANONICAL}" in printed, printed
+
+
+def test_the_printed_follow_up_survives_a_shell(tmp_path: Path, monkeypatch) -> None:
+    """It was printed with `<checkout>`, which a shell reads as two redirections.
+
+    `<checkout` opens a file and `>` takes the next word as an output target, so the shell
+    consumed the `--table` flag, left the table name in the checkout position, and diverted every
+    message into a file named `--table`. A rebuild with no `--table` replaces every derived table,
+    which is what the selection exists to prevent, and this is the instruction an operator follows
+    while the tables are already dropped.
+    """
+    import shlex
+
+    from click.testing import CliRunner
+
+    import nmdc_lakehouse.derived_tables as derived_tables
+    from nmdc_lakehouse.cli import cli
+
+    path = _promotion_plan_file(tmp_path)
+    plan, digest = load_promotion_plan(path)
+    assert plan.derived_rebuilds, "this test needs a plan that drops a derived table"
+    monkeypatch.setattr(derived_tables, "spark_session", lambda _checkout: _RecordingSpark())
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "berdl-promote",
+            str(path),
+            "--ingest-checkout",
+            str(tmp_path),
+            "--authorize-plan-sha256",
+            digest,
+            "--authorize-canonical-namespace",
+            CANONICAL,
+            "--authorize-destination-id",
+            plan.destination_id,
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    printed = next(line for line in result.output.splitlines() if "rebuild-derived-tables" in line)
+    command = printed.split("run: ", 1)[1]
+    # shlex is the shell's own tokenizer, so this asks what a shell would actually receive rather
+    # than what the string looks like.
+    assert "<" not in command and ">" not in command, command
+    words = shlex.split(command)
+    for table in plan.derived_rebuilds:
+        assert words[words.index("--table") + 1] == table, words
+    assert words[words.index("--authorize-namespace") + 1] == CANONICAL, words
+
+
+def _promote(plan, digest, spark):
+    return execute_promotion(
+        spark,
+        plan,
+        plan_sha256=digest,
+        authorize_plan_sha256=digest,
+        authorize_canonical_namespace=CANONICAL,
+        authorize_destination_id=plan.destination_id,
+    )
+
+
+def test_a_staging_count_that_cannot_be_read_refuses_rather_than_proceeding(tmp_path: Path) -> None:
+    """This gate is the last check before destructive SQL, so an unreadable answer is a refusal.
+
+    Treating a failed count as permission to continue would make the check strongest exactly when
+    the catalog is healthy and absent when it is not.
+    """
+    plan, digest = _executable_plan(tmp_path)
+
+    class FailingCount(_RecordingSpark):
+        def sql(self, statement: str) -> object:
+            if statement.startswith("SELECT COUNT(*)"):
+                raise RuntimeError("the catalog refused this read")
+            return super().sql(statement)
+
+    spark = FailingCount()
+    with pytest.raises(PromotionRefused, match="to check it against the plan"):
+        _promote(plan, digest, spark)
+
+    assert spark.statements == []
+
+
+def test_a_count_returning_the_wrong_shape_refuses(tmp_path: Path) -> None:
+    """One row with one number, or this cannot say whether staging matches."""
+    plan, digest = _executable_plan(tmp_path)
+
+    class TwoRows:
+        def collect(self) -> list[tuple[int]]:
+            return [(1,), (2,)]
+
+    class WrongShape(_RecordingSpark):
+        def sql(self, statement: str) -> object:
+            if statement.startswith("SELECT COUNT(*)"):
+                return TwoRows()
+            return super().sql(statement)
+
+    spark = WrongShape()
+    with pytest.raises(PromotionRefused, match="returned 2 rows, expected 1"):
+        _promote(plan, digest, spark)
+
+    assert spark.statements == []
+
+
+@pytest.mark.parametrize("value", [None, "27352", True, -1])
+def test_a_count_that_is_not_a_row_count_refuses(tmp_path: Path, value: object) -> None:
+    """`True` is the one worth naming: it is an int in Python and equals 1, so a bool answer would
+    compare as a count without being one."""
+    plan, digest = _executable_plan(tmp_path)
+
+    class OneRow:
+        def collect(self) -> list[tuple[object]]:
+            return [(value,)]
+
+    class BadValue(_RecordingSpark):
+        def sql(self, statement: str) -> object:
+            if statement.startswith("SELECT COUNT(*)"):
+                return OneRow()
+            return super().sql(statement)
+
+    spark = BadValue()
+    with pytest.raises(PromotionRefused, match="invalid count"):
+        _promote(plan, digest, spark)
+
+    assert spark.statements == []

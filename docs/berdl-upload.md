@@ -629,7 +629,8 @@ the outage:
   2. replace 2 table(s) from staging
   3. add 1 table(s) absent from the destination
   4. rebuild those derived table(s) from the replaced provenance side tables
-  5. verify all 5 object(s) by read-back
+  5. note that table comments and properties do not travel with these statements
+  6. verify all 5 object(s) by read-back
 
   OUTAGE: graph_edges, biosample_to_workflow_run are dropped at step 1 and do
   not exist again until the rebuild. Queries against them, and joins from them
@@ -642,8 +643,101 @@ while the tables they are computed from are replaced underneath would have them
 return provenance that no longer exists, and those answers look correct.
 
 The output file is created once and never replaced, because it is the artifact a
-human authorizes against. **Nothing yet consumes it.** The command that performs
-a promotion does not exist; see
+human authorizes against.
+
+### Performing the promotion
+
+`berdl-promote` consumes that file. It previews by default, printing the plan,
+the digest to authorize with, the destination the dispositions were decided
+against, and the exact statements:
+
+<!-- unverified: no run of this command against a live catalog is recorded.
+     Running it is tracked in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
+```bash
+just berdl-promote local/promotion-plan.json ~/gitrepos/BERIL-research-observatory
+```
+
+Execution needs all three authorizations, and none is optional. Substitute the
+two placeholders with what the preview printed; they are written this way because
+angle brackets in a command line redirect input and output rather than standing
+in for a value, so a copied line containing them does something other than what
+it looks like:
+
+<!-- unverified: no run of this command against a live catalog is recorded.
+     Running it is tracked in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
+```bash
+just berdl-promote local/promotion-plan.json ~/gitrepos/BERIL-research-observatory \
+    --authorize-plan-sha256 DIGEST_THE_PREVIEW_PRINTED \
+    --authorize-canonical-namespace nmdc.metadata \
+    --authorize-destination-id DESTINATION_THE_PREVIEW_PRINTED
+```
+
+The digest binds the run to the exact plan a human read, so a plan regenerated
+after the evidence moved is refused even when it describes the same tables. The
+namespace is typed again because a digest is copied from a previous command and a
+namespace is not. The destination is the weakest of the three and is there
+because nothing in this repository can verify which deployment a session reaches:
+the runtime comes from the checkout named by `--ingest-checkout`, and the code
+establishes only that the session helper was imported from that checkout, not
+what it is configured to talk to.
+
+**When the plan rebuilds derived tables, the outage starts at the first
+statement.** Those tables are dropped before the replacements, so queries against
+them fail from then until `rebuild-derived-tables` finishes. The command does not
+rebuild them, so that cannot be run as one step nobody can stop in between. A
+plan with no rebuild dispositions issues no drop and starts no outage; the
+rendered plan says which kind you have.
+
+Rebuild exactly the tables the plan dropped, which the command prints for you:
+
+<!-- unverified: no run of this command against a live catalog is recorded.
+     Running it is tracked in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
+```bash
+just rebuild-derived-tables nmdc.metadata ~/gitrepos/BERIL-research-observatory \
+    --table graph_edges \
+    --authorize-namespace nmdc.metadata
+```
+
+Without `--table` it rebuilds every derived table, which replaces any the plan
+deliberately preserved.
+
+Two things are not done by promotion and are easy to assume are:
+
+- **Table comments and properties do not come with it, and no command fixes
+  that afterwards.** The statements build tables from a query result, and a
+  table comment and `TBLPROPERTIES` are not part of one. `berdl-apply-metadata`
+  cannot be pointed at a canonical namespace: it refuses one deliberately,
+  because applying descriptions a column at a time stopped partway through
+  `biosample_set` on 2026-08-20 and left it half described
+  ([#297](https://github.com/microbiomedata/nmdc-lakehouse/issues/297)).
+  Descriptions are meant to arrive in the Parquet footer at table creation
+  instead. The metadata outcome the plan consumes is evidence about the staging
+  tables, so after a promotion the verified metadata is still on staging. How it
+  should travel is
+  [#320](https://github.com/microbiomedata/nmdc-lakehouse/issues/320).
+- **Nothing is read back.** The command reports which statements ran. A statement
+  that succeeded is not a table that holds what it should, and verifying every
+  object is still the operator's step, tracked in
+  [#234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
+
+If it fails part way, or is interrupted, it names the statement that stopped it
+and every statement that had already run, because the first question is which
+objects moved. An interrupt is reported separately from a failure, and the
+statement in flight is reported as possibly having taken effect, because nothing
+can tell whether the interrupt landed between two statements or inside one.
+
+**Recovery from a partial promotion is not implemented.** The plan carries a
+`recovery` string and `berdl-promote` never applies it. That string describes
+reloading the snapshot into a fresh staging namespace, which rebuilds the source
+and does not touch a canonical namespace that has been partly mutated, so it is
+not a rollback. A table that an `add` created is now there, and the same plan
+cannot be replayed against it because `add` is a plain `CREATE TABLE` that fails
+on an existing table. Someone has to decide what the destination should hold and
+put it there by hand. Nobody has done that, and no procedure for it is written
+down; it is part of
 [#234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
 
 ## Running a script in the pod
@@ -744,7 +838,7 @@ rather than bootstrapped for the run. -->
 
 ```bash
 mc cp --recursive /absolute/path/to/snapshot/ \
-  berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/staging/<date>/
+  berdl-minio/cdm-lake/tenant-general-warehouse/nmdc/staging/DATE/
 ```
 
 **No proxy is set here, and that is what the 2026-08-24 run used**, from a
