@@ -440,3 +440,44 @@ def test_an_exemption_naming_a_condition_that_never_runs_is_refused(tmp_path: Pa
 
     with pytest.raises(ValueError, match="cannot name a condition that never runs"):
         parity.missing_from_ci(tmp_path)
+
+
+def test_a_job_guard_around_an_exempt_step_is_not_ignored(tmp_path: Path, monkeypatch) -> None:
+    """A job with `if: false` around the exempted step recorded only the step condition.
+
+    So an exemption naming that condition matched and parity passed while the gate could never
+    run. Every enclosing guard is recorded now, so an exemption has to name the whole thing.
+    """
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "ci.yml").write_text(
+        "jobs:\n  other:\n    steps:\n      - run: just lint\n"
+        "  gated:\n    if: false\n    steps:\n"
+        "      - run: just guarded\n        if: github.event_name == 'pull_request'\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "justfile").write_text(
+        "check: lint guarded\n\nlint:\n    @true\n\nguarded:\n    @true\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        parity,
+        "EXEMPT",
+        {"guarded": parity.Exemption("github.event_name == 'pull_request'", "runs on pull requests only")},
+    )
+
+    with pytest.raises(ValueError, match="a condition nobody reviewed"):
+        parity.missing_from_ci(tmp_path)
+
+
+def test_the_recorded_condition_names_every_guard(tmp_path: Path) -> None:
+    """What an exemption has to name, shown directly rather than implied by a refusal."""
+    path = tmp_path / "w.yml"
+    path.write_text(
+        "jobs:\n  gated:\n    if: false\n    needs: other\n    steps:\n"
+        "      - run: just guarded\n        if: github.event_name == 'pull_request'\n",
+        encoding="utf-8",
+    )
+
+    assert parity.conditional_gates(path) == {
+        "guarded": "job-if: False; needs: other; github.event_name == 'pull_request'"
+    }

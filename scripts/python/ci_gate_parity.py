@@ -179,15 +179,21 @@ def _gate_steps(workflow: Path) -> tuple[set[str], dict[str, str]]:
             step_if = step.get("if")
             if job_runs and step_if in _DEFINITELY_RUNS:
                 blocking.add(matched.group("recipe"))
-            elif step_if is not None or job.get("needs"):
-                # Recorded with its condition, so an exemption can name the exact one it expects.
-                # This does not decide whether the condition is true; `if: false` is recorded the
-                # same way, and an exemption naming `false` would simply not match the one on
-                # record. Deciding truth is what this deliberately does not do.
-                # The job's `needs` when there is no step condition, so an exemption for a gate
-                # in a dependent job still names something specific rather than "it is guarded
-                # somehow".
-                conditional[matched.group("recipe")] = str(step_if) if step_if is not None else f"needs: {job['needs']}"
+            else:
+                # Every enclosing guard, not just the step's. A job with `if: false` around the
+                # exempted step used to record only the step condition, so an exemption naming
+                # that condition matched and parity passed while the gate could never run.
+                # Joining them means an exemption has to name the whole thing that guards it.
+                guards = []
+                if job.get("if") not in _DEFINITELY_RUNS:
+                    guards.append(f"job-if: {job['if']}")
+                if job.get("needs"):
+                    guards.append(f"needs: {job['needs']}")
+                if step_if is not None:
+                    guards.append(str(step_if))
+                if guards:
+                    conditional[matched.group("recipe")] = "; ".join(guards)
+
     return blocking, conditional
 
 
