@@ -34,11 +34,20 @@ import yaml
 class Exemption(NamedTuple):
     """A gate CI runs behind a condition this cannot evaluate, and the condition it expects.
 
-    `condition` is matched against the step's `if` exactly. That is what makes an exemption
-    specific rather than a blanket pass: it was enough to have *some* unevaluatable condition, so
-    changing the condition to one that never runs kept parity green. Binding the exact string
-    means the checker never has to decide whether an expression is true, only whether it is still
-    the one that was reviewed.
+    `condition` is the **combined guard string**, not only the step's `if`. A gate guarded at the
+    job as well as the step records every guard, joined with `; `, in the order job `if`, job
+    `needs`, step `if`:
+
+        job-if: ${{ inputs.deep }}; needs: build; github.event_name == 'pull_request'
+
+    A gate guarded only by its step records that condition alone, which is the common case and the
+    one in this repository. Run `just ci-gate-parity` and the refusal prints what it expected, so
+    the string can be copied rather than guessed.
+
+    It is matched exactly. That is what makes an exemption specific rather than a blanket pass: it
+    was enough to have *some* unevaluatable condition, so changing the condition to one that never
+    runs kept parity green. Binding the exact string means the checker never has to decide whether
+    an expression is true, only whether it is still the one that was reviewed.
     """
 
     condition: str
@@ -107,7 +116,10 @@ def _can_fail_the_build(node: dict) -> bool:
 #: real clarity for imagined adversaries.
 #: Conditions that never run, in the forms YAML produces. An exemption naming one of these would
 #: describe a gate that is switched off, which is a missing gate rather than an exempt one.
-_NEVER = frozenset({"false", "${{ false }}", "${{false}}", "0", "off"})
+_NEVER = frozenset(
+    {"false", "0", "off", "no", "null", "none", "", "''", '""'}
+    | {f"${{{{{pad}{value}{pad}}}}}" for value in ("false", "0", "null", "''", '""') for pad in ("", " ")}
+)
 
 _REAL_SHELLS = frozenset({None, "bash", "sh", "bash -e {0}", "bash --noprofile --norc -eo pipefail {0}"})
 
@@ -188,7 +200,11 @@ def _gate_steps(workflow: Path) -> tuple[set[str], dict[str, str]]:
                 # recorded in neither set. That is the same rule already applied to a step's own
                 # `if`, extended to the job's: without it a caller could write the disabled guard
                 # into EXEMPT as the condition it expects and match it exactly.
-                if any(str(guard).strip().lower() in _NEVER for guard in (job.get("if"), step_if)):
+                # `is not None` matters: `str(None)` is "none", which is itself a falsy literal,
+                # so without it every job that simply has no `if` read as never running.
+                if any(
+                    guard is not None and str(guard).strip().lower() in _NEVER for guard in (job.get("if"), step_if)
+                ):
                     continue
                 guards = []
                 if job.get("if") not in _DEFINITELY_RUNS:
@@ -213,7 +229,11 @@ def recipes_invoked_by(workflow: Path) -> set[str]:
 
 
 def conditional_gates(workflow: Path) -> dict[str, str]:
-    """Gate steps this cannot prove will run, mapped to the exact `if` each one carries."""
+    """Gate steps this cannot prove will run, mapped to the combined guard string each carries.
+
+    Not only the step's `if`: a job guard contributes a `job-if:` or `needs:` part, joined with
+    `; `. See `Exemption.condition`, which is matched against this.
+    """
     return _gate_steps(workflow)[1]
 
 

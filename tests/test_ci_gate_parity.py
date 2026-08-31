@@ -496,3 +496,31 @@ def test_a_never_running_job_guard_means_off_rather_than_conditional(tmp_path: P
 
     assert parity.recipes_invoked_by(path) == set()
     assert parity.conditional_gates(path) == {}
+
+
+@pytest.mark.parametrize("never", ["${{ null }}", "${{ 0 }}", "${{ '' }}", "null", "0", "off", "no"])
+def test_every_falsy_condition_form_means_off(tmp_path: Path, monkeypatch, never: str) -> None:
+    """`_NEVER` held only `false`-shaped forms, so `if: ${{ null }}` recorded as a conditional gate
+    and an exemption naming it exactly passed while the step could never run."""
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "ci.yml").write_text(
+        f'jobs:\n  check:\n    steps:\n      - run: just lint\n      - run: just guarded\n        if: "{never}"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "justfile").write_text(
+        "check: lint guarded\n\nlint:\n    @true\n\nguarded:\n    @true\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(parity, "EXEMPT", {"guarded": parity.Exemption(never, "looks conditional")})
+
+    with pytest.raises(ValueError, match="never runs|covering their absence"):
+        parity.missing_from_ci(tmp_path)
+
+
+def test_a_job_with_no_condition_is_not_read_as_never_running(tmp_path: Path) -> None:
+    """`str(None)` is "none", which is itself a falsy literal.
+
+    Adding the falsy forms to `_NEVER` therefore made every unguarded job read as never running,
+    which would report every gate missing. Caught by the existing tests rather than in review.
+    """
+    assert parity.recipes_invoked_by(_workflow(tmp_path, "          just lint")) == {"lint"}
