@@ -23,17 +23,38 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 import yaml
+
 
 #: Recipes CI may skip, each with the reason. An exemption is a claim that needs one, so this maps
 #: rather than lists: an unexplained name here is how a gate goes missing on purpose and then stays
 #: missing by accident.
-EXEMPT: dict[str, str] = {
-    "diff-cover": (
-        "runs under `if: github.event_name == 'pull_request'`, which this cannot prove will run. "
-        "It is a real gate on every pull request, which is where changed-line coverage means "
-        "anything; on a push to main it would compare main against main and check nothing."
+class Exemption(NamedTuple):
+    """A gate CI runs behind a condition this cannot evaluate, and the condition it expects.
+
+    `condition` is matched against the step's `if` exactly. That is what makes an exemption
+    specific rather than a blanket pass: it was enough to have *some* unevaluatable condition, so
+    changing the condition to one that never runs kept parity green. Binding the exact string
+    means the checker never has to decide whether an expression is true, only whether it is still
+    the one that was reviewed.
+    """
+
+    condition: str
+    reason: str
+
+
+#: Gates CI runs under a condition, by name. An exemption is a written-down exception, and it is
+#: checked: the reason must be non-empty, the recipe must still be in `just check`, CI must not
+#: have started running it plainly, and a step must exist carrying exactly this condition.
+EXEMPT: dict[str, Exemption] = {
+    "diff-cover": Exemption(
+        condition="github.event_name == 'pull_request'",
+        reason=(
+            "a real gate on every pull request, which is where changed-line coverage means "
+            "anything; on a push to main it would compare main against main and check nothing"
+        ),
     ),
 }
 
@@ -70,15 +91,21 @@ def check_dependencies(root: Path) -> list[str]:
 _DEFINITELY_BLOCKING = frozenset({None, False, "false", "False"})
 _DEFINITELY_RUNS = frozenset({None, True, "true", "True"})
 
-#: Literally never runs. Distinguished from "cannot be proved to run", because an exemption may be
-#: backed by a step that might run and must not be backed by one that cannot.
-_NEVER_RUNS = frozenset({False, "false", "False", "${{ false }}", "${{false}}"})
-
 
 def _can_fail_the_build(node: dict) -> bool:
     """Whether this job or step is provably able to fail the build."""
     return node.get("continue-on-error") in _DEFINITELY_BLOCKING and node.get("if") in _DEFINITELY_RUNS
 
+
+#: Shells that actually execute the script. GitHub lets a step name any shell, including
+#: `shell: /bin/true {0}`, which runs nothing. Absent means the job default, which is bash here.
+#:
+#: THREAT MODEL, because this keeps coming up: the failure this prevents is drift, someone adding
+#: a gate to `just check` and forgetting the CI step. It is not proof against a workflow written
+#: to defeat it. Anyone who can edit `ci.yml` to route a gate through a shell that discards it can
+#: equally delete the step and the recipe. Hardening past the forms that occur in practice trades
+#: real clarity for imagined adversaries.
+_REAL_SHELLS = frozenset({None, "bash", "sh", "bash -e {0}", "bash --noprofile --norc -eo pipefail {0}"})
 
 #: A step that runs exactly one gate and nothing else.
 #:
@@ -105,16 +132,18 @@ _GATE_STEP = re.compile(r"\Ajust (?P<recipe>[A-Za-z0-9_][A-Za-z0-9_-]*)(?P<rest>
 _STATUS_MAY_BE_DISCARDED = frozenset("|&;")
 
 
-def _gate_steps(workflow: Path) -> tuple[set[str], set[str]]:
+def _gate_steps(workflow: Path) -> tuple[set[str], dict[str, str]]:
     """Recipes this workflow runs as a gate step, split by whether that step provably blocks.
 
-    The second set is the conditional ones: gate-shaped steps disqualified only by an `if` this
-    cannot evaluate. They are not counted as gates, but an exemption has to be backed by one, or
-    the exemption would cover a step that is simply gone.
+    The second is the conditional ones, mapped to the exact `if` they carry: gate-shaped steps
+    this cannot prove will run, either because the step has a condition or because its job has
+    `needs` and a job whose dependency is skipped is skipped too. They are not counted as gates,
+    but an exemption has to be backed by one carrying the condition the exemption names, so both
+    cases matter to what an exemption is allowed to cover.
     """
     document = yaml.safe_load(workflow.read_text(encoding="utf-8"))
     blocking: set[str] = set()
-    conditional: set[str] = set()
+    conditional: dict[str, str] = {}
     for job in (document.get("jobs") or {}).values():
         # Checked at the job as well as the step. A job whose result is ignored contains no gates
         # however its steps are written.
@@ -126,6 +155,8 @@ def _gate_steps(workflow: Path) -> tuple[set[str], set[str]]:
         job_runs = job.get("if") in _DEFINITELY_RUNS and not job.get("needs")
         for step in job.get("steps") or []:
             if step.get("continue-on-error") not in _DEFINITELY_BLOCKING:
+                continue
+            if step.get("shell") not in _REAL_SHELLS:
                 continue
             script = step.get("run")
             if not isinstance(script, str):
@@ -139,12 +170,15 @@ def _gate_steps(workflow: Path) -> tuple[set[str], set[str]]:
             step_if = step.get("if")
             if job_runs and step_if in _DEFINITELY_RUNS:
                 blocking.add(matched.group("recipe"))
-            elif step_if not in _NEVER_RUNS and job.get("if") not in _NEVER_RUNS:
-                # Conditional means "might run", not "does not run". A literal `if: false` was
-                # landing here, and since an exemption may be backed by a conditional step, that
-                # let an exempt gate be switched off by changing its condition to false while
-                # parity stayed green.
-                conditional.add(matched.group("recipe"))
+            elif step_if is not None or job.get("needs"):
+                # Recorded with its condition, so an exemption can name the exact one it expects.
+                # This does not decide whether the condition is true; `if: false` is recorded the
+                # same way, and an exemption naming `false` would simply not match the one on
+                # record. Deciding truth is what this deliberately does not do.
+                # The job's `needs` when there is no step condition, so an exemption for a gate
+                # in a dependent job still names something specific rather than "it is guarded
+                # somehow".
+                conditional[matched.group("recipe")] = str(step_if) if step_if is not None else f"needs: {job['needs']}"
     return blocking, conditional
 
 
@@ -157,8 +191,8 @@ def recipes_invoked_by(workflow: Path) -> set[str]:
     return _gate_steps(workflow)[0]
 
 
-def recipes_conditionally_invoked_by(workflow: Path) -> set[str]:
-    """Gate steps this cannot prove will run, because of an `if` it will not evaluate."""
+def conditional_gates(workflow: Path) -> dict[str, str]:
+    """Gate steps this cannot prove will run, mapped to the exact `if` each one carries."""
     return _gate_steps(workflow)[1]
 
 
@@ -175,7 +209,7 @@ def missing_from_ci(root: Path) -> list[str]:
     if not workflow.is_file():
         raise FileNotFoundError(f"{GATE_WORKFLOW} is missing, so gate parity cannot be established.")
     invoked = recipes_invoked_by(workflow)
-    unexplained = sorted(name for name, reason in EXEMPT.items() if not str(reason).strip())
+    unexplained = sorted(name for name, entry in EXEMPT.items() if not entry.reason.strip())
     if unexplained:
         raise ValueError(
             "An exemption must carry the reason it is not run, and these do not: " + ", ".join(unexplained) + "."
@@ -201,14 +235,16 @@ def missing_from_ci(root: Path) -> list[str]:
     # An exemption has to be backed by a step that exists. Without this the exemption is a
     # permanent blind spot: deleting the conditional `just diff-cover` step from ci.yml left every
     # other check satisfied and parity green, which is the drift this whole module is about.
-    unbacked = sorted(set(EXEMPT) - invoked - recipes_conditionally_invoked_by(workflow))
+    conditional = conditional_gates(workflow)
+    unbacked = sorted(
+        name for name, entry in EXEMPT.items() if name not in invoked and conditional.get(name) != entry.condition
+    )
     if unbacked:
         raise ValueError(
             "These are exempt but no step in "
             + str(GATE_WORKFLOW)
-            + " runs them at all, so the exemption is covering their absence: "
-            + ", ".join(unbacked)
-            + "."
+            + " runs them under exactly the condition the exemption names, so the exemption is "
+            "covering their absence or a condition nobody reviewed: " + ", ".join(unbacked) + "."
         )
     return [name for name in dependencies if name not in invoked and name not in EXEMPT]
 
@@ -235,13 +271,13 @@ def main() -> int:
             "an `if` expression, and it records why."
         )
         return 1
-    # Naming the exemptions, because "CI runs all 15" is false when one of them is exempt, and a
+    # Naming the exemptions, because "CI runs all of them" is false when one is exempt, and a
     # success line that overstates what was checked is the same defect this whole check is about.
     total = len(check_dependencies(root))
     if EXEMPT:
         print(f"gate parity: CI runs {total - len(EXEMPT)} of {total} recipe(s) in `just check`")
-        for name, reason in sorted(EXEMPT.items()):
-            print(f"  exempt: {name} -- {reason}")
+        for name, entry in sorted(EXEMPT.items()):
+            print(f"  exempt: {name} (if: {entry.condition}) -- {entry.reason}")
     else:
         print(f"gate parity: CI runs all {total} recipe(s) in `just check`")
     return 0

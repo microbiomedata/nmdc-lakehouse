@@ -133,7 +133,7 @@ def test_an_exemption_without_a_reason_is_refused(tmp_path: Path, monkeypatch) -
     An unexplained exemption is how a gate goes missing on purpose and then stays missing by
     accident, which is the thing the mapping was chosen over a list to prevent.
     """
-    monkeypatch.setattr(parity, "EXEMPT", {"typecheck": "   "})
+    monkeypatch.setattr(parity, "EXEMPT", {"typecheck": parity.Exemption("github.event_name == 'pull_request'", "   ")})
 
     with pytest.raises(ValueError, match="must carry the reason"):
         parity.missing_from_ci(_tiny_repo(tmp_path))
@@ -141,7 +141,7 @@ def test_an_exemption_without_a_reason_is_refused(tmp_path: Path, monkeypatch) -
 
 def test_an_exemption_for_a_recipe_check_no_longer_runs_is_refused(tmp_path: Path, monkeypatch) -> None:
     """A stale exemption explains nothing and hides that the gate it named is gone."""
-    monkeypatch.setattr(parity, "EXEMPT", {"a-recipe-that-left": "it went away"})
+    monkeypatch.setattr(parity, "EXEMPT", {"a-recipe-that-left": parity.Exemption("x", "it went away")})
 
     with pytest.raises(ValueError, match="no longer runs"):
         parity.missing_from_ci(_tiny_repo(tmp_path))
@@ -149,7 +149,11 @@ def test_an_exemption_for_a_recipe_check_no_longer_runs_is_refused(tmp_path: Pat
 
 def test_an_explained_exemption_is_honoured(tmp_path: Path, monkeypatch) -> None:
     """The rejections above must not reject every exemption, or the mechanism is unusable."""
-    monkeypatch.setattr(parity, "EXEMPT", {"typecheck": "run by a separate scheduled workflow"})
+    monkeypatch.setattr(
+        parity,
+        "EXEMPT",
+        {"typecheck": parity.Exemption("github.event_name == 'pull_request'", "runs on pull requests only")},
+    )
 
     assert parity.missing_from_ci(_tiny_repo(tmp_path)) == []
 
@@ -194,7 +198,7 @@ def test_an_exemption_for_a_gate_ci_already_runs_is_refused(tmp_path: Path, monk
     An exemption naming a gate CI runs keeps it exempt, so deleting that CI step later is masked
     by an exemption nobody remembers writing.
     """
-    monkeypatch.setattr(parity, "EXEMPT", {"lint": "it is run elsewhere"})
+    monkeypatch.setattr(parity, "EXEMPT", {"lint": parity.Exemption("x", "it is run elsewhere")})
 
     with pytest.raises(ValueError, match="stale and would hide"):
         parity.missing_from_ci(_tiny_repo(tmp_path))
@@ -246,7 +250,8 @@ def test_the_conditional_gate_in_this_repository_is_exempt_by_name_with_a_reason
     and it becomes stale automatically if diff-cover ever leaves `check` or gains a plain step.
     """
     assert "diff-cover" in parity.EXEMPT
-    assert "pull_request" in parity.EXEMPT["diff-cover"]
+    assert "pull_request" in parity.EXEMPT["diff-cover"].condition
+    assert parity.EXEMPT["diff-cover"].reason.strip()
 
 
 def test_an_exemption_covering_a_step_that_does_not_exist_is_refused(tmp_path: Path, monkeypatch) -> None:
@@ -260,7 +265,7 @@ def test_an_exemption_covering_a_step_that_does_not_exist_is_refused(tmp_path: P
     workflows.mkdir(parents=True)
     (workflows / "ci.yml").write_text("jobs:\n  check:\n    steps:\n      - run: just lint\n", encoding="utf-8")
     (tmp_path / "justfile").write_text("check: lint gone\n\nlint:\n    @true\n\ngone:\n    @true\n", encoding="utf-8")
-    monkeypatch.setattr(parity, "EXEMPT", {"gone": "used to run under a condition"})
+    monkeypatch.setattr(parity, "EXEMPT", {"gone": parity.Exemption("x", "used to run under a condition")})
 
     with pytest.raises(ValueError, match="covering their absence"):
         parity.missing_from_ci(tmp_path)
@@ -278,7 +283,11 @@ def test_an_exemption_backed_by_a_conditional_step_is_honoured(tmp_path: Path, m
     (tmp_path / "justfile").write_text(
         "check: lint guarded\n\nlint:\n    @true\n\nguarded:\n    @true\n", encoding="utf-8"
     )
-    monkeypatch.setattr(parity, "EXEMPT", {"guarded": "runs on pull requests only"})
+    monkeypatch.setattr(
+        parity,
+        "EXEMPT",
+        {"guarded": parity.Exemption("github.event_name == 'pull_request'", "runs on pull requests only")},
+    )
 
     assert parity.missing_from_ci(tmp_path) == []
 
@@ -293,7 +302,7 @@ def test_a_conditional_gate_is_reported_as_conditional_not_blocking(tmp_path: Pa
     )
 
     assert parity.recipes_invoked_by(path) == {"lint"}
-    assert parity.recipes_conditionally_invoked_by(path) == {"guarded"}
+    assert parity.conditional_gates(path) == {"guarded": "github.event_name == 'pull_request'"}
 
 
 def test_a_step_that_literally_never_runs_cannot_back_an_exemption(tmp_path: Path, monkeypatch) -> None:
@@ -312,7 +321,11 @@ def test_a_step_that_literally_never_runs_cannot_back_an_exemption(tmp_path: Pat
     (tmp_path / "justfile").write_text(
         "check: lint guarded\n\nlint:\n    @true\n\nguarded:\n    @true\n", encoding="utf-8"
     )
-    monkeypatch.setattr(parity, "EXEMPT", {"guarded": "runs on pull requests only"})
+    monkeypatch.setattr(
+        parity,
+        "EXEMPT",
+        {"guarded": parity.Exemption("github.event_name == 'pull_request'", "runs on pull requests only")},
+    )
 
     with pytest.raises(ValueError, match="covering their absence"):
         parity.missing_from_ci(tmp_path)
@@ -329,7 +342,7 @@ def test_a_gate_in_a_job_with_needs_is_not_counted_as_blocking(tmp_path: Path) -
     )
 
     assert parity.recipes_invoked_by(path) == {"lint"}
-    assert parity.recipes_conditionally_invoked_by(path) == {"typecheck"}
+    assert parity.conditional_gates(path) == {"typecheck": "needs: first"}
 
 
 def test_the_parity_check_is_itself_one_of_the_gates_it_watches() -> None:
@@ -341,3 +354,41 @@ def test_the_parity_check_is_itself_one_of_the_gates_it_watches() -> None:
 
     assert "ci-gate-parity" in parity.check_dependencies(root)
     assert "ci-gate-parity" in parity.recipes_invoked_by(root / parity.GATE_WORKFLOW)
+
+
+def test_an_exemption_whose_condition_no_longer_matches_is_refused(tmp_path: Path, monkeypatch) -> None:
+    """The exemption names the exact condition it expects, so a changed one is not covered.
+
+    Having *some* unevaluatable condition was enough before, so switching the step's `if` to one
+    that never runs kept parity green. Matching the exact string means this never has to decide
+    whether an expression is true, only whether it is still the one that was reviewed.
+    """
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "ci.yml").write_text(
+        "jobs:\n  check:\n    steps:\n      - run: just lint\n      - run: just guarded\n        if: ${{ 1 == 2 }}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "justfile").write_text(
+        "check: lint guarded\n\nlint:\n    @true\n\nguarded:\n    @true\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        parity,
+        "EXEMPT",
+        {"guarded": parity.Exemption("github.event_name == 'pull_request'", "runs on pull requests only")},
+    )
+
+    with pytest.raises(ValueError, match="a condition nobody reviewed"):
+        parity.missing_from_ci(tmp_path)
+
+
+def test_a_step_whose_shell_does_not_run_the_script_is_not_a_gate(tmp_path: Path) -> None:
+    """`shell: /bin/true {0}` runs nothing. Absent means the job default, which is bash."""
+    path = tmp_path / "w.yml"
+    path.write_text(
+        "jobs:\n  check:\n    steps:\n      - run: just lint\n        shell: /bin/true {0}\n",
+        encoding="utf-8",
+    )
+
+    assert parity.recipes_invoked_by(path) == set()
+    assert parity.recipes_invoked_by(_workflow(tmp_path, "          just lint")) == {"lint"}
