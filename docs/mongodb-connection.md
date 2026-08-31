@@ -39,9 +39,9 @@ will be prompted for a password + OTP on every SSH command.
 ### 4. MongoDB credentials for the NMDC production instance
 
 Each developer gets a personal MongoDB username and password. Ask the NMDC
-infrastructure team (currently GitHub: @eecavanna or @pkalita-lbl) in the NMDC Slack
-`#infra-admin` channel. Note which database(s) you need access to. For lakehouse
-ETL work that is the `nmdc` database.
+infrastructure team (currently GitHub: @eecavanna or @pkalita-lbl) in the
+NMDC Slack `#infra-admin` channel. Note which database(s) you need access to.
+For lakehouse ETL work that is the `nmdc` database.
 
 ---
 
