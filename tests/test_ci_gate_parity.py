@@ -92,7 +92,6 @@ def test_a_missing_gate_workflow_is_an_error_rather_than_a_pass(tmp_path: Path) 
     "line",
     [
         "          just lint || true",
-        "          just lint && echo ok",
         "          just lint ; echo done",
         "          just lint | tee out.txt",
         "          just lint &",
@@ -105,6 +104,60 @@ def test_a_gate_whose_verdict_is_discarded_does_not_count(tmp_path: Path, line: 
     the silent-gate condition this check exists to prevent rather than a technicality.
     """
     assert parity.recipes_invoked_by(_workflow(tmp_path, line)) == set()
+
+
+def test_an_and_list_still_counts(tmp_path: Path) -> None:
+    """`&&` was rejected and should not have been.
+
+    An AND-list exits with the failing command's status, so `just lint && echo ok` short-circuits
+    when the gate fails and the step fails with it. That is an enforced gate, and reporting it as
+    missing is a false alarm on a working setup.
+    """
+    assert parity.recipes_invoked_by(_workflow(tmp_path, "          just lint && echo ok")) == {"lint"}
+
+
+def test_a_gate_after_an_and_still_counts(tmp_path: Path) -> None:
+    """`echo starting && just lint` takes the gate's status too."""
+    assert parity.recipes_invoked_by(_workflow(tmp_path, "          echo go && just lint")) == {"lint"}
+
+
+@pytest.mark.parametrize("ignored", [True, "true", "${{ true }}"])
+def test_a_job_whose_result_is_ignored_contains_no_gates(tmp_path: Path, ignored: object) -> None:
+    """Checked at the job, not only the step. Looking only at steps left the job-level hole open."""
+    path = tmp_path / "w.yml"
+    path.write_text(
+        f"jobs:\n  check:\n    continue-on-error: {ignored}\n    steps:\n      - run: just lint\n",
+        encoding="utf-8",
+    )
+
+    assert parity.recipes_invoked_by(path) == set()
+
+
+@pytest.mark.parametrize("never", ["false", "${{ false }}"])
+def test_a_step_that_never_runs_contains_no_gates(tmp_path: Path, never: str) -> None:
+    path = tmp_path / "w.yml"
+    path.write_text(
+        f"jobs:\n  check:\n    steps:\n      - run: just lint\n        if: {never}\n",
+        encoding="utf-8",
+    )
+
+    assert parity.recipes_invoked_by(path) == set()
+
+
+def test_a_conditional_step_that_might_run_still_counts(tmp_path: Path) -> None:
+    """An expression is not evaluated, and the step is counted.
+
+    `diff-cover` in this repository runs under `if: github.event_name == 'pull_request'`. A gate
+    that runs on every pull request is a gate, and guessing at expressions would trade a real hole
+    for a bigger one.
+    """
+    path = tmp_path / "w.yml"
+    path.write_text(
+        "jobs:\n  check:\n    steps:\n      - run: just lint\n        if: github.event_name == 'pull_request'\n",
+        encoding="utf-8",
+    )
+
+    assert parity.recipes_invoked_by(path) == {"lint"}
 
 
 def test_a_continue_on_error_step_does_not_count(tmp_path: Path) -> None:
@@ -153,3 +206,46 @@ def test_the_three_gates_this_check_was_written_for_are_in_ci(name: str) -> None
         invoked |= parity.recipes_invoked_by(workflow)
 
     assert name in invoked
+
+
+def test_a_commented_out_gate_does_not_count(tmp_path: Path) -> None:
+    """A commented gate counting as a gate is a false pass, which is the direction that matters."""
+    assert parity.recipes_invoked_by(_workflow(tmp_path, "          # just lint")) == set()
+    assert parity.recipes_invoked_by(_workflow(tmp_path, "          just lint # just typecheck")) == {"lint"}
+
+
+def _tiny_repo(tmp_path: Path) -> Path:
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "ci.yml").write_text("jobs:\n  check:\n    steps:\n      - run: just lint\n", encoding="utf-8")
+    (tmp_path / "justfile").write_text(
+        "check: lint typecheck\n\nlint:\n    @true\n\ntypecheck:\n    @true\n", encoding="utf-8"
+    )
+    return tmp_path
+
+
+def test_an_exemption_without_a_reason_is_refused(tmp_path: Path, monkeypatch) -> None:
+    """The comment says an exemption carries its reason and nothing enforced it.
+
+    An unexplained exemption is how a gate goes missing on purpose and then stays missing by
+    accident, which is the thing the mapping was chosen over a list to prevent.
+    """
+    monkeypatch.setattr(parity, "EXEMPT", {"typecheck": "   "})
+
+    with pytest.raises(ValueError, match="must carry the reason"):
+        parity.missing_from_ci(_tiny_repo(tmp_path))
+
+
+def test_an_exemption_for_a_recipe_check_no_longer_runs_is_refused(tmp_path: Path, monkeypatch) -> None:
+    """A stale exemption explains nothing and hides that the gate it named is gone."""
+    monkeypatch.setattr(parity, "EXEMPT", {"a-recipe-that-left": "it went away"})
+
+    with pytest.raises(ValueError, match="no longer runs"):
+        parity.missing_from_ci(_tiny_repo(tmp_path))
+
+
+def test_an_explained_exemption_is_honoured(tmp_path: Path, monkeypatch) -> None:
+    """The rejections above must not reject every exemption, or the mechanism is unusable."""
+    monkeypatch.setattr(parity, "EXEMPT", {"typecheck": "run by a separate scheduled workflow"})
+
+    assert parity.missing_from_ci(_tiny_repo(tmp_path)) == []

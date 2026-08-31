@@ -50,7 +50,22 @@ def check_dependencies(root: Path) -> list[str]:
 #: Shell tokens that mean the recipe's exit status stops deciding the step's. `just g || true`
 #: runs the gate and throws away its verdict, which is the silent gate this check exists to catch,
 #: so a line containing any of these is not counted as running that gate.
-_NON_BLOCKING = frozenset({"||", "&&", ";", "|", "&"})
+#:
+#: `&&` is deliberately absent, and was wrongly included at first. An AND-list exits with the
+#: failing command's status: `just g && echo ok` short-circuits when `g` fails and the step fails
+#: with it. Rejecting `&&` reported a genuinely enforced gate as missing. `;` and `|` do discard
+#: it, because the list or pipeline takes the last command's status, and `&` backgrounds it.
+_NON_BLOCKING = frozenset({"||", ";", "|", "&"})
+
+#: Values of `continue-on-error` that mean GitHub ignores the result. The expression form is
+#: included because `${{ true }}` is how it is often written and reads as different from `true`.
+_IGNORED_RESULT = frozenset({True, "true", "True", "${{ true }}", "${{true}}"})
+
+#: Values of `if` that mean the job or step never runs. Only the statically decidable ones. An
+#: arbitrary expression is NOT evaluated and its step is counted: `diff-cover` in this repository
+#: runs under `if: github.event_name == 'pull_request'`, and a gate that runs on every pull
+#: request is a gate. Guessing at expressions would trade a real hole for a bigger one.
+_NEVER_RUNS = frozenset({False, "false", "False", "${{ false }}", "${{false}}"})
 
 
 def recipes_invoked_by(workflow: Path) -> set[str]:
@@ -63,9 +78,13 @@ def recipes_invoked_by(workflow: Path) -> set[str]:
     document = yaml.safe_load(workflow.read_text(encoding="utf-8"))
     invoked: set[str] = set()
     for job in (document.get("jobs") or {}).values():
+        # Checked at the job as well as the step. A job whose result is ignored, or which never
+        # runs, contains no gates however its steps are written, and looking only at steps left
+        # that hole open.
+        if job.get("continue-on-error") in _IGNORED_RESULT or job.get("if") in _NEVER_RUNS:
+            continue
         for step in job.get("steps") or []:
-            # A step GitHub is told to ignore the result of. Its gates are not gates.
-            if step.get("continue-on-error") in (True, "true"):
+            if step.get("continue-on-error") in _IGNORED_RESULT or step.get("if") in _NEVER_RUNS:
                 continue
             script = step.get("run")
             if not script:
@@ -78,13 +97,22 @@ def recipes_invoked_by(workflow: Path) -> set[str]:
                 except ValueError:
                     # An unbalanced quote is a shell problem, not this checker's; actionlint owns it.
                     continue
-                # A recipe name, not a flag. `just --summary` invokes nothing.
-                if words[:1] != ["just"] or len(words) < 2 or words[1].startswith("-"):
-                    continue
-                # `just g || true` and friends run the gate and discard its verdict.
+                # `just g || true` and friends run the gate and discard its verdict. Rejected for
+                # the whole line, because the operator can sit either side of the call.
                 if _NON_BLOCKING & set(words):
                     continue
-                invoked.add(words[1])
+                # Everything after a comment token is not run. A commented-out gate counting as a
+                # gate is a false pass, which is the direction that matters here.
+                for index, word in enumerate(words):
+                    if word.startswith("#"):
+                        words = words[:index]
+                        break
+                # Anywhere in the line, not only at the start: `echo go && just lint` runs the
+                # gate and takes its status. A recipe name, not a flag; `just --summary` invokes
+                # nothing.
+                for index, word in enumerate(words[:-1]):
+                    if word == "just" and not words[index + 1].startswith("-"):
+                        invoked.add(words[index + 1])
     return invoked
 
 
@@ -101,7 +129,20 @@ def missing_from_ci(root: Path) -> list[str]:
     if not workflow.is_file():
         raise FileNotFoundError(f"{GATE_WORKFLOW} is missing, so gate parity cannot be established.")
     invoked = recipes_invoked_by(workflow)
-    return [name for name in check_dependencies(root) if name not in invoked and name not in EXEMPT]
+    unexplained = sorted(name for name, reason in EXEMPT.items() if not str(reason).strip())
+    if unexplained:
+        raise ValueError(
+            "An exemption must carry the reason it is not run, and these do not: " + ", ".join(unexplained) + "."
+        )
+    dependencies = check_dependencies(root)
+    stale = sorted(set(EXEMPT) - set(dependencies))
+    if stale:
+        raise ValueError(
+            "These exemptions name recipes `just check` no longer runs, so they explain nothing: "
+            + ", ".join(stale)
+            + "."
+        )
+    return [name for name in dependencies if name not in invoked and name not in EXEMPT]
 
 
 def main() -> int:
