@@ -72,8 +72,9 @@ berdl-promote PROMOTION_PLAN INGEST_CHECKOUT *ARGS:
 berdl-apply-metadata METADATA_PLAN STAGING_OUTCOME INGEST_CHECKOUT OUTCOME *ARGS:
     uv run --no-sync nmdc-lakehouse berdl-apply-metadata "{{ METADATA_PLAN }}" "{{ STAGING_OUTCOME }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" --output "{{ OUTCOME }}" {{ ARGS }}
 
-# Check that CI runs every gate `just check` runs. Not in `check` itself: it reads ci.yml and
-# would be checking the thing that is about to run it, which says nothing a CI run does not.
+# Check that CI runs every gate `just check` runs. It is a `check` dependency itself, which is
+# what makes it protect its own CI step: delete `run: just ci-gate-parity` from ci.yml and this
+# reports itself missing. Keeping it out meant the one gate nothing was watching was this one.
 ci-gate-parity:
     uv run python scripts/python/ci_gate_parity.py
 
@@ -488,7 +489,7 @@ test-dist:
     bash scripts/check_distribution.sh
 
 # Run the deterministic local quality checks.
-check: lint-just prose-lint test-prose-lint-exit doc-procedures test-doc-procedures-exit doc-references test-doc-references-exit shellcheck actionlint lint deps-lint typecheck check-flat-schema test-cov diff-cover
+check: lint-just prose-lint test-prose-lint-exit doc-procedures test-doc-procedures-exit doc-references test-doc-references-exit ci-gate-parity shellcheck actionlint lint deps-lint typecheck check-flat-schema test-cov diff-cover
 
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
 # See scripts/README.md for details. These recipes shell out to utilities under

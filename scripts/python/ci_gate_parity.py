@@ -120,7 +120,10 @@ def _gate_steps(workflow: Path) -> tuple[set[str], set[str]]:
         # however its steps are written.
         if job.get("continue-on-error") not in _DEFINITELY_BLOCKING:
             continue
-        job_runs = job.get("if") in _DEFINITELY_RUNS
+        # `needs` too. A job whose dependency is skipped is skipped by default, so a gate in it
+        # can be absent from a green workflow. Whether the dependency runs is not decidable here,
+        # so a job with `needs` is treated as one that might not run rather than one that does.
+        job_runs = job.get("if") in _DEFINITELY_RUNS and not job.get("needs")
         for step in job.get("steps") or []:
             if step.get("continue-on-error") not in _DEFINITELY_BLOCKING:
                 continue

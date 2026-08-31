@@ -316,3 +316,28 @@ def test_a_step_that_literally_never_runs_cannot_back_an_exemption(tmp_path: Pat
 
     with pytest.raises(ValueError, match="covering their absence"):
         parity.missing_from_ci(tmp_path)
+
+
+def test_a_gate_in_a_job_with_needs_is_not_counted_as_blocking(tmp_path: Path) -> None:
+    """A job whose dependency is skipped is skipped by default, so its gate can be absent from a
+    green workflow. Whether the dependency runs is not decidable here."""
+    path = tmp_path / "w.yml"
+    path.write_text(
+        "jobs:\n  first:\n    steps:\n      - run: just lint\n"
+        "  second:\n    needs: first\n    steps:\n      - run: just typecheck\n",
+        encoding="utf-8",
+    )
+
+    assert parity.recipes_invoked_by(path) == {"lint"}
+    assert parity.recipes_conditionally_invoked_by(path) == {"typecheck"}
+
+
+def test_the_parity_check_is_itself_one_of_the_gates_it_watches() -> None:
+    """Keeping it out of `check` left the one gate nothing was watching as this one.
+
+    Deleting `run: just ci-gate-parity` from ci.yml is now reported by ci-gate-parity itself.
+    """
+    root = Path(__file__).resolve().parents[1]
+
+    assert "ci-gate-parity" in parity.check_dependencies(root)
+    assert "ci-gate-parity" in parity.recipes_invoked_by(root / parity.GATE_WORKFLOW)
