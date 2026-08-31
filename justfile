@@ -198,10 +198,17 @@ test-doc-references-exit:
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
     printf 'cites scripts/nope.py which is not here\n' > "$tmp/bad.md"
     printf '<!-- external-scripts: some/other-repo -->\ncites scripts/nope.py\n' > "$tmp/declared.md"
-    rc=0; uv run --no-sync python scripts/python/doc_references.py "$tmp/bad.md" >/dev/null 2>&1 || rc=$?
+    # --root "$tmp", so what this proves does not depend on the checkout's contents. Without it the
+    # test asserted that scripts/nope.py is absent from this repository, and adding such a file
+    # would have broken the exit contract for a reason unrelated to the gate.
+    rc=0; uv run --no-sync python scripts/python/doc_references.py --root "$tmp" "$tmp/bad.md" >/dev/null 2>&1 || rc=$?
     [ "$rc" -ne 0 ] || { echo "doc-references did NOT fail on a missing script; the gate is inert"; exit 1; }
-    rc=0; uv run --no-sync python scripts/python/doc_references.py "$tmp/declared.md" >/dev/null 2>&1 || rc=$?
+    # And the positive half needs a file that really is there, or it passes because the path is
+    # declared and because it is missing, which proves only one of the two.
+    mkdir -p "$tmp/scripts"; : > "$tmp/scripts/nope.py"
+    rc=0; uv run --no-sync python scripts/python/doc_references.py --root "$tmp" "$tmp/declared.md" >/dev/null 2>&1 || rc=$?
     [ "$rc" -eq 0 ] || { echo "doc-references rejected a declared external path; the gate is too strict"; exit 1; }
+    rm "$tmp/scripts/nope.py"
     echo "doc-references exit contract holds: missing fails, declared passes"
 
 # Prove the issues rule fails on an unreadable state rather than passing. Not in `check`: it
