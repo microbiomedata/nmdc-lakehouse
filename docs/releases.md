@@ -24,8 +24,8 @@ Versions follow PEP 440 and use semantic-versioning-compatible release numbers:
 
 Use the locked Python 3.13 environment:
 
-<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
-     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
+<!-- unverified: no run of this procedure is recorded, and no tracking issue is
+     named here. -->
 ```bash
 just check
 just test-dist

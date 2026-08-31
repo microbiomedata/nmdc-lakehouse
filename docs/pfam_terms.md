@@ -42,8 +42,8 @@ Pfam release to pick up new or updated family entries. The accession format is v
 
 ### Look up a domain by accession
 
-<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
-     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
+<!-- unverified: no run of this procedure is recorded, and no tracking issue is
+     named here. -->
 ```sql
 SELECT pfam_id, name, description, clan_name
 FROM   nmdc_ref_data.pfam_terms
@@ -52,8 +52,8 @@ WHERE  pfam_id = 'PF00072'
 
 ### All hits for a Pfam domain (requires nmdc_results.pfam_annotation_gff)
 
-<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
-     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
+<!-- unverified: no run of this procedure is recorded, and no tracking issue is
+     named here. -->
 ```sql
 SELECT p.gene_id, p.score, p.e_value, t.name, t.description
 FROM   nmdc_results.pfam_annotation_gff p
@@ -65,8 +65,8 @@ LIMIT  20
 
 ### Co-occurrence demo: siderophore + iron-reductase domains in the same workflow run
 
-<!-- unverified: no run of this procedure is recorded. Declaring the 81 blocks
-     that predate this rule is https://github.com/microbiomedata/nmdc-lakehouse/issues/291 -->
+<!-- unverified: no run of this procedure is recorded, and no tracking issue is
+     named here. -->
 ```sql
 SELECT DISTINCT a.workflow_run_id
 FROM   nmdc_results.pfam_annotation_gff a
