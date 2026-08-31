@@ -1482,3 +1482,79 @@ def test_the_printed_follow_up_survives_a_shell(tmp_path: Path, monkeypatch) -> 
     for table in plan.derived_rebuilds:
         assert words[words.index("--table") + 1] == table, words
     assert words[words.index("--authorize-namespace") + 1] == CANONICAL, words
+
+
+def _promote(plan, digest, spark):
+    return execute_promotion(
+        spark,
+        plan,
+        plan_sha256=digest,
+        authorize_plan_sha256=digest,
+        authorize_canonical_namespace=CANONICAL,
+        authorize_destination_id=plan.destination_id,
+    )
+
+
+def test_a_staging_count_that_cannot_be_read_refuses_rather_than_proceeding(tmp_path: Path) -> None:
+    """This gate is the last check before destructive SQL, so an unreadable answer is a refusal.
+
+    Treating a failed count as permission to continue would make the check strongest exactly when
+    the catalog is healthy and absent when it is not.
+    """
+    plan, digest = _executable_plan(tmp_path)
+
+    class FailingCount(_RecordingSpark):
+        def sql(self, statement: str) -> object:
+            if statement.startswith("SELECT COUNT(*)"):
+                raise RuntimeError("the catalog refused this read")
+            return super().sql(statement)
+
+    spark = FailingCount()
+    with pytest.raises(PromotionRefused, match="to check it against the plan"):
+        _promote(plan, digest, spark)
+
+    assert spark.statements == []
+
+
+def test_a_count_returning_the_wrong_shape_refuses(tmp_path: Path) -> None:
+    """One row with one number, or this cannot say whether staging matches."""
+    plan, digest = _executable_plan(tmp_path)
+
+    class TwoRows:
+        def collect(self) -> list[tuple[int]]:
+            return [(1,), (2,)]
+
+    class WrongShape(_RecordingSpark):
+        def sql(self, statement: str) -> object:
+            if statement.startswith("SELECT COUNT(*)"):
+                return TwoRows()
+            return super().sql(statement)
+
+    spark = WrongShape()
+    with pytest.raises(PromotionRefused, match="returned 2 rows, expected 1"):
+        _promote(plan, digest, spark)
+
+    assert spark.statements == []
+
+
+@pytest.mark.parametrize("value", [None, "27352", True, -1])
+def test_a_count_that_is_not_a_row_count_refuses(tmp_path: Path, value: object) -> None:
+    """`True` is the one worth naming: it is an int in Python and equals 1, so a bool answer would
+    compare as a count without being one."""
+    plan, digest = _executable_plan(tmp_path)
+
+    class OneRow:
+        def collect(self) -> list[tuple[object]]:
+            return [(value,)]
+
+    class BadValue(_RecordingSpark):
+        def sql(self, statement: str) -> object:
+            if statement.startswith("SELECT COUNT(*)"):
+                return OneRow()
+            return super().sql(statement)
+
+    spark = BadValue()
+    with pytest.raises(PromotionRefused, match="invalid count"):
+        _promote(plan, digest, spark)
+
+    assert spark.statements == []

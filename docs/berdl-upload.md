@@ -683,10 +683,12 @@ the runtime comes from the checkout named by `--ingest-checkout`, and the code
 establishes only that the session helper was imported from that checkout, not
 what it is configured to talk to.
 
-**The outage starts at the first statement.** The derived tables are dropped
-before the replacements, so queries against them fail from then until
-`rebuild-derived-tables` finishes. The command does not rebuild them, so that
-cannot be run as one step that nobody can stop in between.
+**When the plan rebuilds derived tables, the outage starts at the first
+statement.** Those tables are dropped before the replacements, so queries against
+them fail from then until `rebuild-derived-tables` finishes. The command does not
+rebuild them, so that cannot be run as one step nobody can stop in between. A
+plan with no rebuild dispositions issues no drop and starts no outage; the
+rendered plan says which kind you have.
 
 Rebuild exactly the tables the plan dropped, which the command prints for you:
 

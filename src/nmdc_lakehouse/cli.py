@@ -787,8 +787,10 @@ def berdl_promote_command(
 ) -> None:
     """Perform the promotion a reviewed plan describes.
 
-    This is the destructive half. It replaces canonical tables and drops the derived ones first,
-    which is a deliberate outage: they do not exist again until the rebuild.
+    This is the destructive half. It replaces canonical tables, and when the plan rebuilds derived
+    tables it drops those first, which is a deliberate outage: they do not exist again until the
+    rebuild. A plan with no rebuild dispositions issues no drop and starts no outage, and a
+    preserve-only plan issues nothing at all.
 
     Previewing is the default and prints the plan, the digest to authorize with, the destination,
     and the exact statements. Execution needs all three authorizations and none is optional: the
@@ -867,8 +869,11 @@ def berdl_promote_command(
         _echo_metadata_warning(plan)
 
     click.echo("")
-    click.echo("  NOT VERIFIED: no table has been read back. This ran statements; it did not")
-    click.echo(f"  check results. Verify all {len(plan.operations)} object(s) in {plan.canonical_namespace}")
+    # Neutral about whether anything ran, because a preserve-only plan issues no statement and
+    # telling that operator "this ran statements" describes work the command did not do. What is
+    # true either way is that nothing was read back.
+    click.echo("  NOT VERIFIED: no table has been read back. Whatever ran was issued, not checked.")
+    click.echo(f"  Verify all {len(plan.operations)} object(s) in {plan.canonical_namespace}")
     click.echo("  before anyone is told the promotion is complete.")
 
 
