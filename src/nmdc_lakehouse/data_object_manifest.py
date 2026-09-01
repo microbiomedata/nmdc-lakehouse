@@ -65,6 +65,16 @@ def _cache_key(url: str) -> str:
     return normpath(urlparse(url).path.lstrip("/"))
 
 
+def _parents(key: str) -> list[str]:
+    """Every path prefix of `key` at a segment boundary, nearest first.
+
+    `data/a/one.gff` yields `data/a` then `data`. Used to ask whether an ancestor is itself a
+    cached file, which cannot be: one of them has to be a directory.
+    """
+    parts = key.split("/")
+    return ["/".join(parts[:index]) for index in range(len(parts) - 1, 0, -1)]
+
+
 def _as_size(value: object) -> int:
     """`file_size_bytes` arrives as a string from some Parquet schemas.
 
@@ -202,6 +212,18 @@ def build_manifest(
             "fail the whole run: " + ", ".join(unusable[:3]) + "."
         )
 
+    # A key that climbs out of the cache root. `https://example.org/../../outside` normalises to
+    # `../../outside`, which is not empty and is not `.`, so the check above lets it through;
+    # `cache_path_for` then refuses it and fails the whole run rather than that row. Refused here
+    # for the same reason as the no-path case: the manifest promises its rows are fetchable.
+    escaping = sorted(url for key, urls in keys.items() if key == ".." or key.startswith("../") for url in urls)
+    if escaping:
+        raise DataObjectManifestError(
+            "These URLs resolve outside the download cache, which the downloader refuses: "
+            + ", ".join(escaping[:3])
+            + "."
+        )
+
     collisions = sorted((key, len(urls)) for key, urls in keys.items() if len(urls) > 1)
     if collisions:
         worst = ", ".join(f"/{key} ({count} URLs)" for key, count in collisions[:3])
@@ -214,14 +236,11 @@ def build_manifest(
             "before these can be fetched."
         )
 
-    # An ancestor of another key. Compared against the set rather than pairwise, so this stays
-    # linear in the number of rows rather than quadratic; the snapshot has 290,640 of them.
-    ordered = sorted(keys)
-    nested = [
-        key
-        for index, key in enumerate(ordered)
-        if index + 1 < len(ordered) and ordered[index + 1].startswith(key + "/")
-    ]
+    # An ancestor of another key. Each key's own parent prefixes are looked up in the set, rather
+    # than comparing it with its neighbour in sorted order: sorting puts `data-` between `data`
+    # and `data/file`, so the neighbour test found no collision for a manifest that has one. This
+    # is linear in total path segments and does not depend on ordering at all.
+    nested = sorted({parent for key in keys for parent in _parents(key) if parent in keys})
     if nested:
         raise DataObjectManifestError(
             "These cache paths are also directories holding other cached files, and cannot be "

@@ -141,10 +141,9 @@ The default empty set is the agent-safe default.
 
 Re-run the preflight from Step 1 and confirm the new table is present.
 
-For other on-pod loaders (`fetch_ko_ec_annotations.ipynb`, whose manifest
-stage `just data-object-manifest` replaces, though the notebook still builds its
-own /
-`ingest_ko_ec_annotations.ipynb`), see
+For other on-pod loaders (`fetch_ko_ec_annotations.ipynb`, whose manifest stage
+`just data-object-manifest` replaces although the notebook still builds its own,
+and `ingest_ko_ec_annotations.ipynb`), see
 [`FETCH_TAXONOMY_NOTES.md`](https://github.com/microbiomedata/nmdc-lakehouse/blob/main/notebooks/FETCH_TAXONOMY_NOTES.md)
 for the full set of gotchas (placeholder files, duplicate URLs, broken
 upstream URLs, kernel staleness).

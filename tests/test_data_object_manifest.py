@@ -703,3 +703,41 @@ def test_a_url_resolving_to_the_cache_root_is_refused(url: str) -> None:
     prevent, so it is refused rather than written."""
     with pytest.raises(DataObjectManifestError, match="have no path"):
         build_manifest([_object(url=url)], [PFAM])
+
+
+def test_an_ancestor_is_found_even_when_a_key_sorts_between_them() -> None:
+    """The neighbour-in-sorted-order test missed this.
+
+    With keys `data`, `data-` and `data/file`, sorting puts `data-` between the ancestor and its
+    descendant, so comparing each key with its successor found no collision for a manifest that
+    has one. Each key's own parents are looked up instead, which does not depend on ordering.
+    """
+    base = "https://data.microbiomedata.org/"
+    records = [
+        _object(id="nmdc:dobj-a", url=f"{base}data"),
+        _object(id="nmdc:dobj-b", url=f"{base}data-"),
+        _object(id="nmdc:dobj-c", url=f"{base}data/file"),
+    ]
+
+    with pytest.raises(DataObjectManifestError, match="also directories"):
+        build_manifest(records, [PFAM])
+
+
+def test_a_deeply_nested_ancestor_is_found() -> None:
+    """`data` is an ancestor of `data/a/b/one.gff` with two segments in between."""
+    base = "https://data.microbiomedata.org/"
+    records = [
+        _object(id="nmdc:dobj-a", url=f"{base}data"),
+        _object(id="nmdc:dobj-b", url=f"{base}data/a/b/one.gff"),
+    ]
+
+    with pytest.raises(DataObjectManifestError, match="also directories"):
+        build_manifest(records, [PFAM])
+
+
+@pytest.mark.parametrize("url", ["https://example.org/../../outside", "https://example.org/.."])
+def test_a_url_resolving_outside_the_cache_is_refused(url: str) -> None:
+    """`cache_path_for` refuses these and fails the whole run rather than that row. The key is
+    neither empty nor `.`, so the no-path check let it through."""
+    with pytest.raises(DataObjectManifestError, match="outside the download cache"):
+        build_manifest([_object(url=url)], [PFAM])
