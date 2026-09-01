@@ -76,9 +76,21 @@ just data-object-manifest "Pfam Annotation GFF" \
 ```
 
 **Prerequisites.** A snapshot Parquet of `data_object_set`, which
-`just etl-collections` produces, or a Spark session via `--ingest-checkout` to
-read the live catalog instead. Exactly one source must be named; neither is a
-default, because which one was read changes what the manifest describes.
+`just etl-collections` produces. Reading the live catalog instead needs a Spark
+session and the command run directly rather than through the recipe, because the
+recipe always supplies `--data-object-set` and the command refuses two sources:
+
+<!-- unverified: no run of this form is recorded. Running it needs a pod, and no
+     tracking issue is named here. -->
+```bash
+uv run nmdc-lakehouse data-object-manifest --type "Pfam Annotation GFF" \
+    --ingest-checkout ~/gitrepos/BERIL-research-observatory \
+    --namespace nmdc.metadata \
+    --output local/pfam/manifest.csv
+```
+
+Exactly one source must be named; neither is a default, because which one was
+read changes what the manifest describes.
 
 **What it writes.** One CSV at the path given by `--output`, with the columns
 `scripts/download_to_cache.py` needs plus the ones the parse and ingest stages
