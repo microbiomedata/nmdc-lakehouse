@@ -51,7 +51,9 @@ crash an in-kernel fetch):
    `data_object_set` and writes the manifest. Drops zero-byte placeholder files,
    of which Pfam has 7, and drops repeated URLs. See
    [Building a download manifest](#building-a-download-manifest) below.
-   `notebooks/fetch_pfam_gff.ipynb` did this and is superseded by it.
+   `notebooks/fetch_pfam_gff.ipynb` did this and is replaced by it. The notebook
+   still runs; nothing in it reads the manifest this writes, so the two are
+   alternatives rather than a pipeline.
 2. `scripts/download_to_cache.py` runs in a terminal under `nohup`, downloads
    all GFFs in parallel to `loaded_pfam_gff/raw_cache/` (~650 GB on disk,
    resumable).

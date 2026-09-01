@@ -620,3 +620,36 @@ def test_both_sources_explain_a_wholly_null_url_type_the_same_way() -> None:
 
     with pytest.raises(DataObjectManifestError, match="2 with no URL"):
         build_manifest(records, [PFAM])
+
+
+def test_a_url_with_no_path_is_refused() -> None:
+    """`cache_path_for` raises for one, which fails the whole download run rather than that row.
+
+    Zero URLs in the 2026-08-21 snapshot lack a path, so this refuses nothing today; it makes the
+    manifest's promise that its rows are fetchable true rather than assumed.
+    """
+    with pytest.raises(DataObjectManifestError, match="have no path"):
+        build_manifest([_object(url="https://example.org")], [PFAM])
+
+
+def test_a_cache_path_that_is_also_a_directory_is_refused() -> None:
+    """`/data` and `/data/one.gff` cannot both exist: one has to be a file and the other a
+    directory, so the second download fails or destroys the first."""
+    records = [
+        _object(url="https://data.microbiomedata.org/data"),
+        _object(id="nmdc:dobj-2", url="https://data.microbiomedata.org/data/one.gff"),
+    ]
+
+    with pytest.raises(DataObjectManifestError, match="also directories"):
+        build_manifest(records, [PFAM])
+
+
+def test_ordinary_sibling_paths_are_not_treated_as_nested() -> None:
+    """The prefix test must compare path segments, not characters: `/data/one` is not an ancestor
+    of `/data/onetwo`, and rejecting those would refuse most real manifests."""
+    records = [
+        _object(url="https://data.microbiomedata.org/data/one"),
+        _object(id="nmdc:dobj-2", url="https://data.microbiomedata.org/data/onetwo"),
+    ]
+
+    assert build_manifest(records, [PFAM]).total == 2

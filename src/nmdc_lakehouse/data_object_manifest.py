@@ -176,27 +176,56 @@ def build_manifest(
             f"{zero_byte} zero-byte. An empty manifest would download nothing and report success."
         )
 
-    # `scripts/download_to_cache.py::cache_path_for` keys the cache on `urlparse(url).path`
-    # alone, so any two URLs sharing a path collapse to one cached file: one payload overwrites
-    # the other and the parse stage reads whichever won.
+    # Every row must be cacheable by `scripts/download_to_cache.py::cache_path_for`, which maps a
+    # URL to `<cache_root>/<path>` and refuses anything that escapes the root. Three ways a
+    # manifest can be unfetchable, all of them silent or fatal at download time rather than here:
     #
-    # Distinct URLs per path, not distinct hosts. Counting hosts was the first version of this and
-    # it missed the case that actually exists: 2,733 MassIVE objects in the 2026-08-21 snapshot
-    # are all `https://massive.ucsd.edu/ProteoSAFe/DownloadResultFile?file=...`, one host, one
-    # path, 2,733 payloads. Cross-host collisions are the rarer shape, and this covers both.
-    by_path: dict[str, set[str]] = {}
+    #   no path      `https://example.org` has none, and cache_path_for raises, which fails the
+    #                whole run rather than that row.
+    #   same key     two URLs mapping to one file, so one payload overwrites the other. This is
+    #                real: 2,733 objects of type "LC-DDA-MS/MS Raw Data" are all
+    #                `https://massive.ucsd.edu/ProteoSAFe/DownloadResultFile?file=...`.
+    #   ancestor     `/data` and `/data/one.gff` cannot both exist, because one has to be a file
+    #                and the other a directory.
+    #
+    # Measured on the 2026-08-21 snapshot: no URL lacks a path, and the only same-key collision is
+    # the MassIVE one. Refusing is what makes the manifest's promise, that these are fetchable,
+    # true rather than assumed. The cache key itself is issue 325.
+    keys: dict[str, set[str]] = {}
     for row in kept:
-        by_path.setdefault(_cache_key(str(row["url"])), set()).add(str(row["url"]))
-    collisions = sorted((path, len(urls)) for path, urls in by_path.items() if len(urls) > 1)
-    if collisions:
-        worst = ", ".join(f"{path} ({count} URLs)" for path, count in collisions[:3])
+        keys.setdefault(_cache_key(str(row["url"])), set()).add(str(row["url"]))
+
+    unusable = sorted(url for key, urls in keys.items() if key in {"", "."} for url in urls)
+    if unusable:
         raise DataObjectManifestError(
-            "These URL paths are reached by more than one URL, and the downloader caches by path "
-            "alone, so the payloads would overwrite each other: "
+            "These URLs have no path, so the downloader cannot place them in the cache and would "
+            "fail the whole run: " + ", ".join(unusable[:3]) + "."
+        )
+
+    collisions = sorted((key, len(urls)) for key, urls in keys.items() if len(urls) > 1)
+    if collisions:
+        worst = ", ".join(f"/{key} ({count} URLs)" for key, count in collisions[:3])
+        raise DataObjectManifestError(
+            "These cache paths are reached by more than one URL, and the downloader caches by "
+            "path alone, so the payloads would overwrite each other: "
             + worst
             + (f" and {len(collisions) - 3} more" if len(collisions) > 3 else "")
             + ". The cache key has to distinguish the whole URL, host and query included, "
             "before these can be fetched."
+        )
+
+    # An ancestor of another key. Compared against the set rather than pairwise, so this stays
+    # linear in the number of rows rather than quadratic; the snapshot has 290,640 of them.
+    ordered = sorted(keys)
+    nested = [
+        key
+        for index, key in enumerate(ordered)
+        if index + 1 < len(ordered) and ordered[index + 1].startswith(key + "/")
+    ]
+    if nested:
+        raise DataObjectManifestError(
+            "These cache paths are also directories holding other cached files, and cannot be "
+            "both: " + ", ".join(f"/{key}" for key in nested[:3]) + "."
         )
 
     per_type: dict[str, int] = {}
