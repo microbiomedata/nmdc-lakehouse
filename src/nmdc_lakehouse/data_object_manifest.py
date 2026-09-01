@@ -134,17 +134,21 @@ def build_manifest(
         if host is not None and not url.startswith(host):
             other_host += 1
             continue
-        key = (url, record.get("data_object_type"))
-        if key in seen:
-            duplicate += 1
-            continue
-        seen.add(key)
+        # Size first, then the key. Marking the key seen before validating meant a zero-byte first
+        # row was dropped as zero-byte and its good duplicate then dropped as a duplicate, so the
+        # URL left the manifest with no single count explaining where it went.
+        #
         # `file_size_bytes` arrives as a string from some Parquet schemas, which is why the
         # notebooks cast it defensively rather than comparing it directly.
         size = _as_size(record.get("file_size_bytes"))
         if size <= 0:
             zero_byte += 1
             continue
+        key = (url, record.get("data_object_type"))
+        if key in seen:
+            duplicate += 1
+            continue
+        seen.add(key)
         row = {column: record.get(column) for column in MANIFEST_COLUMNS}
         row["url"] = url
         kept.append(row)
@@ -156,24 +160,26 @@ def build_manifest(
             f"{zero_byte} zero-byte. An empty manifest would download nothing and report success."
         )
 
-    # `scripts/download_to_cache.py::cache_path_for` keys the cache on `urlparse(url).path` alone,
-    # so two hosts serving the same path collapse to one cached file: one payload overwrites the
-    # other and the parse stage reads whichever won. Refused rather than restricted back to a
-    # single host, because a hard-coded host silently excludes whole types. Measured on the
-    # 2026-08-21 snapshot: zero paths are served by more than one host, so this refuses nothing
-    # today and turns a future silent overwrite into a message.
+    # `scripts/download_to_cache.py::cache_path_for` keys the cache on `urlparse(url).path`
+    # alone, so any two URLs sharing a path collapse to one cached file: one payload overwrites
+    # the other and the parse stage reads whichever won.
+    #
+    # Distinct URLs per path, not distinct hosts. Counting hosts was the first version of this and
+    # it missed the case that actually exists: 2,733 MassIVE objects in the 2026-08-21 snapshot
+    # are all `https://massive.ucsd.edu/ProteoSAFe/DownloadResultFile?file=...`, one host, one
+    # path, 2,733 payloads. Cross-host collisions are the rarer shape, and this covers both.
     by_path: dict[str, set[str]] = {}
     for row in kept:
-        parsed = urlparse(str(row["url"]))
-        by_path.setdefault(parsed.path, set()).add(parsed.netloc)
-    collisions = sorted(path for path, hosts in by_path.items() if len(hosts) > 1)
+        by_path.setdefault(urlparse(str(row["url"])).path, set()).add(str(row["url"]))
+    collisions = sorted((path, len(urls)) for path, urls in by_path.items() if len(urls) > 1)
     if collisions:
+        worst = ", ".join(f"{path} ({count} URLs)" for path, count in collisions[:3])
         raise DataObjectManifestError(
-            "These URL paths are served by more than one host, and the downloader caches by path "
-            "alone, so one payload would overwrite the other: "
-            + ", ".join(collisions[:3])
+            "These URL paths are reached by more than one URL, and the downloader caches by path "
+            "alone, so the payloads would overwrite each other: "
+            + worst
             + (f" and {len(collisions) - 3} more" if len(collisions) > 3 else "")
-            + ". Restrict with --host, or fix the cache key first."
+            + ". The cache key has to include the query string before these can be fetched."
         )
 
     per_type: dict[str, int] = {}

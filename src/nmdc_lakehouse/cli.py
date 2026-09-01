@@ -1245,7 +1245,9 @@ def data_object_manifest_command(
     click.echo(f"  written: {written}")
     click.echo("")
     click.echo("  download it with:")
-    click.echo(f"    uv run python {_downloader_path()} --manifest {written} \\")
+    # Quoted, because a checkout or output path containing a space makes the pasted command run
+    # as different arguments rather than fail, which is the worse of the two outcomes.
+    click.echo(f"    uv run python {shlex.quote(_downloader_path())} --manifest {shlex.quote(str(written))} \\")
     click.echo("        --cache-dir PATH_TO_CACHE --workers 8")
 
 

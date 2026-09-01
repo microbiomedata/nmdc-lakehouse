@@ -443,7 +443,7 @@ def test_two_hosts_serving_the_same_path_are_refused() -> None:
         _object(id="nmdc:dobj-2", url="https://nmdcdemo.emsl.pnnl.gov/data/one.gff"),
     ]
 
-    with pytest.raises(DataObjectManifestError, match="served by more than one host"):
+    with pytest.raises(DataObjectManifestError, match="reached by more than one URL"):
         build_manifest(records, [PFAM])
 
 
@@ -485,3 +485,60 @@ def test_the_printed_downloader_path_is_absolute_and_exists(tmp_path: Path) -> N
     quoted = printed.split("uv run python ", 1)[1].split(" --manifest", 1)[0]
     assert Path(quoted).is_absolute()
     assert Path(quoted).is_file(), "the command names a script that is there"
+
+
+def test_two_urls_on_one_host_sharing_a_path_are_refused() -> None:
+    """The case that actually exists, and the first version of this check missed it.
+
+    2,733 MassIVE objects in the 2026-08-21 snapshot are all
+    `https://massive.ucsd.edu/ProteoSAFe/DownloadResultFile?file=...`: one host, one path, 2,733
+    payloads, every one of them landing on the same cache file. Counting distinct hosts per path
+    saw one host and found nothing.
+    """
+    base = "https://massive.ucsd.edu/ProteoSAFe/DownloadResultFile?file="
+    records = [_object(url=f"{base}a.mzML"), _object(id="nmdc:dobj-2", url=f"{base}b.mzML")]
+
+    with pytest.raises(DataObjectManifestError, match=r"DownloadResultFile \(2 URLs\)"):
+        build_manifest(records, [PFAM])
+
+
+def test_a_zero_byte_row_does_not_hide_a_good_duplicate() -> None:
+    """The key was marked seen before the size was validated, so the first row was dropped as
+    zero-byte and its good duplicate then dropped as a duplicate, and the URL left the manifest
+    with no single count explaining where it went."""
+    records = [
+        _object(id="nmdc:dobj-a", file_size_bytes=0),
+        _object(id="nmdc:dobj-b", file_size_bytes=4096),
+    ]
+
+    outcome = build_manifest(records, [PFAM])
+
+    assert outcome.total == 1, "the usable row survives"
+    assert outcome.rows[0]["id"] == "nmdc:dobj-b"
+    assert outcome.dropped_zero_byte == 1
+    assert outcome.dropped_duplicate == 0
+
+
+def test_the_printed_command_survives_a_path_with_a_space(tmp_path: Path) -> None:
+    """An unquoted path with a space runs as different arguments rather than failing, which is
+    the worse of the two outcomes for a command someone pastes."""
+    import shlex
+
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    spaced = tmp_path / "a directory with spaces"
+    spaced.mkdir()
+    source = _snapshot(tmp_path, [_object()])
+    output = spaced / "manifest.csv"
+
+    result = CliRunner().invoke(
+        cli,
+        ["data-object-manifest", "--type", PFAM, "--data-object-set", str(source), "--output", str(output)],
+    )
+
+    assert result.exit_code == 0, result.output
+    printed = next(line for line in result.output.splitlines() if "download_to_cache.py" in line)
+    words = shlex.split(printed.strip().rstrip("\\"))
+    assert str(output) in words, "the manifest path arrives as one argument"
