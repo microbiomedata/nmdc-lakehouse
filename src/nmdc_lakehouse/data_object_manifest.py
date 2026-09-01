@@ -23,11 +23,19 @@ successful-looking run that fetched nothing, and the downloader would report a c
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlparse
 
 from nmdc_lakehouse.file_types import resolve_file_types
+
+#: What may go inside a SQL string literal here. Every permissible value of the schema's
+#: FileTypeEnum matches today, including "Clusters of Orthologous Groups (COG) Annotation GFF";
+#: none contains a quote or a backslash. Checked rather than assumed, because the values come
+#: from a dependency that can change without this repository noticing.
+_QUOTABLE = re.compile(r"[A-Za-z0-9 ()_,./+-]+")
 
 #: Columns the manifest carries. `url` is what `scripts/download_to_cache.py` requires; the rest
 #: are what the parse and ingest stages join on, and dropping them here would mean re-querying.
@@ -110,12 +118,20 @@ def build_manifest(
     kept: list[dict[str, object]] = []
     seen: set[tuple[object, object]] = set()
     no_url = duplicate = zero_byte = other_host = 0
-    for record in selected:
-        url = record.get("url")
+    # Ordered before deduplicating, because deduplication keeps the first row it sees and neither
+    # source establishes an order: Spark results are unordered, and which `id` survives would then
+    # vary between runs over identical data. The notebooks got this from their `ORDER BY`.
+    for record in sorted(selected, key=lambda r: (str(r.get("data_object_type") or ""), str(r.get("id") or ""))):
+        # Normalised once. A whitespace-padded URL passed the emptiness check, then failed the
+        # host filter for a reason nobody could see, and deduplicated as a different object from
+        # the same URL without the padding. Normalising in one place is what keeps the three
+        # consistent, and the manifest then carries the cleaned value.
+        raw = record.get("url")
+        url = str(raw).strip() if raw is not None else ""
         if not url:
             no_url += 1
             continue
-        if host is not None and not str(url).startswith(host):
+        if host is not None and not url.startswith(host):
             other_host += 1
             continue
         key = (url, record.get("data_object_type"))
@@ -129,13 +145,35 @@ def build_manifest(
         if size <= 0:
             zero_byte += 1
             continue
-        kept.append({column: record.get(column) for column in MANIFEST_COLUMNS})
+        row = {column: record.get(column) for column in MANIFEST_COLUMNS}
+        row["url"] = url
+        kept.append(row)
 
     if not kept:
         raise DataObjectManifestError(
             f"Every one of the {len(selected)} object(s) of these types was dropped: "
             f"{no_url} with no URL, {other_host} on another host, {duplicate} duplicate, "
             f"{zero_byte} zero-byte. An empty manifest would download nothing and report success."
+        )
+
+    # `scripts/download_to_cache.py::cache_path_for` keys the cache on `urlparse(url).path` alone,
+    # so two hosts serving the same path collapse to one cached file: one payload overwrites the
+    # other and the parse stage reads whichever won. Refused rather than restricted back to a
+    # single host, because a hard-coded host silently excludes whole types. Measured on the
+    # 2026-08-21 snapshot: zero paths are served by more than one host, so this refuses nothing
+    # today and turns a future silent overwrite into a message.
+    by_path: dict[str, set[str]] = {}
+    for row in kept:
+        parsed = urlparse(str(row["url"]))
+        by_path.setdefault(parsed.path, set()).add(parsed.netloc)
+    collisions = sorted(path for path, hosts in by_path.items() if len(hosts) > 1)
+    if collisions:
+        raise DataObjectManifestError(
+            "These URL paths are served by more than one host, and the downloader caches by path "
+            "alone, so one payload would overwrite the other: "
+            + ", ".join(collisions[:3])
+            + (f" and {len(collisions) - 3} more" if len(collisions) > 3 else "")
+            + ". Restrict with --host, or fix the cache key first."
         )
 
     per_type: dict[str, int] = {}
@@ -176,11 +214,22 @@ def read_data_object_set(path: Path) -> list[dict[str, object]]:
     return pq.read_table(document, columns=list(MANIFEST_COLUMNS)).to_pylist()
 
 
-def read_data_object_set_from_spark(spark: object, namespace: str) -> list[dict[str, object]]:
+def read_data_object_set_from_spark(
+    spark: object, namespace: str, types: Sequence[str] | None = None
+) -> list[dict[str, object]]:
     """Read `data_object_set` from a live catalog, which is what the notebooks did.
 
     Fresher than a snapshot and needs a session. The column list is the same one, so the two
     sources cannot drift into producing different manifests.
+
+    `types` filters in the query rather than in the driver, which is what the notebooks did too.
+    Without it this collected all 290,640 rows of the 2026-08-21 snapshot to keep about 4,900.
+    It is an optimisation and not a second rule: `build_manifest` applies the same selection
+    either way, so a source that ignores `types` still produces the same manifest.
+
+    The values are interpolated because they have been through `resolve_file_types` and are
+    therefore permissible values of the schema's enum, not caller text. That is asserted here
+    rather than assumed, because the guarantee lives in another function.
     """
     # Refused before it reaches a statement. `namespace` is CLI input, and the same
     # catalog-qualified rule the rest of this repository applies is the one that makes it a pair
@@ -192,7 +241,16 @@ def read_data_object_set_from_spark(spark: object, namespace: str) -> list[dict[
     except DerivedTableError as error:
         raise DataObjectManifestError(str(error)) from error
     columns = ", ".join(MANIFEST_COLUMNS)
-    statement = f"SELECT {columns} FROM {namespace}.data_object_set"  # noqa: S608 - checked identifiers
+    where = " WHERE url IS NOT NULL"
+    if types:
+        wanted = resolve_file_types(list(types))
+        unsafe = sorted(t for t in wanted if not _QUOTABLE.fullmatch(t))
+        if unsafe:
+            raise DataObjectManifestError(
+                "These type names cannot be put in a SQL literal safely: " + ", ".join(unsafe) + "."
+            )
+        where += " AND data_object_type IN (" + ", ".join(f"'{t}'" for t in wanted) + ")"
+    statement = f"SELECT {columns} FROM {namespace}.data_object_set{where}"  # noqa: S608 - checked
     try:
         frame = spark.sql(statement)  # type: ignore[attr-defined]
         return [row.asDict() for row in frame.collect()]
@@ -203,11 +261,24 @@ def read_data_object_set_from_spark(spark: object, namespace: str) -> list[dict[
 def write_manifest(outcome: ManifestOutcome, path: Path) -> Path:
     """Write the manifest as the CSV `scripts/download_to_cache.py` reads."""
     import csv
+    import os
+    import tempfile
 
     destination = path.expanduser()
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with destination.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(MANIFEST_COLUMNS))
-        writer.writeheader()
-        writer.writerows(outcome.rows)
+    # Written beside the destination and renamed, because a partial CSV is a valid manifest. An
+    # interrupted write leaves a header and some rows, and the downloader reads that as the whole
+    # set and reports a clean pass having fetched part of it.
+    handle_fd, temporary = tempfile.mkstemp(dir=destination.parent, prefix=destination.name, suffix=".part")
+    try:
+        with os.fdopen(handle_fd, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(MANIFEST_COLUMNS))
+            writer.writeheader()
+            writer.writerows(outcome.rows)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, destination)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
     return destination

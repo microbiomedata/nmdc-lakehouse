@@ -1211,6 +1211,11 @@ def data_object_manifest_command(
 
     if (data_object_set is None) == (ingest_checkout is None):
         raise click.UsageError("Name exactly one source: --data-object-set or --ingest-checkout.")
+    # Refused before the source is read. Writing the manifest over the snapshot would truncate the
+    # Parquet this just read from and replace it with a CSV, which is unrecoverable if that
+    # snapshot is the only copy.
+    if data_object_set is not None and output.expanduser().resolve() == data_object_set.expanduser().resolve():
+        raise click.UsageError("--output would overwrite --data-object-set. Name a different path.")
 
     try:
         if data_object_set is not None:
@@ -1219,8 +1224,9 @@ def data_object_manifest_command(
         else:
             from nmdc_lakehouse.derived_tables import spark_session
 
-            assert ingest_checkout is not None
-            records = read_data_object_set_from_spark(spark_session(ingest_checkout), namespace)
+            if ingest_checkout is None:  # pragma: no cover - the exclusivity check above forbids it
+                raise click.UsageError("Name exactly one source: --data-object-set or --ingest-checkout.")
+            records = read_data_object_set_from_spark(spark_session(ingest_checkout), namespace, types=list(types))
             source = f"{namespace}.data_object_set"
         outcome = build_manifest(records, list(types), host=host)
         written = write_manifest(outcome, output)
@@ -1239,8 +1245,22 @@ def data_object_manifest_command(
     click.echo(f"  written: {written}")
     click.echo("")
     click.echo("  download it with:")
-    click.echo(f"    uv run python scripts/download_to_cache.py --manifest {written} \\")
+    click.echo(f"    uv run python {_downloader_path()} --manifest {written} \\")
     click.echo("        --cache-dir PATH_TO_CACHE --workers 8")
+
+
+def _downloader_path() -> str:
+    """Where `scripts/download_to_cache.py` is, as an absolute path when it can be found.
+
+    The notebooks walked up from the working directory to find it, and printed the resolved path.
+    Printing a relative one instead means the advertised command fails from anywhere but the
+    checkout root, which includes `notebooks/`, where its readers are. Resolved from this module
+    rather than the working directory, because that is where the checkout actually is.
+    """
+    candidate = Path(__file__).resolve().parents[2] / "scripts" / "download_to_cache.py"
+    # An installed package has no `scripts/` beside it. Saying so beats printing a path that does
+    # not exist and looks authoritative because it is absolute.
+    return str(candidate) if candidate.is_file() else "PATH_TO_CHECKOUT/scripts/download_to_cache.py"
 
 
 if __name__ == "__main__":

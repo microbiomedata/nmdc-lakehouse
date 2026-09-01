@@ -313,3 +313,175 @@ def test_the_live_catalog_path_reads_the_same_columns(tmp_path: Path, monkeypatc
     for column in MANIFEST_COLUMNS:
         assert column in spark.statements[0]
     assert len(list(csv.DictReader(output.open(encoding="utf-8")))) == 1
+
+
+def test_a_padded_url_is_normalised_once(tmp_path: Path) -> None:
+    """A padded URL passed the emptiness check, failed the host filter invisibly, and deduplicated
+    as a different object from the same URL without the padding."""
+    padded = "  https://data.microbiomedata.org/data/one.gff  "
+    outcome = build_manifest(
+        [_object(url=padded), _object(id="nmdc:dobj-2")], [PFAM], host="https://data.microbiomedata.org/"
+    )
+
+    assert outcome.total == 1, "the padded and unpadded forms are the same object"
+    assert outcome.dropped_duplicate == 1
+    assert outcome.rows[0]["url"] == "https://data.microbiomedata.org/data/one.gff", "cleaned in the manifest"
+
+
+def test_a_url_that_is_only_whitespace_counts_as_absent() -> None:
+    outcome = build_manifest([_object(), _object(id="nmdc:dobj-2", url="   ")], [PFAM])
+
+    assert outcome.total == 1
+    assert outcome.dropped_no_url == 1
+
+
+def test_the_live_read_filters_in_the_query_rather_than_the_driver() -> None:
+    """Without this it collected all 290,640 rows of the snapshot to keep about 4,900, and the
+    notebooks filtered in SQL."""
+    from nmdc_lakehouse.data_object_manifest import read_data_object_set_from_spark
+
+    class Frame:
+        def collect(self) -> list[object]:
+            return []
+
+    class FakeSpark:
+        def __init__(self) -> None:
+            self.statements: list[str] = []
+
+        def sql(self, statement: str) -> Frame:
+            self.statements.append(statement)
+            return Frame()
+
+    spark = FakeSpark()
+    read_data_object_set_from_spark(spark, "nmdc.metadata", types=[PFAM, KEGG])
+
+    statement = spark.statements[0]
+    assert "url IS NOT NULL" in statement
+    assert f"'{PFAM}'" in statement and f"'{KEGG}'" in statement
+    assert "data_object_type IN (" in statement
+
+
+def test_the_live_read_refuses_an_unqualified_namespace() -> None:
+    """`namespace` is CLI input and reaches a SELECT, so it goes through the same
+    catalog-qualified rule the rest of the repository applies."""
+    from nmdc_lakehouse.data_object_manifest import read_data_object_set_from_spark
+
+    class NeverCalled:
+        def sql(self, statement: str) -> object:
+            raise AssertionError("no statement should be built for an unqualified namespace")
+
+    with pytest.raises(DataObjectManifestError, match="catalog-qualified"):
+        read_data_object_set_from_spark(NeverCalled(), "nmdc_metadata", types=[PFAM])
+
+
+def test_which_row_survives_deduplication_does_not_depend_on_input_order() -> None:
+    """Neither source establishes an order: Spark results are unordered, so which `id` survived
+    varied between runs over identical data. The notebooks got determinism from `ORDER BY`."""
+    first = _object(id="nmdc:dobj-b")
+    second = _object(id="nmdc:dobj-a")
+
+    forward = build_manifest([first, second], [PFAM])
+    backward = build_manifest([second, first], [PFAM])
+
+    assert forward.rows == backward.rows
+    assert forward.rows[0]["id"] == "nmdc:dobj-a", "the lowest id, whichever order they arrive in"
+
+
+def test_an_interrupted_write_leaves_no_manifest(tmp_path: Path, monkeypatch) -> None:
+    """A partial CSV is a valid manifest: the downloader reads it as the whole set and reports a
+    clean pass having fetched part of it."""
+    import csv as csv_module
+
+    outcome = build_manifest([_object()], [PFAM])
+    destination = tmp_path / "manifest.csv"
+
+    def explode(self, rows):  # noqa: ANN001, ANN202 - patching a stdlib method
+        raise OSError("no space left on device")
+
+    monkeypatch.setattr(csv_module.DictWriter, "writerows", explode)
+
+    # A manifest already at that path, because the property is that an interrupted write must not
+    # damage it. Asserting only that no file is left cannot tell an atomic write from a direct one
+    # that failed and then cleaned up after itself, which is what a mutation test showed.
+    destination.write_text("url\nhttps://data.microbiomedata.org/previous.gff\n", encoding="utf-8")
+
+    with pytest.raises(OSError, match="no space left"):
+        write_manifest(outcome, destination)
+
+    assert "previous.gff" in destination.read_text(encoding="utf-8"), "the existing manifest survives"
+    assert list(tmp_path.iterdir()) == [destination], "and no temporary file is left behind"
+
+
+def test_the_command_refuses_to_write_over_the_snapshot_it_reads(tmp_path: Path) -> None:
+    """Writing the CSV to the Parquet's path truncates the snapshot, which may be the only copy."""
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    source = _snapshot(tmp_path, [_object()])
+    before = source.read_bytes()
+
+    result = CliRunner().invoke(
+        cli,
+        ["data-object-manifest", "--type", PFAM, "--data-object-set", str(source), "--output", str(source)],
+    )
+
+    assert result.exit_code != 0
+    assert "would overwrite" in result.output
+    assert source.read_bytes() == before, "the snapshot is untouched"
+
+
+def test_two_hosts_serving_the_same_path_are_refused() -> None:
+    """`download_to_cache.py::cache_path_for` keys on `urlparse(url).path` alone, so two hosts
+    serving one path collapse to a single cached file and one payload overwrites the other.
+
+    Measured on the 2026-08-21 snapshot: zero paths are served by more than one host, so this
+    refuses nothing today. It turns a future silent overwrite into a message.
+    """
+    records = [
+        _object(url="https://data.microbiomedata.org/data/one.gff"),
+        _object(id="nmdc:dobj-2", url="https://nmdcdemo.emsl.pnnl.gov/data/one.gff"),
+    ]
+
+    with pytest.raises(DataObjectManifestError, match="served by more than one host"):
+        build_manifest(records, [PFAM])
+
+
+def test_the_same_path_on_one_host_is_not_a_collision() -> None:
+    """The check must not fire on ordinary manifests, or it refuses every real one."""
+    records = [_object(), _object(id="nmdc:dobj-2", url="https://data.microbiomedata.org/data/two.gff")]
+
+    assert build_manifest(records, [PFAM]).total == 2
+
+
+def test_a_host_restriction_resolves_a_collision() -> None:
+    """The refusal names `--host` as the way out, so that has to work."""
+    records = [
+        _object(url="https://data.microbiomedata.org/data/one.gff"),
+        _object(id="nmdc:dobj-2", url="https://nmdcdemo.emsl.pnnl.gov/data/one.gff"),
+    ]
+
+    outcome = build_manifest(records, [PFAM], host="https://data.microbiomedata.org/")
+
+    assert outcome.total == 1
+
+
+def test_the_printed_downloader_path_is_absolute_and_exists(tmp_path: Path) -> None:
+    """The notebooks resolved it and printed the resolved path. A relative one fails from
+    anywhere but the checkout root, which includes `notebooks/`, where its readers are.
+    """
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    source = _snapshot(tmp_path, [_object()])
+    result = CliRunner().invoke(
+        cli,
+        ["data-object-manifest", "--type", PFAM, "--data-object-set", str(source), "--output", str(tmp_path / "m.csv")],
+    )
+
+    assert result.exit_code == 0, result.output
+    printed = next(line for line in result.output.splitlines() if "download_to_cache.py" in line)
+    quoted = printed.split("uv run python ", 1)[1].split(" --manifest", 1)[0]
+    assert Path(quoted).is_absolute()
+    assert Path(quoted).is_file(), "the command names a script that is there"
