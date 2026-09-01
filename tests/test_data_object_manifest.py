@@ -653,3 +653,53 @@ def test_ordinary_sibling_paths_are_not_treated_as_nested() -> None:
     ]
 
     assert build_manifest(records, [PFAM]).total == 2
+
+
+def test_a_requested_type_with_no_usable_rows_reports_zero_rather_than_vanishing() -> None:
+    """Counting only what survived made a type disappear from the report while the run succeeded.
+
+    A KO/EC manifest could then come back holding one family and looking complete. A zero is
+    visible; an absent line is not.
+    """
+    records = [_object(), _object(id="nmdc:dobj-2", data_object_type=KEGG, file_size_bytes=0)]
+
+    outcome = build_manifest(records, [PFAM, KEGG])
+
+    assert outcome.per_type == {PFAM: 1, KEGG: 0}
+    assert outcome.total == 1
+
+
+def test_the_command_shows_the_zero(tmp_path: Path) -> None:
+    """The point of the count is that an operator sees it, so it has to reach the output."""
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    source = _snapshot(tmp_path, [_object(), _object(id="nmdc:dobj-2", data_object_type=KEGG, file_size_bytes=0)])
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "data-object-manifest",
+            "--type",
+            PFAM,
+            "--type",
+            KEGG,
+            "--data-object-set",
+            str(source),
+            "--output",
+            str(tmp_path / "m.csv"),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert f"0  {KEGG}" in result.output
+
+
+@pytest.mark.parametrize("url", ["https://host/.", "https://host/data/..", "https://host/", "https://host"])
+def test_a_url_resolving_to_the_cache_root_is_refused(url: str) -> None:
+    """The downloader resolves such a key to the cache root, which already exists, and reports the
+    object as cached without downloading it. That is the silent success this command exists to
+    prevent, so it is refused rather than written."""
+    with pytest.raises(DataObjectManifestError, match="have no path"):
+        build_manifest([_object(url=url)], [PFAM])

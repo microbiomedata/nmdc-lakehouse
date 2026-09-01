@@ -228,7 +228,11 @@ def build_manifest(
             "both: " + ", ".join(f"/{key}" for key in nested[:3]) + "."
         )
 
-    per_type: dict[str, int] = {}
+    # Every requested type, including the ones nothing survived for. Counting only what is in
+    # `kept` made a type with no usable rows vanish from the report while the run succeeded, so a
+    # KO/EC manifest could come back holding one family and looking complete. A zero is visible;
+    # an absent line is not.
+    per_type: dict[str, int] = dict.fromkeys(wanted, 0)
     for row in kept:
         name = str(row["data_object_type"])
         per_type[name] = per_type.get(name, 0) + 1
