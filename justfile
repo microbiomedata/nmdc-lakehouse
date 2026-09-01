@@ -323,10 +323,12 @@ test-cov:
 # as it stands, and cannot notice an untested function arriving in a large tested
 # codebase. This measures only what the change touches. Requires coverage.xml, so
 # run `just test-cov` first, and requires the base branch to be fetched.
-# The default reads GITHUB_BASE_REF, which GitHub sets to the branch a pull request targets. That
-# is how the right base survives CI running `just check` rather than a step that passed the base
-# as an argument: pull requests do not all target main, and comparing one against main measures
-# the wrong lines. Empty outside a pull request, where origin/main is the sensible default.
+# The default reads DIFF_COVER_BASE, which the CI check step sets from the branch a pull request
+# targets. That is how the right base survives CI running `just check` rather than a step that
+# passed the base as an argument: pull requests do not all target main, and comparing one against
+# main measures the wrong lines. CI sets it to origin/main on a push, and it is unset locally,
+# where origin/main is the sensible default. Note it must never be set to the empty string:
+# env_var_or_default falls back only when a variable is unset.
 diff-cover BASE=env_var_or_default("DIFF_COVER_BASE", "origin/main"):
     @test -s coverage.xml || { echo "coverage.xml is missing or empty; run 'just test-cov' first" >&2; exit 1; }
     uv run diff-cover coverage.xml --compare-branch="{{ BASE }}" --fail-under=90 --show-uncovered

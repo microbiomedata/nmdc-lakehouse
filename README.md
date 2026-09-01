@@ -218,9 +218,11 @@ A branch that changes no Python passes it: with no measurable lines in the diff,
 Running it needs `coverage.xml`, so run `just test-cov` first, and needs the
 base branch present, so a shallow clone has to fetch it. CI does both.
 
-CI runs it on pull requests only. On a push to `main` there is no base branch to
-compare against, and a gate that cannot fail is worse than an absent one, because
-the green tick claims a check that did not happen.
+CI runs it inside `just check`, so it runs on every event rather than on pull
+requests only. On a pull request the base is the branch it targets. On a push to
+`main` there is no base to compare against, so it reports no lines and gates
+nothing; the pull request run is where this gate does its work, and the push run
+adds no claim of its own because the whole of `check` is one step there.
 
 ## License
 

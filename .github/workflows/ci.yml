@@ -28,7 +28,8 @@ jobs:
           # +refs/heads/*:refs/remotes/origin/*, so the base is already a local
           # remote-tracking ref and the gate needs no second, unauthenticated fetch.
           #
-          # Deliberately unconditional, though the gate runs on pull requests only.
+          # Deliberately unconditional. The changed-line gate runs inside `just check` on every
+          # event; on a push to main it compares main against main and reports nothing.
           # Measured on this repository: the full-history checkout takes 2.66s in a 325s
           # job, and a conditional would save only the depth-0-versus-depth-1 difference,
           # on merges to main. Against that, the obvious expression
@@ -98,7 +99,10 @@ jobs:
         env:
           # The base the pull request targets, so diff-cover measures against it rather than main.
           # Empty on a push, where the recipe's own default applies.
-          DIFF_COVER_BASE: ${{ github.base_ref && format('origin/{0}', github.base_ref) || '' }}
+          # `origin/main` and not empty on the push path. `env_var_or_default` falls back only
+          # when the variable is unset, so an empty value would reach diff-cover as
+          # `--compare-branch=""`.
+          DIFF_COVER_BASE: ${{ github.base_ref && format('origin/{0}', github.base_ref) || 'origin/main' }}
         run: just check
 
       - name: Verify coverage report
