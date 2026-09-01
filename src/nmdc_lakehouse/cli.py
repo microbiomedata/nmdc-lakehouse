@@ -1171,5 +1171,77 @@ def run_job(
         click.echo(f"tables={', '.join(result.tables_written)}")
 
 
+@cli.command("data-object-manifest")
+@click.option("--type", "types", multiple=True, required=True, help="data_object_type to fetch. Repeatable.")
+@click.option(
+    "--data-object-set",
+    type=click.Path(path_type=Path, dir_okay=False),
+    help="Snapshot Parquet to read. Needs no pod, and is the default source.",
+)
+@click.option(
+    "--ingest-checkout", type=click.Path(path_type=Path, file_okay=False), help="Read a live catalog instead."
+)
+@click.option("--namespace", default="nmdc.metadata", show_default=True, help="Catalog namespace for the live read.")
+@click.option("--host", help="Restrict to URLs starting with this prefix. No restriction by default.")
+@click.option("--output", type=click.Path(path_type=Path, dir_okay=False), required=True)
+def data_object_manifest_command(
+    types: tuple[str, ...],
+    data_object_set: Path | None,
+    ingest_checkout: Path | None,
+    namespace: str,
+    host: str | None,
+    output: Path,
+) -> None:
+    """Build the download manifest for one or more data object types.
+
+    This is the fetch stage the notebook triples shared, and it only builds the manifest;
+    downloading is `scripts/download_to_cache.py`, which reads what this writes.
+
+    Types are resolved against nmdc-schema, so a typo fails here rather than producing an empty
+    manifest that downloads nothing and reports success. An empty result is refused for the same
+    reason, and what was dropped on the way is printed rather than only logged.
+    """
+    from nmdc_lakehouse.data_object_manifest import (
+        DataObjectManifestError,
+        build_manifest,
+        read_data_object_set,
+        read_data_object_set_from_spark,
+        write_manifest,
+    )
+
+    if (data_object_set is None) == (ingest_checkout is None):
+        raise click.UsageError("Name exactly one source: --data-object-set or --ingest-checkout.")
+
+    try:
+        if data_object_set is not None:
+            records = read_data_object_set(data_object_set)
+            source = str(data_object_set)
+        else:
+            from nmdc_lakehouse.derived_tables import spark_session
+
+            assert ingest_checkout is not None
+            records = read_data_object_set_from_spark(spark_session(ingest_checkout), namespace)
+            source = f"{namespace}.data_object_set"
+        outcome = build_manifest(records, list(types), host=host)
+        written = write_manifest(outcome, output)
+    except (DataObjectManifestError, ValueError) as error:
+        raise click.ClickException(str(error)) from error
+
+    click.echo(f"manifest from {source}")
+    for name, count in sorted(outcome.per_type.items()):
+        click.echo(f"  {count:>8,}  {name}")
+    click.echo(f"  {outcome.total:>8,}  total, {outcome.total_bytes / 1024**3:,.1f} GiB")
+    dropped = (
+        f"{outcome.dropped_no_url} no URL, {outcome.dropped_other_host} other host, "
+        f"{outcome.dropped_duplicate} duplicate, {outcome.dropped_zero_byte} zero-byte"
+    )
+    click.echo(f"  dropped: {dropped}")
+    click.echo(f"  written: {written}")
+    click.echo("")
+    click.echo("  download it with:")
+    click.echo(f"    uv run python scripts/download_to_cache.py --manifest {written} \\")
+    click.echo("        --cache-dir PATH_TO_CACHE --workers 8")
+
+
 if __name__ == "__main__":
     cli()
