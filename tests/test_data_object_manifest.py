@@ -741,3 +741,43 @@ def test_a_url_resolving_outside_the_cache_is_refused(url: str) -> None:
     neither empty nor `.`, so the no-path check let it through."""
     with pytest.raises(DataObjectManifestError, match="outside the download cache"):
         build_manifest([_object(url=url)], [PFAM])
+
+
+@pytest.mark.parametrize("url", ["file:///tmp/x.gff", "/data/one.gff", "ftp://host/one.gff", "data/one.gff"])
+def test_a_url_the_downloader_cannot_fetch_is_dropped(url: str) -> None:
+    """The downloader hands every value to `requests.Session.get`, which records an error for a
+    relative URL or a `file://` one rather than skipping it.
+
+    Every URL in the 2026-08-21 snapshot is `https`, so this drops nothing today.
+    """
+    outcome = build_manifest([_object(), _object(id="nmdc:dobj-2", url=url)], [PFAM])
+
+    assert outcome.total == 1
+    assert outcome.dropped_not_fetchable == 1
+
+
+def test_an_ordinary_https_url_is_still_kept() -> None:
+    """The scheme check must not reject the real ones, or it refuses every manifest."""
+    assert build_manifest([_object()], [PFAM]).total == 1
+
+
+def test_the_printed_manifest_path_is_absolute(tmp_path: Path, monkeypatch) -> None:
+    """The script path was resolved and the manifest path was not, so pasting the command with a
+    relative `--output`, as the runbook example uses, pointed `--manifest` at the wrong file."""
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    source = _snapshot(tmp_path, [_object()])
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(
+        cli,
+        ["data-object-manifest", "--type", PFAM, "--data-object-set", str(source), "--output", "relative/manifest.csv"],
+    )
+
+    assert result.exit_code == 0, result.output
+    printed = next(line for line in result.output.splitlines() if "--manifest" in line)
+    manifest = printed.split("--manifest ", 1)[1].split(" ", 1)[0]
+    assert Path(manifest).is_absolute(), printed
+    assert Path(manifest).is_file()

@@ -107,6 +107,7 @@ class ManifestOutcome:
     per_type: dict[str, int]
     total_bytes: int
     dropped_no_url: int = 0
+    dropped_not_fetchable: int = 0
     dropped_duplicate: int = 0
     dropped_zero_byte: int = 0
     dropped_other_host: int = 0
@@ -143,7 +144,7 @@ def build_manifest(
 
     kept: list[dict[str, object]] = []
     seen: set[tuple[object, object]] = set()
-    no_url = duplicate = zero_byte = other_host = 0
+    no_url = duplicate = zero_byte = other_host = not_fetchable = 0
     # Ordered before deduplicating, because deduplication keeps the first row it sees and neither
     # source establishes an order: Spark results are unordered, and which `id` survives would then
     # vary between runs over identical data. The notebooks got this from their `ORDER BY`.
@@ -156,6 +157,13 @@ def build_manifest(
         url = str(raw).strip() if raw is not None else ""
         if not url:
             no_url += 1
+            continue
+        # An absolute HTTP or HTTPS URL, because the downloader hands every value to
+        # `requests.Session.get`, which records an error for a relative URL or a `file://` one
+        # rather than skipping it. Every URL in the 2026-08-21 snapshot is `https`, so this drops
+        # nothing today and keeps the manifest's promise that its rows are fetchable.
+        if urlparse(url).scheme not in {"http", "https"} or not urlparse(url).netloc:
+            not_fetchable += 1
             continue
         if host is not None and not url.startswith(host):
             other_host += 1
@@ -182,8 +190,9 @@ def build_manifest(
     if not kept:
         raise DataObjectManifestError(
             f"Every one of the {len(selected)} object(s) of these types was dropped: "
-            f"{no_url} with no URL, {other_host} on another host, {duplicate} duplicate, "
-            f"{zero_byte} zero-byte. An empty manifest would download nothing and report success."
+            f"{no_url} with no URL, {not_fetchable} not an absolute http(s) URL, "
+            f"{other_host} on another host, {duplicate} duplicate, {zero_byte} zero-byte. "
+            f"An empty manifest would download nothing and report success."
         )
 
     # Every row must be cacheable by `scripts/download_to_cache.py::cache_path_for`, which maps a
@@ -260,6 +269,7 @@ def build_manifest(
         per_type=per_type,
         total_bytes=sum(_as_size(row["file_size_bytes"]) for row in kept),
         dropped_no_url=no_url,
+        dropped_not_fetchable=not_fetchable,
         dropped_duplicate=duplicate,
         dropped_zero_byte=zero_byte,
         dropped_other_host=other_host,

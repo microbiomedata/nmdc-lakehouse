@@ -1238,7 +1238,7 @@ def data_object_manifest_command(
         raise click.ClickException(f"Reading {source_hint} failed: {error}") from error
 
     try:
-        written = write_manifest(outcome, output)
+        written = write_manifest(outcome, output).resolve()
     except OSError as error:
         # A full disk or an unwritable destination is an ordinary outcome here, not a defect, and
         # a traceback for one reads as the command breaking rather than the filesystem refusing.
@@ -1249,8 +1249,9 @@ def data_object_manifest_command(
         click.echo(f"  {count:>8,}  {name}")
     click.echo(f"  {outcome.total:>8,}  total, {outcome.total_bytes / 1024**3:,.1f} GiB")
     dropped = (
-        f"{outcome.dropped_no_url} no URL, {outcome.dropped_other_host} other host, "
-        f"{outcome.dropped_duplicate} duplicate, {outcome.dropped_zero_byte} zero-byte"
+        f"{outcome.dropped_no_url} no URL, {outcome.dropped_not_fetchable} not http(s), "
+        f"{outcome.dropped_other_host} other host, {outcome.dropped_duplicate} duplicate, "
+        f"{outcome.dropped_zero_byte} zero-byte"
     )
     click.echo(f"  dropped: {dropped}")
     click.echo(f"  written: {written}")
