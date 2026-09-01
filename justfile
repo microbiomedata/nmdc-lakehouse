@@ -176,9 +176,9 @@ test-prose-lint-exit:
 # forcing execution is not possible from a workstation for most of these. The failure is an unrun
 # procedure that reads like a tested one.
 #
-# CI does not run `just check`; .github/workflows/ci.yml invokes each recipe as its own step, so
-# both of these are listed there individually. A gate that only `just check` runs is a gate CI does
-# not have.
+# CI runs `just check`, so a gate added to it runs in CI without a second edit. That was not always
+# true: ci.yml used to invoke each recipe as its own step, the two lists were kept in sync by hand,
+# and they drifted twice.
 #
 # There is no exemption list. One was tried, grandfathering the blocks that predated the rule by
 # content hash, and it produced seven distinct defects across eight rounds of review, each a way
@@ -323,7 +323,11 @@ test-cov:
 # as it stands, and cannot notice an untested function arriving in a large tested
 # codebase. This measures only what the change touches. Requires coverage.xml, so
 # run `just test-cov` first, and requires the base branch to be fetched.
-diff-cover BASE="origin/main":
+# The default reads GITHUB_BASE_REF, which GitHub sets to the branch a pull request targets. That
+# is how the right base survives CI running `just check` rather than a step that passed the base
+# as an argument: pull requests do not all target main, and comparing one against main measures
+# the wrong lines. Empty outside a pull request, where origin/main is the sensible default.
+diff-cover BASE=env_var_or_default("DIFF_COVER_BASE", "origin/main"):
     @test -s coverage.xml || { echo "coverage.xml is missing or empty; run 'just test-cov' first" >&2; exit 1; }
     uv run diff-cover coverage.xml --compare-branch="{{ BASE }}" --fail-under=90 --show-uncovered
 

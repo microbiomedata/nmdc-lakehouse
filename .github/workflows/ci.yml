@@ -95,6 +95,10 @@ jobs:
       # the recipe that failed, and `just check` runs the same recipes in the same order a
       # contributor runs locally, which is worth more than the timeline.
       - name: Check
+        env:
+          # The base the pull request targets, so diff-cover measures against it rather than main.
+          # Empty on a push, where the recipe's own default applies.
+          DIFF_COVER_BASE: ${{ github.base_ref && format('origin/{0}', github.base_ref) || '' }}
         run: just check
 
       - name: Verify coverage report
