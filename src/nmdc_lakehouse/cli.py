@@ -1217,6 +1217,7 @@ def data_object_manifest_command(
     if data_object_set is not None and output.expanduser().resolve() == data_object_set.expanduser().resolve():
         raise click.UsageError("--output would overwrite --data-object-set. Name a different path.")
 
+    source_hint = str(data_object_set) if data_object_set is not None else f"{namespace}.data_object_set"
     try:
         if data_object_set is not None:
             records = read_data_object_set(data_object_set)
@@ -1229,9 +1230,15 @@ def data_object_manifest_command(
             records = read_data_object_set_from_spark(spark_session(ingest_checkout), namespace, types=list(types))
             source = f"{namespace}.data_object_set"
         outcome = build_manifest(records, list(types), host=host)
-        written = write_manifest(outcome, output)
     except (DataObjectManifestError, ValueError) as error:
         raise click.ClickException(str(error)) from error
+    except OSError as error:
+        # Reading, not writing. The handler used to cover both and reported a source-side failure
+        # as "Writing the manifest failed", which sends the reader to the wrong file.
+        raise click.ClickException(f"Reading {source_hint} failed: {error}") from error
+
+    try:
+        written = write_manifest(outcome, output)
     except OSError as error:
         # A full disk or an unwritable destination is an ordinary outcome here, not a defect, and
         # a traceback for one reads as the command breaking rather than the filesystem refusing.

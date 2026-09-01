@@ -49,6 +49,22 @@ MANIFEST_COLUMNS: tuple[str, ...] = (
 )
 
 
+def _cache_key(url: str) -> str:
+    """The path `scripts/download_to_cache.py::cache_path_for` would cache this URL at.
+
+    It strips the leading slash and resolves the result under the cache root, so `..` segments
+    collapse. Comparing raw paths therefore missed a collision that the downloader would still
+    have: `/data/tmp/../one.gff` and `/data/one.gff` are different strings and one file.
+
+    `PurePosixPath` rather than the filesystem, because this must not depend on what exists on the
+    machine building the manifest, and the downloader's own `resolve()` has nothing to follow for
+    a path that is not there yet either.
+    """
+    from posixpath import normpath
+
+    return normpath(urlparse(url).path.lstrip("/"))
+
+
 def _as_size(value: object) -> int:
     """`file_size_bytes` arrives as a string from some Parquet schemas.
 
@@ -170,7 +186,7 @@ def build_manifest(
     # path, 2,733 payloads. Cross-host collisions are the rarer shape, and this covers both.
     by_path: dict[str, set[str]] = {}
     for row in kept:
-        by_path.setdefault(urlparse(str(row["url"])).path, set()).add(str(row["url"]))
+        by_path.setdefault(_cache_key(str(row["url"])), set()).add(str(row["url"]))
     collisions = sorted((path, len(urls)) for path, urls in by_path.items() if len(urls) > 1)
     if collisions:
         worst = ", ".join(f"{path} ({count} URLs)" for path, count in collisions[:3])
@@ -179,7 +195,8 @@ def build_manifest(
             "alone, so the payloads would overwrite each other: "
             + worst
             + (f" and {len(collisions) - 3} more" if len(collisions) > 3 else "")
-            + ". The cache key has to include the query string before these can be fetched."
+            + ". The cache key has to distinguish the whole URL, host and query included, "
+            "before these can be fetched."
         )
 
     per_type: dict[str, int] = {}
@@ -247,7 +264,11 @@ def read_data_object_set_from_spark(
     except DerivedTableError as error:
         raise DataObjectManifestError(str(error)) from error
     columns = ", ".join(MANIFEST_COLUMNS)
-    where = " WHERE url IS NOT NULL"
+    # The type predicate only. `url IS NOT NULL` was here too and it bypassed `build_manifest`'s
+    # accounting: the live source always reported `0 no URL`, and a type whose objects all have a
+    # null URL was reported as a type nothing has rather than as one whose objects were all
+    # dropped. The two sources are supposed to produce the same manifest and the same explanation.
+    where = ""
     if types:
         wanted = resolve_file_types(list(types))
         unsafe = sorted(t for t in wanted if not _QUOTABLE.fullmatch(t))
@@ -255,7 +276,7 @@ def read_data_object_set_from_spark(
             raise DataObjectManifestError(
                 "These type names cannot be put in a SQL literal safely: " + ", ".join(unsafe) + "."
             )
-        where += " AND data_object_type IN (" + ", ".join(f"'{t}'" for t in wanted) + ")"
+        where = " WHERE data_object_type IN (" + ", ".join(f"'{t}'" for t in wanted) + ")"
     statement = f"SELECT {columns} FROM {namespace}.data_object_set{where}"  # noqa: S608 - checked
     try:
         frame = spark.sql(statement)  # type: ignore[attr-defined]

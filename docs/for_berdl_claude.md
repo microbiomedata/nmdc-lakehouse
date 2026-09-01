@@ -107,6 +107,8 @@ If your target table is already there, stop, because there is nothing to load.
 **Step 2: fetch only the missing types**
 
 `fetch_taxonomy_summaries.ipynb` honors the `TAXONOMY_TYPES` env var
+(its manifest stage is superseded by `just data-object-manifest`, which takes
+`--type` more than once instead)
 (comma-separated, exact match against entries in `_DEFAULT_TARGET_TYPES`):
 
 <!-- unverified: no run of this procedure is recorded, and no tracking issue is
@@ -137,7 +139,8 @@ The default empty set is the agent-safe default.
 
 Re-run the preflight from Step 1 and confirm the new table is present.
 
-For other on-pod loaders (`fetch_ko_ec_annotations.ipynb` /
+For other on-pod loaders (`fetch_ko_ec_annotations.ipynb`, whose manifest
+stage is superseded by `just data-object-manifest` /
 `ingest_ko_ec_annotations.ipynb`), see
 [`FETCH_TAXONOMY_NOTES.md`](https://github.com/microbiomedata/nmdc-lakehouse/blob/main/notebooks/FETCH_TAXONOMY_NOTES.md)
 for the full set of gotchas (placeholder files, duplicate URLs, broken

@@ -356,9 +356,12 @@ def test_the_live_read_filters_in_the_query_rather_than_the_driver() -> None:
     read_data_object_set_from_spark(spark, "nmdc.metadata", types=[PFAM, KEGG])
 
     statement = spark.statements[0]
-    assert "url IS NOT NULL" in statement
     assert f"'{PFAM}'" in statement and f"'{KEGG}'" in statement
     assert "data_object_type IN (" in statement
+    # Deliberately not pushed down: filtering URLs in the query bypasses the drop accounting, so
+    # the live source would always report `0 no URL` and the two sources would explain the same
+    # data differently.
+    assert "url IS NOT NULL" not in statement
 
 
 def test_the_live_read_refuses_an_unqualified_namespace() -> None:
@@ -568,3 +571,52 @@ def test_a_filesystem_failure_is_reported_rather_than_raised(tmp_path: Path, mon
     assert result.exit_code != 0
     assert "Writing the manifest failed" in result.output
     assert "Traceback" not in result.output
+
+
+def test_paths_that_differ_only_by_a_traversal_segment_are_one_cache_file() -> None:
+    """`cache_path_for` resolves the path under the cache root, so `..` segments collapse.
+
+    Comparing the raw path missed a collision the downloader would still have had.
+    """
+    records = [
+        _object(url="https://data.microbiomedata.org/data/one.gff"),
+        _object(id="nmdc:dobj-2", url="https://data.microbiomedata.org/data/tmp/../one.gff"),
+    ]
+
+    with pytest.raises(DataObjectManifestError, match="reached by more than one URL"):
+        build_manifest(records, [PFAM])
+
+
+def test_a_read_failure_names_the_source_rather_than_the_manifest(tmp_path: Path, monkeypatch) -> None:
+    """One handler covered both ends, so a source-side failure said "Writing the manifest failed"
+    and sent the reader to the wrong file."""
+    from click.testing import CliRunner
+
+    import nmdc_lakehouse.data_object_manifest as module
+    from nmdc_lakehouse.cli import cli
+
+    source = _snapshot(tmp_path, [_object()])
+
+    def explode(path):  # noqa: ANN001, ANN202
+        raise OSError("input/output error")
+
+    monkeypatch.setattr(module, "read_data_object_set", explode)
+
+    result = CliRunner().invoke(
+        cli,
+        ["data-object-manifest", "--type", PFAM, "--data-object-set", str(source), "--output", str(tmp_path / "m.csv")],
+    )
+
+    assert result.exit_code != 0
+    assert "Reading" in result.output and str(source) in result.output
+    assert "Writing the manifest failed" not in result.output
+
+
+def test_both_sources_explain_a_wholly_null_url_type_the_same_way() -> None:
+    """With `url IS NOT NULL` in the query, the live source saw no rows and reported the type as
+    one nothing has, while the Parquet source reported every object dropped for no URL. Same
+    data, two different explanations."""
+    records = [_object(url=None), _object(id="nmdc:dobj-2", url=None)]
+
+    with pytest.raises(DataObjectManifestError, match="2 with no URL"):
+        build_manifest(records, [PFAM])
