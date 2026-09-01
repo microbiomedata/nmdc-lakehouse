@@ -781,3 +781,36 @@ def test_the_printed_manifest_path_is_absolute(tmp_path: Path, monkeypatch) -> N
     manifest = printed.split("--manifest ", 1)[1].split(" ", 1)[0]
     assert Path(manifest).is_absolute(), printed
     assert Path(manifest).is_file()
+
+
+def test_a_host_restriction_does_not_accept_a_lookalike_domain() -> None:
+    """A raw prefix check meant `--host https://data.microbiomedata.org`, the natural value to
+    type, also accepted `https://data.microbiomedata.org.evil.example/`, a different server."""
+    records = [
+        _object(url="https://data.microbiomedata.org/data/one.gff"),
+        _object(id="nmdc:dobj-2", url="https://data.microbiomedata.org.evil.example/data/two.gff"),
+    ]
+
+    outcome = build_manifest(records, [PFAM], host="https://data.microbiomedata.org")
+
+    assert outcome.total == 1
+    assert outcome.dropped_other_host == 1
+    assert outcome.rows[0]["url"] == "https://data.microbiomedata.org/data/one.gff"
+
+
+@pytest.mark.parametrize(
+    "host",
+    ["https://data.microbiomedata.org", "https://data.microbiomedata.org/", "data.microbiomedata.org"],
+)
+def test_the_host_may_be_given_with_or_without_a_scheme(host: str) -> None:
+    """The documented example carried a scheme and a trailing slash, so all three forms work."""
+    assert build_manifest([_object()], [PFAM], host=host).total == 1
+
+
+def test_a_subdomain_is_not_the_host() -> None:
+    """`nmdcdemo.emsl.pnnl.gov` and `emsl.pnnl.gov` are different servers, so restricting to the
+    parent must not sweep the subdomain in."""
+    records = [_object(url="https://nmdcdemo.emsl.pnnl.gov/a.gff")]
+
+    with pytest.raises(DataObjectManifestError, match="1 on another host"):
+        build_manifest(records, [PFAM], host="emsl.pnnl.gov")

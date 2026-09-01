@@ -142,6 +142,12 @@ def build_manifest(
             "No objects have any of these types: " + ", ".join(wanted) + ". Nothing would be fetched."
         )
 
+    # The host is compared, not prefixed. A raw prefix check meant `--host
+    # https://data.microbiomedata.org`, the natural value to type, also accepted
+    # `https://data.microbiomedata.org.evil.example/...`, which is a whole different server.
+    # Either form is accepted as input, since the documented example carried a scheme.
+    wanted_host = None if host is None else (urlparse(host).netloc or host.strip("/")).lower()
+
     kept: list[dict[str, object]] = []
     seen: set[tuple[object, object]] = set()
     no_url = duplicate = zero_byte = other_host = not_fetchable = 0
@@ -165,7 +171,7 @@ def build_manifest(
         if urlparse(url).scheme not in {"http", "https"} or not urlparse(url).netloc:
             not_fetchable += 1
             continue
-        if host is not None and not url.startswith(host):
+        if wanted_host is not None and urlparse(url).netloc.lower() != wanted_host:
             other_host += 1
             continue
         # Size first, then the key. Marking the key seen before validating meant a zero-byte first

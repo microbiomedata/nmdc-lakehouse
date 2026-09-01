@@ -106,11 +106,7 @@ If your target table is already there, stop, because there is nothing to load.
 
 **Step 2: fetch only the missing types**
 
-`fetch_taxonomy_summaries.ipynb` honors the `TAXONOMY_TYPES` env var.
-`just data-object-manifest` takes `--type` more than once and builds the same
-manifest, but this notebook does not read one: it queries `data_object_set`
-itself and drives its own download and parse loop from the result, so it is not
-superseded until those stages move too
+`fetch_taxonomy_summaries.ipynb` honors the `TAXONOMY_TYPES` env var
 (comma-separated, exact match against entries in `_DEFAULT_TARGET_TYPES`):
 
 <!-- unverified: no run of this procedure is recorded, and no tracking issue is
@@ -118,6 +114,11 @@ superseded until those stages move too
 ```bash
 export TAXONOMY_TYPES="Centrifuge output report file"
 ```
+
+`just data-object-manifest` takes `--type` more than once and builds the same
+manifest, but this notebook does not read one: it queries `data_object_set`
+itself and drives its own download and parse loop from the result, so it is not
+superseded until those stages move too.
 
 The on-disk raw cache (`loaded_taxonomy/raw_cache/`) means re-running with the
 full default list is recoverable but wasteful, so narrow the scope.

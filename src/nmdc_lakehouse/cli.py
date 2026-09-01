@@ -1182,7 +1182,10 @@ def run_job(
     "--ingest-checkout", type=click.Path(path_type=Path, file_okay=False), help="Read a live catalog instead."
 )
 @click.option("--namespace", default="nmdc.metadata", show_default=True, help="Catalog namespace for the live read.")
-@click.option("--host", help="Restrict to URLs starting with this prefix. No restriction by default.")
+@click.option(
+    "--host",
+    help=("Restrict to URLs served by this host, given with or without a scheme. No restriction by default."),
+)
 @click.option("--output", type=click.Path(path_type=Path, dir_okay=False), required=True)
 def data_object_manifest_command(
     types: tuple[str, ...],
