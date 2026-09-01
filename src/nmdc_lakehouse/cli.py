@@ -1171,5 +1171,114 @@ def run_job(
         click.echo(f"tables={', '.join(result.tables_written)}")
 
 
+@cli.command("data-object-manifest")
+@click.option("--type", "types", multiple=True, required=True, help="data_object_type to fetch. Repeatable.")
+@click.option(
+    "--data-object-set",
+    type=click.Path(path_type=Path, dir_okay=False),
+    help="Snapshot Parquet to read. Needs no pod. One of this and --ingest-checkout is required.",
+)
+@click.option(
+    "--ingest-checkout", type=click.Path(path_type=Path, file_okay=False), help="Read a live catalog instead."
+)
+@click.option("--namespace", default="nmdc.metadata", show_default=True, help="Catalog namespace for the live read.")
+@click.option(
+    "--host",
+    help=("Restrict to URLs served by this host, given with or without a scheme. No restriction by default."),
+)
+@click.option("--output", type=click.Path(path_type=Path, dir_okay=False), required=True)
+def data_object_manifest_command(
+    types: tuple[str, ...],
+    data_object_set: Path | None,
+    ingest_checkout: Path | None,
+    namespace: str,
+    host: str | None,
+    output: Path,
+) -> None:
+    """Build the download manifest for one or more data object types.
+
+    This is the fetch stage the notebook triples shared, and it only builds the manifest;
+    downloading is `scripts/download_to_cache.py`, which reads what this writes.
+
+    Types are resolved against nmdc-schema, so a typo fails here rather than producing an empty
+    manifest that downloads nothing and reports success. An empty result is refused for the same
+    reason, and what was dropped on the way is printed rather than only logged.
+    """
+    from nmdc_lakehouse.data_object_manifest import (
+        DataObjectManifestError,
+        build_manifest,
+        read_data_object_set,
+        read_data_object_set_from_spark,
+        write_manifest,
+    )
+
+    if (data_object_set is None) == (ingest_checkout is None):
+        raise click.UsageError("Name exactly one source: --data-object-set or --ingest-checkout.")
+    # Refused before the source is read. Writing the manifest over the snapshot would truncate the
+    # Parquet this just read from and replace it with a CSV, which is unrecoverable if that
+    # snapshot is the only copy.
+    if data_object_set is not None and output.expanduser().resolve() == data_object_set.expanduser().resolve():
+        raise click.UsageError("--output would overwrite --data-object-set. Name a different path.")
+
+    source_hint = str(data_object_set) if data_object_set is not None else f"{namespace}.data_object_set"
+    try:
+        if data_object_set is not None:
+            records = read_data_object_set(data_object_set)
+            source = str(data_object_set)
+        else:
+            from nmdc_lakehouse.derived_tables import spark_session
+
+            if ingest_checkout is None:  # pragma: no cover - the exclusivity check above forbids it
+                raise click.UsageError("Name exactly one source: --data-object-set or --ingest-checkout.")
+            records = read_data_object_set_from_spark(spark_session(ingest_checkout), namespace, types=list(types))
+            source = f"{namespace}.data_object_set"
+        outcome = build_manifest(records, list(types), host=host)
+    except (DataObjectManifestError, ValueError) as error:
+        raise click.ClickException(str(error)) from error
+    except OSError as error:
+        # Reading, not writing. The handler used to cover both and reported a source-side failure
+        # as "Writing the manifest failed", which sends the reader to the wrong file.
+        raise click.ClickException(f"Reading {source_hint} failed: {error}") from error
+
+    try:
+        written = write_manifest(outcome, output).resolve()
+    except OSError as error:
+        # A full disk or an unwritable destination is an ordinary outcome here, not a defect, and
+        # a traceback for one reads as the command breaking rather than the filesystem refusing.
+        raise click.ClickException(f"Writing the manifest failed: {error}") from error
+
+    click.echo(f"manifest from {source}")
+    for name, count in sorted(outcome.per_type.items()):
+        click.echo(f"  {count:>8,}  {name}")
+    click.echo(f"  {outcome.total:>8,}  total, {outcome.total_bytes / 1024**3:,.1f} GiB")
+    dropped = (
+        f"{outcome.dropped_no_url} no URL, {outcome.dropped_not_fetchable} not http(s), "
+        f"{outcome.dropped_other_host} other host, {outcome.dropped_duplicate} duplicate, "
+        f"{outcome.dropped_zero_byte} zero-byte"
+    )
+    click.echo(f"  dropped: {dropped}")
+    click.echo(f"  written: {written}")
+    click.echo("")
+    click.echo("  download it with:")
+    # Quoted, because a checkout or output path containing a space makes the pasted command run
+    # as different arguments rather than fail, which is the worse of the two outcomes.
+    click.echo(f"    uv run python {shlex.quote(_downloader_path())} --manifest {shlex.quote(str(written))} \\")
+    click.echo("        --cache-dir PATH_TO_CACHE --workers 8")
+
+
+def _downloader_path() -> str:
+    """Where `scripts/download_to_cache.py` is, as an absolute path when it can be found.
+
+    The notebooks walked up from the working directory to find it, and printed the resolved path.
+    Printing a relative one instead means the advertised command fails from anywhere but the
+    checkout root, which includes `notebooks/`, where its readers are. Resolved from this module
+    rather than the working directory, because that is where the checkout actually is.
+    """
+    candidate = Path(__file__).resolve().parents[2] / "scripts" / "download_to_cache.py"
+    # An installed package has no `scripts/` beside it. Saying so beats printing a path that does
+    # not exist and looks authoritative because it is absolute.
+    return str(candidate) if candidate.is_file() else "PATH_TO_CHECKOUT/scripts/download_to_cache.py"
+
+
 if __name__ == "__main__":
     cli()

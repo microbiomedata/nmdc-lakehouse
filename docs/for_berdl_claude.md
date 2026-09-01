@@ -115,6 +115,11 @@ If your target table is already there, stop, because there is nothing to load.
 export TAXONOMY_TYPES="Centrifuge output report file"
 ```
 
+`just data-object-manifest` takes `--type` more than once and builds the same
+manifest, but this notebook does not read one: it queries `data_object_set`
+itself and drives its own download and parse loop from the result, so it is not
+superseded until those stages move too.
+
 The on-disk raw cache (`loaded_taxonomy/raw_cache/`) means re-running with the
 full default list is recoverable but wasteful, so narrow the scope.
 
@@ -137,8 +142,9 @@ The default empty set is the agent-safe default.
 
 Re-run the preflight from Step 1 and confirm the new table is present.
 
-For other on-pod loaders (`fetch_ko_ec_annotations.ipynb` /
-`ingest_ko_ec_annotations.ipynb`), see
+For other on-pod loaders (`fetch_ko_ec_annotations.ipynb`, whose manifest stage
+`just data-object-manifest` replaces although the notebook still builds its own,
+and `ingest_ko_ec_annotations.ipynb`), see
 [`FETCH_TAXONOMY_NOTES.md`](https://github.com/microbiomedata/nmdc-lakehouse/blob/main/notebooks/FETCH_TAXONOMY_NOTES.md)
 for the full set of gotchas (placeholder files, duplicate URLs, broken
 upstream URLs, kernel staleness).
