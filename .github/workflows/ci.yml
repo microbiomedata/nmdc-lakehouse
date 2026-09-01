@@ -97,11 +97,10 @@ jobs:
       # contributor runs locally, which is worth more than the timeline.
       - name: Check
         env:
-          # The base the pull request targets, so diff-cover measures against it rather than main.
-          # Empty on a push, where the recipe's own default applies.
-          # `origin/main` and not empty on the push path. `env_var_or_default` falls back only
-          # when the variable is unset, so an empty value would reach diff-cover as
-          # `--compare-branch=""`.
+          # The base a pull request targets, so diff-cover measures against it rather than main,
+          # and `origin/main` on a push. The expression supplies that fallback rather than the
+          # recipe: `env_var_or_default` falls back only when a variable is unset, so an `''`
+          # here would reach diff-cover as `--compare-branch=""` and never use the default.
           DIFF_COVER_BASE: ${{ github.base_ref && format('origin/{0}', github.base_ref) || 'origin/main' }}
         run: just check
 
