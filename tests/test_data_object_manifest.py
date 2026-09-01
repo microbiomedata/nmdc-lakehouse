@@ -542,3 +542,29 @@ def test_the_printed_command_survives_a_path_with_a_space(tmp_path: Path) -> Non
     printed = next(line for line in result.output.splitlines() if "download_to_cache.py" in line)
     words = shlex.split(printed.strip().rstrip("\\"))
     assert str(output) in words, "the manifest path arrives as one argument"
+
+
+def test_a_filesystem_failure_is_reported_rather_than_raised(tmp_path: Path, monkeypatch) -> None:
+    """A full disk is an ordinary outcome, and a traceback for one reads as the command breaking
+    rather than the filesystem refusing."""
+    import csv as csv_module
+
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    source = _snapshot(tmp_path, [_object()])
+
+    def explode(self, rows):  # noqa: ANN001, ANN202 - patching a stdlib method
+        raise OSError("no space left on device")
+
+    monkeypatch.setattr(csv_module.DictWriter, "writerows", explode)
+
+    result = CliRunner().invoke(
+        cli,
+        ["data-object-manifest", "--type", PFAM, "--data-object-set", str(source), "--output", str(tmp_path / "m.csv")],
+    )
+
+    assert result.exit_code != 0
+    assert "Writing the manifest failed" in result.output
+    assert "Traceback" not in result.output

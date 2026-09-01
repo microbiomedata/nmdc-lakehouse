@@ -1232,6 +1232,10 @@ def data_object_manifest_command(
         written = write_manifest(outcome, output)
     except (DataObjectManifestError, ValueError) as error:
         raise click.ClickException(str(error)) from error
+    except OSError as error:
+        # A full disk or an unwritable destination is an ordinary outcome here, not a defect, and
+        # a traceback for one reads as the command breaking rather than the filesystem refusing.
+        raise click.ClickException(f"Writing the manifest failed: {error}") from error
 
     click.echo(f"manifest from {source}")
     for name, count in sorted(outcome.per_type.items()):
