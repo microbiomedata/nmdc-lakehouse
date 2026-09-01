@@ -72,36 +72,6 @@ berdl-promote PROMOTION_PLAN INGEST_CHECKOUT *ARGS:
 berdl-apply-metadata METADATA_PLAN STAGING_OUTCOME INGEST_CHECKOUT OUTCOME *ARGS:
     uv run --no-sync nmdc-lakehouse berdl-apply-metadata "{{ METADATA_PLAN }}" "{{ STAGING_OUTCOME }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" --output "{{ OUTCOME }}" {{ ARGS }}
 
-# Check that CI runs every gate `just check` runs. It is a `check` dependency itself, which is
-# what makes it protect its own CI step: delete `run: just ci-gate-parity` from ci.yml and this
-# reports itself missing. Keeping it out meant the one gate nothing was watching was this one.
-ci-gate-parity:
-    uv run python scripts/python/ci_gate_parity.py
-
-# Prove the parity check can fail, by adding a recipe to `check` in a copy of the justfile that no
-# workflow runs. A checker that has never rejected anything is not evidence.
-test-ci-gate-parity-exit:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-    cp -R .github "$tmp/.github"
-    mkdir -p "$tmp/scripts/python"
-    cp scripts/python/ci_gate_parity.py "$tmp/scripts/python/"
-    # diff-cover is in the fixture because the real EXEMPT names it, and a `check` without it
-    # would fail on a stale exemption instead. Accepting any nonzero status let this pass for that
-    # wrong reason, so the output is now matched rather than discarded.
-    printf 'check: a-gate-ci-does-not-run diff-cover\n\na-gate-ci-does-not-run:\n    @true\n\ndiff-cover:\n    @true\n' > "$tmp/justfile"
-    rc=0; out=$(uv run --no-sync python "$tmp/scripts/python/ci_gate_parity.py" 2>&1) || rc=$?
-    [ "$rc" -ne 0 ] || { echo "gate parity did NOT fail on a recipe CI never runs; the check is inert"; exit 1; }
-    case "$out" in
-      *a-gate-ci-does-not-run*) ;;
-      *) echo "gate parity failed, but not about the missing gate. It said:"; echo "$out"; exit 1;;
-    esac
-    # And it must still pass on the real pair, or it would fail for any input and prove nothing.
-    rc=0; uv run --no-sync python scripts/python/ci_gate_parity.py >/dev/null 2>&1 || rc=$?
-    [ "$rc" -eq 0 ] || { echo "gate parity fails on this repository; that is the real finding"; exit 1; }
-    echo "gate-parity exit contract holds: an unrun gate fails, this repository passes"
-
 # Preserve an existing configured Git hooks-path policy instead of replacing it.
 [private]
 _install-pre-commit-hook:
@@ -489,7 +459,7 @@ test-dist:
     bash scripts/check_distribution.sh
 
 # Run the deterministic local quality checks.
-check: lint-just prose-lint test-prose-lint-exit doc-procedures test-doc-procedures-exit doc-references test-doc-references-exit ci-gate-parity test-ci-gate-parity-exit shellcheck actionlint lint deps-lint typecheck check-flat-schema test-cov diff-cover
+check: lint-just prose-lint test-prose-lint-exit doc-procedures test-doc-procedures-exit doc-references test-doc-references-exit shellcheck actionlint lint deps-lint typecheck check-flat-schema test-cov diff-cover
 
 # ---------- NMDC flatten/export pipeline (copied from external-metadata-awareness) ----------
 # See scripts/README.md for details. These recipes shell out to utilities under

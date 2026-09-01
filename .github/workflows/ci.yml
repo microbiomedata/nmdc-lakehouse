@@ -54,9 +54,6 @@ jobs:
         with:
           just-version: 1.58.0
 
-      - name: Check justfile formatting
-        run: just lint-just
-
       # Vale is installed here rather than by an action so that CI runs `just prose-lint` itself.
       # The action took its own copy of the file list, and the two diverged: CI stopped linting
       # CONTRIBUTING.md, AGENTS.md and the pull request template while a contributor's local run
@@ -81,12 +78,6 @@ jobs:
           rm -f "$archive" vale
           vale --version
 
-      - name: Lint maintained prose
-        run: just prose-lint
-
-      - name: Verify the prose-lint gate can fail
-        run: just test-prose-lint-exit
-
       - name: Bootstrap development environment
         run: just bootstrap
 
@@ -95,37 +86,19 @@ jobs:
           just bootstrap
           git diff --exit-code
 
-      - name: Lint rendered Bash recipes
-        run: just shellcheck
+      # One step, running the one recipe that owns the list. These gates used to be enumerated
+      # here as well as in `just check`, so the two lists were maintained by hand and drifted
+      # twice: CI silently stopped linting CONTRIBUTING.md, and a gate added in PR 319 was inert
+      # here until review caught it. There is nothing to keep in sync now.
+      #
+      # What this costs is the per-step timing and the named failing step in the UI. The log names
+      # the recipe that failed, and `just check` runs the same recipes in the same order a
+      # contributor runs locally, which is worth more than the timeline.
+      - name: Check
+        run: just check
 
-      - name: Lint GitHub Actions workflows
-        run: just actionlint
-
-      - name: Lint
-        run: just lint
-
-      - name: Audit Python dependencies
-        run: just deps-lint
-
-      - name: Typecheck
-        run: just typecheck
-
-      # In `just check` since it was written, and never in CI, so a stale schema artifact could
-      # merge while a local run refused it. That drift is https://github.com/microbiomedata/nmdc-lakehouse/issues/290.
-      - name: Check the committed flat schema matches current generation
-        run: just check-flat-schema
-
-      - name: Check doc procedures declare whether anyone ran them
-        run: just doc-procedures
-
-      - name: Verify the doc-procedure gate can fail
-        run: just test-doc-procedures-exit
-
-      - name: Check doc references resolve for a reader
-        run: just doc-references
-
-      - name: Verify the doc-reference gate can fail
-        run: just test-doc-references-exit
+      - name: Verify coverage report
+        run: test -s coverage.xml
 
       # Queries GitHub, which is why it is not in `just check`: a network failure there would fail
       # an unrelated change on a developer's machine, possibly offline. In CI the same query runs
@@ -139,25 +112,6 @@ jobs:
         run: just test-doc-references-issues-exit
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check CI runs every gate `just check` runs
-        run: just ci-gate-parity
-
-      - name: Verify the gate-parity check can fail
-        run: just test-ci-gate-parity-exit
-
-      - name: Test
-        run: just test-cov
-
-      - name: Verify coverage report
-        run: test -s coverage.xml
-
-      # Pull requests only. On a push to main GITHUB_BASE_REF is empty, so the gate would compare
-      # origin/main against main, find no lines, and report a pass having checked nothing. A gate
-      # that cannot fail is worse than an absent one, because the green tick claims otherwise.
-      - name: Gate changed lines on coverage
-        if: github.event_name == 'pull_request'
-        run: just diff-cover "origin/${GITHUB_BASE_REF}"
 
       - name: Upload coverage report
         if: ${{ !cancelled() && hashFiles('coverage.xml') != '' }}
