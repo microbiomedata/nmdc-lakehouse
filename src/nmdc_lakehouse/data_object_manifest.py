@@ -98,7 +98,10 @@ def build_manifest(
     if not wanted:
         raise DataObjectManifestError("No data object types were named, so there is nothing to fetch.")
 
-    selected = [r for r in records if r.get("data_object_type") in set(wanted)]
+    # Built once. Inside the comprehension this was rebuilt for every record, and the snapshot
+    # has 290,640 of them.
+    targets = set(wanted)
+    selected = [r for r in records if r.get("data_object_type") in targets]
     if not selected:
         raise DataObjectManifestError(
             "No objects have any of these types: " + ", ".join(wanted) + ". Nothing would be fetched."
@@ -154,19 +157,23 @@ def build_manifest(
 def read_data_object_set(path: Path) -> list[dict[str, object]]:
     """Read `data_object_set` from a snapshot Parquet file.
 
-    The snapshot is what exists on disk and needs no pod, which is why it is the default source.
-    A live catalog is the other one; see `read_data_object_set_from_spark`.
+    The snapshot is what exists on disk and needs no pod. A live catalog is the other source and
+    is fresher; see `read_data_object_set_from_spark`. Neither is a default: the command requires
+    one to be named, because which one was read changes what the manifest describes.
     """
     import pyarrow.parquet as pq
 
     document = path.expanduser()
     if not document.is_file():
         raise DataObjectManifestError(f"{document} is not a file, so data_object_set cannot be read.")
-    table = pq.read_table(document)
-    missing = [column for column in MANIFEST_COLUMNS if column not in table.column_names]
+    # The columns are named on read rather than selected afterwards, so the rest of the snapshot
+    # never enters memory. The schema is checked first so a missing column is reported as such
+    # instead of surfacing as an arrow error about a field that is not there.
+    available = set(pq.read_schema(document).names)
+    missing = [column for column in MANIFEST_COLUMNS if column not in available]
     if missing:
         raise DataObjectManifestError(f"{document} is missing the column(s) a manifest needs: {', '.join(missing)}.")
-    return table.select(list(MANIFEST_COLUMNS)).to_pylist()
+    return pq.read_table(document, columns=list(MANIFEST_COLUMNS)).to_pylist()
 
 
 def read_data_object_set_from_spark(spark: object, namespace: str) -> list[dict[str, object]]:
@@ -175,8 +182,17 @@ def read_data_object_set_from_spark(spark: object, namespace: str) -> list[dict[
     Fresher than a snapshot and needs a session. The column list is the same one, so the two
     sources cannot drift into producing different manifests.
     """
+    # Refused before it reaches a statement. `namespace` is CLI input, and the same
+    # catalog-qualified rule the rest of this repository applies is the one that makes it a pair
+    # of identifiers rather than arbitrary text.
+    from nmdc_lakehouse.derived_tables import DerivedTableError, check_namespace
+
+    try:
+        check_namespace(namespace)
+    except DerivedTableError as error:
+        raise DataObjectManifestError(str(error)) from error
     columns = ", ".join(MANIFEST_COLUMNS)
-    statement = f"SELECT {columns} FROM {namespace}.data_object_set"  # noqa: S608 - names, not input
+    statement = f"SELECT {columns} FROM {namespace}.data_object_set"  # noqa: S608 - checked identifiers
     try:
         frame = spark.sql(statement)  # type: ignore[attr-defined]
         return [row.asDict() for row in frame.collect()]

@@ -1176,7 +1176,7 @@ def run_job(
 @click.option(
     "--data-object-set",
     type=click.Path(path_type=Path, dir_okay=False),
-    help="Snapshot Parquet to read. Needs no pod, and is the default source.",
+    help="Snapshot Parquet to read. Needs no pod. One of this and --ingest-checkout is required.",
 )
 @click.option(
     "--ingest-checkout", type=click.Path(path_type=Path, file_okay=False), help="Read a live catalog instead."
