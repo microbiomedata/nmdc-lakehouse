@@ -72,6 +72,15 @@ berdl-promote PROMOTION_PLAN INGEST_CHECKOUT *ARGS:
 berdl-apply-metadata METADATA_PLAN STAGING_OUTCOME INGEST_CHECKOUT OUTCOME *ARGS:
     uv run --no-sync nmdc-lakehouse berdl-apply-metadata "{{ METADATA_PLAN }}" "{{ STAGING_OUTCOME }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" --output "{{ OUTCOME }}" {{ ARGS }}
 
+# Build the download manifest for one data object type from a snapshot. More `--type` values and
+# a `--host` restriction go through ARGS. A live catalog does not: this recipe always supplies
+# `--data-object-set`, and the command refuses two sources, so use `nmdc-lakehouse
+# data-object-manifest --ingest-checkout ...` directly for that.
+#
+# Downloads nothing; scripts/download_to_cache.py does that, and this prints the command for it.
+data-object-manifest TYPE DATA_OBJECT_SET OUTPUT *ARGS:
+    uv run --no-sync nmdc-lakehouse data-object-manifest --type "{{ TYPE }}" --data-object-set "{{ DATA_OBJECT_SET }}" --output "{{ OUTPUT }}" {{ ARGS }}
+
 # Preserve an existing configured Git hooks-path policy instead of replacing it.
 [private]
 _install-pre-commit-hook:
