@@ -28,7 +28,7 @@ from nmdc_lakehouse.jobs.registry import register
 from nmdc_lakehouse.metrics import stamp_result
 from nmdc_lakehouse.sinks.parquet_sink import ParquetSink, StreamingWriter, class_def_to_arrow_schema
 from nmdc_lakehouse.sources.mongo_source import MongoSource
-from nmdc_lakehouse.transforms.flatteners import SchemaDrivenFlattener
+from nmdc_lakehouse_schema.transforms.flatteners import SchemaDrivenFlattener
 
 logger = logging.getLogger(__name__)
 
@@ -128,8 +128,8 @@ class CollectionToParquetJob(Job):
 
         from linkml_runtime import SchemaView
 
-        from nmdc_lakehouse.transforms.flatteners import side_table_rows
-        from nmdc_lakehouse.transforms.schema_generator import (
+        from nmdc_lakehouse_schema.transforms.flatteners import side_table_rows
+        from nmdc_lakehouse_schema.transforms.schema_generator import (
             DEFAULT_FLATTENED_SCHEMA_ID,
             flat_schema_version,
             flatten_class_def,

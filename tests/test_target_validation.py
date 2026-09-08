@@ -23,7 +23,7 @@ from nmdc_lakehouse.target_validation import (
     validate_target_snapshot,
     write_target_validation_report,
 )
-from nmdc_lakehouse.transforms.schema_generator import (
+from nmdc_lakehouse_schema.transforms.schema_generator import (
     DEFAULT_FLATTENED_SCHEMA_ID,
     PRIMARY_MAPPING_ID,
     SIDE_TABLE_MAPPING_ID,

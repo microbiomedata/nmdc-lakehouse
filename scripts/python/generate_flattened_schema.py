@@ -3,8 +3,11 @@
 
 Walks the installed ``nmdc-schema`` package, generates a flat
 ``ClassDefinition`` for each multivalued ``Database`` slot via
-:func:`nmdc_lakehouse.transforms.schema_generator.flatten_database_schema`,
+:func:`nmdc_lakehouse_schema.transforms.schema_generator.flatten_database_schema`,
 and writes the complete primary and side-table schema to deterministic YAML.
+
+Direct-loaded collections are passed as mapping overrides so the generated schema
+records the loader that actually writes them (the engine defaults to the flattener).
 
 Usage:
     uv run python scripts/python/generate_flattened_schema.py [--check] [OUTPUT_PATH]
@@ -26,7 +29,8 @@ from pathlib import Path
 from linkml_runtime import SchemaView
 from linkml_runtime.dumpers import yaml_dumper
 
-from nmdc_lakehouse.transforms.schema_generator import (
+from nmdc_lakehouse.jobs.direct_mongo_to_parquet import direct_mapping_overrides
+from nmdc_lakehouse_schema.transforms.schema_generator import (
     UNRESOLVED_CONTENT_SHA256,
     flatten_database_schema,
 )
@@ -107,6 +111,7 @@ def render_installed_schema() -> str:
     flat_schema = flatten_database_schema(
         schema_view,
         source_package_version=version("nmdc-schema"),
+        table_mapping_overrides=direct_mapping_overrides(),
     )
     return resolve_content_digest(yaml_dumper.dumps(flat_schema))
 

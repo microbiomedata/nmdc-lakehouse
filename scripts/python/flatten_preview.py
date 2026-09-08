@@ -27,7 +27,7 @@ from importlib.util import find_spec
 from linkml_runtime import SchemaView
 from pymongo import MongoClient
 
-from nmdc_lakehouse.transforms.flatteners import flatten_record
+from nmdc_lakehouse_schema.transforms.flatteners import flatten_record
 
 
 def _infer_class(collection: str) -> str:

@@ -7,7 +7,7 @@ from pathlib import Path
 from linkml.validator import validate
 from linkml_runtime import SchemaView
 
-from nmdc_lakehouse.transforms.schema_generator import flatten_database_schema
+from nmdc_lakehouse_schema.transforms.schema_generator import flatten_database_schema
 
 PUBLISHED_SCHEMA = Path(__file__).parents[1] / "src/nmdc_lakehouse/schemas/nmdc_metadata.yaml"
 

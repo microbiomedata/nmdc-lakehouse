@@ -14,7 +14,7 @@ from nmdc_lakehouse.sinks.parquet_sink import (
     StreamingWriter,
     class_def_to_arrow_schema,
 )
-from nmdc_lakehouse.transforms.schema_generator import (
+from nmdc_lakehouse_schema.transforms.schema_generator import (
     DEFAULT_FLATTENED_SCHEMA_ID,
     flatten_class_def,
     side_table_class_defs,

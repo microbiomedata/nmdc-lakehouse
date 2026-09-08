@@ -41,6 +41,17 @@ DIRECT_COLLECTIONS: frozenset[str] = frozenset({"functional_annotation_agg"})
 DIRECT_MAPPING_ID = "nmdc_lakehouse.jobs.direct_mongo_to_parquet.DirectMongoToParquetJob"
 
 
+def direct_mapping_overrides() -> dict[str, str]:
+    """Per-table mapping identities for collections routed to the direct loader.
+
+    The schema-generation engine (in nmdc-lakehouse-schema) defaults every table to
+    the flattener identity; routing is a lakehouse concern. Pass this to
+    ``flatten_database_schema`` so the generated target schema records the loader that
+    actually writes each direct-loaded table, matching what its Parquet footer carries.
+    """
+    return {collection: DIRECT_MAPPING_ID for collection in DIRECT_COLLECTIONS}
+
+
 def _schema_path() -> str:
     spec = find_spec("nmdc_schema")
     if spec is None or not spec.submodule_search_locations:
@@ -80,7 +91,7 @@ class DirectMongoToParquetJob(Job):
         """Stream records from MongoDB through a raw cursor into Parquet."""
         from linkml_runtime import SchemaView
 
-        from nmdc_lakehouse.transforms.schema_generator import (
+        from nmdc_lakehouse_schema.transforms.schema_generator import (
             DEFAULT_FLATTENED_SCHEMA_ID,
             flat_schema_version,
             flatten_class_def,

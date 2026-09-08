@@ -173,7 +173,7 @@ def class_def_to_arrow_schema(
 
     Args:
         class_def: A ``ClassDefinition`` produced by
-            :func:`nmdc_lakehouse.transforms.schema_generator.flatten_class_def`.
+            :func:`nmdc_lakehouse_schema.transforms.schema_generator.flatten_class_def`.
         source_schema: LinkML schema from which the projection was generated.
         source_class: Root LinkML class projected into this table.
         target_schema_id: Stable identifier for the generated target schema.
@@ -339,7 +339,7 @@ class ParquetSink:
 
         Args:
             rows: Iterable of flat dicts (as produced by
-                :meth:`nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener.apply`).
+                :meth:`nmdc_lakehouse_schema.transforms.flatteners.SchemaDrivenFlattener.apply`).
             table: Logical table name; becomes the parquet filename stem.
             drop_empty_cols: When True, rewrite the file after writing to
                 remove columns that are entirely null. Useful for wide sparse

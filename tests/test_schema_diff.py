@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from nmdc_lakehouse.transforms.schema_diff import SchemaDiffError, diff_schemas, render_diff
-from nmdc_lakehouse.transforms.schema_generator import (
+from nmdc_lakehouse_schema.transforms.schema_diff import SchemaDiffError, diff_schemas, render_diff
+from nmdc_lakehouse_schema.transforms.schema_generator import (
     FLATTENER_VERSION,
     UNRESOLVED_CONTENT_SHA256,
     flat_schema_version,
@@ -271,7 +271,7 @@ def test_a_description_containing_backticks_stays_inside_one_code_span(tmp_path:
 
 
 def test_code_span_widens_its_fence_for_any_run_of_backticks() -> None:
-    from nmdc_lakehouse.transforms.schema_diff import code_span
+    from nmdc_lakehouse_schema.transforms.schema_diff import code_span
 
     for text in ("plain", "one ` tick", "two `` ticks", "```", "`leading", "trailing`"):
         rendered = code_span(text)
@@ -279,6 +279,6 @@ def test_code_span_widens_its_fence_for_any_run_of_backticks() -> None:
 
 
 def test_an_empty_value_renders_as_none_rather_than_an_empty_span() -> None:
-    from nmdc_lakehouse.transforms.schema_diff import code_span
+    from nmdc_lakehouse_schema.transforms.schema_diff import code_span
 
     assert _code_spans(code_span("")) == ["(none)"]
