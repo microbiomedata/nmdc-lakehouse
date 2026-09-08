@@ -7,7 +7,12 @@ from unittest.mock import MagicMock, patch
 import pyarrow.parquet as pq
 import pytest
 
-from nmdc_lakehouse.jobs.direct_mongo_to_parquet import DirectMongoToParquetJob
+from nmdc_lakehouse.jobs.direct_mongo_to_parquet import (
+    DIRECT_COLLECTIONS,
+    DIRECT_MAPPING_ID,
+    DirectMongoToParquetJob,
+    direct_mapping_overrides,
+)
 
 _DOCS = [
     {
@@ -143,3 +148,16 @@ def test_empty_collection_promotes_schema_only_parquet(tmp_path):
     assert result.table_rows == (("functional_annotation_agg", 0),)
     assert pq.read_metadata(output).num_rows == 0
     assert not (tmp_path / ".staging").exists()
+
+
+def test_direct_mapping_overrides_maps_every_direct_collection_to_the_loader():
+    """Each direct-loaded collection maps to the direct loader's identity.
+
+    This is what schema generation passes to flatten_database_schema so the target schema
+    records the loader that actually writes those tables, rather than the flattener default.
+    """
+    overrides = direct_mapping_overrides()
+
+    assert overrides == {collection: DIRECT_MAPPING_ID for collection in DIRECT_COLLECTIONS}
+    assert set(overrides) == set(DIRECT_COLLECTIONS)
+    assert all(mapping_id == DIRECT_MAPPING_ID for mapping_id in overrides.values())
