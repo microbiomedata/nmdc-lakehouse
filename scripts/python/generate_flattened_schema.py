@@ -28,12 +28,12 @@ from pathlib import Path
 
 from linkml_runtime import SchemaView
 from linkml_runtime.dumpers import yaml_dumper
-
-from nmdc_lakehouse.jobs.direct_mongo_to_parquet import direct_mapping_overrides
 from nmdc_lakehouse_schema.transforms.schema_generator import (
     UNRESOLVED_CONTENT_SHA256,
     flatten_database_schema,
 )
+
+from nmdc_lakehouse.jobs.direct_mongo_to_parquet import direct_mapping_overrides
 
 CANONICAL_OUTPUT = Path(__file__).resolve().parents[2] / "src/nmdc_lakehouse/schemas/nmdc_metadata.yaml"
 

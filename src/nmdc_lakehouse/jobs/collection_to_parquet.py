@@ -21,6 +21,8 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from nmdc_lakehouse_schema.transforms.flatteners import SchemaDrivenFlattener
+
 from nmdc_lakehouse.collection_output import CollectionOutputTransaction
 from nmdc_lakehouse.config import LakehouseSettings, MongoSettings
 from nmdc_lakehouse.jobs.base import Job, JobResult
@@ -28,7 +30,6 @@ from nmdc_lakehouse.jobs.registry import register
 from nmdc_lakehouse.metrics import stamp_result
 from nmdc_lakehouse.sinks.parquet_sink import ParquetSink, StreamingWriter, class_def_to_arrow_schema
 from nmdc_lakehouse.sources.mongo_source import MongoSource
-from nmdc_lakehouse_schema.transforms.flatteners import SchemaDrivenFlattener
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +128,6 @@ class CollectionToParquetJob(Job):
         from importlib.util import find_spec
 
         from linkml_runtime import SchemaView
-
         from nmdc_lakehouse_schema.transforms.flatteners import side_table_rows
         from nmdc_lakehouse_schema.transforms.schema_generator import (
             DEFAULT_FLATTENED_SCHEMA_ID,

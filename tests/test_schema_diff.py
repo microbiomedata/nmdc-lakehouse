@@ -6,7 +6,6 @@ import importlib.util
 from pathlib import Path
 
 import pytest
-
 from nmdc_lakehouse_schema.transforms.schema_diff import SchemaDiffError, diff_schemas, render_diff
 from nmdc_lakehouse_schema.transforms.schema_generator import (
     FLATTENER_VERSION,

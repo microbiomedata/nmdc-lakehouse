@@ -7,6 +7,11 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from nmdc_lakehouse_schema.transforms.schema_generator import (
+    DEFAULT_FLATTENED_SCHEMA_ID,
+    PRIMARY_MAPPING_ID,
+    SIDE_TABLE_MAPPING_ID,
+)
 
 from nmdc_lakehouse.snapshot_manifest import (
     ArtifactRecord,
@@ -22,11 +27,6 @@ from nmdc_lakehouse.target_validation import (
     load_target_validation_report,
     validate_target_snapshot,
     write_target_validation_report,
-)
-from nmdc_lakehouse_schema.transforms.schema_generator import (
-    DEFAULT_FLATTENED_SCHEMA_ID,
-    PRIMARY_MAPPING_ID,
-    SIDE_TABLE_MAPPING_ID,
 )
 
 PUBLISHED_SCHEMA = Path(__file__).parents[1] / "src/nmdc_lakehouse/schemas/nmdc_metadata.yaml"
