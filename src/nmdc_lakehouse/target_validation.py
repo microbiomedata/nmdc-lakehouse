@@ -267,29 +267,29 @@ def _iter_rows(parquet: pq.ParquetFile) -> Any:
             yield _instance(row)
 
 
-def _expected_producer_ids(table: str) -> frozenset[str]:
-    """Producer identities that may legitimately have written ``table``.
+def _check_producer_identity(artifact: ArtifactRecord) -> None:
+    """Fail when a table's recorded producer package is not the one the routing registry expects.
 
     Producer identity is not carried in the schema (it is structural only, #336); it is checked
-    against the lakehouse's own routing registry. A collection routed to the direct loader must
-    carry that loader's identity; every other table is flattener-produced (primary or side).
-    Imported lazily to avoid importing the job registry at module load.
+    against the lakehouse's own routing registry. A collection routed to the direct loader must be
+    written by the direct-loader package; every other table is flattener-produced. The identity is
+    ``package==version`` (#333); the *package* is enforced (the routing invariant), not the version,
+    so a snapshot written by one release still validates under another. Imported lazily to avoid
+    importing the job registry at module load.
     """
-    from nmdc_lakehouse.jobs.collection_to_parquet import PRIMARY_MAPPING_ID, SIDE_TABLE_MAPPING_ID
-    from nmdc_lakehouse.jobs.direct_mongo_to_parquet import DIRECT_COLLECTIONS, DIRECT_MAPPING_ID
+    from nmdc_lakehouse.jobs.direct_mongo_to_parquet import DIRECT_COLLECTIONS
+    from nmdc_lakehouse.producer_identity import FLATTENER_PACKAGE, is_direct_identity, is_flattener_identity
 
-    if table in DIRECT_COLLECTIONS:
-        return frozenset({DIRECT_MAPPING_ID})
-    return frozenset({PRIMARY_MAPPING_ID, SIDE_TABLE_MAPPING_ID})
-
-
-def _check_producer_identity(artifact: ArtifactRecord) -> None:
-    """Fail when a table's recorded producer is not one the routing registry expects for it."""
-    expected = _expected_producer_ids(artifact.table)
-    if artifact.mapping not in expected:
+    if artifact.table in DIRECT_COLLECTIONS:
+        if not is_direct_identity(artifact.mapping):
+            raise TargetValidationError(
+                f"Direct-loaded table {artifact.table!r} records producer {artifact.mapping!r}, "
+                f"not the direct loader the routing registry expects for it."
+            )
+    elif not is_flattener_identity(artifact.mapping):
         raise TargetValidationError(
-            f"Table {artifact.table!r} records producer {artifact.mapping!r}, which the routing "
-            f"registry does not expect for it (expected one of {sorted(expected)})."
+            f"Table {artifact.table!r} records producer {artifact.mapping!r}, not the "
+            f"{FLATTENER_PACKAGE} flattener the routing registry expects for it."
         )
 
 

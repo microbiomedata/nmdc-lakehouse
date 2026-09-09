@@ -9,8 +9,7 @@ import pyarrow.parquet as pq
 import pytest
 from nmdc_lakehouse_schema.transforms.schema_generator import DEFAULT_FLATTENED_SCHEMA_ID
 
-from nmdc_lakehouse.jobs.collection_to_parquet import PRIMARY_MAPPING_ID, SIDE_TABLE_MAPPING_ID
-from nmdc_lakehouse.jobs.direct_mongo_to_parquet import DIRECT_MAPPING_ID
+from nmdc_lakehouse.producer_identity import direct_mapping_id, flattener_mapping_id
 from nmdc_lakehouse.snapshot_manifest import (
     ArtifactRecord,
     PerformanceRecord,
@@ -28,6 +27,12 @@ from nmdc_lakehouse.target_validation import (
 )
 
 PUBLISHED_SCHEMA = Path(__file__).parents[1] / "src/nmdc_lakehouse/schemas/nmdc_metadata.yaml"
+
+# Producer identities are now package==version (#333). Primary and side tables collapse to one
+# flattener identity (same package, same version); the direct loader is a distinct package.
+PRIMARY_MAPPING_ID = flattener_mapping_id()
+SIDE_TABLE_MAPPING_ID = flattener_mapping_id()
+DIRECT_MAPPING_ID = direct_mapping_id()
 
 
 def _artifact(path: Path, *, target_class: str, source_class: str, mapping: str) -> ArtifactRecord:
@@ -273,18 +278,8 @@ def test_schema_and_class_contract_mismatches_fail_closed(tmp_path: Path) -> Non
     manifest.target_schema_ids = [DEFAULT_FLATTENED_SCHEMA_ID]
     manifest.artifacts[0].mapping = DIRECT_MAPPING_ID
     manifest.mapping_ids = [DIRECT_MAPPING_ID]
-    with pytest.raises(TargetValidationError, match="routing registry does not expect"):
+    with pytest.raises(TargetValidationError, match="flattener the routing registry expects"):
         build_target_validation_report(tmp_path, manifest, PUBLISHED_SCHEMA)
-
-
-def test_expected_producer_ids_follows_the_routing_registry() -> None:
-    """Producer identity is validated against the lakehouse routing registry, not the schema."""
-    from nmdc_lakehouse.jobs.direct_mongo_to_parquet import DIRECT_COLLECTIONS
-    from nmdc_lakehouse.target_validation import _expected_producer_ids
-
-    for collection in DIRECT_COLLECTIONS:
-        assert _expected_producer_ids(collection) == frozenset({DIRECT_MAPPING_ID})
-    assert _expected_producer_ids("study_set") == frozenset({PRIMARY_MAPPING_ID, SIDE_TABLE_MAPPING_ID})
 
 
 @pytest.mark.parametrize(

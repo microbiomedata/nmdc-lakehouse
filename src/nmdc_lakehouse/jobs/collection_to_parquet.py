@@ -28,18 +28,11 @@ from nmdc_lakehouse.config import LakehouseSettings, MongoSettings
 from nmdc_lakehouse.jobs.base import Job, JobResult
 from nmdc_lakehouse.jobs.registry import register
 from nmdc_lakehouse.metrics import stamp_result
+from nmdc_lakehouse.producer_identity import flattener_mapping_id
 from nmdc_lakehouse.sinks.parquet_sink import ParquetSink, StreamingWriter, class_def_to_arrow_schema
 from nmdc_lakehouse.sources.mongo_source import MongoSource
 
 logger = logging.getLogger(__name__)
-
-# Producer-identity labels the schema-driven flattener stamps into each Parquet footer (and the
-# snapshot manifest). This is per-write ETL provenance and belongs with the data, not the schema
-# (microbiomedata/nmdc-lakehouse#336). The historical `nmdc_lakehouse.transforms.*` spelling is an
-# opaque, stable label kept for compatibility with already-published data; replacing it with a
-# package name + version is #333.
-PRIMARY_MAPPING_ID = "nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener"
-SIDE_TABLE_MAPPING_ID = "nmdc_lakehouse.transforms.flatteners.side_table_rows"
 
 # This reviewed snapshot does not drive collection selection. The installed,
 # locked nmdc-schema remains authoritative; tests compare its Database slots
@@ -227,7 +220,7 @@ class CollectionToParquetJob(Job):
                 source_class=self.root_class,
                 target_schema_id=DEFAULT_FLATTENED_SCHEMA_ID,
                 target_schema_version=flat_schema_version(str(schema_view.schema.version or "unversioned")),
-                mapping=PRIMARY_MAPPING_ID,
+                mapping=flattener_mapping_id(),
             )
             side_writers: dict[str, StreamingWriter] = {}
 
@@ -246,7 +239,7 @@ class CollectionToParquetJob(Job):
                         source_class=self.root_class,
                         target_schema_id=DEFAULT_FLATTENED_SCHEMA_ID,
                         target_schema_version=flat_schema_version(str(schema_view.schema.version or "unversioned")),
-                        mapping=SIDE_TABLE_MAPPING_ID,
+                        mapping=flattener_mapping_id(),
                     ),
                 )
                 side_writers[table_name] = writer
