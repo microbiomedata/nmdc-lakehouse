@@ -22,6 +22,7 @@ where the cell printed a warning.
 
 from __future__ import annotations
 
+import importlib
 import re
 import sys
 from collections.abc import Sequence
@@ -231,28 +232,37 @@ def _count(spark: object, table: str) -> int:
 
 
 def spark_session(checkout: Path) -> object:
-    """A Spark session from the reviewed BERDL checkout, not from whatever is importable.
+    """A Spark session, with the reviewed ingest package proved to come from the reviewed checkout.
 
-    Same shape as `berdl_metadata._runtime` and for the same reason: the helper has to come from
-    the checkout that was reviewed, so an unrelated copy on the path cannot decide what runs.
+    Now the same shape as `berdl_metadata._runtime`, which it always claimed to be and was not.
+    That one checks the path of `data_lakehouse_ingest`, the package this repository reviews and
+    pins to a revision. This one checked the path of `berdl_notebook_utils`, which the BERDL pod
+    image supplies from site-packages and which no checkout contains, so the requirement could
+    never be met and both commands that call this were unrunnable in a pod.
+    See https://github.com/microbiomedata/nmdc-lakehouse/issues/339.
+
+    `berdl_notebook_utils` is still required to import, because a session cannot be built without
+    it. What is not required is a location for a module the platform owns.
     """
     source_root = (checkout.expanduser() / "src").resolve()
+    package_root = source_root / "data_lakehouse_ingest"
     sys.path.insert(0, str(source_root))
     try:
         import berdl_notebook_utils.setup_spark_session as session_module
+
+        reviewed = importlib.import_module("data_lakehouse_ingest")
     except ImportError as error:
         raise DerivedTableError("The selected BERDL runtime is not importable.") from error
     finally:
         sys.path.remove(str(source_root))
-    # Where it came from, not merely that it imported. Putting the checkout first on sys.path does
-    # not displace a copy installed in the environment, and an already-imported module is returned
-    # from sys.modules without consulting the path at all. Without this the docstring's claim that
-    # the session comes from the reviewed checkout was a hope.
-    module_file = getattr(session_module, "__file__", None)
-    if module_file is None or not Path(module_file).resolve().is_relative_to(source_root):
+    # Where the reviewed package came from, not merely that it imported. Putting the checkout first
+    # on sys.path does not displace a copy installed in the environment, and an already-imported
+    # module is returned from sys.modules without consulting the path at all.
+    module_file = getattr(reviewed, "__file__", None)
+    if module_file is None or not Path(module_file).resolve().is_relative_to(package_root):
         raise DerivedTableError(
-            f"berdl_notebook_utils was imported from {module_file!r}, which is not inside "
-            f"{source_root}. The session must come from the reviewed checkout."
+            f"data_lakehouse_ingest was imported from {module_file!r}, which is not inside "
+            f"{package_root}. The reviewed ingest package must come from the selected checkout."
         )
     return session_module.get_spark_session()
 

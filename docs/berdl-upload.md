@@ -651,13 +651,19 @@ human authorizes against.
 
 `berdl-promote` consumes that file. It previews by default, printing the plan,
 the digest to authorize with, the destination the dispositions were decided
-against, and the exact statements:
+against, and the exact statements.
+
+**The checkout argument is the reviewed `kbase/data-lakehouse-ingest`**, the same
+one `berdl-upload-plan` was given, not a BERIL Research Observatory checkout.
+These examples named the latter until 2026-09-09, and it has no `src` directory,
+so the session could not be acquired from it. `rebuild-derived-tables` takes the
+same argument for the same reason.
 
 <!-- unverified: no run of this command against a live catalog is recorded.
      Running it is tracked in
      https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
 ```bash
-just berdl-promote local/promotion-plan.json ~/gitrepos/BERIL-research-observatory
+just berdl-promote local/promotion-plan.json /absolute/path/to/data-lakehouse-ingest
 ```
 
 Execution needs all three authorizations, and none is optional. Substitute the
@@ -670,7 +676,7 @@ it looks like:
      Running it is tracked in
      https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
 ```bash
-just berdl-promote local/promotion-plan.json ~/gitrepos/BERIL-research-observatory \
+just berdl-promote local/promotion-plan.json /absolute/path/to/data-lakehouse-ingest \
     --authorize-plan-sha256 DIGEST_THE_PREVIEW_PRINTED \
     --authorize-canonical-namespace nmdc.metadata \
     --authorize-destination-id DESTINATION_THE_PREVIEW_PRINTED
@@ -698,7 +704,7 @@ Rebuild exactly the tables the plan dropped, which the command prints for you:
      Running it is tracked in
      https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
 ```bash
-just rebuild-derived-tables nmdc.metadata ~/gitrepos/BERIL-research-observatory \
+just rebuild-derived-tables nmdc.metadata /absolute/path/to/data-lakehouse-ingest \
     --table graph_edges \
     --authorize-namespace nmdc.metadata
 ```
