@@ -282,7 +282,7 @@ def schema_diff_command(before: Path, after: Path, limit: int, output_path: Path
 
     Materialise an older revision with `git show REV:src/nmdc_lakehouse/schemas/nmdc_metadata.yaml`.
     """
-    from nmdc_lakehouse.transforms.schema_diff import SchemaDiffError, diff_schemas, render_diff
+    from nmdc_lakehouse_schema.transforms.schema_diff import SchemaDiffError, diff_schemas, render_diff
 
     try:
         report = render_diff(diff_schemas(str(before), str(after)), limit=limit)

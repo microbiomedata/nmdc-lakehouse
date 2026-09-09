@@ -45,9 +45,9 @@ def find_project_root(start: Path) -> Path:
 def metadata_output_names() -> frozenset[str]:
     """Return every primary or potential side-table name for the locked NMDC schema."""
     from linkml_runtime import SchemaView
+    from nmdc_lakehouse_schema.transforms.schema_generator import side_table_class_defs
 
     from nmdc_lakehouse.jobs.collection_to_parquet import _db_collection_map
-    from nmdc_lakehouse.transforms.schema_generator import side_table_class_defs
 
     spec = find_spec("nmdc_schema")
     if spec is None or not spec.submodule_search_locations:

@@ -3,8 +3,12 @@
 
 Walks the installed ``nmdc-schema`` package, generates a flat
 ``ClassDefinition`` for each multivalued ``Database`` slot via
-:func:`nmdc_lakehouse.transforms.schema_generator.flatten_database_schema`,
+:func:`nmdc_lakehouse_schema.transforms.schema_generator.flatten_database_schema`,
 and writes the complete primary and side-table schema to deterministic YAML.
+
+The schema is purely structural: which loader writes each table is per-write ETL
+provenance recorded in the Parquet footer and snapshot manifest, not in the schema
+(microbiomedata/nmdc-lakehouse#336).
 
 Usage:
     uv run python scripts/python/generate_flattened_schema.py [--check] [OUTPUT_PATH]
@@ -25,8 +29,7 @@ from pathlib import Path
 
 from linkml_runtime import SchemaView
 from linkml_runtime.dumpers import yaml_dumper
-
-from nmdc_lakehouse.transforms.schema_generator import (
+from nmdc_lakehouse_schema.transforms.schema_generator import (
     UNRESOLVED_CONTENT_SHA256,
     flatten_database_schema,
 )

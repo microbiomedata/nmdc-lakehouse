@@ -22,6 +22,10 @@ dependencies = [
     "linkml>=1.11.1",
     "linkml-runtime>=1.11.1",
     "nmdc-schema",
+    # The flattened-schema engine (generator, flattener, schema-diff) lives in its
+    # own package; this repo consumes it from PyPI rather than defining it here.
+    # >=0.2.0: the generated schema is purely structural (no producer identity).
+    "nmdc-lakehouse-schema>=0.2.0",
     # Database drivers (linkml-store routes through these)
     "pymongo>=4.9",
     "psycopg[binary]>=3.3.4",

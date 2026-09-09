@@ -59,9 +59,18 @@ logical schema artifact, or publication lineage.
 
 Code releases, schemas, snapshots, metadata content, and destination publications
 have separate linked identities. The package version and Git commit identify the
-producer; schema and mapping identifiers identify the contracts; `snapshot_id`
+producer; the schema identifier identifies the structural contract; `snapshot_id`
 identifies immutable portable content. Later metadata bundles and destination
 publication records reference that snapshot rather than changing its identity.
+
+The `mapping` identity records which loader wrote each table. It is per-write ETL
+provenance carried by the Parquet footer and the snapshot manifest, not by the
+flattened schema, which is purely structural (see
+[#336](https://github.com/microbiomedata/nmdc-lakehouse/issues/336)). Target
+validation checks each table's recorded `mapping` against the lakehouse's own
+routing registry (a collection routed to the direct loader must carry that loader's
+identity; every other table is flattener-produced), rather than against a schema
+annotation.
 
 ## Description precedence
 

@@ -267,6 +267,32 @@ def _iter_rows(parquet: pq.ParquetFile) -> Any:
             yield _instance(row)
 
 
+def _expected_producer_ids(table: str) -> frozenset[str]:
+    """Producer identities that may legitimately have written ``table``.
+
+    Producer identity is not carried in the schema (it is structural only, #336); it is checked
+    against the lakehouse's own routing registry. A collection routed to the direct loader must
+    carry that loader's identity; every other table is flattener-produced (primary or side).
+    Imported lazily to avoid importing the job registry at module load.
+    """
+    from nmdc_lakehouse.jobs.collection_to_parquet import PRIMARY_MAPPING_ID, SIDE_TABLE_MAPPING_ID
+    from nmdc_lakehouse.jobs.direct_mongo_to_parquet import DIRECT_COLLECTIONS, DIRECT_MAPPING_ID
+
+    if table in DIRECT_COLLECTIONS:
+        return frozenset({DIRECT_MAPPING_ID})
+    return frozenset({PRIMARY_MAPPING_ID, SIDE_TABLE_MAPPING_ID})
+
+
+def _check_producer_identity(artifact: ArtifactRecord) -> None:
+    """Fail when a table's recorded producer is not one the routing registry expects for it."""
+    expected = _expected_producer_ids(artifact.table)
+    if artifact.mapping not in expected:
+        raise TargetValidationError(
+            f"Table {artifact.table!r} records producer {artifact.mapping!r}, which the routing "
+            f"registry does not expect for it (expected one of {sorted(expected)})."
+        )
+
+
 def _validate_table(
     root: Path,
     artifact: ArtifactRecord,
@@ -284,13 +310,15 @@ def _validate_table(
     expected = {
         "table_name": artifact.table,
         "source_class": artifact.source_class,
-        "mapping": artifact.mapping,
     }
     for name, value in expected.items():
         if _annotation(target_class, name) != value:
             raise TargetValidationError(
                 f"Manifest table {artifact.table!r} disagrees with target-class {name} metadata."
             )
+    # Producer identity is deliberately not in the schema (it is structural only, #336). Check the
+    # recorded producer against the lakehouse's own routing registry instead of a schema annotation.
+    _check_producer_identity(artifact)
 
     parquet = pq.ParquetFile(root / artifact.path)
     identifier_slot = schema_view.get_identifier_slot(artifact.target_class)

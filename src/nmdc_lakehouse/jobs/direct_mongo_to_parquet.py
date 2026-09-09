@@ -79,8 +79,7 @@ class DirectMongoToParquetJob(Job):
     def run(self, *, dry_run: bool = False) -> JobResult:
         """Stream records from MongoDB through a raw cursor into Parquet."""
         from linkml_runtime import SchemaView
-
-        from nmdc_lakehouse.transforms.schema_generator import (
+        from nmdc_lakehouse_schema.transforms.schema_generator import (
             DEFAULT_FLATTENED_SCHEMA_ID,
             flat_schema_version,
             flatten_class_def,
