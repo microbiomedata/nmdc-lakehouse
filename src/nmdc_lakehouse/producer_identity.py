@@ -27,6 +27,11 @@ from importlib.metadata import version
 FLATTENER_PACKAGE = "nmdc-lakehouse-schema"
 DIRECT_PACKAGE = "nmdc-lakehouse"
 
+# The routing registry: collections written by the direct loader instead of the flattener. It lives
+# here, in a module with no import-time side effects, so target validation can read it without
+# importing the jobs package (which registers jobs and parses the nmdc-schema YAML at import).
+DIRECT_COLLECTIONS: frozenset[str] = frozenset({"functional_annotation_agg"})
+
 # Import-path identities persisted before the package==version switch (#333). Accepted on read.
 LEGACY_FLATTENER_IDS = frozenset(
     {

@@ -25,6 +25,12 @@ from linkml.validator.report import ValidationResult
 from linkml_runtime import SchemaView
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from nmdc_lakehouse.producer_identity import (
+    DIRECT_COLLECTIONS,
+    FLATTENER_PACKAGE,
+    is_direct_identity,
+    is_flattener_identity,
+)
 from nmdc_lakehouse.snapshot_manifest import ArtifactRecord, SnapshotManifest, validate_snapshot
 
 REPORT_FORMAT_VERSION = 1
@@ -274,12 +280,8 @@ def _check_producer_identity(artifact: ArtifactRecord) -> None:
     against the lakehouse's own routing registry. A collection routed to the direct loader must be
     written by the direct-loader package; every other table is flattener-produced. The identity is
     ``package==version`` (#333); the *package* is enforced (the routing invariant), not the version,
-    so a snapshot written by one release still validates under another. Imported lazily to avoid
-    importing the job registry at module load.
+    so a snapshot written by one release still validates under another.
     """
-    from nmdc_lakehouse.jobs.direct_mongo_to_parquet import DIRECT_COLLECTIONS
-    from nmdc_lakehouse.producer_identity import FLATTENER_PACKAGE, is_direct_identity, is_flattener_identity
-
     if artifact.table in DIRECT_COLLECTIONS:
         if not is_direct_identity(artifact.mapping):
             raise TargetValidationError(
