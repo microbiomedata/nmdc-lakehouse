@@ -9,7 +9,7 @@ import pyarrow.parquet as pq
 import pytest
 from nmdc_lakehouse_schema.transforms.schema_generator import DEFAULT_FLATTENED_SCHEMA_ID
 
-from nmdc_lakehouse.producer_identity import direct_mapping_id, flattener_mapping_id
+from nmdc_lakehouse.producer_identity import flattener_mapping_id
 from nmdc_lakehouse.snapshot_manifest import (
     ArtifactRecord,
     PerformanceRecord,
@@ -28,11 +28,10 @@ from nmdc_lakehouse.target_validation import (
 
 PUBLISHED_SCHEMA = Path(__file__).parents[1] / "src/nmdc_lakehouse/schemas/nmdc_metadata.yaml"
 
-# Producer identities are now package==version (#333). Primary and side tables collapse to one
-# flattener identity (same package, same version); the direct loader is a distinct package.
+# Producer identity is recorded (not validated) provenance: package==version (#333). Primary and
+# side tables share one flattener identity; these are just footer values the test artifacts carry.
 PRIMARY_MAPPING_ID = flattener_mapping_id()
 SIDE_TABLE_MAPPING_ID = flattener_mapping_id()
-DIRECT_MAPPING_ID = direct_mapping_id()
 
 
 def _artifact(path: Path, *, target_class: str, source_class: str, mapping: str) -> ArtifactRecord:
@@ -270,15 +269,6 @@ def test_schema_and_class_contract_mismatches_fail_closed(tmp_path: Path) -> Non
     manifest = _manifest([artifact])
     manifest.target_schema_ids = ["https://example.org/wrong"]
     with pytest.raises(TargetValidationError, match="identities do not match"):
-        build_target_validation_report(tmp_path, manifest, PUBLISHED_SCHEMA)
-
-    # study_set is not a direct-loaded collection, so recording the direct loader as its producer
-    # is a routing violation the registry check must reject (producer identity is not in the
-    # schema; it is validated against the lakehouse routing registry, #336).
-    manifest.target_schema_ids = [DEFAULT_FLATTENED_SCHEMA_ID]
-    manifest.artifacts[0].mapping = DIRECT_MAPPING_ID
-    manifest.mapping_ids = [DIRECT_MAPPING_ID]
-    with pytest.raises(TargetValidationError, match="flattener the routing registry expects"):
         build_target_validation_report(tmp_path, manifest, PUBLISHED_SCHEMA)
 
 

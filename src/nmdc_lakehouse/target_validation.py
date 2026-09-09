@@ -25,12 +25,6 @@ from linkml.validator.report import ValidationResult
 from linkml_runtime import SchemaView
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from nmdc_lakehouse.producer_identity import (
-    DIRECT_COLLECTIONS,
-    FLATTENER_PACKAGE,
-    is_direct_identity,
-    is_flattener_identity,
-)
 from nmdc_lakehouse.snapshot_manifest import ArtifactRecord, SnapshotManifest, validate_snapshot
 
 REPORT_FORMAT_VERSION = 1

@@ -29,17 +29,16 @@ from nmdc_lakehouse.collection_output import CollectionOutputTransaction
 from nmdc_lakehouse.config import LakehouseSettings, MongoSettings
 from nmdc_lakehouse.jobs.base import Job, JobResult
 from nmdc_lakehouse.jobs.registry import register
-from nmdc_lakehouse.producer_identity import DIRECT_COLLECTIONS, direct_mapping_id
+from nmdc_lakehouse.producer_identity import direct_mapping_id
 from nmdc_lakehouse.sinks.parquet_sink import ParquetSink
 
 logger = logging.getLogger(__name__)
 
 _BATCH_SIZE = 50_000
 
-# DIRECT_COLLECTIONS (the routing registry) is imported from nmdc_lakehouse.producer_identity so
-# validation can read it without importing this module's registration side effects. These
-# collections are excluded from CollectionToParquetJob's auto-registration loop so each name is
-# registered exactly once.
+# Collections handled by this module. Excluded from CollectionToParquetJob's
+# auto-registration loop so each name is registered exactly once.
+DIRECT_COLLECTIONS: frozenset[str] = frozenset({"functional_annotation_agg"})
 
 
 def _schema_path() -> str:
