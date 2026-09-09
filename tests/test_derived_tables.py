@@ -7,6 +7,7 @@ with real data. That gap is stated in the pull request rather than implied by a 
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -117,7 +118,14 @@ class ScriptedSpark(FakeSpark):
         self.statements.append(statement)
         if statement.startswith("SELECT COUNT(*)"):
             name = statement.split(" FROM ", 1)[1].strip()
-            return FakeFrame([(self._per_view.get(name, self._default),)], self.views)
+            if name in self._per_view:
+                count = self._per_view[name]
+            else:
+                # Scratch tables carry a random namespace, so they are scripted by their suffix,
+                # e.g. ".reached_1" matches "nmdc.walk_scratch_<random>.reached_1".
+                suffixes = [key for key in self._per_view if key.startswith(".") and name.endswith(key)]
+                count = self._per_view[suffixes[0]] if suffixes else self._default
+            return FakeFrame([(count,)], self.views)
         return FakeFrame([], self.views)
 
 
@@ -156,7 +164,7 @@ def test_a_walk_that_reaches_no_biosamples_is_refused() -> None:
         {
             "walk_frontier_0": 10,
             "walk_step_1": 5,
-            "walk_reached_1": 0,
+            ".reached_1": 0,
             "walk_frontier_1": 0,
         }
     )
@@ -272,7 +280,7 @@ def test_a_hop_that_finds_no_edges_ends_the_walk_and_says_so() -> None:
     assert outcome.rows == 3
     assert any("no further edges" in message for message in messages)
     # The processing views collected on the way are unioned rather than replaced by the empty stub.
-    assert any("SELECT * FROM walk_processing_1" in statement for statement in spark.statements)
+    assert any(".processing_1" in statement and statement.startswith("SELECT * FROM") for statement in spark.statements)
 
 
 def test_a_failed_final_write_is_a_message_not_a_traceback() -> None:
@@ -367,10 +375,11 @@ def test_a_walk_that_fails_mid_hop_still_releases_its_cache() -> None:
     # there instead and this test would pass on the wrong failure.
     spark = FailingSpark(
         f"JOIN {NAMESPACE}.material_processing_set",
-        per_view={"walk_frontier_0": 10, "walk_step_1": 5, "walk_reached_1": 2, "walk_frontier_1": 3},
+        per_view={"walk_frontier_0": 10, "walk_step_1": 5, ".reached_1": 2, "walk_frontier_1": 3},
     )
 
-    with pytest.raises(DerivedTableError, match="failed while building"):
+    # Either site is a mid-hop engine failure: a cached working-set view, or a scratch table write.
+    with pytest.raises(DerivedTableError, match="failed while (building|writing)"):
         rebuild_biosample_to_workflow_run(spark, NAMESPACE)
 
     cached = [s for s in spark.statements if s.startswith("CACHE TABLE")]
@@ -781,24 +790,22 @@ def test_the_table_option_reaches_the_rebuild_through_the_command(monkeypatch) -
         assert excluded not in issued, issued
 
 
-def test_the_walk_releases_each_hop_instead_of_holding_them_all() -> None:
-    """Memory has to stop growing with depth, because a bigger cluster does not fix it.
+def test_the_walk_keeps_hops_on_disk_and_releases_the_rest() -> None:
+    """Depth must stop costing heap, because a bigger cluster does not buy enough of it.
 
-    Every hop cached four datasets and released none until the end, so the walk exhausted the
-    Java heap at hop 7 on a Medium BERDL cluster and hop 8 on a Large one: 4x the driver heap and
-    6.7x the executor memory for one extra hop. Only the reached and processing views are read
-    again, by the final unions.
+    Every hop cached four datasets. The two transient ones can be released, but the reached and
+    processing rows cannot, because the final unions read them, so memory still grew with depth.
+    Measured: the walk died at hop 7 on a Medium BERDL cluster, hop 8 on a Large one, and hop 9
+    once the transient half was released. So the keepable rows go to scratch Iceberg tables and
+    only the working set stays in memory.
     See https://github.com/microbiomedata/nmdc-lakehouse/issues/341.
     """
     spark = ScriptedSpark(
         {
             "walk_frontier_0": 10,
             "walk_step_1": 8,
-            "walk_reached_1": 4,
             "walk_frontier_1": 6,
-            "walk_processing_1": 2,
             "walk_step_2": 5,
-            "walk_reached_2": 3,
             "walk_frontier_2": 0,
             "walk_reached_all": 7,
             "walk_processing_all": 2,
@@ -808,16 +815,43 @@ def test_the_walk_releases_each_hop_instead_of_holding_them_all() -> None:
 
     rebuild_biosample_to_workflow_run(spark, NAMESPACE)
 
-    uncached_before_the_end = []
-    for statement in spark.statements:
-        if statement.startswith("UNCACHE TABLE "):
-            uncached_before_the_end.append(statement.removeprefix("UNCACHE TABLE ").strip())
-        if statement.startswith("SELECT * FROM walk_reached_1"):
-            break
+    created = [s for s in spark.statements if s.startswith("CREATE OR REPLACE TABLE nmdc.walk_scratch_")]
+    uncached = [s.removeprefix("UNCACHE TABLE ").strip() for s in spark.statements if s.startswith("UNCACHE TABLE ")]
+    dropped = [s for s in spark.statements if s.startswith("DROP TABLE IF EXISTS nmdc.walk_scratch_")]
 
-    # The first hop's frontier and step are gone before the final union is assembled.
-    assert "walk_frontier_0" in uncached_before_the_end
-    assert "walk_step_1" in uncached_before_the_end
-    # What the union still needs is not.
-    assert "walk_reached_1" not in uncached_before_the_end
-    assert "walk_processing_1" not in uncached_before_the_end
+    # The rows the unions need went to disk, one table per hop, not into the cache.
+    assert any(".reached_1" in s for s in created)
+    assert any(".processing_1" in s for s in created)
+    assert not any(re.fullmatch(r"walk_reached_\d+", view) for view in uncached)
+
+    # The working set is cached and released.
+    assert "walk_frontier_0" in uncached
+    assert "walk_step_1" in uncached
+
+    # Nothing is left behind in the catalog.
+    assert any(".reached_1" in s for s in dropped)
+    assert any(s.startswith("DROP NAMESPACE IF EXISTS nmdc.walk_scratch_") for s in spark.statements)
+
+
+def test_the_scratch_namespace_is_unique_per_walk() -> None:
+    """An interrupted walk leaks its scratch namespace, so a fixed name would collide with it."""
+    names = set()
+    for _ in range(2):
+        spark = ScriptedSpark(
+            {
+                "walk_frontier_0": 10,
+                "walk_step_1": 5,
+                "walk_frontier_1": 0,
+                "walk_reached_all": 5,
+                "walk_processing_all": 0,
+                f"{NAMESPACE}.biosample_to_workflow_run": 5,
+            }
+        )
+        rebuild_biosample_to_workflow_run(spark, NAMESPACE)
+        names.update(
+            s.removeprefix("CREATE NAMESPACE IF NOT EXISTS ").strip()
+            for s in spark.statements
+            if s.startswith("CREATE NAMESPACE IF NOT EXISTS ")
+        )
+
+    assert len(names) == 2, f"scratch namespaces must differ between walks, got {names}"

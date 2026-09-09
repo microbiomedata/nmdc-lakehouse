@@ -28,6 +28,7 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from uuid import uuid4
 
 # One row per side table that contributes provenance edges: (table, source column, destination
 # column, slot label). Direction is not a field; it is which column goes on which side. The
@@ -358,6 +359,31 @@ def rebuild_biosample_to_workflow_run(
     say("processing types: all accounted for")
 
     cached: list[str] = []
+    # A hop's own working set is cached in memory and released as soon as the next hop exists.
+    # What the final unions need is kept on disk instead, because keeping it in memory is what
+    # made this fail: 4 cached datasets per hop, and the reached and processing ones cannot be
+    # released because the unions read them. The walk died at hop 7 on a Medium cluster, hop 8 on
+    # a Large one, and hop 9 once the transient half was released, by which point the frontier
+    # was down to 3,514 nodes. Depth has to stop costing heap altogether, not cost less of it.
+    # See https://github.com/microbiomedata/nmdc-lakehouse/issues/341.
+    catalog = namespace.split(".", 1)[0]
+    scratch = f"{catalog}.walk_scratch_{uuid4().hex[:12]}"
+    scratch_tables: list[str] = []
+
+    def persist(statement: str, name: str) -> tuple[str, int]:
+        """Write one hop's keepable rows to a scratch table and return its name and row count.
+
+        A table rather than a cached view, so the bytes live on the object store and the driver
+        holds a name. `CREATE TABLE AS SELECT` is eager, so the rows exist once this returns and
+        the statement that produced them is not replayed by the final union.
+        """
+        table = f"{scratch}.{name}"
+        try:
+            spark.sql(f"CREATE OR REPLACE TABLE {table} USING iceberg AS {statement}")  # type: ignore[attr-defined]
+        except Exception as error:
+            raise DerivedTableError(f"The walk failed while writing '{table}'.") from error
+        scratch_tables.append(table)
+        return table, _count(spark, table)
 
     def run(statement: str, view: str) -> int:
         """Build one temp view, materialise it, and return its row count.
@@ -399,16 +425,34 @@ def rebuild_biosample_to_workflow_run(
                 cached.remove(view)
 
     def release() -> None:
-        """Drop whatever hops are still cached. Best effort: a failure here has not lost a result."""
+        """Drop whatever is still held, in memory and on disk.
+
+        Best effort: a failure here has not lost a result, and the scratch namespace is named with
+        a random suffix so a leaked one from an interrupted run cannot collide with a later walk.
+        """
         for view in list(cached):
             try:
                 spark.sql(f"UNCACHE TABLE {view}")  # type: ignore[attr-defined]
             except Exception:  # noqa: BLE001 - releasing memory must not fail the rebuild
                 pass
+        for table in list(scratch_tables):
+            try:
+                spark.sql(f"DROP TABLE IF EXISTS {table}")  # type: ignore[attr-defined]
+            except Exception:  # noqa: BLE001 - cleanup must not fail the rebuild
+                pass
+        try:
+            spark.sql(f"DROP NAMESPACE IF EXISTS {scratch}")  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - an empty namespace left behind is not a failure
+            pass
 
     # try/finally, because every refusal below leaves cached hops behind otherwise, and there
     # are four of them. Adding the cache in the previous commit made a leak out of each one.
     try:
+        try:
+            spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {scratch}")  # type: ignore[attr-defined]
+        except Exception as error:
+            raise DerivedTableError(f"Could not create the scratch namespace '{scratch}'.") from error
+
         run(seed_frontier_statement(namespace), "walk_frontier_0")
         reached_views: list[str] = []
         processing_views: list[str] = []
@@ -421,11 +465,9 @@ def rebuild_biosample_to_workflow_run(
                 say(f"hop {depth}: no further edges, walk complete")
                 break
 
-            reached = f"walk_reached_{depth}"
-            if run(reached_biosamples_statement(step, depth), reached) > 0:
-                reached_views.append(reached)
-            else:
-                discard(reached)
+            reached_table, reached_rows = persist(reached_biosamples_statement(step, depth), f"reached_{depth}")
+            if reached_rows > 0:
+                reached_views.append(reached_table)
 
             next_frontier = f"walk_frontier_{depth}"
             remaining = run(continuing_frontier_statement(step), next_frontier)
@@ -434,11 +476,11 @@ def rebuild_biosample_to_workflow_run(
             if remaining == 0:
                 break
 
-            processing = f"walk_processing_{depth}"
-            if run(processing_types_statement(namespace, next_frontier), processing) > 0:
-                processing_views.append(processing)
-            else:
-                discard(processing)
+            processing_table, processing_rows = persist(
+                processing_types_statement(namespace, next_frontier), f"processing_{depth}"
+            )
+            if processing_rows > 0:
+                processing_views.append(processing_table)
 
             # Both are dead now: the frontier fed this hop's step, and the step fed the reached
             # rows and the next frontier, all of which are materialised.
