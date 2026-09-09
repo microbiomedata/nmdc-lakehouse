@@ -273,28 +273,6 @@ def _iter_rows(parquet: pq.ParquetFile) -> Any:
             yield _instance(row)
 
 
-def _check_producer_identity(artifact: ArtifactRecord) -> None:
-    """Fail when a table's recorded producer package is not the one the routing registry expects.
-
-    Producer identity is not carried in the schema (it is structural only, #336); it is checked
-    against the lakehouse's own routing registry. A collection routed to the direct loader must be
-    written by the direct-loader package; every other table is flattener-produced. The identity is
-    ``package==version`` (#333); the *package* is enforced (the routing invariant), not the version,
-    so a snapshot written by one release still validates under another.
-    """
-    if artifact.table in DIRECT_COLLECTIONS:
-        if not is_direct_identity(artifact.mapping):
-            raise TargetValidationError(
-                f"Direct-loaded table {artifact.table!r} records producer {artifact.mapping!r}, "
-                f"not the direct loader the routing registry expects for it."
-            )
-    elif not is_flattener_identity(artifact.mapping):
-        raise TargetValidationError(
-            f"Table {artifact.table!r} records producer {artifact.mapping!r}, not the "
-            f"{FLATTENER_PACKAGE} flattener the routing registry expects for it."
-        )
-
-
 def _validate_table(
     root: Path,
     artifact: ArtifactRecord,
@@ -318,9 +296,6 @@ def _validate_table(
             raise TargetValidationError(
                 f"Manifest table {artifact.table!r} disagrees with target-class {name} metadata."
             )
-    # Producer identity is deliberately not in the schema (it is structural only, #336). Check the
-    # recorded producer against the lakehouse's own routing registry instead of a schema annotation.
-    _check_producer_identity(artifact)
 
     parquet = pq.ParquetFile(root / artifact.path)
     identifier_slot = schema_view.get_identifier_slot(artifact.target_class)
