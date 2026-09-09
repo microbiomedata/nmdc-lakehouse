@@ -6,10 +6,6 @@ Walks the installed ``nmdc-schema`` package, generates a flat
 :func:`nmdc_lakehouse_schema.transforms.schema_generator.flatten_database_schema`,
 and writes the complete primary and side-table schema to deterministic YAML.
 
-The schema is purely structural: which loader writes each table is per-write ETL
-provenance recorded in the Parquet footer and snapshot manifest, not in the schema
-(microbiomedata/nmdc-lakehouse#336).
-
 Usage:
     uv run python scripts/python/generate_flattened_schema.py [--check] [OUTPUT_PATH]
 
