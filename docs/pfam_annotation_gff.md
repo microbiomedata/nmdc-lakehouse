@@ -86,10 +86,14 @@ recipe always supplies `--data-object-set` and the command refuses two sources:
      tracking issue is named here. -->
 ```bash
 uv run nmdc-lakehouse data-object-manifest --type "Pfam Annotation GFF" \
-    --ingest-checkout ~/gitrepos/BERIL-research-observatory \
+    --ingest-checkout /absolute/path/to/data-lakehouse-ingest \
     --namespace nmdc.metadata \
     --output local/pfam/manifest.csv
 ```
+
+`--ingest-checkout` is the reviewed `kbase/data-lakehouse-ingest` checkout, the
+one whose `src/data_lakehouse_ingest` package the session check looks for. A
+BERIL Research Observatory checkout has no such package and is refused.
 
 Exactly one source must be named; neither is a default, because which one was
 read changes what the manifest describes.
