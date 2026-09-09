@@ -376,9 +376,31 @@ def rebuild_biosample_to_workflow_run(
         cached.append(view)
         return _count(spark, view)
 
+    def discard(*views: str) -> None:
+        """Release hops the walk has finished with, rather than holding every hop to the end.
+
+        Only `walk_reached_*` and `walk_processing_*` are read again, by the final unions. A
+        frontier is read by the hop that follows it, and a step by that same hop, so both are dead
+        once the next frontier exists. Holding all four per hop until the end is what made memory
+        grow with depth: the walk died at hop 7 on a Medium cluster and hop 8 on a Large one, so
+        4x the driver heap and 6.7x the executor memory bought a single hop. Releasing is the
+        lever that memory is not.
+        See https://github.com/microbiomedata/nmdc-lakehouse/issues/341.
+
+        `CACHE TABLE` is eager and `run` counts before returning, so anything released here was
+        already materialised by whatever still needs it. Nothing recomputes.
+        """
+        for view in views:
+            try:
+                spark.sql(f"UNCACHE TABLE {view}")  # type: ignore[attr-defined]
+            except Exception:  # noqa: BLE001 - releasing memory must not fail the rebuild
+                pass
+            if view in cached:
+                cached.remove(view)
+
     def release() -> None:
-        """Drop the cached hops. Best effort: a failure here has not lost any result."""
-        for view in cached:
+        """Drop whatever hops are still cached. Best effort: a failure here has not lost a result."""
+        for view in list(cached):
             try:
                 spark.sql(f"UNCACHE TABLE {view}")  # type: ignore[attr-defined]
             except Exception:  # noqa: BLE001 - releasing memory must not fail the rebuild
@@ -402,6 +424,8 @@ def rebuild_biosample_to_workflow_run(
             reached = f"walk_reached_{depth}"
             if run(reached_biosamples_statement(step, depth), reached) > 0:
                 reached_views.append(reached)
+            else:
+                discard(reached)
 
             next_frontier = f"walk_frontier_{depth}"
             remaining = run(continuing_frontier_statement(step), next_frontier)
@@ -413,6 +437,12 @@ def rebuild_biosample_to_workflow_run(
             processing = f"walk_processing_{depth}"
             if run(processing_types_statement(namespace, next_frontier), processing) > 0:
                 processing_views.append(processing)
+            else:
+                discard(processing)
+
+            # Both are dead now: the frontier fed this hop's step, and the step fed the reached
+            # rows and the next frontier, all of which are materialised.
+            discard(frontier, step)
         else:
             raise DerivedTableError(
                 f"The walk was still finding paths at depth {max_depth}. Raise max_depth rather than "

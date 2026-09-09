@@ -779,3 +779,45 @@ def test_the_table_option_reaches_the_rebuild_through_the_command(monkeypatch) -
     assert "graph_edges" in issued
     for excluded in set(DERIVED_TABLES) - {"graph_edges"}:
         assert excluded not in issued, issued
+
+
+def test_the_walk_releases_each_hop_instead_of_holding_them_all() -> None:
+    """Memory has to stop growing with depth, because a bigger cluster does not fix it.
+
+    Every hop cached four datasets and released none until the end, so the walk exhausted the
+    Java heap at hop 7 on a Medium BERDL cluster and hop 8 on a Large one: 4x the driver heap and
+    6.7x the executor memory for one extra hop. Only the reached and processing views are read
+    again, by the final unions.
+    See https://github.com/microbiomedata/nmdc-lakehouse/issues/341.
+    """
+    spark = ScriptedSpark(
+        {
+            "walk_frontier_0": 10,
+            "walk_step_1": 8,
+            "walk_reached_1": 4,
+            "walk_frontier_1": 6,
+            "walk_processing_1": 2,
+            "walk_step_2": 5,
+            "walk_reached_2": 3,
+            "walk_frontier_2": 0,
+            "walk_reached_all": 7,
+            "walk_processing_all": 2,
+            f"{NAMESPACE}.biosample_to_workflow_run": 7,
+        }
+    )
+
+    rebuild_biosample_to_workflow_run(spark, NAMESPACE)
+
+    uncached_before_the_end = []
+    for statement in spark.statements:
+        if statement.startswith("UNCACHE TABLE "):
+            uncached_before_the_end.append(statement.removeprefix("UNCACHE TABLE ").strip())
+        if statement.startswith("SELECT * FROM walk_reached_1"):
+            break
+
+    # The first hop's frontier and step are gone before the final union is assembled.
+    assert "walk_frontier_0" in uncached_before_the_end
+    assert "walk_step_1" in uncached_before_the_end
+    # What the union still needs is not.
+    assert "walk_reached_1" not in uncached_before_the_end
+    assert "walk_processing_1" not in uncached_before_the_end
