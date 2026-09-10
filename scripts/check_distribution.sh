@@ -64,20 +64,14 @@ with zipfile.ZipFile(wheel) as archive:
         any(name.endswith(".dist-info/licenses/LICENSE") for name in wheel_names),
         "The wheel does not contain LICENSE.",
     )
-    require(
-        "nmdc_lakehouse/schemas/nmdc_metadata.yaml" in wheel_names,
-        "The wheel does not contain the canonical NMDC metadata schema.",
-    )
+    # The flattened target schema is no longer shipped by this package; it comes from
+    # nmdc-lakehouse-schema (microbiomedata/nmdc-lakehouse#4).
 
 with tarfile.open(sdist) as archive:
     sdist_names = archive.getnames()
     require(
         any(name.endswith("/LICENSE") for name in sdist_names),
         "The source distribution does not contain LICENSE.",
-    )
-    require(
-        any(name.endswith("/src/nmdc_lakehouse/schemas/nmdc_metadata.yaml") for name in sdist_names),
-        "The source distribution does not contain the canonical NMDC metadata schema.",
     )
 
 print(f"Verified wheel and sdist for nmdc-lakehouse {installed_version}.")

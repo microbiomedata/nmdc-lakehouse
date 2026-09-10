@@ -21,11 +21,14 @@ dependencies = [
     "linkml-store>=0.3.2",
     "linkml>=1.11.1",
     "linkml-runtime>=1.11.1",
-    "nmdc-schema",
-    # The flattened-schema engine (generator, flattener, schema-diff) lives in its
-    # own package; this repo consumes it from PyPI rather than defining it here.
-    # >=0.2.0: the generated schema is purely structural (no producer identity).
-    "nmdc-lakehouse-schema>=0.2.0",
+    # Pinned to the version the consumed flat schema was built from: the flattener projects
+    # records with this nmdc-schema, and validation compares them against nmdc-lakehouse-schema's
+    # flat artifact built from the same version. Bump this and nmdc-lakehouse-schema together;
+    # target validation asserts the two agree at run time (microbiomedata/nmdc-lakehouse#4).
+    "nmdc-schema==11.23.0",
+    # The flattened-schema engine and the flat-schema artifact live in this package; this repo
+    # consumes both from PyPI rather than defining/committing them. >=0.3.0 ships the artifact.
+    "nmdc-lakehouse-schema>=0.3.0",
     # Database drivers (linkml-store routes through these)
     "pymongo>=4.9",
     "psycopg[binary]>=3.3.4",
