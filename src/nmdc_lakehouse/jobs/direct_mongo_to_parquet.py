@@ -29,6 +29,7 @@ from nmdc_lakehouse.collection_output import CollectionOutputTransaction
 from nmdc_lakehouse.config import LakehouseSettings, MongoSettings
 from nmdc_lakehouse.jobs.base import Job, JobResult
 from nmdc_lakehouse.jobs.registry import register
+from nmdc_lakehouse.producer_identity import direct_mapping_id
 from nmdc_lakehouse.sinks.parquet_sink import ParquetSink
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,6 @@ _BATCH_SIZE = 50_000
 # Collections handled by this module. Excluded from CollectionToParquetJob's
 # auto-registration loop so each name is registered exactly once.
 DIRECT_COLLECTIONS: frozenset[str] = frozenset({"functional_annotation_agg"})
-DIRECT_MAPPING_ID = "nmdc_lakehouse.jobs.direct_mongo_to_parquet.DirectMongoToParquetJob"
 
 
 def _schema_path() -> str:
@@ -79,8 +79,7 @@ class DirectMongoToParquetJob(Job):
     def run(self, *, dry_run: bool = False) -> JobResult:
         """Stream records from MongoDB through a raw cursor into Parquet."""
         from linkml_runtime import SchemaView
-
-        from nmdc_lakehouse.transforms.schema_generator import (
+        from nmdc_lakehouse_schema.transforms.schema_generator import (
             DEFAULT_FLATTENED_SCHEMA_ID,
             flat_schema_version,
             flatten_class_def,
@@ -162,7 +161,7 @@ class DirectMongoToParquetJob(Job):
                     source_class=self.root_class,
                     target_schema_id=DEFAULT_FLATTENED_SCHEMA_ID,
                     target_schema_version=flat_schema_version(str(schema_view.schema.version or "unversioned")),
-                    mapping=DIRECT_MAPPING_ID,
+                    mapping=direct_mapping_id(),
                 )
                 rows_written = sink.write(_stream(), table=self.collection)
                 table_rows = ((self.collection, rows_written),)

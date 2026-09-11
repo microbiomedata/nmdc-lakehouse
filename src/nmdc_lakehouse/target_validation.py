@@ -109,9 +109,38 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _published_target_schema_resource():
+    """Locate the flattened target schema shipped by the nmdc-lakehouse-schema package.
+
+    The flattened schema is that package's product; this repo consumes it rather than committing
+    its own copy (microbiomedata/nmdc-lakehouse#4).
+    """
+    return resources.files("nmdc_lakehouse_schema").joinpath("schema/nmdc_schema_flattened.yaml")
+
+
+def assert_source_schema_aligned() -> None:
+    """Fail fast when the installed nmdc-schema differs from the one the target schema was built from.
+
+    The flattener projects records using the installed nmdc-schema, while validation compares them
+    against the packaged flat schema, which was generated from a specific nmdc-schema version. If the
+    two disagree the columns silently drift, so require an exact match; the two packages are bumped
+    together (microbiomedata/nmdc-lakehouse#4).
+    """
+    installed = version("nmdc-schema")
+    with resources.as_file(_published_target_schema_resource()) as schema_path:
+        # source_package_version is the installed nmdc-schema version recorded at generation time
+        # (source_schema_version is the LinkML schema's own declared version, which can differ).
+        built_from = _annotation(SchemaView(str(schema_path)).schema, "source_package_version")
+    if installed != built_from:
+        raise TargetValidationError(
+            f"Installed nmdc-schema {installed!r} does not match the flattened target schema's "
+            f"source_package_version {built_from!r} (from nmdc-lakehouse-schema). Pin the two together."
+        )
+
+
 def packaged_target_schema_sha256() -> str:
     """Return the digest of the target schema shipped with this installation."""
-    schema_resource = resources.files("nmdc_lakehouse").joinpath("schemas/nmdc_metadata.yaml")
+    schema_resource = _published_target_schema_resource()
     with resources.as_file(schema_resource) as schema_path:
         return _sha256(schema_path)
 
@@ -125,7 +154,7 @@ def _target_selection_basis(schema_view: SchemaView, target_class: str) -> str:
 
 def packaged_target_selection_bases(target_classes: set[str]) -> dict[str, str]:
     """Return schema-derived row-selection bases for target classes."""
-    schema_resource = resources.files("nmdc_lakehouse").joinpath("schemas/nmdc_metadata.yaml")
+    schema_resource = _published_target_schema_resource()
     with resources.as_file(schema_resource) as schema_path:
         schema_view = SchemaView(str(schema_path))
         return {name: _target_selection_basis(schema_view, name) for name in sorted(target_classes)}
@@ -284,7 +313,6 @@ def _validate_table(
     expected = {
         "table_name": artifact.table,
         "source_class": artifact.source_class,
-        "mapping": artifact.mapping,
     }
     for name, value in expected.items():
         if _annotation(target_class, name) != value:
@@ -339,6 +367,7 @@ def build_target_validation_report(
     """Validate one already integrity-checked snapshot and return sanitized evidence."""
     if full_table_max_rows < 0 or sample_rows < 1:
         raise TargetValidationError("Validation thresholds must be nonnegative and sample rows must be positive.")
+    assert_source_schema_aligned()
     started = time.monotonic()
     schema_view = SchemaView(str(schema_path))
     schema_id = schema_view.schema.id
@@ -420,7 +449,7 @@ def validate_target_snapshot(
     root = root.expanduser()
     manifest = validate_snapshot(root)
     root = root.resolve()
-    schema_resource = resources.files("nmdc_lakehouse").joinpath("schemas/nmdc_metadata.yaml")
+    schema_resource = _published_target_schema_resource()
     with resources.as_file(schema_resource) as schema_path:
         return build_target_validation_report(
             root,

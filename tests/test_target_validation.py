@@ -1,13 +1,16 @@
 """Tests for logical target validation of manifested Parquet rows."""
 
 import json
+from importlib import resources
 from importlib.metadata import version
 from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from nmdc_lakehouse_schema.transforms.schema_generator import DEFAULT_FLATTENED_SCHEMA_ID
 
+from nmdc_lakehouse.producer_identity import flattener_mapping_id
 from nmdc_lakehouse.snapshot_manifest import (
     ArtifactRecord,
     PerformanceRecord,
@@ -18,18 +21,20 @@ from nmdc_lakehouse.snapshot_manifest import (
 from nmdc_lakehouse.target_validation import (
     TargetValidationError,
     _sample_rows,
+    assert_source_schema_aligned,
     build_target_validation_report,
     load_target_validation_report,
     validate_target_snapshot,
     write_target_validation_report,
 )
-from nmdc_lakehouse.transforms.schema_generator import (
-    DEFAULT_FLATTENED_SCHEMA_ID,
-    PRIMARY_MAPPING_ID,
-    SIDE_TABLE_MAPPING_ID,
-)
 
-PUBLISHED_SCHEMA = Path(__file__).parents[1] / "src/nmdc_lakehouse/schemas/nmdc_metadata.yaml"
+# The flattened target schema is consumed from the nmdc-lakehouse-schema package (#4).
+PUBLISHED_SCHEMA = Path(str(resources.files("nmdc_lakehouse_schema").joinpath("schema/nmdc_schema_flattened.yaml")))
+
+# Producer identity is recorded (not validated) provenance: package==version (#333). Primary and
+# side tables share one flattener identity; these are just footer values the test artifacts carry.
+PRIMARY_MAPPING_ID = flattener_mapping_id()
+SIDE_TABLE_MAPPING_ID = flattener_mapping_id()
 
 
 def _artifact(path: Path, *, target_class: str, source_class: str, mapping: str) -> ArtifactRecord:
@@ -269,12 +274,6 @@ def test_schema_and_class_contract_mismatches_fail_closed(tmp_path: Path) -> Non
     with pytest.raises(TargetValidationError, match="identities do not match"):
         build_target_validation_report(tmp_path, manifest, PUBLISHED_SCHEMA)
 
-    manifest.target_schema_ids = [DEFAULT_FLATTENED_SCHEMA_ID]
-    manifest.artifacts[0].mapping = SIDE_TABLE_MAPPING_ID
-    manifest.mapping_ids = [SIDE_TABLE_MAPPING_ID]
-    with pytest.raises(TargetValidationError, match="mapping metadata"):
-        build_target_validation_report(tmp_path, manifest, PUBLISHED_SCHEMA)
-
 
 @pytest.mark.parametrize(
     ("aggregate", "value", "message"),
@@ -360,3 +359,14 @@ def test_report_writer_preserves_the_snapshot_and_refuses_replacement(tmp_path: 
     assert destination.is_file()
     with pytest.raises(TargetValidationError, match="Refusing to replace"):
         write_target_validation_report(destination, report, snapshot_root=snapshot)
+
+
+def test_source_schema_alignment_guard(monkeypatch) -> None:
+    """The guard passes when installed nmdc-schema matches the flat artifact, and fails on drift."""
+    from nmdc_lakehouse import target_validation as tv
+
+    assert_source_schema_aligned()  # installed nmdc-schema matches the packaged flat schema
+
+    monkeypatch.setattr(tv, "version", lambda package: "0.0.0")
+    with pytest.raises(TargetValidationError, match="does not match the flattened target schema"):
+        assert_source_schema_aligned()

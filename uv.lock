@@ -1618,6 +1618,7 @@ dependencies = [
     { name = "linkml" },
     { name = "linkml-runtime" },
     { name = "linkml-store" },
+    { name = "nmdc-lakehouse-schema" },
     { name = "nmdc-schema" },
     { name = "oaklib" },
     { name = "pandas" },
@@ -1670,7 +1671,8 @@ requires-dist = [
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=1.0.6" },
     { name = "mongomock", marker = "extra == 'dev'", specifier = ">=4.3" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
-    { name = "nmdc-schema" },
+    { name = "nmdc-lakehouse-schema", specifier = "==0.3.0" },
+    { name = "nmdc-schema", specifier = "==11.23.0" },
     { name = "oaklib", specifier = ">=0.7.4" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.6.2" },
@@ -1693,6 +1695,18 @@ requires-dist = [
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.12.20260408" },
 ]
 provides-extras = ["dev", "docs"]
+
+[[package]]
+name = "nmdc-lakehouse-schema"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "linkml-runtime" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/41/21/be9daa87a71945eef76ed237da8ecfb239acfb2fc9a8086cb218853169b2/nmdc_lakehouse_schema-0.3.0.tar.gz", hash = "sha256:5a94260c236d909a065ae58610404038cc431298603f5f2f2d3739174722610e", size = 360939, upload-time = "2026-09-10T23:39:48.737Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ae/ae/826ffa284ad2ff18917fb7a6c78101c6a806ddf0c5514f5e6adf25e818d7/nmdc_lakehouse_schema-0.3.0-py3-none-any.whl", hash = "sha256:525591065da6c4745abfb3d50bdded434ebc2194a063fae7bc0433d73842b69f", size = 122457, upload-time = "2026-09-10T23:39:47.165Z" },
+]
 
 [[package]]
 name = "nmdc-schema"
