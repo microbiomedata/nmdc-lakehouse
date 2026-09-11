@@ -27,8 +27,10 @@ dependencies = [
     # target validation asserts the two agree at run time (microbiomedata/nmdc-lakehouse#4).
     "nmdc-schema==11.23.0",
     # The flattened-schema engine and the flat-schema artifact live in this package; this repo
-    # consumes both from PyPI rather than defining/committing them. >=0.3.0 ships the artifact.
-    "nmdc-lakehouse-schema>=0.3.0",
+    # consumes both from PyPI rather than defining/committing them. Pinned exactly and bumped in
+    # lockstep with nmdc-schema: a release built from a different source version would trip the
+    # run-time alignment guard, so the pin keeps the invariant at dependency-resolution time.
+    "nmdc-lakehouse-schema==0.3.0",
     # Database drivers (linkml-store routes through these)
     "pymongo>=4.9",
     "psycopg[binary]>=3.3.4",

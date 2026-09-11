@@ -128,11 +128,13 @@ def assert_source_schema_aligned() -> None:
     """
     installed = version("nmdc-schema")
     with resources.as_file(_published_target_schema_resource()) as schema_path:
-        built_from = _annotation(SchemaView(str(schema_path)).schema, "source_schema_version")
+        # source_package_version is the installed nmdc-schema version recorded at generation time
+        # (source_schema_version is the LinkML schema's own declared version, which can differ).
+        built_from = _annotation(SchemaView(str(schema_path)).schema, "source_package_version")
     if installed != built_from:
         raise TargetValidationError(
             f"Installed nmdc-schema {installed!r} does not match the flattened target schema's "
-            f"source_schema_version {built_from!r} (from nmdc-lakehouse-schema). Pin the two together."
+            f"source_package_version {built_from!r} (from nmdc-lakehouse-schema). Pin the two together."
         )
 
 

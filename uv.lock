@@ -1671,7 +1671,7 @@ requires-dist = [
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=1.0.6" },
     { name = "mongomock", marker = "extra == 'dev'", specifier = ">=4.3" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
-    { name = "nmdc-lakehouse-schema", specifier = ">=0.3.0" },
+    { name = "nmdc-lakehouse-schema", specifier = "==0.3.0" },
     { name = "nmdc-schema", specifier = "==11.23.0" },
     { name = "oaklib", specifier = ">=0.7.4" },
     { name = "pandas", specifier = ">=2.2" },

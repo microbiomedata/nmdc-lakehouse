@@ -51,14 +51,16 @@ Schema-directed flattening of the NMDC / LinkML object model. The LinkML
 projected into one or more tabular outputs and supplies output types. This is
 not full LinkML validation of every input record.
 
-The canonical logical target is
-`src/nmdc_lakehouse/schemas/nmdc_metadata.yaml`.
-It is generated from the locked NMDC `Database` model and contains every
-primary projection plus every possible junction and inlined-child side-table
-class. Schema and class annotations record source, table, and mapping
-identities. Regenerate it with `just generate-flat-schema`;
-`just check-flat-schema` fails when the committed artifact drifts from the
-installed locked source and generator.
+The canonical logical target is the flattened schema shipped by the
+`nmdc-lakehouse-schema` package, read from
+`nmdc_lakehouse_schema/schema/nmdc_schema_flattened.yaml`. It is generated from
+the locked NMDC `Database` model and contains every primary projection plus every
+possible junction and inlined-child side-table class. Its class annotations record
+source and table identities; the producing loader is not recorded in the schema, it
+is per-write provenance in the Parquet footer and snapshot manifest. Generation,
+versioning, and drift checking live in that package. This repository consumes the
+artifact and, at validation time, asserts the installed `nmdc-schema` matches the
+source version the artifact was built from.
 
 The target copies source enum, type, and prefix definitions needed by retained
 slot ranges, making it standalone rather than dependent on an undeclared NMDC
