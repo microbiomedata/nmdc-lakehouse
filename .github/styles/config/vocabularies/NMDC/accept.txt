@@ -26,6 +26,7 @@ CodeQL
 concat
 config
 CURIE
+CURIEs
 Dagster
 DataObject
 data_lakehouse_ingest
@@ -151,6 +152,7 @@ HMM
 HMMER
 KEGG
 MAG
+MAGs
 NOM
 ORCID
 TAXID

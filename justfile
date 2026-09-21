@@ -550,11 +550,11 @@ export-nmdc-parquet: export-nmdc-duckdb
     uv run python scripts/export_duckdb_to_parquet.py "{{ nmdc_duckdb_file }}" --output-dir "{{ nmdc_parquet_dir }}"
 
 # Full pipeline: flatten in Mongo -> DuckDB -> Parquet -> biosample CSV.
-# Generate the canonical primary and side-table LinkML target schema.
+# Deprecated: generate the legacy local schema; develop new projections in nmdc-lakehouse-schema.
 generate-flat-schema *ARGS:
     @uv run python scripts/python/generate_flattened_schema.py {{ ARGS }}
 
-# Fail when the committed LinkML target schema differs from current generation.
+# Check the legacy local schema until PR #340 switches to the schema package.
 check-flat-schema:
     @uv run python scripts/python/generate_flattened_schema.py --check
 

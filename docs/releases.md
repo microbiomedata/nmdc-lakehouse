@@ -68,11 +68,19 @@ for example `11.23.0+flat.1.0.0`. The first half says which upstream release it 
 second is `FLATTENER_VERSION` in `src/nmdc_lakehouse/transforms/schema_generator.py`, and it
 belongs to this repository's projection rules.
 
+This local generator is deprecated pending
+[PR #340](https://github.com/microbiomedata/nmdc-lakehouse/pull/340).
+New projection changes and their version increments belong in
+[`nmdc-lakehouse-schema`](https://github.com/microbiomedata/nmdc-lakehouse-schema).
+The local generation and check commands warn but remain functional for this
+checkout's existing schema. After migration, update the consumed schema
+package and its compatible source-schema version together.
+
 Until 2026-08-25 the artifact declared only the upstream version, so three committed revisions all
 said `11.23.0` while differing in content. A consumer holding two tables written from two of those
 could not tell them apart, which is the first question a consumer asks.
 
-**Bump `FLATTENER_VERSION` in the same pull request that changes what the flattener emits.**
+**Bump `FLATTENER_VERSION` in the schema repository when changing what its flattener emits.**
 Raise the minor part when a table, attribute or range changes, and the patch part when only
 descriptions or annotations move. `just check-flat-schema` will tell you the artifact is stale; it
 cannot tell you the version should have moved, because that judgement is about what changed and why.

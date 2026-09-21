@@ -60,6 +60,16 @@ identities. Regenerate it with `just generate-flat-schema`;
 `just check-flat-schema` fails when the committed artifact drifts from the
 installed locked source and generator.
 
+Generation in this repository is deprecated. Both commands emit a warning and
+continue using the legacy local generator so this checkout's runtime and
+validation artifact remain aligned. Develop new projection rules and run
+`just generate-flat-schema` in
+[`nmdc-lakehouse-schema`](https://github.com/microbiomedata/nmdc-lakehouse-schema).
+[PR #340](https://github.com/microbiomedata/nmdc-lakehouse/pull/340) migrates this
+runtime to that package and removes the local generator and artifact. Until
+that migration lands, a newly published schema does not change this checkout's
+output; adopting it requires the matching runtime implementation.
+
 The target copies source enum, type, and prefix definitions needed by retained
 slot ranges, making it standalone rather than dependent on an undeclared NMDC
 import. It preserves upstream permissible values and prefixes exactly. LinkML

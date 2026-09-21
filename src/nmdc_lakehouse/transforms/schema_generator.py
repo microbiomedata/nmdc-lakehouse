@@ -1,5 +1,10 @@
 """Generate a LinkML schema describing the flat shape produced by the flattener.
 
+Legacy implementation retained for the current lakehouse runtime. New projection
+development belongs in nmdc-lakehouse-schema; PR #340 replaces this copy and its
+packaged artifact with that dependency. The generation command emits a visible
+deprecation warning without changing the current runtime's schema contract.
+
 Given a source LinkML schema (e.g. nmdc-schema) and a root class, emit a new
 :class:`ClassDefinition` whose attributes mirror the flat output produced by
 :meth:`nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener.apply`. The

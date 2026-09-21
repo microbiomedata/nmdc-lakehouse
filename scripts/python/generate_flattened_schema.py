@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Generate or check the canonical flattened NMDC metadata LinkML schema.
+"""Generate or check the legacy flattened NMDC metadata LinkML schema.
+
+Deprecated: develop new projections and run ``just generate-flat-schema`` in
+the nmdc-lakehouse-schema repository. This command remains available to check
+the local artifact until the lakehouse consumes that package (PR #340).
 
 Walks the installed ``nmdc-schema`` package, generates a flat
 ``ClassDefinition`` for each multivalued ``Database`` slot via
@@ -19,6 +23,7 @@ import hashlib
 import os
 import re
 import tempfile
+import warnings
 from importlib.metadata import version
 from importlib.util import find_spec
 from pathlib import Path
@@ -149,6 +154,13 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("output", nargs="?", type=Path, default=CANONICAL_OUTPUT)
     parser.add_argument("--check", action="store_true", help="Fail when OUTPUT differs from current generation.")
     args = parser.parse_args(argv)
+    warnings.warn(
+        "Schema generation in nmdc-lakehouse is deprecated. "
+        "Run 'just generate-flat-schema' in nmdc-lakehouse-schema for new projections. "
+        "This command still uses the legacy generator until the migration in PR #340.",
+        FutureWarning,
+        stacklevel=2,
+    )
     try:
         rendered = render_installed_schema()
         if args.check:
