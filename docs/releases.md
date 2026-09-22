@@ -73,14 +73,20 @@ This local generator is deprecated pending
 New projection changes and their version increments belong in
 [`nmdc-lakehouse-schema`](https://github.com/microbiomedata/nmdc-lakehouse-schema).
 The local generation and check commands warn but remain functional for this
-checkout's existing schema. After migration, update the consumed schema
-package and its compatible source-schema version together.
+checkout's existing schema. If a necessary compatibility fix changes this
+legacy generator's output before migration, also bump its local
+`FLATTENER_VERSION` and regenerate `src/nmdc_lakehouse/schemas/nmdc_metadata.yaml`
+here. A version bump in the schema repository does not update this local copy.
+After migration, update the consumed schema package and its compatible
+source-schema version together.
 
 Until 2026-08-25 the artifact declared only the upstream version, so three committed revisions all
 said `11.23.0` while differing in content. A consumer holding two tables written from two of those
 could not tell them apart, which is the first question a consumer asks.
 
-**Bump `FLATTENER_VERSION` in the schema repository when changing what its flattener emits.**
+**Bump `FLATTENER_VERSION` in the repository whose flattener output changes.**
+New projection development belongs in the schema repository; the legacy
+compatibility exception above applies until this checkout consumes that package.
 Raise the minor part when a table, attribute or range changes, and the patch part when only
 descriptions or annotations move. `just check-flat-schema` will tell you the artifact is stale; it
 cannot tell you the version should have moved, because that judgement is about what changed and why.

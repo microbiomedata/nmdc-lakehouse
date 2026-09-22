@@ -2,8 +2,8 @@
 """Generate or check the legacy flattened NMDC metadata LinkML schema.
 
 Deprecated: develop new projections and run ``just generate-flat-schema`` in
-the nmdc-lakehouse-schema repository. This command remains available to check
-the local artifact until the lakehouse consumes that package (PR #340).
+the nmdc-lakehouse-schema repository. This command remains available to generate
+and check the local artifact until the lakehouse consumes that package (PR #340).
 
 Walks the installed ``nmdc-schema`` package, generates a flat
 ``ClassDefinition`` for each multivalued ``Database`` slot via
