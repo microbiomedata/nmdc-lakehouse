@@ -214,7 +214,7 @@ at these paths blocks a complete export in
 Generic primary expansion supports at most two single-object edges to a scalar
 leaf. Child-row expansion is shallower than its generated schema can describe,
 so a declared optional column can still lose a deeper value. The schema
-package's [transformation support reference](https://github.com/microbiomedata/nmdc-lakehouse-schema/blob/v0.4.0/docs/transformation-support.md)
+package's [transformation support reference](https://github.com/microbiomedata/nmdc-lakehouse-schema/blob/v0.4.0/src/docs/transformation-support.md)
 details these boundaries. The [rollout preflight](source-schema-1124-rollout.md)
 records which inspected paths were populated; target-row validation alone does
 not detect content omitted before writing.
