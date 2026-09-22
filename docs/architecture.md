@@ -44,7 +44,7 @@ destination publication independent so BERDL, another managed lakehouse, an
 object store, or a local query environment can consume the same portable
 artifacts without depending on how source records were read.
 
-## Transforms (`nmdc_lakehouse.transforms`)
+## Transforms (`nmdc_lakehouse_schema.transforms`)
 
 Schema-directed flattening of the NMDC / LinkML object model. The LinkML
 `SchemaView` determines how nested, multivalued, and inlined slots are
@@ -124,7 +124,7 @@ inferred from an earlier deployment.
 
 | Logical group | Contents | Source |
 |---|---|---|
-| `nmdc_metadata` | Schema-driven tables from the 19 NMDC MongoDB collections in the reviewed `Database.slots` snapshot. | NMDC MongoDB → `linkml-store` source adapter → `nmdc_lakehouse.transforms` schema-driven flattening (with `functional_annotation_agg` as a special-case raw-`pymongo` loader for performance; see #48). |
+| `nmdc_metadata` | Schema-driven tables from the 19 NMDC MongoDB collections in the reviewed `Database.slots` snapshot. | NMDC MongoDB → `linkml-store` source adapter → `nmdc_lakehouse_schema.transforms` schema-driven flattening (with `functional_annotation_agg` as a special-case raw-`pymongo` loader for performance; see #48). |
 | `nmdc_results` | Tables derived from workflow output files (per-gene annotations, taxonomy summaries). | NERSC files referenced by `data_object_set` URLs |
 | `nmdc_ref_data` | Reference / ontology tables loaded from external sources. | Pfam terms, GO/EC where redistributable, etc. KEGG term names are excluded; see #103 (KEGG redistribution license). |
 

@@ -45,7 +45,6 @@ nmdc-lakehouse/
 │       ├── cli.py          # Click CLI entry point
 │       ├── config.py       # settings & environment loading
 │       ├── sources/        # Mongo source + planned Postgres interface
-│       ├── transforms/     # object-model flattening to tabular form
 │       ├── sinks/          # local Parquet sink + planned Iceberg interface
 │       ├── io/             # large data-file handling
 │       └── jobs/           # ETL job definitions & registry
@@ -54,10 +53,13 @@ nmdc-lakehouse/
 
 ### Module responsibilities
 
+The [11.24.0 rollout guide](docs/source-schema-1124-rollout.md) describes the
+current source/schema-package pair, changed columns, and production-data gates.
+
 | Package                       | Purpose                                                                 |
 |-------------------------------|-------------------------------------------------------------------------|
 | `nmdc_lakehouse.sources`      | Retrieve NMDC records from MongoDB; reserve an interface for PostgreSQL. |
-| `nmdc_lakehouse.transforms`   | Flatten the nested LinkML object model into tabular / relational form.  |
+| `nmdc_lakehouse_schema.transforms` | External package supplying schema generation and object-model flattening. |
 | `nmdc_lakehouse.sinks`        | Write local Parquet files; reserve optional managed-table adapters.      |
 | `nmdc_lakehouse.io`           | Stage & reference large genomic / bulk data files alongside metadata.   |
 | `nmdc_lakehouse.jobs`         | Declarative ETL jobs composed from a source → transform → sink pipeline.|

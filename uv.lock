@@ -1671,8 +1671,8 @@ requires-dist = [
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=1.0.6" },
     { name = "mongomock", marker = "extra == 'dev'", specifier = ">=4.3" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
-    { name = "nmdc-lakehouse-schema", specifier = "==0.3.0" },
-    { name = "nmdc-schema", specifier = "==11.23.0" },
+    { name = "nmdc-lakehouse-schema", specifier = "==0.4.0" },
+    { name = "nmdc-schema", specifier = "==11.24.0" },
     { name = "oaklib", specifier = ">=0.7.4" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.6.2" },
@@ -1698,19 +1698,19 @@ provides-extras = ["dev", "docs"]
 
 [[package]]
 name = "nmdc-lakehouse-schema"
-version = "0.3.0"
+version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "linkml-runtime" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/41/21/be9daa87a71945eef76ed237da8ecfb239acfb2fc9a8086cb218853169b2/nmdc_lakehouse_schema-0.3.0.tar.gz", hash = "sha256:5a94260c236d909a065ae58610404038cc431298603f5f2f2d3739174722610e", size = 360939, upload-time = "2026-09-10T23:39:48.737Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8e/19/f86280e20fb2d42356cafa41e33795bad883554500ea4e273b9721ca3ee0/nmdc_lakehouse_schema-0.4.0.tar.gz", hash = "sha256:618ea4edf00e1dfc9fa587970ef94880040e9dba563a714a4a116312b275a472", size = 387377, upload-time = "2026-09-22T17:03:57.691Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ae/ae/826ffa284ad2ff18917fb7a6c78101c6a806ddf0c5514f5e6adf25e818d7/nmdc_lakehouse_schema-0.3.0-py3-none-any.whl", hash = "sha256:525591065da6c4745abfb3d50bdded434ebc2194a063fae7bc0433d73842b69f", size = 122457, upload-time = "2026-09-10T23:39:47.165Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/4e/c193806b1349f655a2d52497eccfc49739d36b2275c9e0795ff29af6a43f/nmdc_lakehouse_schema-0.4.0-py3-none-any.whl", hash = "sha256:e88f486fe4245290e1b0ea8825d134c99dbd09b44db5952cc602f2d99e292169", size = 129030, upload-time = "2026-09-22T17:03:55.985Z" },
 ]
 
 [[package]]
 name = "nmdc-schema"
-version = "11.23.0"
+version = "11.24.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -1728,9 +1728,9 @@ dependencies = [
     { name = "requests" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/74/df/47fe489c988e91e1de43e923eb88327c7780d6641e346cc5a2e73084c84a/nmdc_schema-11.23.0.tar.gz", hash = "sha256:12060bd363963b28102ccffb4e1452da9c423d913126fc7480789596ebfb572e", size = 799042, upload-time = "2026-08-13T21:52:45.614Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d8/e8/5d7c5c55e58688968f31e28a59ca2dd850dd98b7ba92dd48c6e426180109/nmdc_schema-11.24.0.tar.gz", hash = "sha256:c3d9f55b8e8434ffe2083bd9d3ae1a8ce74daa602d4ec43b5dae60dddcadfe0e", size = 806492, upload-time = "2026-09-16T22:49:43.927Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c3/8c/c6c252acab3ce81c56115fdbe4856674ecd0ce89b5a3be148fc8007edd8e/nmdc_schema-11.23.0-py3-none-any.whl", hash = "sha256:369ddeaa2965b172a6609f292b48163e670b03b25d7317da44068a57b6fe437f", size = 877322, upload-time = "2026-08-13T21:52:43.788Z" },
+    { url = "https://files.pythonhosted.org/packages/23/c6/8084eb767b4a8ce88433f65b6f3c62be32d6a813eaf60e9ce75f7b5bea5f/nmdc_schema-11.24.0-py3-none-any.whl", hash = "sha256:db6f22d84f611af7ba136a1d27d6163f39a7a2d2db600d00cd27bdc6ed3ff373", size = 891747, upload-time = "2026-09-16T22:49:42.274Z" },
 ]
 
 [[package]]

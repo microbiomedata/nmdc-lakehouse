@@ -48,7 +48,7 @@ def _artifact(path: Path, *, target_class: str, source_class: str, mapping: str)
         physical_schema_sha256="1" * 64,
         footer_schema_sha256="2" * 64,
         source_schema_id="https://w3id.org/nmdc/nmdc",
-        source_schema_version="11.23.0",
+        source_schema_version="11.24.0",
         source_class=source_class,
         target_schema_id=DEFAULT_FLATTENED_SCHEMA_ID,
         target_class=target_class,

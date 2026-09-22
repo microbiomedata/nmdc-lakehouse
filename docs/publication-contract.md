@@ -66,11 +66,12 @@ publication records reference that snapshot rather than changing its identity.
 The `mapping` identity records which loader wrote each table. It is per-write ETL
 provenance carried by the Parquet footer and the snapshot manifest, not by the
 flattened schema, which is purely structural (see
-[#336](https://github.com/microbiomedata/nmdc-lakehouse/issues/336)). Target
-validation checks each table's recorded `mapping` against the lakehouse's own
-routing registry (a collection routed to the direct loader must carry that loader's
-identity; every other table is flattener-produced), rather than against a schema
-annotation.
+[#336](https://github.com/microbiomedata/nmdc-lakehouse/issues/336)). The collection
+and direct-loader writers stamp their installed package identities, and job-level
+tests check the resulting footers. Target validation retains these labels as
+provenance; it does not check them against a loader registry or require the
+validator's current package version. Source-package alignment and target row
+validation are separate enforced contracts.
 
 ## Description precedence
 
