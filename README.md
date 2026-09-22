@@ -45,6 +45,7 @@ nmdc-lakehouse/
 │       ├── cli.py          # Click CLI entry point
 │       ├── config.py       # settings & environment loading
 │       ├── sources/        # Mongo source + planned Postgres interface
+│       ├── transforms/     # shared Transform protocol
 │       ├── sinks/          # local Parquet sink + planned Iceberg interface
 │       ├── io/             # large data-file handling
 │       └── jobs/           # ETL job definitions & registry
@@ -59,6 +60,7 @@ current source/schema-package pair, changed columns, and production-data gates.
 | Package                       | Purpose                                                                 |
 |-------------------------------|-------------------------------------------------------------------------|
 | `nmdc_lakehouse.sources`      | Retrieve NMDC records from MongoDB; reserve an interface for PostgreSQL. |
+| `nmdc_lakehouse.transforms`   | Shared `Transform` protocol; projection implementations live in the schema package. |
 | `nmdc_lakehouse_schema.transforms` | External package supplying schema generation and object-model flattening. |
 | `nmdc_lakehouse.sinks`        | Write local Parquet files; reserve optional managed-table adapters.      |
 | `nmdc_lakehouse.io`           | Stage & reference large genomic / bulk data files alongside metadata.   |
