@@ -175,7 +175,7 @@ before the resulting export can be treated as complete.
 
 The installed, locked `nmdc-schema` is authoritative for maintained metadata
 dump scope. The pipeline reads the slots of its `Database` class rather than
-maintaining an independent inclusion list. For `nmdc-schema` 11.23.0, the
+maintaining an independent inclusion list. For `nmdc-schema` 11.24.0, the
 reviewed snapshot is these 19 MongoDB collections:
 
 - `biosample_set`

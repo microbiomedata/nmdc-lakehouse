@@ -20,6 +20,12 @@ their source slots are absent in 11.24.0. Source collection and credit-record
 types remain in the output. These changes require consumer query updates;
 existing snapshots retain their original schema identities.
 
+Target validation requires every declared artifact target version to match the
+installed target schema and checks the manifest's aggregate version list.
+Older or mixed projection versions are rejected before row validation. Legacy
+version 1 footers, which have no target version, retain their existing read
+compatibility; their projection version cannot be verified by this check.
+
 Tests run synthetic Study, MassSpectrometry, NucleotideSequencing, and Biosample
 records through the real collection job, Parquet writing/reading, and credit-row
 target validation. Primary, child, and direct-loader tests verify producer

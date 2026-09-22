@@ -383,6 +383,22 @@ def build_target_validation_report(
         raise TargetValidationError("Snapshot mapping identities do not match the manifested artifact identities.")
     if set(manifest.target_schema_ids) != {schema_id}:
         raise TargetValidationError("Snapshot and published target schema identities do not match exactly.")
+    artifact_target_versions = {
+        artifact.target_schema_version for artifact in manifest.artifacts if artifact.target_schema_version
+    }
+    if set(manifest.target_schema_versions) != artifact_target_versions:
+        raise TargetValidationError("Snapshot target schema versions do not match the manifested artifact versions.")
+    if any(
+        artifact.footer_metadata_format_version == "2" and not artifact.target_schema_version
+        for artifact in manifest.artifacts
+    ):
+        raise TargetValidationError("Version 2 artifacts must declare a target schema version.")
+    # Legacy v1 footers have no target version. Check every declared version while
+    # retaining that read compatibility; manifest integrity is checked separately.
+    if artifact_target_versions and artifact_target_versions != {str(schema_view.schema.version or "")}:
+        raise TargetValidationError(
+            "Manifested artifact target schema versions do not match the published target schema."
+        )
     source_id = _annotation(schema_view.schema, "source_schema_id")
     source_version = _annotation(schema_view.schema, "source_schema_version")
     source_package_version = _annotation(schema_view.schema, "source_package_version")

@@ -276,6 +276,79 @@ def test_schema_and_class_contract_mismatches_fail_closed(tmp_path: Path) -> Non
 
 
 @pytest.mark.parametrize(
+    ("footer_version", "target_version"),
+    [("1", ""), ("2", "11.24.0+flat.1.2.0")],
+)
+def test_matching_projection_and_legacy_v1_remain_valid(
+    tmp_path: Path, footer_version: str, target_version: str
+) -> None:
+    path = tmp_path / "study_set.parquet"
+    pq.write_table(
+        pa.Table.from_pylist([{"id": "nmdc:sty-1", "study_category": "research_study", "type": "nmdc:Study"}]),
+        path,
+    )
+    artifact = _artifact(path, target_class="StudyFlat", source_class="Study", mapping=PRIMARY_MAPPING_ID)
+    artifact.footer_metadata_format_version = footer_version
+    artifact.target_schema_version = target_version
+    manifest = _manifest([artifact])
+    manifest.manifest_format_version = 2
+    manifest.footer_metadata_format_version = footer_version
+    manifest.target_schema_versions = [target_version] if target_version else []
+
+    assert build_target_validation_report(tmp_path, manifest, PUBLISHED_SCHEMA).status == "success"
+
+
+@pytest.mark.parametrize(
+    ("versions", "aggregate", "message"),
+    [
+        (["11.24.0+flat.1.1.0"], ["11.24.0+flat.1.1.0"], "versions do not match the published"),
+        (
+            ["11.24.0+flat.1.2.0", "11.24.0+flat.1.1.0"],
+            ["11.24.0+flat.1.1.0", "11.24.0+flat.1.2.0"],
+            "versions do not match the published",
+        ),
+        (["11.24.0+flat.1.2.0"], ["11.24.0+flat.1.1.0"], "versions do not match the manifested"),
+        ([""], [], "Version 2 artifacts must declare"),
+    ],
+)
+def test_wrong_projection_versions_fail_before_row_validation(
+    tmp_path: Path, monkeypatch, versions: list[str], aggregate: list[str], message: str
+) -> None:
+    path = tmp_path / "study_set.parquet"
+    pq.write_table(
+        pa.Table.from_pylist([{"id": "nmdc:sty-1", "study_category": "research_study", "type": "nmdc:Study"}]),
+        path,
+    )
+    primary = _artifact(path, target_class="StudyFlat", source_class="Study", mapping=PRIMARY_MAPPING_ID)
+    artifacts = [primary]
+    if len(versions) == 2:
+        side = tmp_path / "study_set_associated_dois.parquet"
+        pq.write_table(
+            pa.Table.from_pylist([{"parent_id": "nmdc:sty-1", "doi_value": "doi:10.1/example", "type": "nmdc:Doi"}]),
+            side,
+        )
+        artifacts.append(
+            _artifact(
+                side, target_class="study_set_associated_dois", source_class="Study", mapping=SIDE_TABLE_MAPPING_ID
+            )
+        )
+    for artifact, target_version in zip(artifacts, versions, strict=True):
+        artifact.footer_metadata_format_version = "2"
+        artifact.target_schema_version = target_version
+    manifest = _manifest(artifacts)
+    manifest.manifest_format_version = 2
+    manifest.footer_metadata_format_version = "2"
+    manifest.target_schema_versions = aggregate
+
+    def reject_row_validation(*args, **kwargs):
+        pytest.fail("Projection mismatch must be rejected before reading rows")
+
+    monkeypatch.setattr("nmdc_lakehouse.target_validation._validate_table", reject_row_validation)
+    with pytest.raises(TargetValidationError, match=message):
+        build_target_validation_report(tmp_path, manifest, PUBLISHED_SCHEMA)
+
+
+@pytest.mark.parametrize(
     ("aggregate", "value", "message"),
     [
         ("target_schema_ids", ["https://example.org/wrong"], "target schema identities"),
