@@ -77,6 +77,12 @@ def workflows_to_biosamples_bulk(conn, workflow_run_ids, max_depth=15):
 
 ## End-to-end: KO hits per biosample (two-step approach)
 
+The metadata query below uses projection 1.2.0's `geo_loc_name`. Check the
+destination snapshot version first; older snapshots use
+`geo_loc_name_has_raw_value` instead. The
+[rollout guide](source-schema-1124-rollout.md) describes the pending production
+upgrade, so these new column names are not a claim about current BERDL state.
+
 Combining the annotation table scan and the recursive walk into a single
 `WITH RECURSIVE` query causes `TOO_MANY_REQUESTS_FAILED`. The Trino worker
 node crashes under the combined load. Split into two steps instead:
@@ -108,18 +114,18 @@ bsm_ids = r2b["biosample_id"].unique().tolist()
 ids_sql = ", ".join(f"'{i}'" for i in bsm_ids)
 cur.execute(f"""
     SELECT id AS biosample_id, env_broad_scale_term_id, env_medium_term_id,
-           geo_loc_name_has_raw_value
+           geo_loc_name
     FROM   nmdc_metadata.biosample_set
     WHERE  id IN ({ids_sql})
 """)
 bsm_meta = pd.DataFrame(cur.fetchall(), columns=["biosample_id", "env_broad_scale_term_id",
-                                                   "env_medium_term_id", "geo_loc_name_has_raw_value"])
+                                                   "env_medium_term_id", "geo_loc_name"])
 
 result = (
     r2b.merge(ko_hits, on="workflow_run_id")
        .merge(bsm_meta, on="biosample_id")
        .groupby(["biosample_id", "env_broad_scale_term_id",
-                 "env_medium_term_id", "geo_loc_name_has_raw_value"], as_index=False)["n_hits"]
+                 "env_medium_term_id", "geo_loc_name"], as_index=False)["n_hits"]
        .sum()
        .rename(columns={"n_hits": "total_hits"})
        .sort_values("total_hits", ascending=False)

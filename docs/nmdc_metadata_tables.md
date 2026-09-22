@@ -1,10 +1,13 @@
 # `nmdc_metadata` Silver table reference
 
-`nmdc_metadata` in BERDL contains the 19 schema-defined NMDC MongoDB collections,
-flattened to Parquet and registered as managed Iceberg tables. This document describes
-the naming conventions, the side-table pattern, and the key join chains. The
+`nmdc_metadata` is the logical metadata group published as managed tables in
+BERDL. This reference describes the packaged `11.24.0+flat.1.2.0` target for the
+19 schema-defined NMDC collections: naming, side tables, and key join chains.
+It does not establish that a destination already has that version; check the
+snapshot identity before using these column names. The
 [MongoDB connection guide](mongodb-connection.md#maintained-collection-baseline)
-records the exact reviewed collection snapshot and selection policy.
+records collection scope, and the [rollout guide](source-schema-1124-rollout.md)
+records the remaining production-export gates.
 
 ## Naming conventions
 
@@ -15,8 +18,8 @@ One table per schema-defined MongoDB collection, named identically:
 
 ### Side tables
 
-Every multivalued slot that holds references to other NMDC objects or inlined
-sub-objects is flattened to a separate side table named:
+Multivalued references and embedded non-TextValue objects directly on a
+collection record produce side tables named:
 
 ```
 {collection}_{slot_name}
@@ -25,6 +28,13 @@ sub-objects is flattened to a separate side table named:
 Each side table has a `parent_id` column that is a foreign key back to the
 `id` of the primary table row, plus one or more columns for the slot values.
 Only slots with at least one populated record produce a side table.
+
+TextValues are an exception: their `has_raw_value` becomes a string or string
+array on the containing row. For example, use `biosample_set.host_diet`; there
+is no `biosample_set_host_diet` helper. Primitive arrays also need no helper.
+Repeated objects nested inside a child object are not recursively normalized;
+some populated paths are omitted. See the
+[architecture limits](architecture.md#nested-multivalued-slots-and-depth-limits).
 
 Example: `data_generation_set_has_input` has columns `parent_id` and `has_input`.
 Joining `parent_id = data_generation_set.id` gives you the biosample IDs for a
@@ -38,7 +48,7 @@ Spark overhead of exploding a repeated field.**
 
 | Table | Description |
 |---|---|
-| `biosample_set` | Environmental samples with `env_*`, `geo_loc_name_*`, `depth_*` |
+| `biosample_set` | Environmental samples with `env_*`, `geo_loc_name`, `host_diet`, `depth_*` |
 | `data_generation_set` | Sequencing runs (`NucleotideSequencing`, `MassSpectrometry`, …) |
 | `data_generation_set_has_input` | `parent_id` → biosample ID |
 | `data_generation_set_associated_studies` | `parent_id` → study ID |
@@ -47,20 +57,26 @@ Spark overhead of exploding a repeated field.**
 | `workflow_execution_set_has_input` | `parent_id` → input data object ID |
 | `workflow_execution_set_has_output` | `parent_id` → output data object ID |
 | `data_object_set` | File records: URL, MD5, size, `data_object_type` |
-| `study_set` | Studies with PI name, title, DOIs |
+| `study_set` | Study identifiers, names, titles, and other retained scalar fields |
+| `study_set_associated_dois` | DOI records linked to studies by `parent_id` |
+| `study_set_has_credit_associations` | Credit roles and `applies_to_agent_*` Person/Organization fields; principal-investigator columns are absent |
+| `data_generation_set_has_credit_associations` | Data-generation credit roles and `applies_to_agent_*` fields |
 | `functional_annotation_agg` | Precomputed `(was_generated_by, gene_function_id, count)`. KEGG.ORTHOLOGY, PFAM, COG only; no EC |
 
 ## The annotation → biosample join chain
 
 This is the standard path from a row in `nmdc_results.annotation_kegg_orthology`
-(or `annotation_enzyme_commission`) to its originating biosample:
+(or `annotation_enzyme_commission`) to its originating biosample. These examples
+use projection 1.2.0's `geo_loc_name`; earlier snapshots may instead expose
+`geo_loc_name_has_raw_value`. Deployment of the new snapshot remains gated by
+the rollout work linked above.
 
 <!-- unverified: no run of this procedure is recorded, and no tracking issue is
      named here. -->
 ```sql
 SELECT bs.id AS biosample_id,
        bs.env_broad_scale_term_id,
-       bs.geo_loc_name_has_raw_value
+       bs.geo_loc_name
 FROM nmdc_results.annotation_kegg_orthology ko
 JOIN nmdc_metadata.workflow_execution_set_was_informed_by wib
   ON wib.parent_id = ko.workflow_run_id
@@ -110,6 +126,9 @@ The Silver side tables cover the same ground under different names:
   `'KEGG.ORTHOLOGY:' || SUBSTRING(annotation_id, 4)` before joining.
 
 ## Column description coverage
+
+The measurements below are historical, from the 2026-08-27 inspection against
+source 11.23.0. They have not been remeasured for this new projection's output.
 
 Every column whose LinkML slot has a description carries that description as an
 Iceberg column comment, so a data dictionary built from the catalog uses the

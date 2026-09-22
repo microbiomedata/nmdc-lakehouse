@@ -6,6 +6,23 @@ not a moving dependency on upstream main. The schema package supplies both
 the runtime projection and the canonical target artifact, version
 `11.24.0+flat.1.2.0`, with 59 tables (19 primary and 40 helpers).
 
+## Packaged target versus production source
+
+On 2026-09-22, the
+[OpenAPI metadata](https://api.microbiomedata.org/openapi.json) for production reports NMDC
+Runtime **2.21.0** and NMDC Schema **11.23.0**. The populated investigator and
+`applies_to_person` paths in the MongoDB audit are consistent with that older
+source contract. They are not evidence of a failed migration. The API version
+does not independently certify the migration state of every MongoDB record.
+
+This package upgrade prepares the latest tagged schema target; it does not
+upgrade Runtime or MongoDB. The package-alignment guard checks installed
+dependencies and the packaged target, not the deployed source version. A
+production export targeting 11.24.0 must wait for the source rollout or use a
+separately reviewed compatibility transform. An export using the deployed
+11.23.0 contract instead needs a matching source/projection package pair; simply
+downgrading `nmdc-schema` beside projection package 0.4.0 would fail alignment.
+
 ## Changed output
 
 TextValue fields are strings or string arrays on the containing record.
@@ -61,9 +78,10 @@ Two gates therefore remain before a complete production export:
 1. Preserve substances associated with each mobile-phase occurrence, tracked in
    [schema #21](https://github.com/microbiomedata/nmdc-lakehouse-schema/issues/21).
    Projection 1.2.0 currently omits this content without a JSON fallback.
-2. Resolve the old source fields through the source system's migration or a
+2. Wait for and verify the source system's 11.24.0 rollout, or use a
    separately reviewed extraction compatibility transform, tracked in
    [#347](https://github.com/microbiomedata/nmdc-lakehouse/issues/347).
+   The observed older fields are expected while production reports 11.23.0.
    Installing a new schema does not migrate MongoDB.
 
 Package adoption can be reviewed independently. Do not describe a current

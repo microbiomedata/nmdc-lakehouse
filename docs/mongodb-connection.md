@@ -170,6 +170,9 @@ Before a production run with source 11.24.0, review the
 [rollout gates](source-schema-1124-rollout.md). The 2026-09-22 preflight found
 populated source fields and nested substances that require additional work
 before the resulting export can be treated as complete.
+The production API reports Runtime 2.21.0 and schema 11.23.0 as of that date;
+the 11.24.0 package pair is preparation for a later source rollout, not a claim
+that production already uses the new schema.
 
 ### Maintained collection baseline
 
