@@ -113,7 +113,7 @@ def _published_target_schema_resource():
     """Locate the flattened target schema shipped by the nmdc-lakehouse-schema package.
 
     The flattened schema is that package's product; this repo consumes it rather than committing
-    its own copy (microbiomedata/nmdc-lakehouse#4).
+    its own copy (microbiomedata/nmdc-lakehouse-schema#4).
     """
     return resources.files("nmdc_lakehouse_schema").joinpath("schema/nmdc_schema_flattened.yaml")
 
@@ -124,7 +124,7 @@ def assert_source_schema_aligned() -> None:
     The flattener projects records using the installed nmdc-schema, while validation compares them
     against the packaged flat schema, which was generated from a specific nmdc-schema version. If the
     two disagree the columns silently drift, so require an exact match; the two packages are bumped
-    together (microbiomedata/nmdc-lakehouse#4).
+    together (microbiomedata/nmdc-lakehouse-schema#4).
     """
     installed = version("nmdc-schema")
     with resources.as_file(_published_target_schema_resource()) as schema_path:

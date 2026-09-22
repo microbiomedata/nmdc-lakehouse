@@ -24,7 +24,7 @@ dependencies = [
     # Pinned to the version the consumed flat schema was built from: the flattener projects
     # records with this nmdc-schema, and validation compares them against nmdc-lakehouse-schema's
     # flat artifact built from the same version. Bump this and nmdc-lakehouse-schema together;
-    # target validation asserts the two agree at run time (microbiomedata/nmdc-lakehouse#4).
+    # target validation asserts the two agree at run time (microbiomedata/nmdc-lakehouse-schema#4).
     "nmdc-schema==11.24.0",
     # The flattened-schema engine and the flat-schema artifact live in this package; this repo
     # consumes both from PyPI rather than defining/committing them. Pinned exactly and bumped in

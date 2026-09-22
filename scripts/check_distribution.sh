@@ -65,7 +65,7 @@ with zipfile.ZipFile(wheel) as archive:
         "The wheel does not contain LICENSE.",
     )
     # The flattened target schema is no longer shipped by this package; it comes from
-    # nmdc-lakehouse-schema (microbiomedata/nmdc-lakehouse#4).
+    # nmdc-lakehouse-schema (microbiomedata/nmdc-lakehouse-schema#4).
 
 with tarfile.open(sdist) as archive:
     sdist_names = archive.getnames()

@@ -551,7 +551,7 @@ export-nmdc-parquet: export-nmdc-duckdb
 
 # Full pipeline: flatten in Mongo -> DuckDB -> Parquet -> biosample CSV.
 # The flattened target schema and its generation/diff tooling live in nmdc-lakehouse-schema
-# (microbiomedata/nmdc-lakehouse#4); this repo consumes the shipped artifact.
+# (microbiomedata/nmdc-lakehouse-schema#4); this repo consumes the shipped artifact.
 flatten-and-export-nmdc: flatten-nmdc export-nmdc-parquet export-flattened-biosample-csv
     @echo ""
     @echo "=== NMDC flatten and export complete ==="
