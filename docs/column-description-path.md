@@ -19,7 +19,8 @@ out where a description went missing.
 2. **The flattener** reads it with `class_induced_slots`, not `get_slot`, so a
    class-specific `slot_usage` description wins over the schema-level one. It
    also **writes text of its own**, appending a note when flattening changes what
-   a column means. See `src/nmdc_lakehouse/transforms/schema_generator.py`:
+   a column means. See the schema package's
+   [generator](https://github.com/microbiomedata/nmdc-lakehouse-schema/blob/main/src/nmdc_lakehouse_schema/transforms/schema_generator.py):
 
    - `Reference by identifier; original range was class '<range>'.`
    - `Flattened from nested slot '<parent>.<inner>'.`

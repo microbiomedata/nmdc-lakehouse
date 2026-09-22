@@ -44,21 +44,23 @@ destination publication independent so BERDL, another managed lakehouse, an
 object store, or a local query environment can consume the same portable
 artifacts without depending on how source records were read.
 
-## Transforms (`nmdc_lakehouse.transforms`)
+## Transforms (`nmdc_lakehouse_schema.transforms`)
 
 Schema-directed flattening of the NMDC / LinkML object model. The LinkML
 `SchemaView` determines how nested, multivalued, and inlined slots are
 projected into one or more tabular outputs and supplies output types. This is
 not full LinkML validation of every input record.
 
-The canonical logical target is
-`src/nmdc_lakehouse/schemas/nmdc_metadata.yaml`.
-It is generated from the locked NMDC `Database` model and contains every
-primary projection plus every possible junction and inlined-child side-table
-class. Schema and class annotations record source, table, and mapping
-identities. Regenerate it with `just generate-flat-schema`;
-`just check-flat-schema` fails when the committed artifact drifts from the
-installed locked source and generator.
+The canonical logical target is the flattened schema shipped by the
+`nmdc-lakehouse-schema` package, read from
+`nmdc_lakehouse_schema/schema/nmdc_schema_flattened.yaml`. It is generated from
+the locked NMDC `Database` model and contains primary projections plus the
+supported collection-level junction and child-table classes. Its class annotations record
+source and table identities; the producing loader is not recorded in the schema, it
+is per-write provenance in the Parquet footer and snapshot manifest. Generation,
+versioning, and drift checking live in that package. This repository consumes the
+artifact and, at validation time, asserts the installed `nmdc-schema` matches the
+source version the artifact was built from.
 
 The target copies source enum, type, and prefix definitions needed by retained
 slot ranges, making it standalone rather than dependent on an undeclared NMDC
@@ -122,7 +124,7 @@ inferred from an earlier deployment.
 
 | Logical group | Contents | Source |
 |---|---|---|
-| `nmdc_metadata` | Schema-driven tables from the 19 NMDC MongoDB collections in the reviewed `Database.slots` snapshot. | NMDC MongoDB → `linkml-store` source adapter → `nmdc_lakehouse.transforms` schema-driven flattening (with `functional_annotation_agg` as a special-case raw-`pymongo` loader for performance; see #48). |
+| `nmdc_metadata` | Schema-driven tables from the 19 NMDC MongoDB collections in the reviewed `Database.slots` snapshot. | NMDC MongoDB → `linkml-store` source adapter → `nmdc_lakehouse_schema.transforms` schema-driven flattening (with `functional_annotation_agg` as a special-case raw-`pymongo` loader for performance; see #48). |
 | `nmdc_results` | Tables derived from workflow output files (per-gene annotations, taxonomy summaries). | NERSC files referenced by `data_object_set` URLs |
 | `nmdc_ref_data` | Reference / ontology tables loaded from external sources. | Pfam terms, GO/EC where redistributable, etc. KEGG term names are excluded; see #103 (KEGG redistribution license). |
 
@@ -164,14 +166,24 @@ model, owned by this pipeline only in the sense that we maintain the loader.
 
 ## Normalization decisions: primary tables vs side tables
 
-Every multivalued slot in the NMDC schema falls into one of three categories,
-each handled differently:
+Projection 1.2.0 applies the following rules to slots directly on a collection
+record, including inherited and subtype slots. Embedded expansion is bounded;
+the rules do not imply recursive normalization or lossless round trips.
 
 ### Scalar multivalued slots
-Simple lists of primitive values (`alternative_identifiers`, `analysis_type`,
-`funding_sources`, `tillage`, etc.). In the primary flat table these are stored as
+Simple lists of primitive or enum values (`alternative_identifiers`,
+`analysis_type`, etc.). In the primary flat table these are stored as
 **native Parquet ARRAY columns** (`pa.list_(element_type)`). No scalar junction
 side table is generated.
+
+### TextValue slots
+
+A slot with the exact range `TextValue` becomes a string column or string array
+on the containing row, using `has_raw_value`. For example, `geo_loc_name` is a
+string and `host_diet` is a string array in `biosample_set`; neither needs a
+helper table. The projection rejects additional populated TextValue content
+and invalid raw-value types. Other wrapper classes use the general expansion
+rules. See the [rollout guide](source-schema-1124-rollout.md) for compatibility.
 
 ### Ref-class multivalued slots
 Lists of references to other NMDC objects (`associated_studies`, `has_input`,
@@ -182,24 +194,30 @@ table is the correct relational form for joins; the ARRAY column supports simple
 `array_contains()` lookups without a join.
 
 ### Inlined multivalued slots
-Lists of embedded objects (`mags_list`, `chem_administration`, `organism_count`,
-`agrochem_addition`, etc.). These cannot be represented in the primary flat table
-without data loss. Each becomes a **child side table** (flattened object rows with
-`parent_id`). There is no redundancy: the side table is the only representation.
+Lists of embedded non-TextValue objects (`mags_list`, `chem_administration`,
+`organism_count`, `agrochem_addition`, etc.) become **child side tables** with
+`parent_id` and the supported flattened child fields. The primary table omits
+these objects. This does not preserve every input distinction: helper rows have
+no occurrence identifier or position column, and empty lists produce no rows.
 
-### Recursive side tables
-Six cases in the current NMDC schema have inlined child classes that themselves
-contain multivalued slots. Those child slots are stored as ARRAY columns inside
-the side table row (same rule as the primary table):
+### Nested multivalued slots and depth limits
 
-| Parent side table | Child class | Child ARRAY column |
-|---|---|---|
-| `workflow_execution_set_mags_list` | `MagBin` | `members_id` |
-| `study_set_has_credit_associations` | `CreditAssociation` | `applied_roles` |
-| `workflow_execution_set_has_metabolite_identifications` | `MetaboliteIdentification` | `alternative_identifiers` |
-| `configuration_set_ordered_mobile_phases` | `MobilePhaseSegment` | `substances_used` |
-| `material_processing_set_ordered_mobile_phases` | `MobilePhaseSegment` | `substances_used` |
-| `study_set_protocol_link` | `Protocol` | `analysis_type` |
+Primitive/enum arrays, such as credit associations' `applied_roles`, and visited
+TextValue arrays can remain in child rows. Repeated non-TextValue class members
+inside embedded objects are omitted; no grandchild helpers are generated.
+Nested references are also not uniformly retained. In particular,
+`ordered_mobile_phases.substances_used` is omitted in both configuration and
+material-processing records, with no JSON fallback. Populated production data
+at these paths blocks a complete export in
+[schema #21](https://github.com/microbiomedata/nmdc-lakehouse-schema/issues/21).
+
+Generic primary expansion supports at most two single-object edges to a scalar
+leaf. Child-row expansion is shallower than its generated schema can describe,
+so a declared optional column can still lose a deeper value. The schema
+package's [transformation support reference](https://github.com/microbiomedata/nmdc-lakehouse-schema/blob/v0.4.0/src/docs/transformation-support.md)
+details these boundaries. The [rollout preflight](source-schema-1124-rollout.md)
+records which inspected paths were populated; target-row validation alone does
+not detect content omitted before writing.
 
 ### Side table naming
 All side tables follow the pattern `{collection}_{slot_name}`, e.g.

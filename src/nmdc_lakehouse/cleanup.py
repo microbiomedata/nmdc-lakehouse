@@ -10,6 +10,56 @@ from importlib.util import find_spec
 from pathlib import Path
 from typing import AbstractSet
 
+# TextValue helper names from target 11.23.0+flat.1.0.0, retired when TextValues
+# became parent columns. Keep this explicit historical allowlist independent of
+# the installed schema so reused output roots can be cleaned after an upgrade.
+# Source: src/nmdc_lakehouse/schemas/nmdc_metadata.yaml at d998dfdf4c13b5681082181b2af00013abf897ce.
+_RETIRED_TEXTVALUE_OUTPUT_NAMES = frozenset(
+    {
+        "biosample_set_agrochem_addition",
+        "biosample_set_air_temp_regm",
+        "biosample_set_antibiotic_regm",
+        "biosample_set_atmospheric_data",
+        "biosample_set_biomass",
+        "biosample_set_chem_mutagen",
+        "biosample_set_climate_environment",
+        "biosample_set_diether_lipids",
+        "biosample_set_emulsions",
+        "biosample_set_fertilizer_regm",
+        "biosample_set_fungicide_regm",
+        "biosample_set_gaseous_environment",
+        "biosample_set_gaseous_substances",
+        "biosample_set_gravity",
+        "biosample_set_growth_hormone_regm",
+        "biosample_set_heavy_metals",
+        "biosample_set_herbicide_regm",
+        "biosample_set_host_diet",
+        "biosample_set_humidity_regm",
+        "biosample_set_inorg_particles",
+        "biosample_set_mineral_nutr_regm",
+        "biosample_set_n_alkanes",
+        "biosample_set_org_particles",
+        "biosample_set_particle_class",
+        "biosample_set_perturbation",
+        "biosample_set_pesticide_regm",
+        "biosample_set_ph_regm",
+        "biosample_set_phaeopigments",
+        "biosample_set_phosplipid_fatt_acid",
+        "biosample_set_pollutants",
+        "biosample_set_radiation_regm",
+        "biosample_set_rainfall_regm",
+        "biosample_set_salt_regm",
+        "biosample_set_season_environment",
+        "biosample_set_soluble_inorg_mat",
+        "biosample_set_soluble_org_mat",
+        "biosample_set_standing_water_regm",
+        "biosample_set_suspend_solids",
+        "biosample_set_volatile_org_comp",
+        "biosample_set_water_temp_regm",
+        "biosample_set_watering_regm",
+    }
+)
+
 
 class UnsafeCleanupRoot(ValueError):
     """Raised when a cleanup root is outside the repository output policy."""
@@ -43,11 +93,11 @@ def find_project_root(start: Path) -> Path:
 
 @cache
 def metadata_output_names() -> frozenset[str]:
-    """Return every primary or potential side-table name for the locked NMDC schema."""
+    """Return current metadata output names and explicitly recognized retired helpers."""
     from linkml_runtime import SchemaView
+    from nmdc_lakehouse_schema.transforms.schema_generator import side_table_class_defs
 
     from nmdc_lakehouse.jobs.collection_to_parquet import _db_collection_map
-    from nmdc_lakehouse.transforms.schema_generator import side_table_class_defs
 
     spec = find_spec("nmdc_schema")
     if spec is None or not spec.submodule_search_locations:
@@ -58,7 +108,7 @@ def metadata_output_names() -> frozenset[str]:
     names = set(collection_map)
     for collection, root_class in collection_map.items():
         names.update(name for name, _ in side_table_class_defs(schema_view, root_class, collection))
-    return frozenset(names)
+    return frozenset(names) | _RETIRED_TEXTVALUE_OUTPUT_NAMES
 
 
 def _resolve_cleanup_root(root: Path, project_root: Path) -> Path:

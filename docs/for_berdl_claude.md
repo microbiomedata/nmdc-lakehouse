@@ -8,7 +8,9 @@ JupyterHub environment, working with `nmdc_metadata` and `nmdc_results`.
 Two Spark databases are registered:
 
 **`nmdc_metadata`**: schema-driven Silver tables, one per NMDC MongoDB
-collection plus side tables for multivalued slots. See
+collection plus helpers for supported collection-level reference and embedded
+object lists. TextValues become strings or string arrays on their containing
+table in projection 1.2.0. See
 [`nmdc_metadata_tables.md`](nmdc_metadata_tables.md) for the full table list
 and join patterns.
 
@@ -33,13 +35,19 @@ Every row in `annotation_kegg_orthology` and `annotation_enzyme_commission` has:
 
 ## Standard join: annotation row → biosample
 
+This query uses projection 1.2.0 column names. First check the destination's
+snapshot identity: installing the updated package does not reload BERDL. Older
+snapshots and the older peek notebooks use `geo_loc_name_has_raw_value` where
+this query uses `geo_loc_name`. The [rollout guide](source-schema-1124-rollout.md)
+records the prerequisites for a new production snapshot.
+
 <!-- unverified: no run of this procedure is recorded, and no tracking issue is
      named here. -->
 ```sql
 SELECT ko.annotation_id,
        bs.id            AS biosample_id,
        bs.env_broad_scale_term_id,
-       bs.geo_loc_name_has_raw_value,
+       bs.geo_loc_name,
        s.id             AS study_id,
        s.name           AS study_name
 FROM nmdc_results.annotation_kegg_orthology ko

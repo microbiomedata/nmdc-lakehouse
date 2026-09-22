@@ -82,9 +82,13 @@ relational normalization strategy. This project now uses an array-native,
 selectively normalized model:
 
 - primitive lists stay as Parquet arrays;
-- multivalued references remain arrays and also receive junction tables;
-- multivalued embedded objects receive child tables;
+- collection-level multivalued references remain arrays and also receive junction tables;
+- collection-level multivalued embedded non-TextValue objects receive child tables;
+- exact TextValue ranges become strings or string arrays on the containing row;
 - common single-valued embedded value objects become columns on the parent.
+
+These rules have [depth and nested-class limits](architecture.md#nested-multivalued-slots-and-depth-limits).
+They do not promise a lossless recursive transformation.
 
 The evaluation in [#124](https://github.com/microbiomedata/nmdc-lakehouse/issues/124)
 found that LinkML's `RelationalModelTransformer` instead targets full relational

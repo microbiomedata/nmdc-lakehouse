@@ -11,6 +11,7 @@ nav:
   - Original design conformance: original-design-conformance.md
   - Operations:
       - MongoDB connection: mongodb-connection.md
+      - Source schema 11.24.0 rollout: source-schema-1124-rollout.md
       - BERDL upload: berdl-upload.md
       - Portable publication and replacement contract: publication-contract.md
       - BERDL metadata shaping: berdl-metadata-shaping.md

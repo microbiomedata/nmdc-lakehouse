@@ -21,14 +21,16 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from nmdc_lakehouse_schema.transforms.flatteners import SchemaDrivenFlattener
+
 from nmdc_lakehouse.collection_output import CollectionOutputTransaction
 from nmdc_lakehouse.config import LakehouseSettings, MongoSettings
 from nmdc_lakehouse.jobs.base import Job, JobResult
 from nmdc_lakehouse.jobs.registry import register
 from nmdc_lakehouse.metrics import stamp_result
+from nmdc_lakehouse.producer_identity import flattener_mapping_id
 from nmdc_lakehouse.sinks.parquet_sink import ParquetSink, StreamingWriter, class_def_to_arrow_schema
 from nmdc_lakehouse.sources.mongo_source import MongoSource
-from nmdc_lakehouse.transforms.flatteners import SchemaDrivenFlattener
 
 logger = logging.getLogger(__name__)
 
@@ -127,9 +129,8 @@ class CollectionToParquetJob(Job):
         from importlib.util import find_spec
 
         from linkml_runtime import SchemaView
-
-        from nmdc_lakehouse.transforms.flatteners import side_table_rows
-        from nmdc_lakehouse.transforms.schema_generator import (
+        from nmdc_lakehouse_schema.transforms.flatteners import side_table_rows
+        from nmdc_lakehouse_schema.transforms.schema_generator import (
             DEFAULT_FLATTENED_SCHEMA_ID,
             flat_schema_version,
             flatten_class_def,
@@ -219,7 +220,7 @@ class CollectionToParquetJob(Job):
                 source_class=self.root_class,
                 target_schema_id=DEFAULT_FLATTENED_SCHEMA_ID,
                 target_schema_version=flat_schema_version(str(schema_view.schema.version or "unversioned")),
-                mapping="nmdc_lakehouse.transforms.flatteners.SchemaDrivenFlattener",
+                mapping=flattener_mapping_id(),
             )
             side_writers: dict[str, StreamingWriter] = {}
 
@@ -238,7 +239,7 @@ class CollectionToParquetJob(Job):
                         source_class=self.root_class,
                         target_schema_id=DEFAULT_FLATTENED_SCHEMA_ID,
                         target_schema_version=flat_schema_version(str(schema_view.schema.version or "unversioned")),
-                        mapping="nmdc_lakehouse.transforms.flatteners.side_table_rows",
+                        mapping=flattener_mapping_id(),
                     ),
                 )
                 side_writers[table_name] = writer

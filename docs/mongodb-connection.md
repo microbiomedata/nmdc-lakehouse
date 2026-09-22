@@ -166,11 +166,19 @@ uv run nmdc-lakehouse run-job biosample_set --dry-run
 
 ## Running ETL jobs
 
+Before a production run with source 11.24.0, review the
+[rollout gates](source-schema-1124-rollout.md). The 2026-09-22 preflight found
+populated source fields and nested substances that require additional work
+before the resulting export can be treated as complete.
+The production API reports Runtime 2.21.0 and schema 11.23.0 as of that date;
+the 11.24.0 package pair is preparation for a later source rollout, not a claim
+that production already uses the new schema.
+
 ### Maintained collection baseline
 
 The installed, locked `nmdc-schema` is authoritative for maintained metadata
 dump scope. The pipeline reads the slots of its `Database` class rather than
-maintaining an independent inclusion list. For `nmdc-schema` 11.23.0, the
+maintaining an independent inclusion list. For `nmdc-schema` 11.24.0, the
 reviewed snapshot is these 19 MongoDB collections:
 
 - `biosample_set`
@@ -275,9 +283,12 @@ export LAKEHOUSE_ROOT="./local/mongodb-metadata-$(date +%Y%m%d_%H%M%S)"
 just etl-collections
 ```
 
-If an existing output root must be reused, preview recognized schema-derived
-metadata Parquet files before deleting them. Unknown files, directories,
-manifests, logs, and symlinks are preserved:
+If an existing output root must be reused, preview recognized metadata Parquet
+files before deleting them. Cleanup recognizes current schema-derived names and
+an explicit list of 41 retired TextValue helpers from projection 1.0.0, including
+`biosample_set_host_diet.parquet`. This allows reuse after upgrading to parent
+string arrays. Unknown files, directories, manifests, logs, and symlinks are
+preserved:
 
 <!-- unverified: no run of this procedure is recorded, and no tracking issue is
      named here. -->
