@@ -48,9 +48,9 @@ just clean-parquet --delete        # remove the previewed files
 just drop-empty-parquet            # remove zero-row outputs
 ```
 
-Preview first. `clean-parquet` recognizes only maintained metadata products, so
-it will not remove unrelated files, and previewing is how you confirm that before
-deleting anything.
+Preview first. `clean-parquet` recognizes current metadata product names and an
+explicit list of retired TextValue helper names. It preserves unknown filenames,
+symlinks, and nested files. Review the preview before deleting anything.
 
 ## The constraint that matters
 

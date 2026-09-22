@@ -9,6 +9,7 @@ from nmdc_lakehouse.cleanup import (
     UnsafeCleanupRoot,
     apply_cleanup,
     find_project_root,
+    metadata_output_names,
     plan_metadata_parquet_cleanup,
 )
 from nmdc_lakehouse.cli import cli
@@ -45,14 +46,15 @@ def test_plan_selects_only_recognized_top_level_regular_files(tmp_path: Path) ->
     assert nested_generated.exists()
 
 
-def test_plan_preserves_symlink_even_with_generated_name(tmp_path: Path) -> None:
+@pytest.mark.parametrize("name", ["biosample_set", "biosample_set_host_diet"])
+def test_plan_preserves_symlink_even_with_generated_name(tmp_path: Path, name: str) -> None:
     root = tmp_path / "lakehouse"
     root.mkdir()
     outside = tmp_path / "outside.parquet"
     outside.write_text("outside", encoding="utf-8")
-    (root / "biosample_set.parquet").symlink_to(outside)
+    (root / f"{name}.parquet").symlink_to(outside)
 
-    plan = plan_metadata_parquet_cleanup(root, project_root=tmp_path, generated_names=GENERATED)
+    plan = plan_metadata_parquet_cleanup(root, project_root=tmp_path, generated_names=metadata_output_names())
 
     assert plan.targets == ()
     assert outside.exists()
@@ -188,3 +190,45 @@ def test_cli_rejects_cleanup_outside_checkout(tmp_path: Path, monkeypatch: pytes
 
     assert result.exit_code != 0
     assert "Run cleanup from inside an nmdc-lakehouse Git checkout" in result.output
+
+
+def test_cli_cleans_retired_textvalue_helpers_when_reusing_output_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_checkout(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    root = tmp_path / "lakehouse"
+    root.mkdir()
+    generated = [
+        root / "biosample_set.parquet",
+        root / "biosample_set_agrochem_addition.parquet",
+        root / "biosample_set_host_diet.parquet",
+        root / "biosample_set_watering_regm.parquet",
+    ]
+    nested = root / "nested"
+    nested.mkdir()
+    preserved = [
+        root / "biosample_set_custom.parquet",
+        root / "biosample_set_host_diet_extra.parquet",
+        root / "personal.parquet",
+        root / "snapshot-manifest.json",
+        nested / "biosample_set_host_diet.parquet",
+    ]
+    for path in generated + preserved:
+        path.write_text("synthetic output", encoding="utf-8")
+    runner = CliRunner()
+
+    preview = runner.invoke(cli, ["clean-parquet", "--root", str(root)])
+
+    assert preview.exit_code == 0
+    assert "Previewed 4 recognized metadata Parquet file(s); no files were deleted." in preview.output
+    for path in generated:
+        assert f"Would remove: {path.name}" in preview.output
+    assert all(path.exists() for path in generated + preserved)
+
+    deletion = runner.invoke(cli, ["clean-parquet", "--root", str(root), "--delete"])
+
+    assert deletion.exit_code == 0
+    assert "Removed 4 recognized metadata Parquet file(s)." in deletion.output
+    assert all(not path.exists() for path in generated)
+    assert all(path.read_text(encoding="utf-8") == "synthetic output" for path in preserved)

@@ -283,9 +283,12 @@ export LAKEHOUSE_ROOT="./local/mongodb-metadata-$(date +%Y%m%d_%H%M%S)"
 just etl-collections
 ```
 
-If an existing output root must be reused, preview recognized schema-derived
-metadata Parquet files before deleting them. Unknown files, directories,
-manifests, logs, and symlinks are preserved:
+If an existing output root must be reused, preview recognized metadata Parquet
+files before deleting them. Cleanup recognizes current schema-derived names and
+an explicit list of 41 retired TextValue helpers from projection 1.0.0, including
+`biosample_set_host_diet.parquet`. This allows reuse after upgrading to parent
+string arrays. Unknown files, directories, manifests, logs, and symlinks are
+preserved:
 
 <!-- unverified: no run of this procedure is recorded, and no tracking issue is
      named here. -->
