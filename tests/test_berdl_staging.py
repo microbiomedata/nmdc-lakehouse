@@ -1619,3 +1619,42 @@ def test_retry_rejects_changed_reviewed_evidence_even_with_new_authorization(tmp
     assert "Error:" in result.output
     assert not calls
     assert not (tmp_path / "retry-metadata.json").exists()
+
+
+@pytest.mark.parametrize("protected", ["snapshot", "checkout", "retry-checkout", "snapshot-alias", "existing"])
+def test_metadata_retry_refuses_protected_output_before_catalog_writes(tmp_path, monkeypatch, protected):
+    args, paths, calls = _metadata_retry_cli(tmp_path, monkeypatch)
+    if protected == "snapshot":
+        output = paths["manifest"].parent / "metadata-outcome.json"
+    elif protected == "checkout":
+        output = Path(args[args.index("--ingest-checkout") + 1]) / "metadata-outcome.json"
+    elif protected == "retry-checkout":
+        checkout = tmp_path / "relocated-ingest"
+        checkout.mkdir()
+        args[args.index("--ingest-checkout") + 1] = str(checkout)
+        output = checkout / "metadata-outcome.json"
+    elif protected == "snapshot-alias":
+        alias = tmp_path / "snapshot-alias"
+        alias.symlink_to(paths["manifest"].parent, target_is_directory=True)
+        output = alias / "metadata-outcome.json"
+    else:
+        output = tmp_path / "previous-metadata.json"
+        output.write_text("previous evidence")
+    args[args.index("--output") + 1] = str(output)
+    result = CliRunner().invoke(
+        cli,
+        args
+        + [
+            "--execute-metadata",
+            "--authorize-plan-sha256",
+            _file_sha256(paths["metadata"]),
+            "--authorize-staging-outcome-sha256",
+            _file_sha256(tmp_path / "outcome.json"),
+        ],
+    )
+    assert result.exit_code != 0
+    assert not calls
+    if protected == "existing":
+        assert output.read_text() == "previous evidence"
+    else:
+        assert not output.exists()

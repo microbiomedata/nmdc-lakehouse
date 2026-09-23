@@ -584,7 +584,11 @@ def berdl_apply_metadata_command(
 
     try:
         plan, staging, preview = load_berdl_metadata_preview(
-            metadata_plan_path, staging_outcome_path, staging_plan_path=staging_plan_path
+            metadata_plan_path,
+            staging_outcome_path,
+            staging_plan_path=staging_plan_path,
+            output_path=output,
+            ingest_checkout=ingest_checkout,
         )
         if not execute_metadata:
             click.echo(render_berdl_metadata(preview))

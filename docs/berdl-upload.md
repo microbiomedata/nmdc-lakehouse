@@ -608,12 +608,15 @@ The preview is offline and requires the original `--staging-plan`. Its checksum
 must match the data outcome, and the supplied metadata plan's checksum must
 match the metadata evidence bound into that staging plan. A retry cannot silently
 replace the reviewed descriptions: restore the original evidence if it changed.
+The retry also checks its output path before changing catalog metadata: it must
+be new and outside the immutable snapshot, the original reviewed ingest checkout,
+and the ingest checkout supplied for the retry.
 Execution additionally requires `--execute-metadata`,
 `--authorize-plan-sha256`, and `--authorize-staging-outcome-sha256` with the
 exact digests printed by the preview. It verifies that the stock KBase helper
-package still matches the ingest revision recorded by staging, applies only
-approved table and column descriptions, and reads every applied description
-back from the catalog. The outcome is created once and records namespace
+package still matches the ingest revision recorded by staging, applies the
+approved table and column descriptions plus planned schema-identity properties,
+and reads them back from the catalog. The outcome is created once and records namespace
 operations as deferred work for #114. This step does not change canonical
 tables, promote staging, or claim that missing descriptions were filled.
 

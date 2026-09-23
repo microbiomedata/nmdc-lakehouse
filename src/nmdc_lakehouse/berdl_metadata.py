@@ -258,6 +258,8 @@ def load_berdl_metadata_preview(
     staging_outcome_path: Path,
     *,
     staging_plan_path: Path,
+    output_path: Path,
+    ingest_checkout: Path,
 ) -> tuple[MetadataApplicationPlan, BerdlStagingOutcome, BerdlMetadataPreview]:
     """Load, hash, and cross-check the exact reviewed input bytes."""
     plan_model, plan_sha256 = _read_model(metadata_plan_path, MetadataApplicationPlan, "metadata plan")
@@ -278,6 +280,14 @@ def load_berdl_metadata_preview(
     )
     if plan_sha256 != reviewed_metadata_sha256:
         raise BerdlMetadataError("The metadata plan digest differs from the original reviewed staging plan.")
+    _require_metadata_output(
+        output_path,
+        (
+            _evidence_paths(reviewed)["snapshot-manifest.json"].parent,
+            Path(reviewed.ingest.checkout),
+            ingest_checkout,
+        ),
+    )
     return (
         plan,
         staging,
@@ -554,6 +564,19 @@ def render_berdl_metadata(value: BaseModel) -> str:
     return json.dumps(value.model_dump(mode="json"), indent=2, sort_keys=True)
 
 
+def _require_metadata_output(output: Path, protected_roots: tuple[Path, ...]) -> Path:
+    """Preflight an immutable outcome before either staging path changes the catalog."""
+    destination = output.expanduser()
+    if destination.exists() or destination.is_symlink():
+        raise BerdlMetadataError("Refusing to replace an existing BERDL metadata outcome.")
+    if not destination.parent.is_dir() or destination.parent.is_symlink():
+        raise BerdlMetadataError("The BERDL metadata outcome parent must be an ordinary directory.")
+    resolved = destination.resolve()
+    if any(resolved.is_relative_to(root.expanduser().resolve()) for root in protected_roots):
+        raise BerdlMetadataError("Metadata outcomes must remain outside the snapshot and ingest checkout.")
+    return resolved
+
+
 def execute_berdl_staging_with_metadata(
     plan_path: Path,
     *,
@@ -584,17 +607,12 @@ def execute_berdl_staging_with_metadata(
 
     # Check before starting the upload, not after data has already been staged. The final
     # atomic writer repeats the existence check to refuse concurrent replacement.
-    metadata_output = metadata_output_path.expanduser()
-    if metadata_output.exists() or metadata_output.is_symlink():
-        raise BerdlMetadataError("Refusing to replace an existing BERDL metadata outcome.")
-    if not metadata_output.parent.is_dir() or metadata_output.parent.is_symlink():
-        raise BerdlMetadataError("The BERDL metadata outcome parent must be an ordinary directory.")
-    resolved_output = metadata_output.resolve()
+    resolved_output = _require_metadata_output(
+        metadata_output_path,
+        (paths["snapshot-manifest.json"].parent, Path(staging_plan.ingest.checkout)),
+    )
     if resolved_output in {upstream_outcome_path.expanduser().resolve(), output_path.expanduser().resolve()}:
         raise BerdlMetadataError("The metadata and data outcomes must use distinct paths.")
-    for protected in (paths["snapshot-manifest.json"].parent, Path(staging_plan.ingest.checkout)):
-        if resolved_output.is_relative_to(protected.expanduser().resolve()):
-            raise BerdlMetadataError("Metadata outcomes must remain outside the snapshot and ingest checkout.")
 
     table_ops, column_ops, _ = _description_operations(metadata_plan)
     coverage = {
@@ -632,7 +650,11 @@ def execute_berdl_staging_with_metadata(
             (render_berdl_staging_outcome(staging) + "\n").encode("utf-8")
         ).hexdigest()
         plan, recorded_staging, preview = load_berdl_metadata_preview(
-            metadata_path, output_path, staging_plan_path=plan_path
+            metadata_path,
+            output_path,
+            staging_plan_path=plan_path,
+            output_path=metadata_output_path,
+            ingest_checkout=Path(staging_plan.ingest.checkout),
         )
         if (
             staging.staging_plan_sha256 != staging_plan_sha256
@@ -645,7 +667,7 @@ def execute_berdl_staging_with_metadata(
         metadata = apply_berdl_staging_metadata(
             plan, staging, preview, ingest_checkout=Path(staging_plan.ingest.checkout)
         )
-        write_berdl_metadata_outcome(metadata_output, metadata)
+        write_berdl_metadata_outcome(metadata_output_path, metadata)
     except (BerdlMetadataError, OSError) as error:
         raise BerdlMetadataError(
             "Data staging passed, but metadata completion failed. Retain the data outcome and "
