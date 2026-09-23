@@ -37,6 +37,7 @@ def _explicit_noop(tree: ast.Module, migrator: ast.ClassDef, declarations: list[
     if (
         migrator.decorator_list
         or migrator.keywords
+        or migrator.type_params
         or len(migrator.bases) != 1
         or not isinstance(migrator.bases[0], ast.Name)
         or migrator.bases[0].id != "MigratorBase"

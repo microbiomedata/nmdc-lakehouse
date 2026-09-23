@@ -129,6 +129,7 @@ def test_incomplete_or_ambiguous_history_fails_closed(migration_package, shape):
         ("    def upgrade", "    @some_decorator\n    def upgrade"),
         ("class Migrator", "@some_decorator\nclass Migrator"),
         ("class Migrator(MigratorBase):", "class Migrator(OtherBase):"),
+        ("class Migrator(MigratorBase):", "class Migrator[T](MigratorBase):"),
         ("class Migrator(MigratorBase):", "class Migrator(MigratorBase, metaclass=Other):"),
         ("commit_changes: bool = False", "commit_changes: bool = do_work()"),
         ("    def upgrade", "    def __init__(self):\n        do_work()\n\n    def upgrade"),
