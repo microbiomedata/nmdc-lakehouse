@@ -466,7 +466,31 @@ The trap itself, a Spark write to a local path producing no backup and reporting
 nothing, was [#250](https://github.com/microbiomedata/nmdc-lakehouse/issues/250),
 closed 2026-08-24.
 
-## Preview and execute verified data staging
+## Preview and execute data staging with metadata
+
+`just berdl-upload` completes both data verification and application/read-back
+of the approved table and column metadata. Metadata is part of the normal
+command; it is not an optional step to remember after an upload. The reviewed
+staging plan already binds the metadata application plan by checksum, so the
+same snapshot and plan authorization covers both phases.
+
+The metadata coverage is deliberately explicit:
+
+| Level | Retained or verified by this workflow | Remaining limits |
+| --- | --- | --- |
+| Snapshot | Manifest, source/target schema identities, software provenance, artifact hashes, row counts, and validation evidence | Keep the reviewed evidence with the run; these are not tenant registry entries |
+| Parquet file | Exact uploaded bytes are read back and hashed, retaining footer and field metadata | Object-store user metadata is not populated separately |
+| Namespace/dataset | Approved title, description, documentation link, and properties remain in the bundle and application plan | Namespace operations are reported as deferred; dataset/tenant registry writes have no supported adapter here |
+| Table | Planned descriptions are applied and read back; versioned plans also set and verify snapshot and target-schema properties | Older plans without a target version cannot supply those identity properties |
+| Column | Every planned description is read back, including comments already retained during ingest | Missing source descriptions are reported, not invented; richer LinkML constraints remain in the portable bundle/schema |
+| Row and relationship | Exported identifiers, `type` values, helper-table parent references, and ordering columns remain data | This step adds no cell annotations and does not prove source-to-output losslessness |
+
+The preview and final stdout JSON both include `metadata_coverage`, listing
+missing descriptions, unsupported operations, and deferred namespace operations.
+Successful status `data-and-table-metadata-verified` covers the planned table
+metadata, not every possible metadata level. Review the listed gaps before
+accepting a staging run. Namespace application remains tracked in
+[#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114).
 
 Generate the plan and run its preview and execution in the same BERDL
 JupyterHub pod. The plan binds absolute paths, the Python interpreter, this
@@ -481,17 +505,22 @@ using the pod terminal for a long-running execution. Preview is the default:
 just berdl-upload \
   /path/to/berdl-staging-plan.json \
   /path/to/kbase-ingest-outcome.json \
-  /path/to/nmdc-staging-outcome.json
+  /path/to/nmdc-staging-outcome.json \
+  --metadata-output /path/to/nmdc-staging-metadata-outcome.json
 ```
 
 Preview re-hashes and reloads every reviewed input, validates the snapshot,
 rechecks the clean official ingest revision and source hashes, and reconstructs
 the argument vector. It does not start the adapter, read credentials, contact
-a service, upload data, or change a catalog. The upstream and NMDC outcome paths
+a service, upload data, or change a catalog. The upstream, NMDC data, and metadata outcome paths
 must be distinct, must not already exist, and must remain outside the immutable
 snapshot directory and the reviewed KBase ingest checkout. An outcome created inside
 the checkout would make it dirty and invalidate the required post-run revision
 check after staging had already changed the destination.
+
+Without `--metadata-output`, the metadata outcome is saved beside the data
+outcome as `<output stem>.metadata.json`. All outcome paths are checked before
+uploading. Existing evidence is never overwritten.
 
 After reviewing that preview, compute the plan file's SHA-256 digest. For
 example, use `sha256sum` on Linux or `shasum -a 256` on macOS. Execute the same
@@ -505,6 +534,7 @@ just berdl-upload \
   /path/to/berdl-staging-plan.json \
   /path/to/kbase-ingest-outcome.json \
   /path/to/nmdc-staging-outcome.json \
+  --metadata-output /path/to/nmdc-staging-metadata-outcome.json \
   --execute-staging \
   --authorize-snapshot 'sha256:FULL_SNAPSHOT_DIGEST' \
   --authorize-plan-sha256 'FULL_PLAN_FILE_SHA256'
@@ -518,7 +548,10 @@ reviewed plan or snapshot changes.
 
 The executor passes an argument vector directly to the reviewed NMDC adapter;
 it does not invoke a shell. Adapter and KBase ingest progress is routed to
-stderr so stdout remains the parseable preview or NMDC outcome JSON. The plan
+stderr so stdout remains a parseable JSON report. On success, the report contains
+`data`, `metadata`, and `metadata_coverage`; the two immutable outcome files keep
+their existing formats for promotion and recovery commands. Save stdout with the
+run evidence to retain the combined coverage report. The plan
 digest binds authorization to the reviewed destination as well as the snapshot.
 After every started adapter process exits, fails, or is interrupted, the
 executor revalidates the plan, snapshot, and external source revision before
@@ -533,6 +566,12 @@ source digest must equal the artifact digest in the reviewed snapshot. Only
 then does it create the immutable, credential-free NMDC
 outcome with status `data-verified`.
 
+The command then applies and reads back the approved table/column descriptions
+and planned schema-identity properties using the same reviewed ingest checkout.
+It writes a separate `metadata-verified` outcome only after those checks pass.
+An execution returns zero only after both phases complete. The intermediate
+`data-verified` file by itself is not a completed staging run.
+
 The adapter uploads every manifested Parquet file to the plan's unique bronze
 prefix, reads each object back to verify its SHA-256 digest, stores the inline
 ingest configuration, and calls stock `data_lakehouse_ingest.ingest` in-process.
@@ -542,14 +581,17 @@ rehearsal until the pod run and catalog queries confirm the complete contract.
 
 Failure does not remove the unique bronze prefix, progress key, config key, or
 staging namespace. Retain them with the upstream outcome for diagnosis and make
-any retry an explicit new invocation. A `data-verified` outcome does not claim
-that catalog metadata was applied or that canonical replacement is authorized.
-Those remain separate work in
-[#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114) and
-[#234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
+any retry an explicit new invocation. A metadata failure returns nonzero while
+retaining the verified data outcome. Use the metadata-only command below to
+finish that phase without repeating the data upload. If execution was
+interrupted, inspect which outcome files exist before deciding which phase to
+retry. Canonical replacement still requires the separate promotion procedure;
+this command does not authorize it.
 
-After staging has a `data-verified` outcome, preview the table and column
-description operations bound to it:
+### Retry metadata after a partial staging run
+
+When data succeeded but metadata did not, preview the table and column
+description operations bound to the retained data outcome:
 
 <!-- unverified: no run of this procedure is recorded. Running it is tracked in
      https://github.com/microbiomedata/nmdc-lakehouse/issues/114 -->
@@ -558,15 +600,23 @@ just berdl-apply-metadata \
   /path/to/metadata-application-plan.json \
   /path/to/nmdc-staging-outcome.json \
   /path/to/data-lakehouse-ingest \
-  /path/to/nmdc-staging-metadata-outcome.json
+  /path/to/nmdc-staging-metadata-outcome.json \
+  --staging-plan /path/to/berdl-staging-plan.json
 ```
 
-The preview is offline. Execution additionally requires `--execute-metadata`,
+The preview is offline and requires the original `--staging-plan`. Its checksum
+must match the data outcome, and the supplied metadata plan's checksum must
+match the metadata evidence bound into that staging plan. A retry cannot silently
+replace the reviewed descriptions: restore the original evidence if it changed.
+The retry also checks its output path before changing catalog metadata: it must
+be new and outside the immutable snapshot, the original reviewed ingest checkout,
+and the ingest checkout supplied for the retry.
+Execution additionally requires `--execute-metadata`,
 `--authorize-plan-sha256`, and `--authorize-staging-outcome-sha256` with the
 exact digests printed by the preview. It verifies that the stock KBase helper
-package still matches the ingest revision recorded by staging, applies only
-approved table and column descriptions, and reads every applied description
-back from the catalog. The outcome is created once and records namespace
+package still matches the ingest revision recorded by staging, applies the
+approved table and column descriptions plus planned schema-identity properties,
+and reads them back from the catalog. The outcome is created once and records namespace
 operations as deferred work for #114. This step does not change canonical
 tables, promote staging, or claim that missing descriptions were filled.
 

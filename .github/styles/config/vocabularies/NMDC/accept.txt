@@ -160,3 +160,4 @@ reviewdog
 rollout
 migrators
 unreviewed
+losslessness

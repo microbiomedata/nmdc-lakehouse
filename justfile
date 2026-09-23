@@ -59,7 +59,7 @@ metadata-application-plan BUNDLE INVENTORY STAGING_NAMESPACE *ARGS:
 berdl-upload-plan SNAPSHOT_ROOT BUNDLE INVENTORY PLAN METADATA_PLAN TARGET_VALIDATION INGEST_CHECKOUT INGEST_REVISION TENANT DATASET BUCKET BRONZE_PREFIX PROGRESS_KEY CONFIG_KEY OUTPUT *ARGS:
     {{ uv_run }} --no-sync nmdc-lakehouse berdl-upload-plan "{{ SNAPSHOT_ROOT }}" --bundle "{{ BUNDLE }}" --inventory "{{ INVENTORY }}" --plan "{{ PLAN }}" --metadata-plan "{{ METADATA_PLAN }}" --target-validation "{{ TARGET_VALIDATION }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" --ingest-revision "{{ INGEST_REVISION }}" --tenant "{{ TENANT }}" --dataset "{{ DATASET }}" --bucket "{{ BUCKET }}" --bronze-prefix "{{ BRONZE_PREFIX }}" --progress-key "{{ PROGRESS_KEY }}" --config-key "{{ CONFIG_KEY }}" --output "{{ OUTPUT }}" {{ ARGS }}
 
-# Preview or execute one reviewed BERDL staging plan and verify its outcome.
+# Preview or execute a reviewed BERDL plan, verifying data and approved table metadata.
 berdl-upload PLAN UPSTREAM_OUTCOME OUTCOME *ARGS:
     {{ uv_run }} --no-sync nmdc-lakehouse berdl-upload "{{ PLAN }}" --upstream-outcome "{{ UPSTREAM_OUTCOME }}" --output "{{ OUTCOME }}" {{ ARGS }}
 
@@ -76,7 +76,7 @@ berdl-promotion-plan PUBLICATION_PLAN STAGING_OUTCOME METADATA_OUTCOME CANONICAL
 berdl-promote PROMOTION_PLAN INGEST_CHECKOUT *ARGS:
     {{ uv_run }} --no-sync nmdc-lakehouse berdl-promote "{{ PROMOTION_PLAN }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" {{ ARGS }}
 
-# Preview or apply approved table/column descriptions to verified BERDL staging tables.
+# Retry approved table metadata; ARGS must include --staging-plan ORIGINAL_PLAN.
 berdl-apply-metadata METADATA_PLAN STAGING_OUTCOME INGEST_CHECKOUT OUTCOME *ARGS:
     {{ uv_run }} --no-sync nmdc-lakehouse berdl-apply-metadata "{{ METADATA_PLAN }}" "{{ STAGING_OUTCOME }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" --output "{{ OUTCOME }}" {{ ARGS }}
 

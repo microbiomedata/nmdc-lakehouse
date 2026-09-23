@@ -19,10 +19,14 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from nmdc_lakehouse.berdl_staging import (
     BerdlStagingOutcome,
     BerdlStagingPlanError,
+    _evidence_paths,
+    _read_berdl_staging_plan,
     _require_pristine_checkout,
     _require_revision_package,
     _run_command,
+    execute_berdl_staging,
     is_staging_dataset,
+    render_berdl_staging_outcome,
 )
 from nmdc_lakehouse.metadata_application import (
     MetadataApplicationPlan,
@@ -252,6 +256,10 @@ def build_berdl_metadata_preview(
 def load_berdl_metadata_preview(
     metadata_plan_path: Path,
     staging_outcome_path: Path,
+    *,
+    staging_plan_path: Path,
+    output_path: Path,
+    ingest_checkout: Path,
 ) -> tuple[MetadataApplicationPlan, BerdlStagingOutcome, BerdlMetadataPreview]:
     """Load, hash, and cross-check the exact reviewed input bytes."""
     plan_model, plan_sha256 = _read_model(metadata_plan_path, MetadataApplicationPlan, "metadata plan")
@@ -260,6 +268,26 @@ def load_berdl_metadata_preview(
     staging = staging_model
     assert isinstance(plan, MetadataApplicationPlan)
     assert isinstance(staging, BerdlStagingOutcome)
+    try:
+        reviewed, reviewed_sha256 = _read_berdl_staging_plan(staging_plan_path)
+        _evidence_paths(reviewed)
+    except BerdlStagingPlanError as error:
+        raise BerdlMetadataError(str(error)) from error
+    if reviewed_sha256 != staging.staging_plan_sha256:
+        raise BerdlMetadataError("The staging plan does not match the plan recorded by data verification.")
+    reviewed_metadata_sha256 = next(
+        item.sha256 for item in reviewed.evidence if item.name == "metadata-application-plan.json"
+    )
+    if plan_sha256 != reviewed_metadata_sha256:
+        raise BerdlMetadataError("The metadata plan digest differs from the original reviewed staging plan.")
+    _require_metadata_output(
+        output_path,
+        (
+            _evidence_paths(reviewed)["snapshot-manifest.json"].parent,
+            Path(reviewed.ingest.checkout),
+            ingest_checkout,
+        ),
+    )
     return (
         plan,
         staging,
@@ -534,6 +562,123 @@ def apply_berdl_staging_metadata(
 def render_berdl_metadata(value: BaseModel) -> str:
     """Render stable credential-free preview or outcome JSON."""
     return json.dumps(value.model_dump(mode="json"), indent=2, sort_keys=True)
+
+
+def _require_metadata_output(output: Path, protected_roots: tuple[Path, ...]) -> Path:
+    """Preflight an immutable outcome before either staging path changes the catalog."""
+    destination = output.expanduser()
+    if destination.exists() or destination.is_symlink():
+        raise BerdlMetadataError("Refusing to replace an existing BERDL metadata outcome.")
+    if not destination.parent.is_dir() or destination.parent.is_symlink():
+        raise BerdlMetadataError("The BERDL metadata outcome parent must be an ordinary directory.")
+    resolved = destination.resolve()
+    if any(resolved.is_relative_to(root.expanduser().resolve()) for root in protected_roots):
+        raise BerdlMetadataError("Metadata outcomes must remain outside the snapshot and ingest checkout.")
+    return resolved
+
+
+def execute_berdl_staging_with_metadata(
+    plan_path: Path,
+    *,
+    upstream_outcome_path: Path,
+    output_path: Path,
+    metadata_output_path: Path,
+    authorize_snapshot: str | None,
+    authorize_plan_sha256: str | None,
+    execute_staging: bool,
+) -> dict[str, Any]:
+    """Make catalog metadata verification part of the normal staging command.
+
+    The staging plan already binds the metadata plan by digest. The same authorization
+    therefore covers applying its table metadata after data verification. Separate immutable
+    outcomes retain the existing promotion contract and allow a metadata-only retry.
+    """
+    staging_plan, staging_plan_sha256 = _read_berdl_staging_plan(plan_path)
+    paths = _evidence_paths(staging_plan)
+    metadata_path = paths["metadata-application-plan.json"]
+    model, metadata_sha256 = _read_model(metadata_path, MetadataApplicationPlan, "metadata plan")
+    assert isinstance(model, MetadataApplicationPlan)
+    metadata_plan = model
+    expected_sha256 = next(
+        item.sha256 for item in staging_plan.evidence if item.name == "metadata-application-plan.json"
+    )
+    if metadata_sha256 != expected_sha256:
+        raise BerdlMetadataError("The metadata plan no longer matches the reviewed staging plan.")
+
+    # Check before starting the upload, not after data has already been staged. The final
+    # atomic writer repeats the existence check to refuse concurrent replacement.
+    resolved_output = _require_metadata_output(
+        metadata_output_path,
+        (paths["snapshot-manifest.json"].parent, Path(staging_plan.ingest.checkout)),
+    )
+    if resolved_output in {upstream_outcome_path.expanduser().resolve(), output_path.expanduser().resolve()}:
+        raise BerdlMetadataError("The metadata and data outcomes must use distinct paths.")
+
+    table_ops, column_ops, _ = _description_operations(metadata_plan)
+    coverage = {
+        "table_descriptions_planned": len(table_ops),
+        "column_descriptions_planned": sum(len(items) for items in column_ops.values()),
+        "schema_properties_planned": bool(_schema_properties(metadata_plan)),
+        "missing_descriptions": [item.model_dump(mode="json") for item in metadata_plan.missing_descriptions],
+        "unsupported_operations": [item.model_dump(mode="json") for item in metadata_plan.unsupported_operations],
+        "deferred_namespace_operations": [
+            item.model_dump(mode="json")
+            for item in metadata_plan.supported_operations
+            if item.kind not in {MetadataOperationKind.TABLE_DESCRIPTION, MetadataOperationKind.COLUMN_DESCRIPTION}
+        ],
+    }
+    command, staging = execute_berdl_staging(
+        plan_path,
+        upstream_outcome_path=upstream_outcome_path,
+        output_path=output_path,
+        authorize_snapshot=authorize_snapshot,
+        authorize_plan_sha256=authorize_plan_sha256,
+        execute_staging=execute_staging,
+    )
+    if staging is None:
+        return {
+            "status": "preview-only",
+            "command": command,
+            "metadata_plan_sha256": metadata_sha256,
+            "metadata_output": str(resolved_output),
+            "metadata_coverage": coverage,
+        }
+    try:
+        # Use the exact bytes produced by the atomic data-outcome writer, not a hash of
+        # whatever happens to be on disk later. This also catches whitespace-only rewrites.
+        written_staging_sha256 = hashlib.sha256(
+            (render_berdl_staging_outcome(staging) + "\n").encode("utf-8")
+        ).hexdigest()
+        plan, recorded_staging, preview = load_berdl_metadata_preview(
+            metadata_path,
+            output_path,
+            staging_plan_path=plan_path,
+            output_path=metadata_output_path,
+            ingest_checkout=Path(staging_plan.ingest.checkout),
+        )
+        if (
+            staging.staging_plan_sha256 != staging_plan_sha256
+            or preview.metadata_plan_sha256 != metadata_sha256
+            or preview.staging_outcome_sha256 != written_staging_sha256
+            or recorded_staging != staging
+        ):
+            raise BerdlMetadataError("The data or metadata evidence changed between staging phases.")
+        _default_progress("data verified; applying and verifying approved table metadata")
+        metadata = apply_berdl_staging_metadata(
+            plan, staging, preview, ingest_checkout=Path(staging_plan.ingest.checkout)
+        )
+        write_berdl_metadata_outcome(metadata_output_path, metadata)
+    except (BerdlMetadataError, OSError) as error:
+        raise BerdlMetadataError(
+            "Data staging passed, but metadata completion failed. Retain the data outcome and "
+            "use berdl-apply-metadata to preview and retry metadata without uploading again. " + str(error)
+        ) from error
+    return {
+        "status": "data-and-table-metadata-verified",
+        "data": staging.model_dump(mode="json"),
+        "metadata": metadata.model_dump(mode="json"),
+        "metadata_coverage": coverage,
+    }
 
 
 def write_berdl_metadata_outcome(path: Path, outcome: BerdlMetadataOutcome) -> Path:
