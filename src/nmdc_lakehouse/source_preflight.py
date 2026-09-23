@@ -33,7 +33,8 @@ def assert_mongodb_source_aligned(uri: str) -> str:
         with MongoClient(
             uri, serverSelectionTimeoutMS=10_000, connectTimeoutMS=10_000, socketTimeoutMS=10_000
         ) as client:
-            database: Database[dict[str, object]] = client.get_default_database()
+            # Match the direct exporter's fallback, while honoring an explicit URI database.
+            database: Database[dict[str, object]] = client.get_default_database(default="nmdc")
             rows = list(database[MIGRATION_VERSION_VIEW].find({}, {"_id": 0, "schema_version": 1}).limit(2))
     except PyMongoError:
         raise SourceSchemaError(

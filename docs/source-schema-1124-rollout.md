@@ -10,11 +10,11 @@ generated artifact and recorded identity.
 | 11.24.0 (default) | `11.24.0+flat.1.3.0` | 61: 19 primary, 42 helpers |
 | 11.23.0 | `11.23.0+flat.1.3.0` | 60: 19 primary, 41 helpers |
 
-This branch uses an exact candidate commit from schema pull requests
-[#22](https://github.com/microbiomedata/nmdc-lakehouse-schema/pull/22) and
-[#24](https://github.com/microbiomedata/nmdc-lakehouse-schema/pull/24) for review
-and CI. Replace that dependency with the published exact PyPI release before
-production rollout. Installing the candidate is not a production release step.
+The consumer pins the published `nmdc-lakehouse-schema==0.5.0` package.
+Its [release](https://github.com/microbiomedata/nmdc-lakehouse-schema/releases/tag/v0.5.0)
+contains both artifacts, including the nested-substance preservation and
+source-selection changes. Installing this package does not migrate MongoDB
+or create a production snapshot.
 
 ## Packaged target versus production source
 
@@ -25,7 +25,10 @@ Runtime **2.21.0** and NMDC Schema **11.23.0**. The populated investigator and
 source contract. They are not evidence of a failed migration. The API version
 does not independently certify the migration state of every MongoDB record.
 
-The installed source version selects its exact packaged target artifact.
+The installed `nmdc-schema` version selects its exact packaged target through
+`flat_schema_resource(version("nmdc-schema"))`. For 11.23.0, this returns
+`schema/compat/11.23.0/nmdc_schema_flattened.yaml`, with target version
+`11.23.0+flat.1.3.0`; 11.24.0 selects the canonical artifact.
 The package-alignment guard checks their agreement and any explicit
 `NMDC_SCHEMA_VERSION` selection. Unsupported versions have no fallback.
 The Just runtime and validation recipes use the selected source extra; a plain
@@ -33,12 +36,23 @@ The Just runtime and validation recipes use the selected source extra; a plain
 the matching uv extra explicitly. The `build`, `lock`, and `test-dist` recipes
 operate on the package or lock file without selecting a source extra.
 
+If plain `uv run` selects 11.24.0 while the process environment requests
+11.23.0, the package-alignment guard stops the export before connecting to
+MongoDB. A selection present only in `.env` is loaded by Just, not by this
+guard; plain `uv run` does not load it automatically. Without an exported
+selection, the installed source is still checked against the packaged
+artifact and MongoDB's recorded migration version. A database recorded as
+11.23.0 is refused by an exporter using 11.24.0. These are refusal checks,
+not automatic environment switching.
+
 Before reading records and again before promoting a collection's staged output,
 both maintained export jobs read the existing MongoDB
 `_migration_latest_schema_version` view. NMDC migration bookkeeping returns a
 version only after the latest migration event is completed. A missing,
 inaccessible, ambiguous, null, or mismatched version stops the job. The check
 creates no view and performs no database writes. Dry runs use the same checks.
+The preflight honors an explicit database in the MongoDB URI and uses `nmdc`
+when its database path is absent, matching the direct exporter's convention.
 An end-of-read mismatch discards staged files and preserves that collection's
 previous output. Collections completed earlier in an all-collections run can
 already have been promoted; a failed run does not produce a successful manifest.
@@ -51,10 +65,10 @@ into newer credit/Agent records and does not migrate MongoDB.
 
 ## Select production now and switch after migration
 
-Once the reviewed schema package is published and adopted, configure the source
-selection in the shell or the local `.env`. With the read-only GCP tunnel open:
+With schema package 0.5.0 installed, configure the source selection in the
+shell or the local `.env`. With the read-only GCP tunnel open:
 
-<!-- unverified: production execution awaits the published package and source preflight, tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/347 -->
+<!-- unverified: production execution awaits source preflight and a fresh validated export, tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/347 -->
 ```bash
 export NMDC_SCHEMA_VERSION=11.23.0
 just install-all
@@ -143,8 +157,7 @@ projection-loss shape or undeclared input key.
 
 The remaining production gates are:
 
-1. Merge and publish the reviewed schema changes, then replace the consumer
-   candidate dependency with that exact release.
+1. Review and merge the consumer's adoption of published schema package 0.5.0.
 2. Verify MongoDB's recorded migration state and select its matching pair under
    [#347](https://github.com/microbiomedata/nmdc-lakehouse/issues/347).
 3. Repeat the bounded source audit and validate a fresh complete export. The

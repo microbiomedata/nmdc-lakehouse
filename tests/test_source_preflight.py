@@ -5,6 +5,8 @@ from unittest.mock import MagicMock
 
 import pytest
 from click.testing import CliRunner
+from pymongo import MongoClient
+from pymongo.collection import Collection
 from pymongo.errors import ConfigurationError, OperationFailure, ServerSelectionTimeoutError
 
 from nmdc_lakehouse import source_preflight as preflight
@@ -31,12 +33,41 @@ def test_matching_source_reads_only_the_version_view_and_closes(mongo):
     factory, client, view = mongo
     assert preflight.assert_mongodb_source_aligned("mongodb://localhost/nmdc") == version("nmdc-schema")
     factory.assert_called_once()
-    client.get_default_database.assert_called_once_with()
+    client.get_default_database.assert_called_once_with(default="nmdc")
     client.get_default_database.return_value.__getitem__.assert_called_once_with(preflight.MIGRATION_VERSION_VIEW)
     view.find.assert_called_once_with({}, {"_id": 0, "schema_version": 1})
     view.find.return_value.limit.assert_called_once_with(2)
     client.__exit__.assert_called_once()
     client.get_default_database.return_value.create_collection.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("uri", "expected_database"),
+    [
+        ("mongodb://localhost:27017", "nmdc"),
+        ("mongodb://localhost:27017/", "nmdc"),
+        ("mongodb://localhost:27017/?authSource=admin", "nmdc"),
+        ("mongodb://localhost:27017/explicit_db?authSource=admin", "explicit_db"),
+    ],
+)
+def test_preflight_honors_uri_database_and_preserves_pathless_fallback(monkeypatch, uri, expected_database):
+    """Exercise PyMongo's actual URI selection without connecting or reading a server."""
+    client = MongoClient(uri, connect=False)
+    monkeypatch.setattr(preflight, "MongoClient", lambda *args, **kwargs: client)
+    databases_read = []
+
+    def find_version(collection, filter, projection):
+        databases_read.append(collection.database.name)
+        assert collection.name == preflight.MIGRATION_VERSION_VIEW
+        assert filter == {}
+        assert projection == {"_id": 0, "schema_version": 1}
+        cursor = MagicMock()
+        cursor.limit.return_value = [{"schema_version": version("nmdc-schema")}]
+        return cursor
+
+    monkeypatch.setattr(Collection, "find", find_version)
+    assert preflight.assert_mongodb_source_aligned(uri) == version("nmdc-schema")
+    assert databases_read == [expected_database]
 
 
 @pytest.mark.parametrize(
@@ -55,7 +86,10 @@ def test_unknown_or_incomplete_migration_is_rejected(mongo, rows):
         preflight.assert_mongodb_source_aligned("mongodb://localhost/nmdc")
 
 
-@pytest.mark.parametrize("observed", ["", "0.0.0", "private-source-content"])
+@pytest.mark.parametrize(
+    "observed",
+    ["", "0.0.0", "private-source-content", "11.23.0" if version("nmdc-schema") == "11.24.0" else "11.24.0"],
+)
 def test_mismatch_does_not_echo_source_values(mongo, observed):
     mongo[2].find.return_value.limit.return_value = [{"schema_version": observed}]
     with pytest.raises(preflight.SourceSchemaError, match="does not match installed") as error:
@@ -75,6 +109,15 @@ def test_connection_errors_are_sanitized_and_closed(mongo, error_type):
 
 def test_requested_profile_drift_fails_before_connecting(monkeypatch, mongo):
     monkeypatch.setenv("NMDC_SCHEMA_VERSION", "0.0.0")
+    with pytest.raises(target_validation.TargetValidationError, match="differs from the installed"):
+        preflight.assert_mongodb_source_aligned("mongodb://localhost/nmdc")
+    mongo[0].assert_not_called()
+
+
+@pytest.mark.parametrize("installed,requested", [("11.24.0", "11.23.0"), ("11.23.0", "11.24.0")])
+def test_requested_supported_source_drift_fails_before_connecting(monkeypatch, mongo, installed, requested):
+    monkeypatch.setenv("NMDC_SCHEMA_VERSION", requested)
+    monkeypatch.setattr(target_validation, "version", lambda _package: installed)
     with pytest.raises(target_validation.TargetValidationError, match="differs from the installed"):
         preflight.assert_mongodb_source_aligned("mongodb://localhost/nmdc")
     mongo[0].assert_not_called()

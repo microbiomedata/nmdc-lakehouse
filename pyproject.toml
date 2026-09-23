@@ -24,9 +24,9 @@ dependencies = [
     # The default lock selects the latest reviewed tag. Exact source-version extras below
     # allow production's older contract; each must have a matching published flat artifact.
     "nmdc-schema>=11.23.0,<=11.24.0",
-    # Candidate for review/testing of schema PRs #22/#24. Replace with the published exact
-    # PyPI release before production rollout; the generator remains owned by that package.
-    "nmdc-lakehouse-schema @ git+https://github.com/microbiomedata/nmdc-lakehouse-schema.git@4c5d3899346ca5beefeb01f18ccef826d8b6add0",
+    # Published projection 1.3.0 includes exact 11.23.0 and 11.24.0 source artifacts.
+    # The generator and runtime projection remain owned by that package.
+    "nmdc-lakehouse-schema==0.5.0",
     # Database drivers (linkml-store routes through these)
     "pymongo>=4.9",
     "psycopg[binary]>=3.3.4",
@@ -87,10 +87,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nmdc_lakehouse"]
-
-# Temporary while reviewing the exact schema candidate above; remove with the release pin.
-[tool.hatch.metadata]
-allow-direct-references = true
 
 # ---------------------------------------------------------------------------
 # uv

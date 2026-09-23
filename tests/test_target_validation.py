@@ -446,7 +446,15 @@ def test_source_schema_alignment_guard(monkeypatch) -> None:
     with pytest.raises(TargetValidationError, match="Unsupported NMDC source package version"):
         assert_source_schema_aligned()
 
-    # Also reject an artifact that declares a different source than its selection key.
-    monkeypatch.setattr(tv, "_published_target_schema_resource", lambda: PUBLISHED_SCHEMA)
+
+@pytest.mark.parametrize("installed,artifact_source", [("11.24.0", "11.23.0"), ("11.23.0", "11.24.0")])
+def test_supported_source_rejects_artifact_built_from_other_source(monkeypatch, installed, artifact_source) -> None:
+    """Test artifact metadata separately from unsupported versions and environment drift."""
+    from nmdc_lakehouse import target_validation as tv
+
+    monkeypatch.delenv("NMDC_SCHEMA_VERSION", raising=False)
+    monkeypatch.setattr(tv, "version", lambda _package: installed)
+    wrong_artifact = flat_schema_resource(artifact_source)
+    monkeypatch.setattr(tv, "_published_target_schema_resource", lambda: wrong_artifact)
     with pytest.raises(TargetValidationError, match="does not match the flattened target schema"):
         assert_source_schema_aligned()

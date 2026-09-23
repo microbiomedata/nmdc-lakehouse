@@ -174,8 +174,9 @@ recipes use the selected source dependency and its matching flat artifact.
 The `build`, `lock`, and `test-dist` recipes do not select a source extra.
 Both maintained exporters
 check MongoDB migration metadata before reading and before promoting each
-collection. A mismatch stops the job. The candidate schema dependency must
-be replaced with the published release before production use.
+collection. A mismatch stops the job. The pinned schema package 0.5.0 supplies
+both matching artifacts; package installation alone does not verify production
+data or complete an export.
 
 ### Maintained collection baseline
 

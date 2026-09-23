@@ -68,9 +68,9 @@ Supported exact source extras and the schema package move in a coordinated updat
 version the artifact was built from.
 
 The supported source selections are 11.23.0 and 11.24.0 (the default), both using
-projection 1.3.0. This branch pins a schema candidate commit for review; replace
-that direct dependency with the exact published PyPI release and remove
-`tool.hatch.metadata.allow-direct-references` before production rollout.
+projection 1.3.0, supplied by the published `nmdc-lakehouse-schema==0.5.0`
+dependency. The lock file records its PyPI wheel and source archive; no Git
+candidate or direct-reference metadata exception is needed.
 The [rollout guide](source-schema-1124-rollout.md) records output changes,
 consumer integration checks, and production-data blockers. A successful package
 installation does not establish that the source data is ready for export.

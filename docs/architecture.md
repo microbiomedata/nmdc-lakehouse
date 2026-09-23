@@ -214,9 +214,10 @@ Other nested references are still not uniformly retained, and there is no JSON f
 Generic primary expansion supports at most two single-object edges to a scalar
 leaf. Child-row expansion is shallower than its generated schema can describe,
 so a declared optional column can still lose a deeper value. The schema
-package's [transformation support reference](https://github.com/microbiomedata/nmdc-lakehouse-schema/blob/4c5d3899346ca5beefeb01f18ccef826d8b6add0/src/docs/transformation-support.md)
-details these boundaries. Its lakehouse adoption status describes the earlier
-main branch; this candidate adopts the documented projection 1.3.0 engine. The [rollout preflight](source-schema-1124-rollout.md)
+package's [transformation support reference](https://github.com/microbiomedata/nmdc-lakehouse-schema/blob/v0.5.0/src/docs/transformation-support.md)
+details these boundaries. This consumer pins published package 0.5.0 and uses
+its projection 1.3.0 engine with the artifact matching the installed source.
+The [rollout preflight](source-schema-1124-rollout.md)
 records which inspected paths were populated; target-row validation alone does
 not detect content omitted before writing.
 

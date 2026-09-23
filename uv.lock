@@ -1682,7 +1682,7 @@ requires-dist = [
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=1.0.6" },
     { name = "mongomock", marker = "extra == 'dev'", specifier = ">=4.3" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
-    { name = "nmdc-lakehouse-schema", git = "https://github.com/microbiomedata/nmdc-lakehouse-schema.git?rev=4c5d3899346ca5beefeb01f18ccef826d8b6add0" },
+    { name = "nmdc-lakehouse-schema", specifier = "==0.5.0" },
     { name = "nmdc-schema", specifier = ">=11.23.0,<=11.24.0" },
     { name = "nmdc-schema", marker = "extra == 'source-11-23'", specifier = "==11.23.0" },
     { name = "nmdc-schema", marker = "extra == 'source-11-24'", specifier = "==11.24.0" },
@@ -1711,10 +1711,14 @@ provides-extras = ["source-11-23", "source-11-24", "dev", "docs"]
 
 [[package]]
 name = "nmdc-lakehouse-schema"
-version = "0.4.0.post4.dev0+4c5d389"
-source = { git = "https://github.com/microbiomedata/nmdc-lakehouse-schema.git?rev=4c5d3899346ca5beefeb01f18ccef826d8b6add0#4c5d3899346ca5beefeb01f18ccef826d8b6add0" }
+version = "0.5.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "linkml-runtime" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/33/eb/b599836b6e61711bab4e4775808bcfc16a5c424eca5559a5fd505727f90d/nmdc_lakehouse_schema-0.5.0.tar.gz", hash = "sha256:0233f2ada45152b6ac50ec5e25fcb8e4d4c9dd47308dbde933ddf29c141b856f", size = 500172, upload-time = "2026-09-23T18:03:39.122Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3f/92/5668cb6698742a856e0fb829f583e7e909c5ad6b43d6facdc0196dd88d78/nmdc_lakehouse_schema-0.5.0-py3-none-any.whl", hash = "sha256:dd6fc6334d8e4ba1d95344f9f64f3410f20451b0549cacc1193f114549910935", size = 233682, upload-time = "2026-09-23T18:03:37.67Z" },
 ]
 
 [[package]]

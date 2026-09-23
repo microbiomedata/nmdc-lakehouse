@@ -3,7 +3,7 @@
 
 set dotenv-load
 
-# Select a reviewed source/flat pair. Keep all recipes on the same exact source.
+# Select a reviewed source/flat pair for runtime and validation recipes.
 source_version := env_var_or_default("NMDC_SCHEMA_VERSION", "11.24.0")
 source_extra := if source_version == "11.23.0" { "source-11-23" } else if source_version == "11.24.0" { "source-11-24" } else { error("Unsupported NMDC_SCHEMA_VERSION; use 11.23.0 or 11.24.0") }
 uv_run := "uv run --extra " + source_extra
