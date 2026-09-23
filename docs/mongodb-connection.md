@@ -174,7 +174,11 @@ recipes use the selected source dependency and its matching flat artifact.
 The `build`, `lock`, and `test-dist` recipes do not select a source extra.
 Both maintained exporters
 check MongoDB migration metadata before reading and before promoting each
-collection. A mismatch stops the job. The pinned schema package 0.5.0 supplies
+collection. An incompatible migration version stops the job. The completed
+version can lag the deployed schema across the
+[reviewed no-op migration chain](source-schema-1124-rollout.md#completed-migration-versions-can-lag-the-deployed-schema):
+production's recorded 11.18.0 is compatible with source 11.23.0. Source 11.24.0
+still requires a completed 11.24.0 migration. The pinned schema package 0.5.0 supplies
 both matching artifacts; package installation alone does not verify production
 data or complete an export.
 

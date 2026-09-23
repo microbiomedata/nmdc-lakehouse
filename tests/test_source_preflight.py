@@ -1,6 +1,8 @@
 """Version gates reject unknown migration state without touching output or leaking input."""
 
+import ast
 from importlib.metadata import version
+from importlib.resources import files
 from unittest.mock import MagicMock
 
 import pytest
@@ -39,6 +41,54 @@ def test_matching_source_reads_only_the_version_view_and_closes(mongo):
     view.find.return_value.limit.assert_called_once_with(2)
     client.__exit__.assert_called_once()
     client.get_default_database.return_value.create_collection.assert_not_called()
+
+
+# Reviewed release sequence, including both sides of every no-op upgrade.
+NOOP_RELEASES = (
+    "11.18.0",
+    "11.18.1",
+    "11.19.0",
+    "11.19.1",
+    "11.20.0",
+    "11.20.1",
+    "11.20.2",
+    "11.21.0",
+    "11.22.0",
+    "11.23.0",
+)
+
+
+@pytest.mark.parametrize("installed", ["11.23.0", "11.24.0"])
+@pytest.mark.parametrize("recorded", NOOP_RELEASES)
+def test_reviewed_noop_history_is_compatible_only_with_1123(monkeypatch, mongo, installed, recorded):
+    """Production's 11.18.0 watermark must not block 11.23 or authorize 11.24."""
+    monkeypatch.setenv("NMDC_SCHEMA_VERSION", installed)
+    monkeypatch.setattr(preflight, "version", lambda _package: installed)
+    monkeypatch.setattr(target_validation, "version", lambda _package: installed)
+    mongo[2].find.return_value.limit.return_value = [{"schema_version": recorded}]
+    if installed == "11.23.0":
+        assert preflight.assert_mongodb_source_aligned("mongodb://localhost/nmdc") == installed
+    else:
+        with pytest.raises(preflight.SourceSchemaError, match="not compatible"):
+            preflight.assert_mongodb_source_aligned("mongodb://localhost/nmdc")
+
+
+@pytest.mark.parametrize("before,after", list(zip(NOOP_RELEASES, NOOP_RELEASES[1:], strict=False)))
+def test_reviewed_release_chain_has_only_explicit_noop_upgrades(before, after):
+    """Check the locked upstream package as evidence; never execute its migrators."""
+    filename = f"migrator_from_{before.replace('.', '_')}_to_{after.replace('.', '_')}.py"
+    tree = ast.parse(files("nmdc_schema.migrators").joinpath(filename).read_text())
+    migrator = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "Migrator")
+    versions = {
+        node.targets[0].id: ast.literal_eval(node.value)
+        for node in migrator.body
+        if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)
+    }
+    assert versions["_from_version"] == before
+    assert versions["_to_version"] == after
+    upgrade = next(node for node in migrator.body if isinstance(node, ast.FunctionDef) and node.name == "upgrade")
+    body = upgrade.body[1:] if ast.get_docstring(upgrade) is not None else upgrade.body
+    assert len(body) == 1 and isinstance(body[0], ast.Pass)
 
 
 @pytest.mark.parametrize(
@@ -88,11 +138,22 @@ def test_unknown_or_incomplete_migration_is_rejected(mongo, rows):
 
 @pytest.mark.parametrize(
     "observed",
-    ["", "0.0.0", "private-source-content", "11.23.0" if version("nmdc-schema") == "11.24.0" else "11.24.0"],
+    [
+        "",
+        "0.0.0",
+        "11.17.1",
+        "11.18.2",
+        "11.23.1",
+        "11.25.0",
+        "v11.23.0",
+        "11.23.0 ",
+        "private-source-content",
+        "11.23.0" if version("nmdc-schema") == "11.24.0" else "11.24.0",
+    ],
 )
 def test_mismatch_does_not_echo_source_values(mongo, observed):
     mongo[2].find.return_value.limit.return_value = [{"schema_version": observed}]
-    with pytest.raises(preflight.SourceSchemaError, match="does not match installed") as error:
+    with pytest.raises(preflight.SourceSchemaError, match="not compatible") as error:
         preflight.assert_mongodb_source_aligned("mongodb://localhost/nmdc")
     assert "private-source-content" not in str(error.value)
 
@@ -133,7 +194,20 @@ def test_preflight_cli_reports_only_sanitized_version_status(monkeypatch, mongo,
     assert result.exit_code == (0 if matches else 1)
     assert "private-value" not in result.output
     assert "mongodb://" not in result.output
-    assert ("match nmdc-schema" if matches else "does not match installed") in result.output
+    assert ("metadata is compatible" if matches else "not compatible") in result.output
+
+
+def test_preflight_cli_accepts_production_watermark_without_claiming_version_equality(monkeypatch, mongo):
+    monkeypatch.setenv("NMDC_SCHEMA_VERSION", "11.23.0")
+    monkeypatch.setattr(preflight, "version", lambda _package: "11.23.0")
+    monkeypatch.setattr(target_validation, "version", lambda _package: "11.23.0")
+    monkeypatch.setattr("nmdc_lakehouse.config.MongoSettings", lambda: MagicMock(uri="mongodb://localhost/nmdc"))
+    mongo[2].find.return_value.limit.return_value = [{"schema_version": "11.18.0"}]
+    result = CliRunner().invoke(cli, ["source-preflight"])
+    assert result.exit_code == 0
+    assert "metadata is compatible" in result.output
+    assert "pair for nmdc-schema 11.23.0" in result.output
+    assert "match" not in result.output
 
 
 @pytest.mark.parametrize("job_class", [CollectionToParquetJob, DirectMongoToParquetJob])

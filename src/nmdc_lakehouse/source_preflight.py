@@ -12,19 +12,29 @@ from nmdc_lakehouse.target_validation import assert_source_schema_aligned
 
 MIGRATION_VERSION_VIEW = "_migration_latest_schema_version"
 
+# Every intervening upgrade in the locked nmdc-schema releases is explicitly a
+# no-op. A completed migration can therefore precede the deployed source version.
+# Keep this reviewed exception exact: 11.17.1 -> 11.18.0 and 11.23.0 -> 11.24.0
+# require real migration work. Tests inspect the packaged no-op chain without
+# executing it. See docs/source-schema-1124-rollout.md for the production evidence.
+NOOP_PREDECESSORS_11_23 = frozenset(
+    {"11.18.0", "11.18.1", "11.19.0", "11.19.1", "11.20.0", "11.20.1", "11.20.2", "11.21.0", "11.22.0"}
+)
+
 
 class SourceSchemaError(ValueError):
-    """The database cannot be shown to match the installed projection source."""
+    """The migration state is not compatible with the installed projection source."""
 
 
 def assert_mongodb_source_aligned(uri: str) -> str:
-    """Require one completed migration version matching the installed source.
+    """Require one completed migration version compatible with the installed source.
 
     NMDC's migration CLI maintains a view that returns ``schema_version: null``
     unless the latest event is MIGRATION_COMPLETED. Read the existing view only;
     never instantiate its Bookkeeper, which would create it. Missing, ambiguous,
-    inaccessible, or incomplete bookkeeping fails closed. This is not a snapshot
-    read or validation of individual source records.
+    inaccessible, or incomplete bookkeeping fails closed. Exact equality or the
+    reviewed no-op predecessors of 11.23.0 are accepted. This is not a snapshot
+    read, proof of the deployed API version, or validation of individual records.
     """
     assert_source_schema_aligned()
     expected = version("nmdc-schema")
@@ -44,9 +54,11 @@ def assert_mongodb_source_aligned(uri: str) -> str:
         raise SourceSchemaError(
             "MongoDB has no unambiguous completed schema migration. Verify migration bookkeeping before exporting."
         )
-    if rows[0]["schema_version"] != expected:
+    recorded = rows[0]["schema_version"]
+    noop_compatible = expected == "11.23.0" and recorded in NOOP_PREDECESSORS_11_23
+    if recorded != expected and not noop_compatible:
         raise SourceSchemaError(
-            f"MongoDB's recorded schema version does not match installed nmdc-schema {expected}. "
-            "Select the matching source/flat pair, or wait for the source migration."
+            f"MongoDB's recorded migration version is not compatible with installed nmdc-schema {expected}. "
+            "Select a compatible source/flat pair, or verify that the required source migration has completed."
         )
     return expected
