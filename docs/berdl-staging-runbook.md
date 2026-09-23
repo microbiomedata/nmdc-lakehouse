@@ -7,14 +7,32 @@ what has passed in production from what remains unverified.
 
 ## The operator sequence
 
+For a new production export, follow the
+[source-version selection procedure](source-schema-1124-rollout.md#select-production-now-and-switch-after-migration)
+and [complete production dump instructions](mongodb-connection.md#complete-production-dump-in-two-terminals).
+The September source was 11.23.0; the repository default is 11.24.0. In each
+shell that installs or runs the source-dependent commands, explicitly select
+the intended version. For the recorded production run:
+
+<!-- verified: 2026-09-23 the operator selected 11.23.0, installed that source pair, and passed production preflight. -->
+```bash
+export NMDC_SCHEMA_VERSION=11.23.0
+just install-all
+just source-preflight
+```
+
+Preflight validates the selected pair; it does not choose the source version.
+When continuing from an already validated snapshot, reuse it and its report and
+start with metadata preparation or transfer instead of repeating export.
+
 | Phase | Where | Existing command or operation | Completion evidence |
 | --- | --- | --- | --- |
-| Export | Machine with MongoDB access | Select the matching source/flat pair; `just source-preflight`, then `just etl-collections` | Completed snapshot manifest, ETL metrics, Parquet files |
+| Export | Machine with MongoDB access | Explicit version selection and installation above; `just source-preflight`, then `just etl-collections` | Completed snapshot manifest, ETL metrics, Parquet files |
 | Validate rows | Same machine | `just validate-target-rows` with the snapshot, report path, and `--mode full` | Successful report bound to the snapshot and target schema |
-| Prepare metadata | Machine holding the snapshot | `metadata-profile`, `metadata-bundle` | Approved content, schema-derived descriptions, explicit coverage gaps |
+| Prepare metadata | Machine holding the snapshot | Follow the [profile and bundle commands](publication-contract.md#metadata-bundle): `metadata-profile`, `metadata-bundle` | Approved content, schema-derived descriptions, explicit coverage gaps |
 | Transfer | Workstation to BERDL pod | Transfer the snapshot and evidence; verify hashes in the pod | The same manifest and file hashes; no row validation rerun |
 | Observe destination | BERDL pod | `scripts/python/audit_database_metadata.py` with `--publication-inventory` | Fresh inventory of the explicitly selected catalog and namespace |
-| Plan | BERDL pod | `publication-plan`, `metadata-application-plan`, `publication-preflight`, `berdl-upload-plan` | Consistent evidence, dispositions, metadata operations, pinned execution environment |
+| Plan | BERDL pod | [Publication dispositions](publication-contract.md#table-disposition-plan), [metadata operations](publication-contract.md#metadata-application-plan), and the [staging command plan](berdl-upload.md#build-the-maintained-staging-command-plan) | Consistent evidence, dispositions, metadata operations, pinned execution environment |
 | Preview | Same pod and environment | `berdl-upload` without `--execute-staging` | Exact command and metadata coverage, with no destination writes |
 | Stage and verify | Same pod and environment | `berdl-upload --execute-staging` with the reviewed snapshot and plan digests | Data outcome, metadata outcome, and combined coverage report |
 

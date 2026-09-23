@@ -866,9 +866,11 @@ what `labctl up berdl` already provides.
 break the run.** `berdl-upload-plan` binds `--data-dir` to a resolved local
 snapshot path (`berdl_staging.py:598-604`) and execution reads those Parquet
 files from the pod filesystem, so the snapshot still has to be in the pod for
-that command. Making the maintained path read from object storage instead is
-real work on the plan and the adapter, tracked in
-[#294](https://github.com/microbiomedata/nmdc-lakehouse/issues/294).
+that command. Reading directly from object storage would require changes to the
+plan and adapter. [Issue #353](https://github.com/microbiomedata/nmdc-lakehouse/issues/353)
+keeps that transport change separate from its first orchestration slice;
+[issue #294](https://github.com/microbiomedata/nmdc-lakehouse/issues/294) owns
+documentation of the operational findings.
 
 Use `mc` for bulk data you are placing where the ingest reads from, or moving
 off the platform, and for anything large that would otherwise be chunked through
