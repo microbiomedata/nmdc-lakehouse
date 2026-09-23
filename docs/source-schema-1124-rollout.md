@@ -76,20 +76,30 @@ With the compatibility fix, the read-only `just source-preflight` succeeded
 against that same production view on 2026-09-23 using source 11.23.0 and schema
 package 0.5.0. This check did not read collection records or generate Parquet.
 
-For source **11.23.0**, preflight accepts an exact match or any of these
-reviewed completed predecessors: **11.18.0, 11.18.1, 11.19.0, 11.19.1,
-11.20.0, 11.20.1, 11.20.2, 11.21.0, 11.22.0**. Every intervening
-`Migrator.upgrade()` in the locked schema package is explicitly a no-op.
-Tests inspect the packaged Python syntax trees to verify this chain without
-instantiating or executing migrators. The upstream
-[11.23.0 migrators](https://github.com/microbiomedata/nmdc-schema/tree/v11.23.0/nmdc_schema/migrators)
-are the evidence for this bounded exception.
+Preflight accepts an exact match or a series of releases that require no data
+migration. It discovers that series from the **installed `nmdc-schema` package**;
+the lakehouse consumer maintains no list of compatible release numbers. It reads
+each migration's declared origin and destination, then follows the unique path
+backward from the selected source to the recorded completed version.
 
-For source **11.24.0**, the recorded version must still be **11.24.0**.
-The upgrades from 11.17.1 to 11.18.0 and from 11.23.0 to 11.24.0 require
-migration work; neither boundary is included in the exception. Unknown versions,
-including unreviewed patch releases, are refused. Future compatibility
-exceptions require review rather than a broad older-than comparison.
+Every intervening `Migrator.upgrade()` must explicitly do nothing, also called
+a **no-op**. Preflight inspects Python syntax trees without importing migration
+modules, instantiating migrators, or executing upgrades. It recognizes only the
+package's plain no-upgrade declaration with its standard signature and a `pass`
+body. Decorators, constructors, extra executable code, and unfamiliar forms are
+refused. Even a harmless upstream refactoring can require a reviewed update to
+this conservative recognizer. Missing steps, ambiguous predecessors, cycles
+encountered along the path, or an unreadable history also stop the export.
+
+With the current packages, source **11.23.0** accepts the recorded **11.18.0**
+because all nine intervening upgrades explicitly do nothing. Source **11.24.0**
+still requires a completed **11.24.0** migration: its preceding upgrade performs
+real work. The earlier 11.17.1 to 11.18.0 upgrade also requires migration work
+and stops backward traversal. The upstream
+[11.23.0 migrators](https://github.com/microbiomedata/nmdc-schema/tree/v11.23.0/nmdc_schema/migrators)
+provide this history. Tests cover these actual package paths and artificial
+release histories with gaps, branches, cycles, and substantive migration work.
+No compatibility is inferred solely from numerical version order.
 
 Preflight success means the completed migration metadata permits the selected
 contract. It does not infer the deployed API version or certify individual

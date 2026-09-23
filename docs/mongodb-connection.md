@@ -176,7 +176,7 @@ Both maintained exporters
 check MongoDB migration metadata before reading and before promoting each
 collection. An incompatible migration version stops the job. The completed
 version can lag the deployed schema across the
-[reviewed no-op migration chain](source-schema-1124-rollout.md#completed-migration-versions-can-lag-the-deployed-schema):
+[releases requiring no data migration](source-schema-1124-rollout.md#completed-migration-versions-can-lag-the-deployed-schema):
 production's recorded 11.18.0 is compatible with source 11.23.0. Source 11.24.0
 still requires a completed 11.24.0 migration. The pinned schema package 0.5.0 supplies
 both matching artifacts; package installation alone does not verify production

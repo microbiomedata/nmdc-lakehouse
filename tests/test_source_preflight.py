@@ -1,8 +1,7 @@
 """Version gates reject unknown migration state without touching output or leaking input."""
 
-import ast
 from importlib.metadata import version
-from importlib.resources import files
+from textwrap import indent
 from unittest.mock import MagicMock
 
 import pytest
@@ -31,7 +30,9 @@ def mongo(monkeypatch):
     return factory, client, view
 
 
-def test_matching_source_reads_only_the_version_view_and_closes(mongo):
+def test_matching_source_reads_only_the_version_view_and_closes(monkeypatch, mongo):
+    resources = MagicMock(side_effect=AssertionError("An exact match needs no migration discovery"))
+    monkeypatch.setattr(preflight, "files", resources)
     factory, client, view = mongo
     assert preflight.assert_mongodb_source_aligned("mongodb://localhost/nmdc") == version("nmdc-schema")
     factory.assert_called_once()
@@ -41,9 +42,10 @@ def test_matching_source_reads_only_the_version_view_and_closes(mongo):
     view.find.return_value.limit.assert_called_once_with(2)
     client.__exit__.assert_called_once()
     client.get_default_database.return_value.create_collection.assert_not_called()
+    resources.assert_not_called()
 
 
-# Reviewed release sequence, including both sides of every no-op upgrade.
+# Historical regression fixtures, not the runtime compatibility policy.
 NOOP_RELEASES = (
     "11.18.0",
     "11.18.1",
@@ -73,22 +75,99 @@ def test_reviewed_noop_history_is_compatible_only_with_1123(monkeypatch, mongo, 
             preflight.assert_mongodb_source_aligned("mongodb://localhost/nmdc")
 
 
-@pytest.mark.parametrize("before,after", list(zip(NOOP_RELEASES, NOOP_RELEASES[1:], strict=False)))
-def test_reviewed_release_chain_has_only_explicit_noop_upgrades(before, after):
-    """Check the locked upstream package as evidence; never execute its migrators."""
-    filename = f"migrator_from_{before.replace('.', '_')}_to_{after.replace('.', '_')}.py"
-    tree = ast.parse(files("nmdc_schema.migrators").joinpath(filename).read_text())
-    migrator = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "Migrator")
-    versions = {
-        node.targets[0].id: ast.literal_eval(node.value)
-        for node in migrator.body
-        if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)
-    }
-    assert versions["_from_version"] == before
-    assert versions["_to_version"] == after
-    upgrade = next(node for node in migrator.body if isinstance(node, ast.FunctionDef) and node.name == "upgrade")
-    body = upgrade.body[1:] if ast.get_docstring(upgrade) is not None else upgrade.body
-    assert len(body) == 1 and isinstance(body[0], ast.Pass)
+@pytest.fixture
+def migration_package(tmp_path, monkeypatch):
+    """Provide inert package source files with versions independent of real releases."""
+    monkeypatch.setattr(preflight, "files", lambda _package: tmp_path)
+    # Other package resources are not migration steps.
+    (tmp_path / "__init__.py").write_text("raise AssertionError('must not import')\n")
+
+    def write(origin, destination, body="pass", filename=None):
+        path = tmp_path / (filename or f"migrator_from_{origin}_to_{destination}.py")
+        path.write_text(
+            '"""Example packaged migration."""\n'
+            "from nmdc_schema.migrators.migrator_base import MigratorBase\n\n"
+            "class Migrator(MigratorBase):\n"
+            '    """Example migration declaration."""\n'
+            f"    _from_version = {origin!r}\n"
+            f"    _to_version = {destination!r}\n\n"
+            "    def upgrade(self, commit_changes: bool = False) -> None:\n"
+            '        """No upgrade needed."""\n'
+            f"{indent(body, '        ')}\n"
+        )
+        return path
+
+    return write
+
+
+def test_derive_arbitrary_release_chain_from_package_metadata(migration_package):
+    migration_package("98.1.0", "98.2.0")
+    migration_package("98.2.0", "99.0.0")
+    assert preflight._has_noop_migration_path("98.1.0", "99.0.0")
+    assert preflight._has_noop_migration_path("98.2.0", "99.0.0")
+    assert not preflight._has_noop_migration_path("99.0.0", "98.1.0")
+    assert not preflight._has_noop_migration_path("97.0.0", "99.0.0")
+
+
+@pytest.mark.parametrize("shape", ["missing", "ambiguous", "cycle", "self_cycle"])
+def test_incomplete_or_ambiguous_history_fails_closed(migration_package, shape):
+    migration_package("98.2.0", "99.0.0")
+    if shape == "ambiguous":
+        migration_package("98.1.0", "99.0.0")
+    elif shape == "cycle":
+        migration_package("99.0.0", "98.2.0")
+    elif shape == "self_cycle":
+        migration_package("98.2.0", "98.2.0")
+    assert not preflight._has_noop_migration_path("98.1.0", "99.0.0")
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        ("        pass", "        raise AssertionError('never execute an upgrade')"),
+        ("        pass", "        pass\n        self.adapter.write()"),
+        ("    def upgrade", "    @some_decorator\n    def upgrade"),
+        ("class Migrator", "@some_decorator\nclass Migrator"),
+        ("class Migrator(MigratorBase):", "class Migrator(OtherBase):"),
+        ("class Migrator(MigratorBase):", "class Migrator(MigratorBase, metaclass=Other):"),
+        ("commit_changes: bool = False", "commit_changes: bool = do_work()"),
+        ("    def upgrade", "    def __init__(self):\n        do_work()\n\n    def upgrade"),
+        ("    def upgrade", "    hook = register_work()\n\n    def upgrade"),
+        ("class Migrator", "do_work()\n\nclass Migrator"),
+        ("    def upgrade", "    async def upgrade"),
+    ],
+)
+def test_substantive_or_unrecognized_migration_is_never_executed_or_accepted(migration_package, replacement):
+    path = migration_package("98.1.0", "99.0.0")
+    path.write_text(path.read_text().replace(*replacement))
+    assert not preflight._has_noop_migration_path("98.1.0", "99.0.0")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "not valid Python code!",
+        "class Other: pass",
+        "class Migrator: pass",
+        "class Migrator:\n    _from_version = do_work()\n    _to_version = '99.0.0'",
+        "class Migrator:\n    _from_version = ''\n    _to_version = '99.0.0'",
+        "class Migrator:\n    _from_version = '98.1.0'\n    _to_version = '99.0.0'\n    _to_version = '99.1.0'",
+    ],
+)
+def test_unreadable_migration_metadata_fails_without_echoing_source(migration_package, source):
+    path = migration_package("98.1.0", "99.0.0")
+    path.write_text(source + "\n# private-source-content\n")
+    with pytest.raises(preflight.SourceSchemaError, match="Cannot inspect") as error:
+        preflight._has_noop_migration_path("98.1.0", "99.0.0")
+    assert "private-source-content" not in str(error.value)
+    assert error.value.__suppress_context__
+
+
+def test_unavailable_migration_package_fails_without_echoing_details(monkeypatch):
+    monkeypatch.setattr(preflight, "files", MagicMock(side_effect=OSError("private-installation-path")))
+    with pytest.raises(preflight.SourceSchemaError, match="Cannot inspect") as error:
+        preflight._has_noop_migration_path("98.1.0", "99.0.0")
+    assert "private-installation-path" not in str(error.value)
 
 
 @pytest.mark.parametrize(
