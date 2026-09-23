@@ -35,6 +35,9 @@ The Just runtime and validation recipes use the selected source extra; a plain
 `uv run` does not read `NMDC_SCHEMA_VERSION`, so use those recipes or specify
 the matching uv extra explicitly. The `build`, `lock`, and `test-dist` recipes
 operate on the package or lock file without selecting a source extra.
+Source selection is checked when a source-aware command runs. Package-only
+recipes remain available with an unsupported selection, and `just doctor`
+uses the installed environment without syncing so it can report that problem.
 
 If plain `uv run` selects 11.24.0 while the process environment requests
 11.23.0, the package-alignment guard stops the export before connecting to

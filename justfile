@@ -3,10 +3,9 @@
 
 set dotenv-load
 
-# Select a reviewed source/flat pair for runtime and validation recipes.
-source_version := env_var_or_default("NMDC_SCHEMA_VERSION", "11.24.0")
-source_extra := if source_version == "11.23.0" { "source-11-23" } else if source_version == "11.24.0" { "source-11-24" } else { error("Unsupported NMDC_SCHEMA_VERSION; use 11.23.0 or 11.24.0") }
-uv_run := "uv run --extra " + source_extra
+# Validate source selection only when a source-aware command actually runs.
+# Package-only recipes and doctor must work even when that selection is invalid.
+uv_run := "bash scripts/uv_with_source.sh run"
 
 # ---------- Meta ----------
 
@@ -24,7 +23,7 @@ bootstrap: install-all
 
 # Diagnose the installed local environment without syncing or contacting services.
 doctor *ARGS:
-    {{ uv_run }} --no-sync nmdc-lakehouse doctor {{ ARGS }}
+    uv run --no-sync nmdc-lakehouse doctor {{ ARGS }}
 
 # Preview or run the BERDL promotion and recovery capability probe on disposable tables.
 berdl-promotion-probe TENANT SOURCE_NAMESPACE DESTINATION_NAMESPACE OUTPUT *ARGS:
@@ -104,11 +103,11 @@ _install-pre-commit-hook:
 
 # Create / update the uv-managed virtualenv with dev extras.
 install:
-    uv sync --locked --extra {{ source_extra }} --extra dev
+    bash scripts/uv_with_source.sh sync --locked --extra dev
 
 # Install dev + docs extras.
 install-all:
-    uv sync --locked --extra {{ source_extra }} --extra dev --extra docs
+    bash scripts/uv_with_source.sh sync --locked --extra dev --extra docs
 
 # Upgrade the lockfile.
 lock:
