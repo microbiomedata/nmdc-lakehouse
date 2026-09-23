@@ -5,11 +5,38 @@ accessible. Access goes through an SSH gateway (`jump-dev.microbiomedata.org`) t
 forwards a port into the cluster. Getting there requires NERSC credentials (to fetch
 the gateway key) and a personal MongoDB account on the NMDC prod instance.
 
+## Paths and local setup
+
+Commands run from your own `nmdc-lakehouse` checkout. Replace
+`/path/to/nmdc-lakehouse` below with that directory in each terminal.
+The `/Users/mam/gitrepos/nmdc-lakehouse-schema-adoption` path in the
+[recorded production run](https://github.com/microbiomedata/nmdc-lakehouse/issues/347#issuecomment-5802913376)
+belongs only to Mark's Mac. Its `/Users/mam/...` and `/private/tmp/...` report
+paths are local evidence, not shared locations or required installation paths.
+
+`$PWD/local/...` writes beneath the checkout you entered. `~/.ssh/...` means
+the current user's home directory. Each checkout needs its own local `.env`;
+exports in one terminal are not automatically available in another.
+Install the host tools in the [development setup guide](development-setup.md)
+before using these recipes. `just install-all` installs the locked Python
+dependencies; the export also needs SSH and local space for the Parquet files.
+
 ---
 
 ## Prerequisites: obtain before doing anything else
 
 These steps involve waiting on other people or systems; start them early.
+
+| Credential or access | Purpose | Where it is used |
+| --- | --- | --- |
+| NERSC account, project access, and MFA | Retrieve the gateway key from project storage | `sshproxy` and `scp` during key setup |
+| Authorized SSH gateway private key | Open the tunnel to production MongoDB | `just tunnel`; default `~/.ssh/jump-dev.microbiomedata.org.private_key`, configurable with `NMDC_JUMP_KEY` |
+| Personal production MongoDB username and password | Read the eligible `nmdc` collections and `_migration_latest_schema_version` view | `MONGO_USERNAME` and `MONGO_PASSWORD` in the checkout's `.env` |
+
+Set `MONGO_AUTH_SOURCE` to your account's authentication database; the documented
+NMDC setup uses `admin`. Reading through this tunnel and writing local Parquet
+requires no NMDC API token, GCP service-account key, or BERDL publication
+credentials. Those are separate from the SSH and MongoDB authentication here.
 
 ### 1. NERSC user account
 
@@ -29,8 +56,8 @@ NERSC requires MFA for all SSH connections. Enroll after your account is approve
 ### 3. `sshproxy` binary
 
 `sshproxy` exchanges your NERSC password + OTP for a short-lived SSH key/certificate
-pair (`~/.ssh/nersc` + `~/.ssh/nersc-cert.pub`, 24-hour lifetime). Without it you
-will be prompted for a password + OTP on every SSH command.
+pair (`~/.ssh/nersc` + `~/.ssh/nersc-cert.pub`, 24-hour lifetime). These temporary
+credentials are used when fetching the gateway key from NERSC.
 
 - Download from [sshproxy.nersc.gov](https://sshproxy.nersc.gov) and place in
   `~/bin/` (or anywhere on your `$PATH`).
@@ -42,6 +69,9 @@ Each developer gets a personal MongoDB username and password. Ask the NMDC
 infrastructure team (currently GitHub: @eecavanna or @pkalita-lbl) in the
 NMDC Slack `#infra-admin` channel. Note which database(s) you need access to.
 For lakehouse ETL work that is the `nmdc` database.
+The account must be permitted to read both the collection data and the
+`_migration_latest_schema_version` view used by preflight. The export performs
+no MongoDB writes and runs no migrations.
 
 ---
 
@@ -69,20 +99,14 @@ chmod 400 ~/.ssh/jump-dev.microbiomedata.org.private_key
 
 ## Per-session: open the tunnel
 
-The NERSC SSH key expires every 24 hours and must be refreshed each session.
-The tunnel also closes when the terminal exits.
+Once the gateway key is installed, open the tunnel from the repository root.
+`just tunnel` authenticates directly with that key. The short-lived NERSC
+credentials are used to retrieve the key; renewing them is not a step in
+opening this gateway connection. The tunnel closes when its terminal exits.
 
-<!-- unverified: no run of this procedure is recorded, and no tracking issue is
-     named here. -->
+<!-- verified: 2026-09-23 just tunnel connected for the read-only production preflight -->
 ```bash
-# 1. Refresh the NERSC SSH key (prompts for NERSC password + OTP)
-sshproxy -u <your-nersc-username>
-
-# 2. Open the SSH tunnel, and leave this terminal open while you work
-ssh -i ~/.ssh/jump-dev.microbiomedata.org.private_key \
-    -L 27124:runtime-api-mongodb-headless.nmdc-prod.svc.cluster.local:27017 \
-    -o ServerAliveInterval=60 \
-    ssh-mongo@jump-dev.microbiomedata.org
+just tunnel
 ```
 
 While the tunnel is open, `localhost:27124` forwards to the NMDC production MongoDB.
@@ -91,12 +115,14 @@ While the tunnel is open, `localhost:27124` forwards to the NMDC production Mong
 
 ## Configure this repo
 
-Copy `.env.example` to `.env` and fill in your credentials:
+Create `.env` from the example if it does not already exist, restrict its
+permissions, and fill in your own credentials. Preserve an existing `.env`:
 
 <!-- unverified: no run of this procedure is recorded, and no tracking issue is
      named here. -->
 ```bash
-cp .env.example .env
+test -e .env || cp .env.example .env
+chmod 600 .env
 ```
 
 Edit `.env`:
@@ -107,6 +133,7 @@ MONGO_PORT=27124              # tunnel port, not the MongoDB default 27017
 MONGO_DBNAME=nmdc
 MONGO_USERNAME=<your-mongodb-username>
 MONGO_PASSWORD=<your-mongodb-password>
+MONGO_AUTH_SOURCE=admin
 MONGO_DIRECT_CONNECTION=true  # required: skips replica-set discovery
 NMDC_JUMP_KEY=~/.ssh/jump-dev.microbiomedata.org.private_key
 ```
@@ -181,6 +208,78 @@ production's recorded 11.18.0 is compatible with source 11.23.0. Source 11.24.0
 still requires a completed 11.24.0 migration. The pinned schema package 0.5.0 supplies
 both matching artifacts; package installation alone does not verify production
 data or complete an export.
+
+### Complete production dump in two terminals
+
+Use the same checkout, configured `.env`, and installed gateway key in both
+terminals. The following procedure selects source 11.23.0 and the matching
+artifact in `nmdc-lakehouse-schema==0.5.0`. Change source selection only after
+the production migration is verified, following the
+[rollout guide](source-schema-1124-rollout.md#select-production-now-and-switch-after-migration).
+
+**Terminal 1: open the tunnel and leave it running.** Replace the checkout path.
+If this tunnel is already open, keep its existing session instead of starting
+another on port 27124.
+
+<!-- unverified: portable checkout example for the production run tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/347 -->
+```bash
+cd /path/to/nmdc-lakehouse && just tunnel
+```
+
+**Terminal 2: select the source, choose a fresh output directory, and run.**
+Replace the checkout path here too. The explicit exports override corresponding
+`.env` settings; credentials and `MONGO_AUTH_SOURCE` come from your local setup.
+
+<!-- unverified: complete production export and validation are tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/347 -->
+```bash
+cd /path/to/nmdc-lakehouse || exit
+export NMDC_SCHEMA_VERSION=11.23.0
+export MONGO_HOST=localhost
+export MONGO_PORT=27124
+export MONGO_DBNAME=nmdc
+export MONGO_DIRECT_CONNECTION=true
+export LAKEHOUSE_SKIP_COLLECTIONS=""
+export LAKEHOUSE_DROP_EMPTY_COLS=false
+export LAKEHOUSE_SOURCE_LABEL=nmdc-production
+export LAKEHOUSE_ROOT="$PWD/local/nmdc-11.23.0-$(date +%Y%m%d_%H%M%S)"
+test ! -e "$LAKEHOUSE_ROOT" && just install-all && just source-preflight && just etl-collections
+```
+
+The empty skip list and absence of collection arguments include every
+collection declared by the `Database` class in the selected schema, including
+`functional_annotation_agg`. Runtime-only collections outside that schema are
+outside this dump. All-null columns are retained. The existence check prevents
+reusing a directory; repeat the output-directory assignment to choose a new
+timestamp before retrying. Each later command runs only if the preceding check
+or command succeeds.
+
+The recipe prints the paths before reading records. Parquet and
+`etl-metrics.json` go under `$LAKEHOUSE_ROOT`; the log is
+`local/etl-collections-<timestamp>.log`. After successful extraction it creates
+`snapshot-manifest.json` and runs snapshot integrity validation. Require the
+entire recipe to exit successfully. On failure, retain the log and partial
+output for diagnosis and use a fresh directory for the next attempt.
+
+Keep both terminals open and the computer awake until extraction finishes.
+Schedule the dump outside database migrations. MongoDB reads are live and do
+not provide a point-in-time snapshot. The completed
+[2026-09-23 preflight](https://github.com/microbiomedata/nmdc-lakehouse/issues/347#issuecomment-5802913376)
+verified metadata compatibility only; the full production export and validation
+remain unverified until their results are recorded.
+
+**After success, validate every exported row in Terminal 2**, retaining its
+source and output-directory exports. This produces separate evidence outside
+the snapshot and can take substantially longer than sampled validation:
+
+<!-- unverified: full production target-row validation is tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/347 -->
+```bash
+just validate-target-rows "$LAKEHOUSE_ROOT" "$PWD/local/target-validation-11.23.0-$(date +%Y%m%d_%H%M%S).json" --mode full
+```
+
+This step is offline. Once extraction has finished, type `exit` in Terminal 1
+to close the tunnel. Keep the resulting report with the run evidence; see
+[logical target-row validation](#logical-target-row-validation) for the
+distinction between full and sampled checks.
 
 ### Maintained collection baseline
 

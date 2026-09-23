@@ -108,6 +108,12 @@ export. Do not rewrite migration bookkeeping merely to satisfy the preflight.
 
 ## Select production now and switch after migration
 
+For the complete procedure, including portable checkout paths, required
+credentials, both terminals, all-collection scope, and output validation, use
+[the production dump guide](mongodb-connection.md#complete-production-dump-in-two-terminals).
+[Issue #347](https://github.com/microbiomedata/nmdc-lakehouse/issues/347) retains
+dated run evidence and outstanding operational work.
+
 With schema package 0.5.0 installed, configure the source selection in the
 shell or the local `.env`. With the read-only GCP tunnel open:
 
