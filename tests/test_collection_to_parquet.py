@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pyarrow.parquet as pq
+import pytest
 
 import nmdc_lakehouse.jobs  # noqa: F401 — registers all built-in jobs including direct ones
 from nmdc_lakehouse.jobs import collection_to_parquet as collection_module
@@ -13,6 +14,12 @@ from nmdc_lakehouse.jobs.collection_to_parquet import (
     _db_collection_map,
 )
 from nmdc_lakehouse.jobs.registry import get, list_names
+
+
+@pytest.fixture(autouse=True)
+def mock_migration_preflight(monkeypatch):
+    """Keep job tests offline; source-version gate behavior has dedicated tests."""
+    monkeypatch.setattr(collection_module, "assert_mongodb_source_aligned", lambda _uri: "11.24.0")
 
 
 def test_schema_collection_baseline_matches_reviewed_snapshot():

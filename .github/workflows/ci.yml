@@ -136,6 +136,11 @@ jobs:
           uv run python scripts/flatten_nmdc_collections.py --help
           uv run python scripts/export_duckdb_to_parquet.py --help
 
+      - name: Test the complete production source pair
+        env:
+          NMDC_SCHEMA_VERSION: "11.23.0"
+        run: just test
+
       - name: Build and test distributions
         run: just test-dist
 

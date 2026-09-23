@@ -23,6 +23,7 @@ from linkml.validator import Validator
 from linkml.validator.plugins import JsonschemaValidationPlugin
 from linkml.validator.report import ValidationResult
 from linkml_runtime import SchemaView
+from nmdc_lakehouse_schema.artifacts import flat_schema_resource
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from nmdc_lakehouse.snapshot_manifest import ArtifactRecord, SnapshotManifest, validate_snapshot
@@ -115,7 +116,10 @@ def _published_target_schema_resource():
     The flattened schema is that package's product; this repo consumes it rather than committing
     its own copy (microbiomedata/nmdc-lakehouse-schema#4).
     """
-    return resources.files("nmdc_lakehouse_schema").joinpath("schema/nmdc_schema_flattened.yaml")
+    try:
+        return flat_schema_resource(version("nmdc-schema"))
+    except (ValueError, FileNotFoundError) as error:
+        raise TargetValidationError(str(error)) from None
 
 
 def assert_source_schema_aligned() -> None:
@@ -127,6 +131,12 @@ def assert_source_schema_aligned() -> None:
     together (microbiomedata/nmdc-lakehouse-schema#4).
     """
     installed = version("nmdc-schema")
+    requested = os.environ.get("NMDC_SCHEMA_VERSION")
+    if requested is not None and requested != installed:
+        raise TargetValidationError(
+            "NMDC_SCHEMA_VERSION differs from the installed source package. "
+            "Run `just install` with that selection before exporting or validating."
+        )
     with resources.as_file(_published_target_schema_resource()) as schema_path:
         # source_package_version is the installed nmdc-schema version recorded at generation time
         # (source_schema_version is the LinkML schema's own declared version, which can differ).

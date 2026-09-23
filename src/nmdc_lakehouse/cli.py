@@ -1143,6 +1143,20 @@ def run_job(
         click.echo(f"tables={', '.join(result.tables_written)}")
 
 
+@cli.command("source-preflight")
+def source_preflight_command() -> None:
+    """Verify the MongoDB migration version against the selected source/flat pair."""
+    from nmdc_lakehouse.config import MongoSettings
+    from nmdc_lakehouse.source_preflight import SourceSchemaError, assert_mongodb_source_aligned
+    from nmdc_lakehouse.target_validation import TargetValidationError
+
+    try:
+        matched = assert_mongodb_source_aligned(MongoSettings().uri)
+    except (SourceSchemaError, TargetValidationError) as error:
+        raise click.ClickException(str(error)) from None
+    click.echo(f"MongoDB and the installed source/flat schema pair match nmdc-schema {matched}.")
+
+
 @cli.command("data-object-manifest")
 @click.option("--type", "types", multiple=True, required=True, help="data_object_type to fetch. Repeatable.")
 @click.option(

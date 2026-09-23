@@ -6,6 +6,10 @@ resolution-markers = [
     "sys_platform == 'emscripten'",
     "sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
+conflicts = [[
+    { package = "nmdc-lakehouse", extra = "source-11-23" },
+    { package = "nmdc-lakehouse", extra = "source-11-24" },
+]]
 
 [[package]]
 name = "airium"
@@ -185,7 +189,7 @@ name = "cffi"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pycparser", marker = "implementation_name != 'PyPy'" },
+    { name = "pycparser", marker = "implementation_name != 'PyPy' or (extra == 'extra-14-nmdc-lakehouse-source-11-23' and extra == 'extra-14-nmdc-lakehouse-source-11-24')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/eb/56/b1ba7935a17738ae8453301356628e8147c79dbb825bcbc73dc7401f9846/cffi-2.0.0.tar.gz", hash = "sha256:44d1b5909021139fe36001ae048dbdde8214afa20200eda0f64c068cac5d5529", size = 523588, upload-time = "2025-09-08T23:24:04.541Z" }
 wheels = [
@@ -272,7 +276,7 @@ name = "click"
 version = "8.4.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-14-nmdc-lakehouse-source-11-23' and extra == 'extra-14-nmdc-lakehouse-source-11-24')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/76/d4/81420972a676e8ffea40450d8c8c92943e7218a78fe9b64359836cc9876b/click-8.4.2.tar.gz", hash = "sha256:9a6cea6e60b17ebe0a44c5cc636d94f09bd66142c1cd7d8b4cd731c4917a15f6", size = 338000, upload-time = "2026-06-24T17:45:15.148Z" }
 wheels = [
@@ -365,7 +369,7 @@ name = "cryptography"
 version = "50.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cffi", marker = "platform_python_implementation != 'PyPy'" },
+    { name = "cffi", marker = "platform_python_implementation != 'PyPy' or (extra == 'extra-14-nmdc-lakehouse-source-11-23' and extra == 'extra-14-nmdc-lakehouse-source-11-24')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/de/41/6cbdcf9142d00fe82836fbb51e503e58088575cf7a0fe1dbff6695bf0840/cryptography-50.0.0.tar.gz", hash = "sha256:eeac2acb5a20ed25e0ad6d1df9891a520b78b404266b6d11778f25d5d691a6c9", size = 880201, upload-time = "2026-07-31T14:25:10.11Z" }
 wheels = [
@@ -450,7 +454,7 @@ version = "0.25.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
-    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-14-nmdc-lakehouse-source-11-23' and extra == 'extra-14-nmdc-lakehouse-source-11-24')" },
     { name = "packaging" },
     { name = "requirements-parser" },
     { name = "tomli" },
@@ -1259,7 +1263,7 @@ dependencies = [
     { name = "pluggy" },
     { name = "puremagic" },
     { name = "pydantic" },
-    { name = "pyreadline3", marker = "sys_platform == 'win32'" },
+    { name = "pyreadline3", marker = "sys_platform == 'win32' or (extra == 'extra-14-nmdc-lakehouse-source-11-23' and extra == 'extra-14-nmdc-lakehouse-source-11-24')" },
     { name = "python-ulid" },
     { name = "pyyaml" },
     { name = "setuptools" },
@@ -1372,7 +1376,7 @@ version = "1.6.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
-    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-14-nmdc-lakehouse-source-11-23' and extra == 'extra-14-nmdc-lakehouse-source-11-24')" },
     { name = "ghp-import" },
     { name = "jinja2" },
     { name = "markdown" },
@@ -1555,7 +1559,7 @@ version = "2.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ast-serialize" },
-    { name = "librt", marker = "platform_python_implementation != 'PyPy'" },
+    { name = "librt", marker = "platform_python_implementation != 'PyPy' or (extra == 'extra-14-nmdc-lakehouse-source-11-23' and extra == 'extra-14-nmdc-lakehouse-source-11-24')" },
     { name = "mypy-extensions" },
     { name = "pathspec" },
     { name = "typing-extensions" },
@@ -1619,7 +1623,8 @@ dependencies = [
     { name = "linkml-runtime" },
     { name = "linkml-store" },
     { name = "nmdc-lakehouse-schema" },
-    { name = "nmdc-schema" },
+    { name = "nmdc-schema", version = "11.23.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "nmdc-schema", version = "11.24.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-14-nmdc-lakehouse-source-11-24' or extra != 'extra-14-nmdc-lakehouse-source-11-23'" },
     { name = "oaklib" },
     { name = "pandas" },
     { name = "psycopg", extra = ["binary"] },
@@ -1655,6 +1660,12 @@ docs = [
     { name = "mkdocs-material" },
     { name = "mkdocstrings", extra = ["python"] },
 ]
+source-11-23 = [
+    { name = "nmdc-schema", version = "11.23.0", source = { registry = "https://pypi.org/simple" } },
+]
+source-11-24 = [
+    { name = "nmdc-schema", version = "11.24.0", source = { registry = "https://pypi.org/simple" } },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1671,8 +1682,10 @@ requires-dist = [
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=1.0.6" },
     { name = "mongomock", marker = "extra == 'dev'", specifier = ">=4.3" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
-    { name = "nmdc-lakehouse-schema", specifier = "==0.4.0" },
-    { name = "nmdc-schema", specifier = "==11.24.0" },
+    { name = "nmdc-lakehouse-schema", specifier = "==0.5.0" },
+    { name = "nmdc-schema", specifier = ">=11.23.0,<=11.24.0" },
+    { name = "nmdc-schema", marker = "extra == 'source-11-23'", specifier = "==11.23.0" },
+    { name = "nmdc-schema", marker = "extra == 'source-11-24'", specifier = "==11.24.0" },
     { name = "oaklib", specifier = ">=0.7.4" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.6.2" },
@@ -1694,39 +1707,74 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.70.0" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.12.20260408" },
 ]
-provides-extras = ["dev", "docs"]
+provides-extras = ["source-11-23", "source-11-24", "dev", "docs"]
 
 [[package]]
 name = "nmdc-lakehouse-schema"
-version = "0.4.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "linkml-runtime" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8e/19/f86280e20fb2d42356cafa41e33795bad883554500ea4e273b9721ca3ee0/nmdc_lakehouse_schema-0.4.0.tar.gz", hash = "sha256:618ea4edf00e1dfc9fa587970ef94880040e9dba563a714a4a116312b275a472", size = 387377, upload-time = "2026-09-22T17:03:57.691Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/33/eb/b599836b6e61711bab4e4775808bcfc16a5c424eca5559a5fd505727f90d/nmdc_lakehouse_schema-0.5.0.tar.gz", hash = "sha256:0233f2ada45152b6ac50ec5e25fcb8e4d4c9dd47308dbde933ddf29c141b856f", size = 500172, upload-time = "2026-09-23T18:03:39.122Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cb/4e/c193806b1349f655a2d52497eccfc49739d36b2275c9e0795ff29af6a43f/nmdc_lakehouse_schema-0.4.0-py3-none-any.whl", hash = "sha256:e88f486fe4245290e1b0ea8825d134c99dbd09b44db5952cc602f2d99e292169", size = 129030, upload-time = "2026-09-22T17:03:55.985Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/92/5668cb6698742a856e0fb829f583e7e909c5ad6b43d6facdc0196dd88d78/nmdc_lakehouse_schema-0.5.0-py3-none-any.whl", hash = "sha256:dd6fc6334d8e4ba1d95344f9f64f3410f20451b0549cacc1193f114549910935", size = 233682, upload-time = "2026-09-23T18:03:37.67Z" },
+]
+
+[[package]]
+name = "nmdc-schema"
+version = "11.23.0"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "sys_platform == 'win32'",
+    "sys_platform == 'emscripten'",
+    "sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
+dependencies = [
+    { name = "click", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "click-log", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "deprecated", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "idna", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "jsonasobj2", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "jsonschema", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "linkml", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "linkml-runtime", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "pymongo", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "python-dotenv", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "pyyaml", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "rdflib", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "requests", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "urllib3", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-23'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/74/df/47fe489c988e91e1de43e923eb88327c7780d6641e346cc5a2e73084c84a/nmdc_schema-11.23.0.tar.gz", hash = "sha256:12060bd363963b28102ccffb4e1452da9c423d913126fc7480789596ebfb572e", size = 799042, upload-time = "2026-08-13T21:52:45.614Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c3/8c/c6c252acab3ce81c56115fdbe4856674ecd0ce89b5a3be148fc8007edd8e/nmdc_schema-11.23.0-py3-none-any.whl", hash = "sha256:369ddeaa2965b172a6609f292b48163e670b03b25d7317da44068a57b6fe437f", size = 877322, upload-time = "2026-08-13T21:52:43.788Z" },
 ]
 
 [[package]]
 name = "nmdc-schema"
 version = "11.24.0"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "sys_platform == 'win32'",
+    "sys_platform == 'emscripten'",
+    "sys_platform != 'emscripten' and sys_platform != 'win32'",
+]
 dependencies = [
-    { name = "click" },
-    { name = "click-log" },
-    { name = "deprecated" },
-    { name = "idna" },
-    { name = "jsonasobj2" },
-    { name = "jsonschema" },
-    { name = "linkml" },
-    { name = "linkml-runtime" },
-    { name = "pymongo" },
-    { name = "python-dotenv" },
-    { name = "pyyaml" },
-    { name = "rdflib" },
-    { name = "requests" },
-    { name = "urllib3" },
+    { name = "click", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-24' or extra != 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "click-log", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-24' or extra != 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "deprecated", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-24' or extra != 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "idna", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-24' or extra != 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "jsonasobj2", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-24' or extra != 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "jsonschema", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-24' or extra != 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "linkml", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-24' or extra != 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "linkml-runtime", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-24' or extra != 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "pymongo", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-24' or extra != 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "python-dotenv", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-24' or extra != 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "pyyaml", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-24' or extra != 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "rdflib", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-24' or extra != 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "requests", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-24' or extra != 'extra-14-nmdc-lakehouse-source-11-23'" },
+    { name = "urllib3", marker = "extra == 'extra-14-nmdc-lakehouse-source-11-24' or extra != 'extra-14-nmdc-lakehouse-source-11-23'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d8/e8/5d7c5c55e58688968f31e28a59ca2dd850dd98b7ba92dd48c6e426180109/nmdc_schema-11.24.0.tar.gz", hash = "sha256:c3d9f55b8e8434ffe2083bd9d3ae1a8ce74daa602d4ec43b5dae60dddcadfe0e", size = 806492, upload-time = "2026-09-16T22:49:43.927Z" }
 wheels = [
@@ -1905,7 +1953,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "python-dateutil" },
-    { name = "tzdata", marker = "sys_platform == 'emscripten' or sys_platform == 'win32'" },
+    { name = "tzdata", marker = "sys_platform == 'emscripten' or sys_platform == 'win32' or (extra == 'extra-14-nmdc-lakehouse-source-11-23' and extra == 'extra-14-nmdc-lakehouse-source-11-24')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/be/4f/5f3422a2afec5ffc46308b79e53291365a93748b498ac2e58bead0197916/pandas-3.0.5.tar.gz", hash = "sha256:dca3734d6ab7c906e6730f0788b0a1dbb9f2467731f9711f77995c8e9d62d712", size = 4658219, upload-time = "2026-07-22T22:19:28.819Z" }
 wheels = [
@@ -2055,7 +2103,7 @@ name = "psycopg"
 version = "3.3.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "tzdata", marker = "sys_platform == 'win32'" },
+    { name = "tzdata", marker = "sys_platform == 'win32' or (extra == 'extra-14-nmdc-lakehouse-source-11-23' and extra == 'extra-14-nmdc-lakehouse-source-11-24')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/db/2f/cb91e5502ec9de1de6f1b76cfbf69531932725361168bb06963620c77e2e/psycopg-3.3.4.tar.gz", hash = "sha256:e21207764952cff81b6b8bdacad9a3939f2793367fdac2987b3aac36a651b5bc", size = 165799, upload-time = "2026-05-01T23:31:55.179Z" }
 wheels = [
@@ -2064,7 +2112,7 @@ wheels = [
 
 [package.optional-dependencies]
 binary = [
-    { name = "psycopg-binary", marker = "implementation_name != 'pypy'" },
+    { name = "psycopg-binary", marker = "implementation_name != 'pypy' or (extra == 'extra-14-nmdc-lakehouse-source-11-23' and extra == 'extra-14-nmdc-lakehouse-source-11-24')" },
 ]
 
 [[package]]
@@ -2405,7 +2453,7 @@ name = "pytest"
 version = "9.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-14-nmdc-lakehouse-source-11-23' and extra == 'extra-14-nmdc-lakehouse-source-11-24')" },
     { name = "iniconfig" },
     { name = "packaging" },
     { name = "pluggy" },
@@ -2903,7 +2951,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "alabaster" },
     { name = "babel" },
-    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-14-nmdc-lakehouse-source-11-23' and extra == 'extra-14-nmdc-lakehouse-source-11-24')" },
     { name = "docutils" },
     { name = "imagesize" },
     { name = "jinja2" },
@@ -2997,7 +3045,7 @@ name = "sqlalchemy"
 version = "2.0.52"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "greenlet", marker = "platform_machine == 'AMD64' or platform_machine == 'WIN32' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'ppc64le' or platform_machine == 'win32' or platform_machine == 'x86_64'" },
+    { name = "greenlet", marker = "platform_machine == 'AMD64' or platform_machine == 'WIN32' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'ppc64le' or platform_machine == 'win32' or platform_machine == 'x86_64' or (extra == 'extra-14-nmdc-lakehouse-source-11-23' and extra == 'extra-14-nmdc-lakehouse-source-11-24')" },
     { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/3b/21/77b4c147963073040dc3c3a5cb7a8c3001a1893c0209432cb77f9df836aa/sqlalchemy-2.0.52.tar.gz", hash = "sha256:5e2d46356ac2ccb7d268ab6c2319ac6a2b42f1b8d5fd8bd3d46855cd82abee97", size = 9945637, upload-time = "2026-08-11T19:07:09.829Z" }
@@ -3149,7 +3197,7 @@ name = "tqdm"
 version = "4.70.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-14-nmdc-lakehouse-source-11-23' and extra == 'extra-14-nmdc-lakehouse-source-11-24')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/21/3b/6c24bec5be5e743ffd99576daa5cc077722fc7d5bbc00bd133fa0c698dc6/tqdm-4.70.0.tar.gz", hash = "sha256:55b0b0dbd97462d06ebee91e4dac24ed4d4702be82b24f07e6c1d27e08cea220", size = 795438, upload-time = "2026-07-27T11:33:15.271Z" }
 wheels = [

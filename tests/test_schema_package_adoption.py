@@ -1,6 +1,7 @@
 """Exercise the pinned schema package through the collection job and Parquet sink."""
 
 from importlib import resources
+from importlib.metadata import version
 
 import pyarrow.parquet as pq
 import pytest
@@ -14,6 +15,8 @@ from nmdc_lakehouse.target_validation import assert_source_schema_aligned
 
 
 def _run_record(tmp_path, monkeypatch, collection, root, record):
+    monkeypatch.setattr(collection_module, "assert_mongodb_source_aligned", lambda _uri: "11.24.0")
+
     class Source:
         def __init__(self, _uri):
             pass
@@ -29,6 +32,7 @@ def _run_record(tmp_path, monkeypatch, collection, root, record):
     return CollectionToParquetJob(collection, root, "mongodb://localhost/nmdc", tmp_path).run()
 
 
+@pytest.mark.skipif(version("nmdc-schema") != "11.24.0", reason="Agent credit associations were added in 11.24.0")
 @pytest.mark.parametrize(
     "collection,root,concrete,required",
     [
@@ -98,7 +102,7 @@ def test_agent_fields_and_writer_identity_survive_parquet(tmp_path, monkeypatch,
         metadata = parquet.schema.metadata
         assert metadata[b"nmdc_lakehouse.mapping"].decode() == flattener_mapping_id()
         assert metadata[b"nmdc_lakehouse.source_schema_version"].decode() == "11.24.0"
-        assert metadata[b"nmdc_lakehouse.target_schema_version"].decode() == "11.24.0+flat.1.2.0"
+        assert metadata[b"nmdc_lakehouse.target_schema_version"].decode() == "11.24.0+flat.1.3.0"
         for row in parquet.to_pylist():
             populated = {key: value for key, value in row.items() if value is not None}
             assert not list(validator.iter_results(populated, target_class=target_class))

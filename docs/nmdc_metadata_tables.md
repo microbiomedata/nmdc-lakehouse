@@ -1,7 +1,7 @@
 # `nmdc_metadata` Silver table reference
 
 `nmdc_metadata` is the logical metadata group published as managed tables in
-BERDL. This reference describes the packaged `11.24.0+flat.1.2.0` target for the
+BERDL. This reference describes the default `11.24.0+flat.1.3.0` target for the
 19 schema-defined NMDC collections: naming, side tables, and key join chains.
 It does not establish that a destination already has that version; check the
 snapshot identity before using these column names. The
@@ -32,7 +32,9 @@ Only slots with at least one populated record produce a side table.
 TextValues are an exception: their `has_raw_value` becomes a string or string
 array on the containing row. For example, use `biosample_set.host_diet`; there
 is no `biosample_set_host_diet` helper. Primitive arrays also need no helper.
-Repeated objects nested inside a child object are not recursively normalized;
+The two mobile-phase substance helpers are explicit nested exceptions. Join them
+to their phases using `(parent_id, mobile_phase_index)` and order substances by
+`substance_index`. Other repeated objects nested inside a child object are not recursively normalized;
 some populated paths are omitted. See the
 [architecture limits](architecture.md#nested-multivalued-slots-and-depth-limits).
 
@@ -67,7 +69,7 @@ Spark overhead of exploding a repeated field.**
 
 This is the standard path from a row in `nmdc_results.annotation_kegg_orthology`
 (or `annotation_enzyme_commission`) to its originating biosample. These examples
-use projection 1.2.0's `geo_loc_name`; earlier snapshots may instead expose
+use projection 1.3.0's `geo_loc_name` (introduced in 1.2.0); earlier snapshots may instead expose
 `geo_loc_name_has_raw_value`. Deployment of the new snapshot remains gated by
 the rollout work linked above.
 

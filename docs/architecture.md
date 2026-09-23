@@ -166,7 +166,7 @@ model, owned by this pipeline only in the sense that we maintain the loader.
 
 ## Normalization decisions: primary tables vs side tables
 
-Projection 1.2.0 applies the following rules to slots directly on a collection
+Projection 1.3.0 applies the following rules to slots directly on a collection
 record, including inherited and subtype slots. Embedded expansion is bounded;
 the rules do not imply recursive normalization or lossless round trips.
 
@@ -198,30 +198,33 @@ Lists of embedded non-TextValue objects (`mags_list`, `chem_administration`,
 `organism_count`, `agrochem_addition`, etc.) become **child side tables** with
 `parent_id` and the supported flattened child fields. The primary table omits
 these objects. This does not preserve every input distinction: helper rows have
-no occurrence identifier or position column, and empty lists produce no rows.
+no occurrence identifier or position column except for mobile phases and their
+substances, and empty lists produce no rows.
 
 ### Nested multivalued slots and depth limits
 
 Primitive/enum arrays, such as credit associations' `applied_roles`, and visited
 TextValue arrays can remain in child rows. Repeated non-TextValue class members
-inside embedded objects are omitted; no grandchild helpers are generated.
-Nested references are also not uniformly retained. In particular,
-`ordered_mobile_phases.substances_used` is omitted in both configuration and
-material-processing records, with no JSON fallback. Populated production data
-at these paths blocks a complete export in
-[schema #21](https://github.com/microbiomedata/nmdc-lakehouse-schema/issues/21).
+inside embedded objects are generally omitted. The explicit exception is
+`ordered_mobile_phases.substances_used` in configuration and material-processing
+records. Its substance helper joins to its phase using `parent_id` plus
+`mobile_phase_index`; `substance_index` preserves order and duplicate occurrences.
+Other nested references are still not uniformly retained, and there is no JSON fallback.
 
 Generic primary expansion supports at most two single-object edges to a scalar
 leaf. Child-row expansion is shallower than its generated schema can describe,
 so a declared optional column can still lose a deeper value. The schema
-package's [transformation support reference](https://github.com/microbiomedata/nmdc-lakehouse-schema/blob/v0.4.0/src/docs/transformation-support.md)
-details these boundaries. The [rollout preflight](source-schema-1124-rollout.md)
+package's [transformation support reference](https://github.com/microbiomedata/nmdc-lakehouse-schema/blob/v0.5.0/src/docs/transformation-support.md)
+details these boundaries. This consumer pins published package 0.5.0 and uses
+its projection 1.3.0 engine with the artifact matching the installed source.
+The [rollout preflight](source-schema-1124-rollout.md)
 records which inspected paths were populated; target-row validation alone does
 not detect content omitted before writing.
 
 ### Side table naming
-All side tables follow the pattern `{collection}_{slot_name}`, e.g.
+Root side tables follow the pattern `{collection}_{slot_name}`, e.g.
 `biosample_set_associated_studies`, `workflow_execution_set_mags_list`.
+The nested substance helpers add `_substances_used` to their phase table name.
 Only slots that have at least one populated record are written; empty side
 tables are silently skipped at runtime.
 

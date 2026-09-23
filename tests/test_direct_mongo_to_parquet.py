@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from importlib.metadata import version
 from unittest.mock import MagicMock, patch
 
 import pyarrow.parquet as pq
@@ -9,6 +10,13 @@ import pytest
 
 from nmdc_lakehouse.jobs.direct_mongo_to_parquet import DirectMongoToParquetJob
 from nmdc_lakehouse.producer_identity import direct_mapping_id
+
+
+@pytest.fixture(autouse=True)
+def mock_migration_preflight(monkeypatch):
+    """Keep writer tests offline; source-version gate behavior has dedicated tests."""
+    monkeypatch.setattr("nmdc_lakehouse.source_preflight.assert_mongodb_source_aligned", lambda _uri: "11.24.0")
+
 
 _DOCS = [
     {
@@ -61,7 +69,7 @@ def test_run_writes_correct_row_count(tmp_path):
     assert result.tables_written == ("functional_annotation_agg",)
     metadata = pq.read_schema(tmp_path / "functional_annotation_agg.parquet").metadata
     assert metadata[b"nmdc_lakehouse.mapping"].decode() == direct_mapping_id()
-    assert metadata[b"nmdc_lakehouse.target_schema_version"].decode() == "11.24.0+flat.1.2.0"
+    assert metadata[b"nmdc_lakehouse.target_schema_version"].decode() == f"{version('nmdc-schema')}+flat.1.3.0"
 
 
 def test_run_excludes_id_from_parquet(tmp_path):

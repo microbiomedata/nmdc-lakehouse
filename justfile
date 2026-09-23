@@ -3,6 +3,10 @@
 
 set dotenv-load
 
+# Validate source selection only when a source-aware command actually runs.
+# Package-only recipes and doctor must work even when that selection is invalid.
+uv_run := "bash scripts/uv_with_source.sh run"
+
 # ---------- Meta ----------
 
 # Default recipe: list all recipes.
@@ -14,63 +18,67 @@ _default:
 # Create the locked development environment, install hooks, and smoke-test it.
 bootstrap: install-all
     @just _install-pre-commit-hook
-    uv run nmdc-lakehouse --help > /dev/null
+    {{ uv_run }} nmdc-lakehouse --help > /dev/null
     @echo "Bootstrap complete. Next: just test, just check, or just cli --help"
 
 # Diagnose the installed local environment without syncing or contacting services.
-doctor:
-    uv run --no-sync nmdc-lakehouse doctor
+doctor *ARGS:
+    uv run --no-sync nmdc-lakehouse doctor {{ ARGS }}
 
 # Preview or run the BERDL promotion and recovery capability probe on disposable tables.
 berdl-promotion-probe TENANT SOURCE_NAMESPACE DESTINATION_NAMESPACE OUTPUT *ARGS:
-    uv run --no-sync nmdc-lakehouse berdl-promotion-probe \
+    {{ uv_run }} --no-sync nmdc-lakehouse berdl-promotion-probe \
         "{{ TENANT }}" "{{ SOURCE_NAMESPACE }}" "{{ DESTINATION_NAMESPACE }}" \
         --output "{{ OUTPUT }}" {{ ARGS }}
 
 # Inspect a completed snapshot and explicitly configured BERDL tooling without mutation.
 berdl-doctor SNAPSHOT_ROOT *ARGS:
-    uv run --no-sync nmdc-lakehouse berdl-doctor "{{ SNAPSHOT_ROOT }}" {{ ARGS }}
+    {{ uv_run }} --no-sync nmdc-lakehouse berdl-doctor "{{ SNAPSHOT_ROOT }}" {{ ARGS }}
+
+# Read only MongoDB migration metadata and verify the selected source/flat pair.
+source-preflight:
+    {{ uv_run }} nmdc-lakehouse source-preflight
 
 # Validate manifested rows against the packaged target LinkML schema without mutation.
 validate-target-rows SNAPSHOT_ROOT REPORT *ARGS:
-    uv run --no-sync nmdc-lakehouse validate-target-rows "{{ SNAPSHOT_ROOT }}" --output "{{ REPORT }}" {{ ARGS }}
+    {{ uv_run }} --no-sync nmdc-lakehouse validate-target-rows "{{ SNAPSHOT_ROOT }}" --output "{{ REPORT }}" {{ ARGS }}
 
 # Generate a reviewable metadata profile draft bound to a validated snapshot.
 metadata-profile SNAPSHOT_ROOT PROFILE_ID NAMESPACE TITLE DESCRIPTION *ARGS:
-    uv run --no-sync nmdc-lakehouse metadata-profile "{{ SNAPSHOT_ROOT }}" --profile-id "{{ PROFILE_ID }}" --namespace-name "{{ NAMESPACE }}" --title "{{ TITLE }}" --description "{{ DESCRIPTION }}" {{ ARGS }}
+    {{ uv_run }} --no-sync nmdc-lakehouse metadata-profile "{{ SNAPSHOT_ROOT }}" --profile-id "{{ PROFILE_ID }}" --namespace-name "{{ NAMESPACE }}" --title "{{ TITLE }}" --description "{{ DESCRIPTION }}" {{ ARGS }}
 
 # Cross-check all reviewed publication artifacts before provider-specific staging.
 publication-preflight SNAPSHOT_ROOT BUNDLE INVENTORY PLAN:
-    uv run --no-sync nmdc-lakehouse publication-preflight "{{ SNAPSHOT_ROOT }}" --bundle "{{ BUNDLE }}" --inventory "{{ INVENTORY }}" --plan "{{ PLAN }}"
+    {{ uv_run }} --no-sync nmdc-lakehouse publication-preflight "{{ SNAPSHOT_ROOT }}" --bundle "{{ BUNDLE }}" --inventory "{{ INVENTORY }}" --plan "{{ PLAN }}"
 
 # Map approved metadata to one explicit staging namespace without mutation.
 metadata-application-plan BUNDLE INVENTORY STAGING_NAMESPACE *ARGS:
-    uv run --no-sync nmdc-lakehouse metadata-application-plan "{{ BUNDLE }}" --inventory "{{ INVENTORY }}" --staging-namespace "{{ STAGING_NAMESPACE }}" {{ ARGS }}
+    {{ uv_run }} --no-sync nmdc-lakehouse metadata-application-plan "{{ BUNDLE }}" --inventory "{{ INVENTORY }}" --staging-namespace "{{ STAGING_NAMESPACE }}" {{ ARGS }}
 
 # Bind reviewed evidence to an exact plan-only BERIL staging command.
 berdl-upload-plan SNAPSHOT_ROOT BUNDLE INVENTORY PLAN METADATA_PLAN TARGET_VALIDATION INGEST_CHECKOUT INGEST_REVISION TENANT DATASET BUCKET BRONZE_PREFIX PROGRESS_KEY CONFIG_KEY OUTPUT *ARGS:
-    uv run --no-sync nmdc-lakehouse berdl-upload-plan "{{ SNAPSHOT_ROOT }}" --bundle "{{ BUNDLE }}" --inventory "{{ INVENTORY }}" --plan "{{ PLAN }}" --metadata-plan "{{ METADATA_PLAN }}" --target-validation "{{ TARGET_VALIDATION }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" --ingest-revision "{{ INGEST_REVISION }}" --tenant "{{ TENANT }}" --dataset "{{ DATASET }}" --bucket "{{ BUCKET }}" --bronze-prefix "{{ BRONZE_PREFIX }}" --progress-key "{{ PROGRESS_KEY }}" --config-key "{{ CONFIG_KEY }}" --output "{{ OUTPUT }}" {{ ARGS }}
+    {{ uv_run }} --no-sync nmdc-lakehouse berdl-upload-plan "{{ SNAPSHOT_ROOT }}" --bundle "{{ BUNDLE }}" --inventory "{{ INVENTORY }}" --plan "{{ PLAN }}" --metadata-plan "{{ METADATA_PLAN }}" --target-validation "{{ TARGET_VALIDATION }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" --ingest-revision "{{ INGEST_REVISION }}" --tenant "{{ TENANT }}" --dataset "{{ DATASET }}" --bucket "{{ BUCKET }}" --bronze-prefix "{{ BRONZE_PREFIX }}" --progress-key "{{ PROGRESS_KEY }}" --config-key "{{ CONFIG_KEY }}" --output "{{ OUTPUT }}" {{ ARGS }}
 
 # Preview or execute one reviewed BERDL staging plan and verify its outcome.
 berdl-upload PLAN UPSTREAM_OUTCOME OUTCOME *ARGS:
-    uv run --no-sync nmdc-lakehouse berdl-upload "{{ PLAN }}" --upstream-outcome "{{ UPSTREAM_OUTCOME }}" --output "{{ OUTCOME }}" {{ ARGS }}
+    {{ uv_run }} --no-sync nmdc-lakehouse berdl-upload "{{ PLAN }}" --upstream-outcome "{{ UPSTREAM_OUTCOME }}" --output "{{ OUTCOME }}" {{ ARGS }}
 
 # Rebuild the two derived tables. Previews by default; needs --authorize-namespace to execute.
 rebuild-derived-tables NAMESPACE INGEST_CHECKOUT *ARGS:
-    uv run --no-sync nmdc-lakehouse rebuild-derived-tables "{{ NAMESPACE }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" {{ ARGS }}
+    {{ uv_run }} --no-sync nmdc-lakehouse rebuild-derived-tables "{{ NAMESPACE }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" {{ ARGS }}
 
 # Describe the promotion that verified staging authorizes. Reads evidence, changes nothing.
 berdl-promotion-plan PUBLICATION_PLAN STAGING_OUTCOME METADATA_OUTCOME CANONICAL_NAMESPACE RECOVERY OUTPUT *ARGS:
-    uv run --no-sync nmdc-lakehouse berdl-promotion-plan --plan "{{ PUBLICATION_PLAN }}" --staging-outcome "{{ STAGING_OUTCOME }}" --metadata-outcome "{{ METADATA_OUTCOME }}" --canonical-namespace "{{ CANONICAL_NAMESPACE }}" --recovery "{{ RECOVERY }}" --output "{{ OUTPUT }}" {{ ARGS }}
+    {{ uv_run }} --no-sync nmdc-lakehouse berdl-promotion-plan --plan "{{ PUBLICATION_PLAN }}" --staging-outcome "{{ STAGING_OUTCOME }}" --metadata-outcome "{{ METADATA_OUTCOME }}" --canonical-namespace "{{ CANONICAL_NAMESPACE }}" --recovery "{{ RECOVERY }}" --output "{{ OUTPUT }}" {{ ARGS }}
 
 # Perform the promotion a reviewed plan describes. Previews by default; the three --authorize-
 # options are passed through ARGS, so the destructive form is never the shorter command.
 berdl-promote PROMOTION_PLAN INGEST_CHECKOUT *ARGS:
-    uv run --no-sync nmdc-lakehouse berdl-promote "{{ PROMOTION_PLAN }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" {{ ARGS }}
+    {{ uv_run }} --no-sync nmdc-lakehouse berdl-promote "{{ PROMOTION_PLAN }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" {{ ARGS }}
 
 # Preview or apply approved table/column descriptions to verified BERDL staging tables.
 berdl-apply-metadata METADATA_PLAN STAGING_OUTCOME INGEST_CHECKOUT OUTCOME *ARGS:
-    uv run --no-sync nmdc-lakehouse berdl-apply-metadata "{{ METADATA_PLAN }}" "{{ STAGING_OUTCOME }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" --output "{{ OUTCOME }}" {{ ARGS }}
+    {{ uv_run }} --no-sync nmdc-lakehouse berdl-apply-metadata "{{ METADATA_PLAN }}" "{{ STAGING_OUTCOME }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" --output "{{ OUTCOME }}" {{ ARGS }}
 
 # Build the download manifest for one data object type from a snapshot. More `--type` values and
 # a `--host` restriction go through ARGS. A live catalog does not: this recipe always supplies
@@ -79,7 +87,7 @@ berdl-apply-metadata METADATA_PLAN STAGING_OUTCOME INGEST_CHECKOUT OUTCOME *ARGS
 #
 # Downloads nothing; scripts/download_to_cache.py does that, and this prints the command for it.
 data-object-manifest TYPE DATA_OBJECT_SET OUTPUT *ARGS:
-    uv run --no-sync nmdc-lakehouse data-object-manifest --type "{{ TYPE }}" --data-object-set "{{ DATA_OBJECT_SET }}" --output "{{ OUTPUT }}" {{ ARGS }}
+    {{ uv_run }} --no-sync nmdc-lakehouse data-object-manifest --type "{{ TYPE }}" --data-object-set "{{ DATA_OBJECT_SET }}" --output "{{ OUTPUT }}" {{ ARGS }}
 
 # Preserve an existing configured Git hooks-path policy instead of replacing it.
 [private]
@@ -88,18 +96,18 @@ _install-pre-commit-hook:
     set -euo pipefail
     if git config --get core.hooksPath >/dev/null; then
       echo "Git core.hooksPath is configured; leaving it unchanged."
-      echo "Run repository hooks with: uv run pre-commit run --all-files"
+      echo "Run repository hooks with: {{ uv_run }} pre-commit run --all-files"
     else
-      uv run pre-commit install
+      {{ uv_run }} pre-commit install
     fi
 
 # Create / update the uv-managed virtualenv with dev extras.
 install:
-    uv sync --locked --extra dev
+    bash scripts/uv_with_source.sh sync --locked --extra dev
 
 # Install dev + docs extras.
 install-all:
-    uv sync --locked --extra dev --extra docs
+    bash scripts/uv_with_source.sh sync --locked --extra dev --extra docs
 
 # Upgrade the lockfile.
 lock:
@@ -196,14 +204,14 @@ test-prose-lint-exit:
 # unless the file declares its paths belong to another checkout. The closed-issue rule needs the
 # network, so it is `doc-references-issues` and is not part of `check`.
 doc-references:
-    uv run python scripts/python/doc_references.py docs
+    {{ uv_run }} python scripts/python/doc_references.py docs
 
 # The same checker plus one GitHub query per cited issue. Kept out of `check` because a transient
 # network failure would fail `check` for a reason that has nothing to do with the change under
 # test. It is not that a failure would pass unnoticed: an unreadable state fails this command
 # deliberately, which is the opposite problem and the reason it cannot live in an offline gate.
 doc-references-issues:
-    uv run python scripts/python/doc_references.py docs --check-issues
+    {{ uv_run }} python scripts/python/doc_references.py docs --check-issues
 
 # Prove doc-references can fail. A checker that has never rejected anything is not evidence.
 test-doc-references-exit:
@@ -215,12 +223,12 @@ test-doc-references-exit:
     # --root "$tmp", so what this proves does not depend on the checkout's contents. Without it the
     # test asserted that scripts/nope.py is absent from this repository, and adding such a file
     # would have broken the exit contract for a reason unrelated to the gate.
-    rc=0; uv run --no-sync python scripts/python/doc_references.py --root "$tmp" "$tmp/bad.md" >/dev/null 2>&1 || rc=$?
+    rc=0; {{ uv_run }} --no-sync python scripts/python/doc_references.py --root "$tmp" "$tmp/bad.md" >/dev/null 2>&1 || rc=$?
     [ "$rc" -ne 0 ] || { echo "doc-references did NOT fail on a missing script; the gate is inert"; exit 1; }
     # And the positive half needs a file that really is there, or it passes because the path is
     # declared and because it is missing, which proves only one of the two.
     mkdir -p "$tmp/scripts"; : > "$tmp/scripts/nope.py"
-    rc=0; uv run --no-sync python scripts/python/doc_references.py --root "$tmp" "$tmp/declared.md" >/dev/null 2>&1 || rc=$?
+    rc=0; {{ uv_run }} --no-sync python scripts/python/doc_references.py --root "$tmp" "$tmp/declared.md" >/dev/null 2>&1 || rc=$?
     [ "$rc" -eq 0 ] || { echo "doc-references rejected a declared external path; the gate is too strict"; exit 1; }
     rm "$tmp/scripts/nope.py"
     echo "doc-references exit contract holds: missing fails, declared passes"
@@ -234,7 +242,7 @@ test-doc-references-issues-exit:
     # Issue 0, not a large number. GitHub issue numbers start at 1, so this can never become
     # readable; 999999 would start passing for the wrong reason if the repository ever got there.
     printf '<!-- unverified: x, tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/0 -->\n' > "$tmp/unreadable.md"
-    rc=0; uv run --no-sync python scripts/python/doc_references.py "$tmp/unreadable.md" --check-issues >/dev/null 2>&1 || rc=$?
+    rc=0; {{ uv_run }} --no-sync python scripts/python/doc_references.py "$tmp/unreadable.md" --check-issues >/dev/null 2>&1 || rc=$?
     [ "$rc" -ne 0 ] || { echo "an unreadable issue state passed; a network failure would read as clean"; exit 1; }
     # The case the rule is actually for. The check above only proves the unreadable branch fails,
     # so main() could stop failing on a stale marker and this recipe would still pass. A stub gh
@@ -243,17 +251,17 @@ test-doc-references-issues-exit:
     printf '#!/bin/sh\nprintf %%s "{\\"state\\": \\"CLOSED\\"}"\n' > "$tmp/bin/gh"
     chmod +x "$tmp/bin/gh"
     printf '<!-- unverified: x, tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/1 -->\n' > "$tmp/stale.md"
-    rc=0; PATH="$tmp/bin:$PATH" uv run --no-sync python scripts/python/doc_references.py "$tmp/stale.md" --check-issues >/dev/null 2>&1 || rc=$?
+    rc=0; PATH="$tmp/bin:$PATH" {{ uv_run }} --no-sync python scripts/python/doc_references.py "$tmp/stale.md" --check-issues >/dev/null 2>&1 || rc=$?
     [ "$rc" -ne 0 ] || { echo "a marker naming a CLOSED issue passed; the rule does not fail the command"; exit 1; }
     # No "settled passes" case. There is no settlement escape: saying the issue closed does not
     # excuse naming it, because reading that from prose is the judgement this checker does not make.
     printf '<!-- unverified: x, and nothing tracks running it -->\n' > "$tmp/untracked.md"
-    rc=0; PATH="$tmp/bin:$PATH" uv run --no-sync python scripts/python/doc_references.py "$tmp/untracked.md" --check-issues >/dev/null 2>&1 || rc=$?
+    rc=0; PATH="$tmp/bin:$PATH" {{ uv_run }} --no-sync python scripts/python/doc_references.py "$tmp/untracked.md" --check-issues >/dev/null 2>&1 || rc=$?
     [ "$rc" -eq 0 ] || { echo "a marker naming no issue was rejected; the rule is too strict"; exit 1; }
     echo "doc-references-issues exit contract holds: unreadable fails, closed fails, no-issue passes"
 
 doc-procedures:
-    uv run python scripts/python/doc_procedures.py docs
+    {{ uv_run }} python scripts/python/doc_procedures.py docs
 
 # Assert that doc-procedures can actually fail. Runs offline, touches no tracked file.
 #
@@ -267,21 +275,21 @@ test-doc-procedures-exit:
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
     printf 'intro\n\n```bash\necho hi\n```\n' > "$tmp/undeclared.md"
     printf 'intro\n\n<!-- unverified: fixture, never run, see #287 -->\n```bash\necho hi\n```\n' > "$tmp/declared.md"
-    rc=0; uv run --no-sync python scripts/python/doc_procedures.py "$tmp/undeclared.md" >/dev/null 2>&1 || rc=$?
+    rc=0; {{ uv_run }} --no-sync python scripts/python/doc_procedures.py "$tmp/undeclared.md" >/dev/null 2>&1 || rc=$?
     [ "$rc" -ne 0 ] || { echo "doc-procedures did NOT fail on an undeclared block; the gate is inert"; exit 1; }
-    rc=0; uv run --no-sync python scripts/python/doc_procedures.py "$tmp/declared.md" >/dev/null 2>&1 || rc=$?
+    rc=0; {{ uv_run }} --no-sync python scripts/python/doc_procedures.py "$tmp/declared.md" >/dev/null 2>&1 || rc=$?
     [ "$rc" -eq 0 ] || { echo "doc-procedures blocked a declared block; exit was $rc"; exit 1; }
     echo "doc-procedures exit contract holds: undeclared fails, declared passes"
 
 # Dry-render one recipe with explicitly safe values, then lint without executing it.
 [private]
 _shellcheck-recipe RECIPE:
-    @LAKEHOUSE_ROOT=./lakehouse MONGO_URI=mongodb://localhost:27017/nmdc NMDC_EXPORT_DIR=./local/nmdc_export NMDC_PARQUET_DIR=./local/nmdc_export/parquet NMDC_CSV_DIR=./local/nmdc_export/csv NMDC_DUCKDB_FILE=./local/nmdc_export/nmdc_flattened.duckdb NMDC_BIOSAMPLE_CSV=./local/nmdc_export/csv/flattened_biosample.csv NMDC_BIOSAMPLE_FIELDS_FILE=./local/nmdc_export/csv/flattened_biosample.fields bash -c 'rendered=$(just --dry-run "$1" 2>&1) || { printf "%s\n" "$rendered" >&2; exit 1; }; printf "%s\n" "$rendered" | uv run shellcheck --shell=bash -' _ "{{ RECIPE }}"
+    @LAKEHOUSE_ROOT=./lakehouse MONGO_URI=mongodb://localhost:27017/nmdc NMDC_EXPORT_DIR=./local/nmdc_export NMDC_PARQUET_DIR=./local/nmdc_export/parquet NMDC_CSV_DIR=./local/nmdc_export/csv NMDC_DUCKDB_FILE=./local/nmdc_export/nmdc_flattened.duckdb NMDC_BIOSAMPLE_CSV=./local/nmdc_export/csv/flattened_biosample.csv NMDC_BIOSAMPLE_FIELDS_FILE=./local/nmdc_export/csv/flattened_biosample.fields bash -c 'rendered=$(just --dry-run "$1" 2>&1) || { printf "%s\n" "$rendered" >&2; exit 1; }; printf "%s\n" "$rendered" | {{ uv_run }} shellcheck --shell=bash -' _ "{{ RECIPE }}"
 
 # Check the pinned ShellCheck and every maintained shell source.
 shellcheck:
-    @version="$(uv run shellcheck --version | sed -n 's/^version: //p')"; test "$version" = "0.11.0" || { echo "Expected ShellCheck 0.11.0, found $version" >&2; exit 1; }
-    @if output="$(printf '#!/usr/bin/env bash\necho $unquoted\n' | uv run shellcheck --shell=bash - 2>&1)"; then echo "ShellCheck negative control unexpectedly passed" >&2; exit 1; fi; printf '%s\n' "$output" | grep -q 'SC2086'
+    @version="$({{ uv_run }} shellcheck --version | sed -n 's/^version: //p')"; test "$version" = "0.11.0" || { echo "Expected ShellCheck 0.11.0, found $version" >&2; exit 1; }
+    @if output="$(printf '#!/usr/bin/env bash\necho $unquoted\n' | {{ uv_run }} shellcheck --shell=bash - 2>&1)"; then echo "ShellCheck negative control unexpectedly passed" >&2; exit 1; fi; printf '%s\n' "$output" | grep -q 'SC2086'
     @just _shellcheck-recipe etl-collections
     @just _shellcheck-recipe etl-annotations
     @just _shellcheck-recipe etl-annotations-linkml
@@ -290,42 +298,42 @@ shellcheck:
     @just _shellcheck-recipe export-flattened-biosample-csv
     @just _shellcheck-recipe export-nmdc-duckdb
     @just _shellcheck-recipe _install-pre-commit-hook
-    @find . \( -path './.git' -o -path './.venv' -o -path './build' -o -path './dist' \) -prune -o -type f -name '*.sh' -exec uv run shellcheck --shell=bash {} +
+    @find . \( -path './.git' -o -path './.venv' -o -path './build' -o -path './dist' \) -prune -o -type f -name '*.sh' -exec {{ uv_run }} shellcheck --shell=bash {} +
 
 # Lint every GitHub Actions workflow with the pre-commit-pinned actionlint.
 actionlint:
-    uv run pre-commit run actionlint --all-files
+    {{ uv_run }} pre-commit run actionlint --all-files
 
 # Run all linters & formatters in check mode.
 # scripts/python is in scope (see .pre-commit-config.yaml); scripts/*.py
 # at the top level is EMA legacy and deliberately excluded.
 lint:
-    uv run ruff check src tests scripts/python
-    uv run ruff format --check src tests scripts/python
+    {{ uv_run }} ruff check src tests scripts/python
+    {{ uv_run }} ruff format --check src tests scripts/python
 
 # Check for missing, unused, and transitive Python dependencies.
 deps-lint:
-    uv run deptry .
+    {{ uv_run }} deptry .
 
 # Auto-format the codebase.
 format:
-    uv run ruff format src tests scripts/python
-    uv run ruff check --fix src tests scripts/python
+    {{ uv_run }} ruff format src tests scripts/python
+    {{ uv_run }} ruff check --fix src tests scripts/python
 
 # Type-check with mypy.
 typecheck:
-    uv run mypy src scripts/python
+    {{ uv_run }} mypy src scripts/python
 
 # ---------- Tests ----------
 
 # Run the full unit test suite.
 test:
-    uv run pytest
+    {{ uv_run }} pytest
 
 # Run tests with coverage report.
 test-cov:
-    uv run pytest --cov=nmdc_lakehouse --cov-report=term-missing --cov-report=xml
-    uv run coverage report
+    {{ uv_run }} pytest --cov=nmdc_lakehouse --cov-report=term-missing --cov-report=xml
+    {{ uv_run }} coverage report
 
 # Gate lines added or changed against a base branch on direct test coverage.
 # Separate from the total floor in pyproject: the total floor protects the codebase
@@ -340,11 +348,11 @@ test-cov:
 # env_var_or_default falls back only when a variable is unset.
 diff-cover BASE=env_var_or_default("DIFF_COVER_BASE", "origin/main"):
     @test -s coverage.xml || { echo "coverage.xml is missing or empty; run 'just test-cov' first" >&2; exit 1; }
-    uv run diff-cover coverage.xml --compare-branch="{{ BASE }}" --fail-under=90 --show-uncovered
+    {{ uv_run }} diff-cover coverage.xml --compare-branch="{{ BASE }}" --fail-under=90 --show-uncovered
 
 # Run only integration tests (require live DBs).
 test-integration:
-    ENABLE_DB_TESTS=true uv run pytest -m integration
+    ENABLE_DB_TESTS=true {{ uv_run }} pytest -m integration
 
 # ---------- MongoDB tunnel ----------
 
@@ -363,11 +371,11 @@ tunnel:
 
 # Show CLI help.
 cli *ARGS:
-    uv run nmdc-lakehouse {{ ARGS }}
+    {{ uv_run }} nmdc-lakehouse {{ ARGS }}
 
 # Run a named ETL job.
 run-job JOB *ARGS:
-    uv run nmdc-lakehouse run-job {{ JOB }} {{ ARGS }}
+    {{ uv_run }} nmdc-lakehouse run-job {{ JOB }} {{ ARGS }}
 
 # Dump MongoDB collections to Parquet and manifest the result.
 #
@@ -410,11 +418,11 @@ etl-collections *SKIP:
     else
       echo "Skipping: {{ SKIP }}"
     fi
-    time uv run nmdc-lakehouse run-job all-collections \
+    time {{ uv_run }} nmdc-lakehouse run-job all-collections \
       "${skip_args[@]+"${skip_args[@]}"}" --metrics "$metrics" 2>&1 | tee "$log"
-    uv run nmdc-lakehouse create-snapshot-manifest "$LAKEHOUSE_ROOT" \
+    {{ uv_run }} nmdc-lakehouse create-snapshot-manifest "$LAKEHOUSE_ROOT" \
       --metrics "$metrics" --source-label "$source_label"
-    uv run nmdc-lakehouse validate-snapshot "$LAKEHOUSE_ROOT"
+    {{ uv_run }} nmdc-lakehouse validate-snapshot "$LAKEHOUSE_ROOT"
 
 # Convert functional_annotation_agg alone to Parquet via direct pymongo (~17 min, 54.8M records).
 # `just etl-collections` already includes this collection; use this recipe only to redo that one
@@ -428,7 +436,7 @@ etl-annotations:
     mkdir -p local
     log="local/etl-annotations-$(date +%Y%m%d_%H%M%S).log"
     echo "Logging to $log"
-    time uv run nmdc-lakehouse run-job functional_annotation_agg 2>&1 | tee "$log"
+    time {{ uv_run }} nmdc-lakehouse run-job functional_annotation_agg 2>&1 | tee "$log"
 
 # Convert functional_annotation_agg via the linkml-store schema-driven path (bypasses DirectMongoToParquetJob).
 # Use this to benchmark the linkml-store find_iter fix against the direct pymongo path.
@@ -440,28 +448,28 @@ etl-annotations-linkml:
     mkdir -p local
     log="local/etl-faa-linkml-$(date +%Y%m%d_%H%M%S).log"
     echo "Logging to $log"
-    time uv run nmdc-lakehouse run-job functional_annotation_agg__linkml 2>&1 | tee "$log"
+    time {{ uv_run }} nmdc-lakehouse run-job functional_annotation_agg__linkml 2>&1 | tee "$log"
 
 lakehouse_root := env_var_or_default("LAKEHOUSE_ROOT", "./lakehouse")
 
 # Delete zero-row Parquet files under LAKEHOUSE_ROOT (e.g. empty collections).
 drop-empty-parquet:
-    uv run python scripts/python/drop_empty_parquet.py "{{ lakehouse_root }}"
+    {{ uv_run }} python scripts/python/drop_empty_parquet.py "{{ lakehouse_root }}"
 
 # Preview recognized metadata Parquet files under LAKEHOUSE_ROOT.
 # Pass --delete explicitly to remove the previewed files.
 clean-parquet *ARGS:
-    uv run nmdc-lakehouse clean-parquet --root "{{ lakehouse_root }}" {{ ARGS }}
+    {{ uv_run }} nmdc-lakehouse clean-parquet --root "{{ lakehouse_root }}" {{ ARGS }}
 
 # ---------- Docs ----------
 
 # Serve documentation locally.
 docs-serve:
-    uv run mkdocs serve
+    {{ uv_run }} mkdocs serve
 
 # Build the documentation site.
 docs-build:
-    uv run mkdocs build
+    {{ uv_run }} mkdocs build
 
 # ---------- Build / Release ----------
 
@@ -492,7 +500,7 @@ nmdc_flattened_collections := "flattened_biosample flattened_biosample_chem_admi
 
 # Flatten NMDC MongoDB collections (biosample, study + nested extractions) in place.
 flatten-nmdc:
-    uv run python scripts/flatten_nmdc_collections.py --mongo-uri "{{ mongo_uri }}"
+    {{ uv_run }} python scripts/flatten_nmdc_collections.py --mongo-uri "{{ mongo_uri }}"
 
 # Flatten against an auth-required MongoDB; reads creds from local/.env.ncbi-loadbalancer.27778.
 flatten-nmdc-auth:
@@ -501,7 +509,7 @@ flatten-nmdc-auth:
     # The runtime-only credentials file is intentionally absent from CI.
     # shellcheck disable=SC1091
     set -a && . local/.env.ncbi-loadbalancer.27778 && set +a
-    uv run python scripts/flatten_nmdc_collections.py \
+    {{ uv_run }} python scripts/flatten_nmdc_collections.py \
       --mongo-uri "mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@${MONGO_HOST}:${MONGO_PORT}/${DEST_MONGO_DB}?authSource=admin&authMechanism=SCRAM-SHA-256&directConnection=true"
 
 # Export flattened_biosample to CSV using the distinct field list from flattened_biosample_field_counts.
@@ -547,7 +555,7 @@ export-nmdc-duckdb:
 
 # Export DuckDB tables to individual Parquet files for lakehouse ingestion.
 export-nmdc-parquet: export-nmdc-duckdb
-    uv run python scripts/export_duckdb_to_parquet.py "{{ nmdc_duckdb_file }}" --output-dir "{{ nmdc_parquet_dir }}"
+    {{ uv_run }} python scripts/export_duckdb_to_parquet.py "{{ nmdc_duckdb_file }}" --output-dir "{{ nmdc_parquet_dir }}"
 
 # Full pipeline: flatten in Mongo -> DuckDB -> Parquet -> biosample CSV.
 # The flattened target schema and its generation/diff tooling live in nmdc-lakehouse-schema

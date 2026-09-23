@@ -133,10 +133,10 @@ With the tunnel open and `.env` populated:
      named here. -->
 ```bash
 # Validate configuration, key permissions, and the local forwarded port.
-uv run --no-sync nmdc-lakehouse doctor --service-check gcp-tunnel
+just doctor --service-check gcp-tunnel
 
 # Then make one bounded, read-only MongoDB ping.
-uv run --no-sync nmdc-lakehouse doctor --service-check mongo-ping
+just doctor --service-check mongo-ping
 ```
 
 Doctor never displays the credential-bearing URI and never starts or stops the
@@ -159,20 +159,24 @@ Or a Python-stack dry-run (reads records, writes nothing):
 <!-- unverified: no run of this procedure is recorded, and no tracking issue is
      named here. -->
 ```bash
-uv run nmdc-lakehouse run-job biosample_set --dry-run
+just cli run-job biosample_set --dry-run
 ```
 
 ---
 
 ## Running ETL jobs
 
-Before a production run with source 11.24.0, review the
-[rollout gates](source-schema-1124-rollout.md). The 2026-09-22 preflight found
-populated source fields and nested substances that require additional work
-before the resulting export can be treated as complete.
-The production API reports Runtime 2.21.0 and schema 11.23.0 as of that date;
-the 11.24.0 package pair is preparation for a later source rollout, not a claim
-that production already uses the new schema.
+Before a production run, follow the
+[source selection and rollout guide](source-schema-1124-rollout.md).
+Use `NMDC_SCHEMA_VERSION=11.23.0` while production remains on that contract;
+the default is the latest reviewed tag, 11.24.0. The Just runtime and validation
+recipes use the selected source dependency and its matching flat artifact.
+The `build`, `lock`, and `test-dist` recipes do not select a source extra.
+Both maintained exporters
+check MongoDB migration metadata before reading and before promoting each
+collection. A mismatch stops the job. The pinned schema package 0.5.0 supplies
+both matching artifacts; package installation alone does not verify production
+data or complete an export.
 
 ### Maintained collection baseline
 
@@ -335,14 +339,14 @@ The direct CLI equivalent is:
 mkdir -p local
 timestamp="$(date +%Y%m%d_%H%M%S)"
 export LAKEHOUSE_ROOT="./local/mongodb-metadata-${timestamp}"
-uv run nmdc-lakehouse run-job all-collections \
+just cli run-job all-collections \
     --skip functional_annotation_agg \
     --metrics "$LAKEHOUSE_ROOT/etl-metrics.json" \
     2>&1 | tee "local/etl-collections-${timestamp}.log"
-uv run nmdc-lakehouse create-snapshot-manifest "$LAKEHOUSE_ROOT" \
+just cli create-snapshot-manifest "$LAKEHOUSE_ROOT" \
     --metrics "$LAKEHOUSE_ROOT/etl-metrics.json" \
     --source-label nmdc-production
-uv run nmdc-lakehouse validate-snapshot "$LAKEHOUSE_ROOT"
+just cli validate-snapshot "$LAKEHOUSE_ROOT"
 ```
 
 The JSON contains whole-run and per-collection wall time, rows, effective
@@ -386,7 +390,7 @@ existing completion marker. Validate a snapshot again before upload:
 <!-- unverified: no run of this procedure is recorded, and no tracking issue is
      named here. -->
 ```bash
-uv run nmdc-lakehouse validate-snapshot "$LAKEHOUSE_ROOT"
+just cli validate-snapshot "$LAKEHOUSE_ROOT"
 ```
 
 Consumers can obtain the machine-readable JSON Schema for the current manifest
@@ -395,7 +399,7 @@ format without connecting to a service:
 <!-- unverified: no run of this procedure is recorded, and no tracking issue is
      named here. -->
 ```bash
-uv run nmdc-lakehouse snapshot-manifest-schema
+just cli snapshot-manifest-schema
 ```
 
 Validation requires no MongoDB, tunnel, object store, or destination catalog. It
@@ -530,7 +534,7 @@ strings, source documents, or production values.
 <!-- unverified: no run of this procedure is recorded, and no tracking issue is
      named here. -->
 ```bash
-uv run nmdc-lakehouse run-job functional_annotation_agg
+just cli run-job functional_annotation_agg
 ```
 
 ### Run a single collection
@@ -538,8 +542,8 @@ uv run nmdc-lakehouse run-job functional_annotation_agg
 <!-- unverified: no run of this procedure is recorded, and no tracking issue is
      named here. -->
 ```bash
-uv run nmdc-lakehouse run-job biosample_set
-uv run nmdc-lakehouse run-job study_set
+just cli run-job biosample_set
+just cli run-job study_set
 # etc. Use `list-jobs` to see all registered names
-uv run nmdc-lakehouse list-jobs
+just cli list-jobs
 ```

@@ -136,7 +136,15 @@ def _python_check(version_info: tuple[int, int, int]) -> DoctorCheck:
     )
 
 
-def _environment_sync_check(runner: CommandRunner) -> DoctorCheck:
+def _environment_sync_check(runner: CommandRunner, *, source_version: str) -> DoctorCheck:
+    source_extras = {"11.23.0": "source-11-23", "11.24.0": "source-11-24"}
+    if source_version not in source_extras:
+        return DoctorCheck(
+            name="locked-environment",
+            status=CheckStatus.FAIL,
+            summary="The configured NMDC_SCHEMA_VERSION is unsupported.",
+            remediation="Select NMDC_SCHEMA_VERSION=11.23.0 or 11.24.0, then run just bootstrap.",
+        )
     completed = runner(
         (
             "uv",
@@ -148,6 +156,8 @@ def _environment_sync_check(runner: CommandRunner) -> DoctorCheck:
             "dev",
             "--extra",
             "docs",
+            "--extra",
+            source_extras[source_version],
         )
     )
     if completed.returncode != 0:
@@ -403,6 +413,8 @@ def run_doctor(
     root = (project_root or Path.cwd()).resolve()
     command_runner = runner or (lambda args: _run_command(args, cwd=root))
     environment = dict(os.environ if environ is None else environ)
+    dotenv_values, _ = _read_dotenv(root / ".env")
+    source_version = {**dotenv_values, **environment}.get("NMDC_SCHEMA_VERSION", "11.24.0")
     version_info = python_version or (sys.version_info.major, sys.version_info.minor, sys.version_info.micro)
 
     uv_check = _command_version_check(
@@ -421,7 +433,7 @@ def run_doctor(
     )
     git_check = _command_version_check(name="git", args=("git", "--version"), finder=finder, runner=command_runner)
     environment_check = (
-        _environment_sync_check(command_runner)
+        _environment_sync_check(command_runner, source_version=source_version)
         if uv_check.status is CheckStatus.PASS
         else _prerequisite_failure_check(name="locked-environment", prerequisite="uv")
     )
