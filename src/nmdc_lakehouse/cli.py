@@ -474,6 +474,12 @@ def berdl_upload_plan_command(
     required=True,
 )
 @click.option("--output", "output_path", type=click.Path(path_type=Path, dir_okay=False), required=True)
+@click.option(
+    "--metadata-output",
+    "metadata_output_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    help="Metadata verification outcome; defaults to <output stem>.metadata.json beside the data outcome.",
+)
 @click.option("--authorize-snapshot", help="Exact snapshot ID approved for this invocation.")
 @click.option("--authorize-plan-sha256", help="Exact SHA-256 digest of the reviewed staging plan.")
 @click.option(
@@ -485,18 +491,19 @@ def berdl_upload_command(
     plan_path: Path,
     upstream_outcome_path: Path,
     output_path: Path,
+    metadata_output_path: Path | None,
     authorize_snapshot: str | None,
     authorize_plan_sha256: str | None,
     execute_staging: bool,
 ) -> None:
-    """Preview or execute and independently verify one reviewed BERDL plan."""
+    """Preview or stage and verify both data and approved table metadata."""
     import json
 
-    from nmdc_lakehouse.berdl_staging import (
-        BerdlStagingPlanError,
-        execute_berdl_staging,
-        render_berdl_staging_outcome,
+    from nmdc_lakehouse.berdl_metadata import (
+        BerdlMetadataError,
+        execute_berdl_staging_with_metadata,
     )
+    from nmdc_lakehouse.berdl_staging import BerdlStagingPlanError
     from nmdc_lakehouse.metadata_application import MetadataApplicationError
     from nmdc_lakehouse.metadata_bundle import MetadataBundleError
     from nmdc_lakehouse.publication_plan import PublicationPlanError
@@ -504,16 +511,19 @@ def berdl_upload_command(
     from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError
     from nmdc_lakehouse.target_validation import TargetValidationError
 
+    metadata_output_path = metadata_output_path or output_path.with_name(f"{output_path.stem}.metadata.json")
     try:
-        command, outcome = execute_berdl_staging(
+        result = execute_berdl_staging_with_metadata(
             plan_path,
             upstream_outcome_path=upstream_outcome_path,
             output_path=output_path,
+            metadata_output_path=metadata_output_path,
             authorize_snapshot=authorize_snapshot,
             execute_staging=execute_staging,
             authorize_plan_sha256=authorize_plan_sha256,
         )
     except (
+        BerdlMetadataError,
         BerdlStagingPlanError,
         MetadataApplicationError,
         MetadataBundleError,
@@ -523,11 +533,10 @@ def berdl_upload_command(
         TargetValidationError,
     ) as error:
         raise click.ClickException(str(error)) from error
-    if outcome is None:
-        click.echo(json.dumps({"status": "preview-only", "command": command}, indent=2))
-    else:
-        click.echo(render_berdl_staging_outcome(outcome))
+    click.echo(json.dumps(result, indent=2, sort_keys=True))
+    if result["status"] != "preview-only":
         click.echo(f"outcome={output_path.expanduser().resolve()}", err=True)
+        click.echo(f"metadata_outcome={metadata_output_path.expanduser().resolve()}", err=True)
 
 
 @cli.command("berdl-apply-metadata")

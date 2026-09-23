@@ -340,8 +340,12 @@ before using the executor for the authorized staging reload.
 The executor revalidates the plan and evidence after every started live command,
 including a failed command, then
 creates a separate immutable NMDC outcome with status `data-verified`. That
-status means data staging passed; it does not mean metadata was applied or the
-canonical namespace may be changed. See the
+status means data staging passed. The normal `berdl-upload` command then applies
+and reads back the approved table metadata and writes the separate metadata
+outcome before returning success. A metadata failure returns nonzero and retains
+the data outcome for a metadata-only retry. Its final report lists missing
+descriptions, unsupported operations, and deferred namespace operations; neither
+outcome authorizes changing the canonical namespace. See the
 [BERDL upload guide](berdl-upload.md#build-the-maintained-staging-command-plan)
 for the complete recipe interface.
 
@@ -401,8 +405,10 @@ Apply only the supported operations in the reviewed metadata application plan to
 staging, report unsupported operations, and rebuild staging copies of every table
 classified as **rebuild**.
 
-For the BERDL profile, `berdl-apply-metadata` applies and reads back the approved
-table and column descriptions only after the staging outcome is data-verified.
+For the BERDL profile, `berdl-upload` automatically applies and reads back the
+approved table and column descriptions and planned schema-identity properties
+after the staging outcome is data-verified. `berdl-apply-metadata` remains the
+metadata-only preview/retry command for an already verified data outcome.
 It binds the metadata plan, staging outcome, and stock ingest revision. Namespace
 properties remain a separate provider operation and are not implied by a
 successful table/column metadata outcome.
