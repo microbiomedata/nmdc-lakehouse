@@ -1,6 +1,7 @@
 """Version gates reject unknown migration state without touching output or leaking input."""
 
 from importlib.metadata import version
+from textwrap import indent
 from unittest.mock import MagicMock
 
 import pytest
@@ -29,7 +30,9 @@ def mongo(monkeypatch):
     return factory, client, view
 
 
-def test_matching_source_reads_only_the_version_view_and_closes(mongo):
+def test_matching_source_reads_only_the_version_view_and_closes(monkeypatch, mongo):
+    resources = MagicMock(side_effect=AssertionError("An exact match needs no migration discovery"))
+    monkeypatch.setattr(preflight, "files", resources)
     factory, client, view = mongo
     assert preflight.assert_mongodb_source_aligned("mongodb://localhost/nmdc") == version("nmdc-schema")
     factory.assert_called_once()
@@ -39,6 +42,133 @@ def test_matching_source_reads_only_the_version_view_and_closes(mongo):
     view.find.return_value.limit.assert_called_once_with(2)
     client.__exit__.assert_called_once()
     client.get_default_database.return_value.create_collection.assert_not_called()
+    resources.assert_not_called()
+
+
+# Historical regression fixtures, not the runtime compatibility policy.
+NOOP_RELEASES = (
+    "11.18.0",
+    "11.18.1",
+    "11.19.0",
+    "11.19.1",
+    "11.20.0",
+    "11.20.1",
+    "11.20.2",
+    "11.21.0",
+    "11.22.0",
+    "11.23.0",
+)
+
+
+@pytest.mark.parametrize("installed", ["11.23.0", "11.24.0"])
+@pytest.mark.parametrize("recorded", NOOP_RELEASES)
+def test_reviewed_noop_history_is_compatible_only_with_1123(monkeypatch, mongo, installed, recorded):
+    """Production's 11.18.0 watermark must not block 11.23 or authorize 11.24."""
+    monkeypatch.setenv("NMDC_SCHEMA_VERSION", installed)
+    monkeypatch.setattr(preflight, "version", lambda _package: installed)
+    monkeypatch.setattr(target_validation, "version", lambda _package: installed)
+    mongo[2].find.return_value.limit.return_value = [{"schema_version": recorded}]
+    if installed == "11.23.0":
+        assert preflight.assert_mongodb_source_aligned("mongodb://localhost/nmdc") == installed
+    else:
+        with pytest.raises(preflight.SourceSchemaError, match="not compatible"):
+            preflight.assert_mongodb_source_aligned("mongodb://localhost/nmdc")
+
+
+@pytest.fixture
+def migration_package(tmp_path, monkeypatch):
+    """Provide inert package source files with versions independent of real releases."""
+    monkeypatch.setattr(preflight, "files", lambda _package: tmp_path)
+    # Other package resources are not migration steps.
+    (tmp_path / "__init__.py").write_text("raise AssertionError('must not import')\n")
+
+    def write(origin, destination, body="pass", filename=None):
+        path = tmp_path / (filename or f"migrator_from_{origin}_to_{destination}.py")
+        path.write_text(
+            '"""Example packaged migration."""\n'
+            "from nmdc_schema.migrators.migrator_base import MigratorBase\n\n"
+            "class Migrator(MigratorBase):\n"
+            '    """Example migration declaration."""\n'
+            f"    _from_version = {origin!r}\n"
+            f"    _to_version = {destination!r}\n\n"
+            "    def upgrade(self, commit_changes: bool = False) -> None:\n"
+            '        """No upgrade needed."""\n'
+            f"{indent(body, '        ')}\n"
+        )
+        return path
+
+    return write
+
+
+def test_derive_arbitrary_release_chain_from_package_metadata(migration_package):
+    migration_package("98.1.0", "98.2.0")
+    migration_package("98.2.0", "99.0.0")
+    assert preflight._has_noop_migration_path("98.1.0", "99.0.0")
+    assert preflight._has_noop_migration_path("98.2.0", "99.0.0")
+    assert not preflight._has_noop_migration_path("99.0.0", "98.1.0")
+    assert not preflight._has_noop_migration_path("97.0.0", "99.0.0")
+
+
+@pytest.mark.parametrize("shape", ["missing", "ambiguous", "cycle", "self_cycle"])
+def test_incomplete_or_ambiguous_history_fails_closed(migration_package, shape):
+    migration_package("98.2.0", "99.0.0")
+    if shape == "ambiguous":
+        migration_package("98.1.0", "99.0.0")
+    elif shape == "cycle":
+        migration_package("99.0.0", "98.2.0")
+    elif shape == "self_cycle":
+        migration_package("98.2.0", "98.2.0")
+    assert not preflight._has_noop_migration_path("98.1.0", "99.0.0")
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        ("        pass", "        raise AssertionError('never execute an upgrade')"),
+        ("        pass", "        pass\n        self.adapter.write()"),
+        ("    def upgrade", "    @some_decorator\n    def upgrade"),
+        ("class Migrator", "@some_decorator\nclass Migrator"),
+        ("class Migrator(MigratorBase):", "class Migrator(OtherBase):"),
+        ("class Migrator(MigratorBase):", "class Migrator[T](MigratorBase):"),
+        ("class Migrator(MigratorBase):", "class Migrator(MigratorBase, metaclass=Other):"),
+        ("commit_changes: bool = False", "commit_changes: bool = do_work()"),
+        ("    def upgrade", "    def __init__(self):\n        do_work()\n\n    def upgrade"),
+        ("    def upgrade", "    hook = register_work()\n\n    def upgrade"),
+        ("class Migrator", "do_work()\n\nclass Migrator"),
+        ("    def upgrade", "    async def upgrade"),
+    ],
+)
+def test_substantive_or_unrecognized_migration_is_never_executed_or_accepted(migration_package, replacement):
+    path = migration_package("98.1.0", "99.0.0")
+    path.write_text(path.read_text().replace(*replacement))
+    assert not preflight._has_noop_migration_path("98.1.0", "99.0.0")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "not valid Python code!",
+        "class Other: pass",
+        "class Migrator: pass",
+        "class Migrator:\n    _from_version = do_work()\n    _to_version = '99.0.0'",
+        "class Migrator:\n    _from_version = ''\n    _to_version = '99.0.0'",
+        "class Migrator:\n    _from_version = '98.1.0'\n    _to_version = '99.0.0'\n    _to_version = '99.1.0'",
+    ],
+)
+def test_unreadable_migration_metadata_fails_without_echoing_source(migration_package, source):
+    path = migration_package("98.1.0", "99.0.0")
+    path.write_text(source + "\n# private-source-content\n")
+    with pytest.raises(preflight.SourceSchemaError, match="Cannot inspect") as error:
+        preflight._has_noop_migration_path("98.1.0", "99.0.0")
+    assert "private-source-content" not in str(error.value)
+    assert error.value.__suppress_context__
+
+
+def test_unavailable_migration_package_fails_without_echoing_details(monkeypatch):
+    monkeypatch.setattr(preflight, "files", MagicMock(side_effect=OSError("private-installation-path")))
+    with pytest.raises(preflight.SourceSchemaError, match="Cannot inspect") as error:
+        preflight._has_noop_migration_path("98.1.0", "99.0.0")
+    assert "private-installation-path" not in str(error.value)
 
 
 @pytest.mark.parametrize(
@@ -88,11 +218,22 @@ def test_unknown_or_incomplete_migration_is_rejected(mongo, rows):
 
 @pytest.mark.parametrize(
     "observed",
-    ["", "0.0.0", "private-source-content", "11.23.0" if version("nmdc-schema") == "11.24.0" else "11.24.0"],
+    [
+        "",
+        "0.0.0",
+        "11.17.1",
+        "11.18.2",
+        "11.23.1",
+        "11.25.0",
+        "v11.23.0",
+        "11.23.0 ",
+        "private-source-content",
+        "11.23.0" if version("nmdc-schema") == "11.24.0" else "11.24.0",
+    ],
 )
 def test_mismatch_does_not_echo_source_values(mongo, observed):
     mongo[2].find.return_value.limit.return_value = [{"schema_version": observed}]
-    with pytest.raises(preflight.SourceSchemaError, match="does not match installed") as error:
+    with pytest.raises(preflight.SourceSchemaError, match="not compatible") as error:
         preflight.assert_mongodb_source_aligned("mongodb://localhost/nmdc")
     assert "private-source-content" not in str(error.value)
 
@@ -133,7 +274,20 @@ def test_preflight_cli_reports_only_sanitized_version_status(monkeypatch, mongo,
     assert result.exit_code == (0 if matches else 1)
     assert "private-value" not in result.output
     assert "mongodb://" not in result.output
-    assert ("match nmdc-schema" if matches else "does not match installed") in result.output
+    assert ("metadata is compatible" if matches else "not compatible") in result.output
+
+
+def test_preflight_cli_accepts_production_watermark_without_claiming_version_equality(monkeypatch, mongo):
+    monkeypatch.setenv("NMDC_SCHEMA_VERSION", "11.23.0")
+    monkeypatch.setattr(preflight, "version", lambda _package: "11.23.0")
+    monkeypatch.setattr(target_validation, "version", lambda _package: "11.23.0")
+    monkeypatch.setattr("nmdc_lakehouse.config.MongoSettings", lambda: MagicMock(uri="mongodb://localhost/nmdc"))
+    mongo[2].find.return_value.limit.return_value = [{"schema_version": "11.18.0"}]
+    result = CliRunner().invoke(cli, ["source-preflight"])
+    assert result.exit_code == 0
+    assert "metadata is compatible" in result.output
+    assert "pair for nmdc-schema 11.23.0" in result.output
+    assert "match" not in result.output
 
 
 @pytest.mark.parametrize("job_class", [CollectionToParquetJob, DirectMongoToParquetJob])

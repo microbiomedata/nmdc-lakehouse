@@ -44,7 +44,7 @@ If plain `uv run` selects 11.24.0 while the process environment requests
 MongoDB. A selection present only in `.env` is loaded by Just, not by this
 guard; plain `uv run` does not load it automatically. Without an exported
 selection, the installed source is still checked against the packaged
-artifact and MongoDB's recorded migration version. A database recorded as
+artifact and MongoDB's recorded migration compatibility. A database recorded as
 11.23.0 is refused by an exporter using 11.24.0. These are refusal checks,
 not automatic environment switching.
 
@@ -52,11 +52,11 @@ Before reading records and again before promoting a collection's staged output,
 both maintained export jobs read the existing MongoDB
 `_migration_latest_schema_version` view. NMDC migration bookkeeping returns a
 version only after the latest migration event is completed. A missing,
-inaccessible, ambiguous, null, or mismatched version stops the job. The check
+inaccessible, ambiguous, null, or incompatible version stops the job. The check
 creates no view and performs no database writes. Dry runs use the same checks.
 The preflight honors an explicit database in the MongoDB URI and uses `nmdc`
 when its database path is absent, matching the direct exporter's convention.
-An end-of-read mismatch discards staged files and preserves that collection's
+An incompatible end-of-read state discards staged files and preserves that collection's
 previous output. Collections completed earlier in an all-collections run can
 already have been promoted; a failed run does not produce a successful manifest.
 
@@ -66,12 +66,52 @@ quiescent; a migration that begins and finishes between checks may escape
 detection. Source selection does not convert investigator/PersonValue records
 into newer credit/Agent records and does not migrate MongoDB.
 
+### Completed migration versions can lag the deployed schema
+
+The migration view records the destination of the last completed migration,
+not the installed API schema version. On 2026-09-23, a read-only check returned
+`11.18.0` from production's view while the API reported `11.23.0`. Requiring
+equality incorrectly blocked the selected 11.23.0 source/flat pair.
+With the compatibility fix, the read-only `just source-preflight` succeeded
+against that same production view on 2026-09-23 using source 11.23.0 and schema
+package 0.5.0. This check did not read collection records or generate Parquet.
+
+Preflight accepts an exact match or a series of releases that require no data
+migration. It discovers that series from the **installed `nmdc-schema` package**;
+the lakehouse consumer maintains no list of compatible release numbers. It reads
+each migration's declared origin and destination, then follows the unique path
+backward from the selected source to the recorded completed version.
+
+Every intervening `Migrator.upgrade()` must explicitly do nothing, also called
+a **no-op**. Preflight inspects Python syntax trees without importing migration
+modules, instantiating migrators, or executing upgrades. It recognizes only the
+package's plain no-upgrade declaration with its standard signature and a `pass`
+body. Decorators, constructors, extra executable code, and unfamiliar forms are
+refused. Even a harmless upstream refactoring can require a reviewed update to
+this conservative recognizer. Missing steps, ambiguous predecessors, cycles
+encountered along the path, or an unreadable history also stop the export.
+
+With the current packages, source **11.23.0** accepts the recorded **11.18.0**
+because all nine intervening upgrades explicitly do nothing. Source **11.24.0**
+still requires a completed **11.24.0** migration: its preceding upgrade performs
+real work. The earlier 11.17.1 to 11.18.0 upgrade also requires migration work
+and stops backward traversal. The upstream
+[11.23.0 migrators](https://github.com/microbiomedata/nmdc-schema/tree/v11.23.0/nmdc_schema/migrators)
+provide this history. Tests cover these actual package paths and artificial
+release histories with gaps, branches, cycles, and substantive migration work.
+No compatibility is inferred solely from numerical version order.
+
+Preflight success means the completed migration metadata permits the selected
+contract. It does not infer the deployed API version or certify individual
+records. Keep the selected source aligned with the deployment and validate the
+export. Do not rewrite migration bookkeeping merely to satisfy the preflight.
+
 ## Select production now and switch after migration
 
 With schema package 0.5.0 installed, configure the source selection in the
 shell or the local `.env`. With the read-only GCP tunnel open:
 
-<!-- unverified: production execution awaits source preflight and a fresh validated export, tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/347 -->
+<!-- unverified: the complete production export still awaits execution and validation, tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/347 -->
 ```bash
 export NMDC_SCHEMA_VERSION=11.23.0
 just install-all
@@ -158,15 +198,16 @@ Biosample. The other schema-derived nested relation paths in this bounded
 inspection were unpopulated. This was not a complete audit of every possible
 projection-loss shape or undeclared input key.
 
+The consumer adopted published schema package 0.5.0 in
+[PR #348](https://github.com/microbiomedata/nmdc-lakehouse/pull/348).
 The remaining production gates are:
 
-1. Review and merge the consumer's adoption of published schema package 0.5.0.
-2. Verify MongoDB's recorded migration state and select its matching pair under
+1. Verify MongoDB's recorded migration compatibility and select its source/flat pair under
    [#347](https://github.com/microbiomedata/nmdc-lakehouse/issues/347).
-3. Repeat the bounded source audit and validate a fresh complete export. The
+2. Repeat the bounded source audit and validate a fresh complete export. The
    observed older fields are expected while production remains on 11.23.0.
 
-Package adoption can be reviewed independently. Do not describe a current
+Do not describe a current
 production export as complete until these gates are resolved and the preflight
 is repeated. General projection-loss detection remains in
 [#129](https://github.com/microbiomedata/nmdc-lakehouse/issues/129).
