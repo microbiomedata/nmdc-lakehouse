@@ -133,10 +133,10 @@ With the tunnel open and `.env` populated:
      named here. -->
 ```bash
 # Validate configuration, key permissions, and the local forwarded port.
-uv run --no-sync nmdc-lakehouse doctor --service-check gcp-tunnel
+just doctor --service-check gcp-tunnel
 
 # Then make one bounded, read-only MongoDB ping.
-uv run --no-sync nmdc-lakehouse doctor --service-check mongo-ping
+just doctor --service-check mongo-ping
 ```
 
 Doctor never displays the credential-bearing URI and never starts or stops the
@@ -159,7 +159,7 @@ Or a Python-stack dry-run (reads records, writes nothing):
 <!-- unverified: no run of this procedure is recorded, and no tracking issue is
      named here. -->
 ```bash
-uv run nmdc-lakehouse run-job biosample_set --dry-run
+just cli run-job biosample_set --dry-run
 ```
 
 ---
@@ -336,14 +336,14 @@ The direct CLI equivalent is:
 mkdir -p local
 timestamp="$(date +%Y%m%d_%H%M%S)"
 export LAKEHOUSE_ROOT="./local/mongodb-metadata-${timestamp}"
-uv run nmdc-lakehouse run-job all-collections \
+just cli run-job all-collections \
     --skip functional_annotation_agg \
     --metrics "$LAKEHOUSE_ROOT/etl-metrics.json" \
     2>&1 | tee "local/etl-collections-${timestamp}.log"
-uv run nmdc-lakehouse create-snapshot-manifest "$LAKEHOUSE_ROOT" \
+just cli create-snapshot-manifest "$LAKEHOUSE_ROOT" \
     --metrics "$LAKEHOUSE_ROOT/etl-metrics.json" \
     --source-label nmdc-production
-uv run nmdc-lakehouse validate-snapshot "$LAKEHOUSE_ROOT"
+just cli validate-snapshot "$LAKEHOUSE_ROOT"
 ```
 
 The JSON contains whole-run and per-collection wall time, rows, effective
@@ -387,7 +387,7 @@ existing completion marker. Validate a snapshot again before upload:
 <!-- unverified: no run of this procedure is recorded, and no tracking issue is
      named here. -->
 ```bash
-uv run nmdc-lakehouse validate-snapshot "$LAKEHOUSE_ROOT"
+just cli validate-snapshot "$LAKEHOUSE_ROOT"
 ```
 
 Consumers can obtain the machine-readable JSON Schema for the current manifest
@@ -396,7 +396,7 @@ format without connecting to a service:
 <!-- unverified: no run of this procedure is recorded, and no tracking issue is
      named here. -->
 ```bash
-uv run nmdc-lakehouse snapshot-manifest-schema
+just cli snapshot-manifest-schema
 ```
 
 Validation requires no MongoDB, tunnel, object store, or destination catalog. It
@@ -531,7 +531,7 @@ strings, source documents, or production values.
 <!-- unverified: no run of this procedure is recorded, and no tracking issue is
      named here. -->
 ```bash
-uv run nmdc-lakehouse run-job functional_annotation_agg
+just cli run-job functional_annotation_agg
 ```
 
 ### Run a single collection
@@ -539,8 +539,8 @@ uv run nmdc-lakehouse run-job functional_annotation_agg
 <!-- unverified: no run of this procedure is recorded, and no tracking issue is
      named here. -->
 ```bash
-uv run nmdc-lakehouse run-job biosample_set
-uv run nmdc-lakehouse run-job study_set
+just cli run-job biosample_set
+just cli run-job study_set
 # etc. Use `list-jobs` to see all registered names
-uv run nmdc-lakehouse list-jobs
+just cli list-jobs
 ```

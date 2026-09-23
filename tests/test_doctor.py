@@ -6,6 +6,8 @@ import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 
+import pytest
+
 from nmdc_lakehouse.doctor import CheckStatus, run_doctor
 
 
@@ -102,6 +104,8 @@ def test_stale_environment_fails_offline_with_bootstrap_remedy(tmp_path: Path) -
         "dev",
         "--extra",
         "docs",
+        "--extra",
+        "source-11-24",
     )
     runner.responses[sync_args] = (1, "SECRET-IN-RAW-OUTPUT")
 
@@ -118,6 +122,61 @@ def test_stale_environment_fails_offline_with_bootstrap_remedy(tmp_path: Path) -
     assert check.remediation == "Run just bootstrap while package indexes are available."
     assert "--offline" in sync_args
     assert "SECRET-IN-RAW-OUTPUT" not in repr(report)
+
+
+@pytest.mark.parametrize(
+    ("dotenv_version", "environment", "expected_extra"),
+    [
+        (None, {}, "source-11-24"),
+        ("11.23.0", {}, "source-11-23"),
+        ("11.24.0", {"NMDC_SCHEMA_VERSION": "11.23.0"}, "source-11-23"),
+        ("11.23.0", {"NMDC_SCHEMA_VERSION": "11.24.0"}, "source-11-24"),
+    ],
+)
+def test_environment_check_uses_selected_source_extra(tmp_path, dotenv_version, environment, expected_extra):
+    if dotenv_version is not None:
+        (tmp_path / ".env").write_text(f"NMDC_SCHEMA_VERSION={dotenv_version}\n", encoding="utf-8")
+    runner = _healthy_runner(tmp_path / "pre-commit")
+    report = run_doctor(
+        project_root=tmp_path,
+        environ=environment,
+        runner=runner,
+        finder=_all_commands,
+        python_version=(3, 13, 13),
+    )
+    sync_calls = [call for call in runner.calls if call[:3] == ("uv", "sync", "--check")]
+    assert sync_calls == [
+        (
+            "uv",
+            "sync",
+            "--check",
+            "--locked",
+            "--offline",
+            "--extra",
+            "dev",
+            "--extra",
+            "docs",
+            "--extra",
+            expected_extra,
+        )
+    ]
+    assert next(check for check in report.checks if check.name == "locked-environment").status is CheckStatus.PASS
+
+
+def test_unsupported_source_fails_without_running_sync_or_echoing_value(tmp_path):
+    runner = _healthy_runner(tmp_path / "pre-commit")
+    report = run_doctor(
+        project_root=tmp_path,
+        environ={"NMDC_SCHEMA_VERSION": "SECRET-INVALID-VERSION"},
+        runner=runner,
+        finder=_all_commands,
+        python_version=(3, 13, 13),
+    )
+    check = next(check for check in report.checks if check.name == "locked-environment")
+    assert check.status is CheckStatus.FAIL
+    assert "unsupported" in check.summary
+    assert not any(call[:2] == ("uv", "sync") for call in runner.calls)
+    assert "SECRET-INVALID-VERSION" not in repr(report)
 
 
 def test_custom_hooks_path_warns_without_disclosing_path(tmp_path: Path) -> None:

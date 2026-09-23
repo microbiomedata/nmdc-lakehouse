@@ -1,6 +1,7 @@
 """Exercise the pinned schema package through the collection job and Parquet sink."""
 
 from importlib import resources
+from importlib.metadata import version
 
 import pyarrow.parquet as pq
 import pytest
@@ -31,6 +32,7 @@ def _run_record(tmp_path, monkeypatch, collection, root, record):
     return CollectionToParquetJob(collection, root, "mongodb://localhost/nmdc", tmp_path).run()
 
 
+@pytest.mark.skipif(version("nmdc-schema") != "11.24.0", reason="Agent credit associations were added in 11.24.0")
 @pytest.mark.parametrize(
     "collection,root,concrete,required",
     [

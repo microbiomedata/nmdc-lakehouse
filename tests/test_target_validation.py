@@ -1,13 +1,13 @@
 """Tests for logical target validation of manifested Parquet rows."""
 
 import json
-from importlib import resources
 from importlib.metadata import version
 from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from nmdc_lakehouse_schema.artifacts import flat_schema_resource
 from nmdc_lakehouse_schema.transforms.schema_generator import DEFAULT_FLATTENED_SCHEMA_ID
 
 from nmdc_lakehouse.producer_identity import flattener_mapping_id
@@ -29,7 +29,8 @@ from nmdc_lakehouse.target_validation import (
 )
 
 # The flattened target schema is consumed from the nmdc-lakehouse-schema package (#4).
-PUBLISHED_SCHEMA = Path(str(resources.files("nmdc_lakehouse_schema").joinpath("schema/nmdc_schema_flattened.yaml")))
+SOURCE_VERSION = version("nmdc-schema")
+PUBLISHED_SCHEMA = Path(str(flat_schema_resource(SOURCE_VERSION)))
 
 # Producer identity is recorded (not validated) provenance: package==version (#333). Primary and
 # side tables share one flattener identity; these are just footer values the test artifacts carry.
@@ -48,7 +49,7 @@ def _artifact(path: Path, *, target_class: str, source_class: str, mapping: str)
         physical_schema_sha256="1" * 64,
         footer_schema_sha256="2" * 64,
         source_schema_id="https://w3id.org/nmdc/nmdc",
-        source_schema_version="11.24.0",
+        source_schema_version=SOURCE_VERSION,
         source_class=source_class,
         target_schema_id=DEFAULT_FLATTENED_SCHEMA_ID,
         target_class=target_class,
@@ -277,7 +278,7 @@ def test_schema_and_class_contract_mismatches_fail_closed(tmp_path: Path) -> Non
 
 @pytest.mark.parametrize(
     ("footer_version", "target_version"),
-    [("1", ""), ("2", "11.24.0+flat.1.3.0")],
+    [("1", ""), ("2", f"{SOURCE_VERSION}+flat.1.3.0")],
 )
 def test_matching_projection_and_legacy_v1_remain_valid(
     tmp_path: Path, footer_version: str, target_version: str
@@ -301,13 +302,13 @@ def test_matching_projection_and_legacy_v1_remain_valid(
 @pytest.mark.parametrize(
     ("versions", "aggregate", "message"),
     [
-        (["11.24.0+flat.1.1.0"], ["11.24.0+flat.1.1.0"], "versions do not match the published"),
+        ([f"{SOURCE_VERSION}+flat.1.1.0"], [f"{SOURCE_VERSION}+flat.1.1.0"], "versions do not match the published"),
         (
-            ["11.24.0+flat.1.3.0", "11.24.0+flat.1.1.0"],
-            ["11.24.0+flat.1.1.0", "11.24.0+flat.1.3.0"],
+            [f"{SOURCE_VERSION}+flat.1.3.0", f"{SOURCE_VERSION}+flat.1.1.0"],
+            [f"{SOURCE_VERSION}+flat.1.1.0", f"{SOURCE_VERSION}+flat.1.3.0"],
             "versions do not match the published",
         ),
-        (["11.24.0+flat.1.3.0"], ["11.24.0+flat.1.1.0"], "versions do not match the manifested"),
+        ([f"{SOURCE_VERSION}+flat.1.3.0"], [f"{SOURCE_VERSION}+flat.1.1.0"], "versions do not match the manifested"),
         ([""], [], "Version 2 artifacts must declare"),
     ],
 )
@@ -438,6 +439,7 @@ def test_source_schema_alignment_guard(monkeypatch) -> None:
     """The guard passes when installed nmdc-schema matches the flat artifact, and fails on drift."""
     from nmdc_lakehouse import target_validation as tv
 
+    monkeypatch.delenv("NMDC_SCHEMA_VERSION", raising=False)
     assert_source_schema_aligned()  # installed nmdc-schema matches the packaged flat schema
 
     monkeypatch.setattr(tv, "version", lambda package: "0.0.0")

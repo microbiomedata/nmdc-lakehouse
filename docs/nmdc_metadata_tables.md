@@ -69,7 +69,7 @@ Spark overhead of exploding a repeated field.**
 
 This is the standard path from a row in `nmdc_results.annotation_kegg_orthology`
 (or `annotation_enzyme_commission`) to its originating biosample. These examples
-use projection 1.2.0's `geo_loc_name`; earlier snapshots may instead expose
+use projection 1.3.0's `geo_loc_name` (introduced in 1.2.0); earlier snapshots may instead expose
 `geo_loc_name_has_raw_value`. Deployment of the new snapshot remains gated by
 the rollout work linked above.
 

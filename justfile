@@ -23,8 +23,8 @@ bootstrap: install-all
     @echo "Bootstrap complete. Next: just test, just check, or just cli --help"
 
 # Diagnose the installed local environment without syncing or contacting services.
-doctor:
-    {{ uv_run }} --no-sync nmdc-lakehouse doctor
+doctor *ARGS:
+    {{ uv_run }} --no-sync nmdc-lakehouse doctor {{ ARGS }}
 
 # Preview or run the BERDL promotion and recovery capability probe on disposable tables.
 berdl-promotion-probe TENANT SOURCE_NAMESPACE DESTINATION_NAMESPACE OUTPUT *ARGS:
