@@ -161,3 +161,11 @@ rollout
 migrators
 unreviewed
 losslessness
+IPython
+lockfile
+subcommands
+unprefixed
+validators
+virtualenv
+worktree
+worktrees
