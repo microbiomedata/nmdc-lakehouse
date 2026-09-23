@@ -21,16 +21,12 @@ dependencies = [
     "linkml-store>=0.3.2",
     "linkml>=1.11.1",
     "linkml-runtime>=1.11.1",
-    # Pinned to the version the consumed flat schema was built from: the flattener projects
-    # records with this nmdc-schema, and validation compares them against nmdc-lakehouse-schema's
-    # flat artifact built from the same version. Bump this and nmdc-lakehouse-schema together;
-    # target validation asserts the two agree at run time (microbiomedata/nmdc-lakehouse-schema#4).
-    "nmdc-schema==11.24.0",
-    # The flattened-schema engine and the flat-schema artifact live in this package; this repo
-    # consumes both from PyPI rather than defining/committing them. Pinned exactly and bumped in
-    # lockstep with nmdc-schema: a release built from a different source version would trip the
-    # run-time alignment guard, so the pin keeps the invariant at dependency-resolution time.
-    "nmdc-lakehouse-schema==0.4.0",
+    # The default lock selects the latest reviewed tag. Exact source-version extras below
+    # allow production's older contract; each must have a matching published flat artifact.
+    "nmdc-schema>=11.23.0,<=11.24.0",
+    # Candidate for review/testing of schema PRs #22/#24. Replace with the published exact
+    # PyPI release before production rollout; the generator remains owned by that package.
+    "nmdc-lakehouse-schema @ git+https://github.com/microbiomedata/nmdc-lakehouse-schema.git@4c5d3899346ca5beefeb01f18ccef826d8b6add0",
     # Database drivers (linkml-store routes through these)
     "pymongo>=4.9",
     "psycopg[binary]>=3.3.4",
@@ -56,6 +52,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+source-11-23 = ["nmdc-schema==11.23.0"]
+source-11-24 = ["nmdc-schema==11.24.0"]
 dev = [
     "pytest>=9.1.1",
     "pytest-cov>=5.0",
@@ -90,10 +88,15 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/nmdc_lakehouse"]
 
+# Temporary while reviewing the exact schema candidate above; remove with the release pin.
+[tool.hatch.metadata]
+allow-direct-references = true
+
 # ---------------------------------------------------------------------------
 # uv
 # ---------------------------------------------------------------------------
 [tool.uv]
+conflicts = [[{ extra = "source-11-23" }, { extra = "source-11-24" }]]
 # uv enforces this requirement itself at runtime and exits when it is unmet.
 required-version = ">=0.12.3"
 # Dev dependencies are managed through the `dev` extra above. Ordinary setup

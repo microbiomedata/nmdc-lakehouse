@@ -30,6 +30,7 @@ from nmdc_lakehouse.jobs.registry import register
 from nmdc_lakehouse.metrics import stamp_result
 from nmdc_lakehouse.producer_identity import flattener_mapping_id
 from nmdc_lakehouse.sinks.parquet_sink import ParquetSink, StreamingWriter, class_def_to_arrow_schema
+from nmdc_lakehouse.source_preflight import assert_mongodb_source_aligned
 from nmdc_lakehouse.sources.mongo_source import MongoSource
 
 logger = logging.getLogger(__name__)
@@ -137,6 +138,7 @@ class CollectionToParquetJob(Job):
             side_table_class_defs,
         )
 
+        assert_mongodb_source_aligned(self.mongo_uri)
         spec = find_spec("nmdc_schema")
         if spec is None or not spec.submodule_search_locations:
             raise RuntimeError("nmdc_schema package is not installed")
@@ -166,6 +168,7 @@ class CollectionToParquetJob(Job):
         if dry_run:
             flat_rows = flattener.apply(raw)
             rows_read = sum(1 for _ in flat_rows)
+            assert_mongodb_source_aligned(self.mongo_uri)
             return JobResult(job_name=self.name, rows_read=rows_read, rows_written=0, tables_written=())
 
         drop_empty = os.environ.get("LAKEHOUSE_DROP_EMPTY_COLS", "").lower() in ("1", "true", "yes")
@@ -272,6 +275,7 @@ class CollectionToParquetJob(Job):
             for table_name, rows in side_table_rows_written:
                 logger.info("%s: wrote %d rows to side table %s", self.collection, rows, table_name)
             table_rows = ((self.collection, rows_written), *side_table_rows_written)
+            assert_mongodb_source_aligned(self.mongo_uri)
             transaction.commit(
                 table_rows,
                 source_schema_id=str(schema_view.schema.id or ""),

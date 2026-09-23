@@ -1,10 +1,20 @@
-# Source schema 11.24.0 rollout
+# Select the source schema and roll out the flat projection
 
-The consumer pins `nmdc-schema==11.24.0` and `nmdc-lakehouse-schema==0.4.0`.
-The source version is the latest tagged release selected for this upgrade,
-not a moving dependency on upstream main. The schema package supplies both
-the runtime projection and the canonical target artifact, version
-`11.24.0+flat.1.2.0`, with 59 tables (19 primary and 40 helpers).
+The default source is the latest reviewed tagged release, **11.24.0**. Set
+`NMDC_SCHEMA_VERSION=11.23.0` to select the production compatibility pair.
+The same schema-owned projection engine supports both; each source has its own
+generated artifact and recorded identity.
+
+| Source selection | Target version | Tables |
+| --- | --- | --- |
+| 11.24.0 (default) | `11.24.0+flat.1.3.0` | 61: 19 primary, 42 helpers |
+| 11.23.0 | `11.23.0+flat.1.3.0` | 60: 19 primary, 41 helpers |
+
+This branch uses an exact candidate commit from schema pull requests
+[#22](https://github.com/microbiomedata/nmdc-lakehouse-schema/pull/22) and
+[#24](https://github.com/microbiomedata/nmdc-lakehouse-schema/pull/24) for review
+and CI. Replace that dependency with the published exact PyPI release before
+production rollout. Installing the candidate is not a production release step.
 
 ## Packaged target versus production source
 
@@ -15,13 +25,61 @@ Runtime **2.21.0** and NMDC Schema **11.23.0**. The populated investigator and
 source contract. They are not evidence of a failed migration. The API version
 does not independently certify the migration state of every MongoDB record.
 
-This package upgrade prepares the latest tagged schema target; it does not
-upgrade Runtime or MongoDB. The package-alignment guard checks installed
-dependencies and the packaged target, not the deployed source version. A
-production export targeting 11.24.0 must wait for the source rollout or use a
-separately reviewed compatibility transform. An export using the deployed
-11.23.0 contract instead needs a matching source/projection package pair; simply
-downgrading `nmdc-schema` beside projection package 0.4.0 would fail alignment.
+The installed source version selects its exact packaged target artifact.
+The package-alignment guard checks their agreement and any explicit
+`NMDC_SCHEMA_VERSION` selection. Unsupported versions have no fallback.
+All Just recipes use the selected source extra; a plain `uv run` does not read
+`NMDC_SCHEMA_VERSION`, so use Just or specify the matching uv extra explicitly.
+
+Before reading records and again before promoting a collection's staged output,
+both maintained export jobs read the existing MongoDB
+`_migration_latest_schema_version` view. NMDC migration bookkeeping returns a
+version only after the latest migration event is completed. A missing,
+inaccessible, ambiguous, null, or mismatched version stops the job. The check
+creates no view and performs no database writes. Dry runs use the same checks.
+An end-of-read mismatch discards staged files and preserves that collection's
+previous output. Collections completed earlier in an all-collections run can
+already have been promoted; a failed run does not produce a successful manifest.
+
+These checks do not make the live reads a point-in-time snapshot or validate
+every record against the source schema. Schedule exports while migrations are
+quiescent; a migration that begins and finishes between checks may escape
+detection. Source selection does not convert investigator/PersonValue records
+into newer credit/Agent records and does not migrate MongoDB.
+
+## Select production now and switch after migration
+
+Once the reviewed schema package is published and adopted, configure the source
+selection in the shell or the local `.env`. With the read-only GCP tunnel open:
+
+<!-- unverified: production execution awaits the published package and source preflight, tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/347 -->
+```bash
+export NMDC_SCHEMA_VERSION=11.23.0
+just install-all
+just source-preflight
+just etl-collections
+```
+
+The preflight reads only migration metadata. The export writes a fresh local
+snapshot by default. Set the version once for all export, manifest, cleanup,
+and target-validation commands; selecting an old artifact beside a newer source
+package is refused. Validate the completed snapshot using the
+[MongoDB guide](mongodb-connection.md#running-etl-jobs).
+
+After production's migration is completed and verified, choose 11.24.0 and
+create a new snapshot:
+
+<!-- unverified: requires the production source migration, tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/347 -->
+```bash
+export NMDC_SCHEMA_VERSION=11.24.0
+just install-all
+just source-preflight
+just etl-collections
+```
+
+Future tagged releases require a reviewed schema-package artifact and consumer
+dependency update. The default never follows upstream main or automatically
+changes because a tag appeared.
 
 ## Changed output
 
@@ -30,12 +88,20 @@ There is no `biosample_set_host_diet` table; use the `host_diet` array in
 `biosample_set`. Repeated strings retain order, duplicates, empty strings, and
 null elements. Populated additional TextValue content raises an error.
 
-Credit associations now use `applies_to_agent_*`, including Person email/ORCID
+Under source 11.24.0, credit associations use `applies_to_agent_*`, including Person email/ORCID
 and Organization ROR. DataGeneration gains a credit-association helper table.
 Principal-investigator columns and `collection_date_inc` disappear because
 their source slots are absent in 11.24.0. Source collection and credit-record
 types remain in the output. These changes require consumer query updates;
 existing snapshots retain their original schema identities.
+Under 11.23.0, investigator and `applies_to_person_*` columns remain populated
+from their existing source fields. They are tested through Parquet and full
+manifest-bound target validation in both selected source environments.
+
+Both pairs preserve `ordered_mobile_phases[*].substances_used[*]` in nested
+helper tables. Join a substance to its phase using `(parent_id, mobile_phase_index)`;
+`substance_index` preserves order and duplicates within that phase. The old
+projection 1.2.0 omitted these objects, so its snapshots require a fresh export.
 
 Target validation requires every declared artifact target version to match the
 installed target schema and checks the manifest's aggregate version list.
@@ -73,16 +139,14 @@ Biosample. The other schema-derived nested relation paths in this bounded
 inspection were unpopulated. This was not a complete audit of every possible
 projection-loss shape or undeclared input key.
 
-Two gates therefore remain before a complete production export:
+The remaining production gates are:
 
-1. Preserve substances associated with each mobile-phase occurrence, tracked in
-   [schema #21](https://github.com/microbiomedata/nmdc-lakehouse-schema/issues/21).
-   Projection 1.2.0 currently omits this content without a JSON fallback.
-2. Wait for and verify the source system's 11.24.0 rollout, or use a
-   separately reviewed extraction compatibility transform, tracked in
+1. Merge and publish the reviewed schema changes, then replace the consumer
+   candidate dependency with that exact release.
+2. Verify MongoDB's recorded migration state and select its matching pair under
    [#347](https://github.com/microbiomedata/nmdc-lakehouse/issues/347).
-   The observed older fields are expected while production reports 11.23.0.
-   Installing a new schema does not migrate MongoDB.
+3. Repeat the bounded source audit and validate a fresh complete export. The
+   observed older fields are expected while production remains on 11.23.0.
 
 Package adoption can be reviewed independently. Do not describe a current
 production export as complete until these gates are resolved and the preflight

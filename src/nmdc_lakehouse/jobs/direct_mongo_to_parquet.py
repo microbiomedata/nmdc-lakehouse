@@ -85,6 +85,9 @@ class DirectMongoToParquetJob(Job):
             flatten_class_def,
         )
 
+        from nmdc_lakehouse.source_preflight import assert_mongodb_source_aligned
+
+        assert_mongodb_source_aligned(self.mongo_uri)
         schema_view = SchemaView(_schema_path())
         flat_class = flatten_class_def(schema_view, self.root_class)
 
@@ -145,6 +148,7 @@ class DirectMongoToParquetJob(Job):
             if dry_run:
                 for _ in _stream():
                     pass
+                assert_mongodb_source_aligned(self.mongo_uri)
                 return JobResult(
                     job_name=self.name,
                     rows_read=rows_read,
@@ -165,6 +169,7 @@ class DirectMongoToParquetJob(Job):
                 )
                 rows_written = sink.write(_stream(), table=self.collection)
                 table_rows = ((self.collection, rows_written),)
+                assert_mongodb_source_aligned(self.mongo_uri)
                 transaction.commit(
                     table_rows,
                     source_schema_id=str(schema_view.schema.id or ""),

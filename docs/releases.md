@@ -59,15 +59,18 @@ not create or store a long-lived PyPI API token in repository secrets.
 
 The flattened target schema is a product of the `nmdc-lakehouse-schema` package, not this
 repository. Its own version (`<nmdc-schema version>+flat.<flattener version>`, for example
-`11.24.0+flat.1.2.0`), the `FLATTENER_VERSION` bump discipline, the `flat_schema_sha256` digest,
+`11.24.0+flat.1.3.0`), the `FLATTENER_VERSION` bump discipline, the `flat_schema_sha256` digest,
 and the drift check all live in that repository; follow its release docs when the flat schema moves.
 
-This repository consumes the shipped artifact and pins `nmdc-schema` and `nmdc-lakehouse-schema`
-together, so the two move in one coordinated bump. At validation time
+This repository consumes the shipped artifact matching the selected source package.
+Supported exact source extras and the schema package move in a coordinated update. At validation time
 `assert_source_schema_aligned()` fails fast if the installed `nmdc-schema` differs from the source
 version the artifact was built from.
 
-The current pair is `nmdc-schema==11.24.0` and `nmdc-lakehouse-schema==0.4.0`.
+The supported source selections are 11.23.0 and 11.24.0 (the default), both using
+projection 1.3.0. This branch pins a schema candidate commit for review; replace
+that direct dependency with the exact published PyPI release and remove
+`tool.hatch.metadata.allow-direct-references` before production rollout.
 The [rollout guide](source-schema-1124-rollout.md) records output changes,
 consumer integration checks, and production-data blockers. A successful package
 installation does not establish that the source data is ready for export.

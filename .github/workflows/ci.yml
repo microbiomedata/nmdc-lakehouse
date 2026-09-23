@@ -136,6 +136,11 @@ jobs:
           uv run python scripts/flatten_nmdc_collections.py --help
           uv run python scripts/export_duckdb_to_parquet.py --help
 
+      - name: Verify production source pair and read-only migration gate
+        env:
+          NMDC_SCHEMA_VERSION: "11.23.0"
+        run: uv run --locked --extra dev --extra source-11-23 pytest tests/test_source_preflight.py tests/test_source_pair_roundtrip.py
+
       - name: Build and test distributions
         run: just test-dist
 

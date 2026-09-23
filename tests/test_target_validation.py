@@ -277,7 +277,7 @@ def test_schema_and_class_contract_mismatches_fail_closed(tmp_path: Path) -> Non
 
 @pytest.mark.parametrize(
     ("footer_version", "target_version"),
-    [("1", ""), ("2", "11.24.0+flat.1.2.0")],
+    [("1", ""), ("2", "11.24.0+flat.1.3.0")],
 )
 def test_matching_projection_and_legacy_v1_remain_valid(
     tmp_path: Path, footer_version: str, target_version: str
@@ -303,11 +303,11 @@ def test_matching_projection_and_legacy_v1_remain_valid(
     [
         (["11.24.0+flat.1.1.0"], ["11.24.0+flat.1.1.0"], "versions do not match the published"),
         (
-            ["11.24.0+flat.1.2.0", "11.24.0+flat.1.1.0"],
-            ["11.24.0+flat.1.1.0", "11.24.0+flat.1.2.0"],
+            ["11.24.0+flat.1.3.0", "11.24.0+flat.1.1.0"],
+            ["11.24.0+flat.1.1.0", "11.24.0+flat.1.3.0"],
             "versions do not match the published",
         ),
-        (["11.24.0+flat.1.2.0"], ["11.24.0+flat.1.1.0"], "versions do not match the manifested"),
+        (["11.24.0+flat.1.3.0"], ["11.24.0+flat.1.1.0"], "versions do not match the manifested"),
         ([""], [], "Version 2 artifacts must declare"),
     ],
 )
@@ -441,5 +441,10 @@ def test_source_schema_alignment_guard(monkeypatch) -> None:
     assert_source_schema_aligned()  # installed nmdc-schema matches the packaged flat schema
 
     monkeypatch.setattr(tv, "version", lambda package: "0.0.0")
+    with pytest.raises(TargetValidationError, match="Unsupported NMDC source package version"):
+        assert_source_schema_aligned()
+
+    # Also reject an artifact that declares a different source than its selection key.
+    monkeypatch.setattr(tv, "_published_target_schema_resource", lambda: PUBLISHED_SCHEMA)
     with pytest.raises(TargetValidationError, match="does not match the flattened target schema"):
         assert_source_schema_aligned()
