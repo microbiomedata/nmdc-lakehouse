@@ -28,8 +28,10 @@ does not independently certify the migration state of every MongoDB record.
 The installed source version selects its exact packaged target artifact.
 The package-alignment guard checks their agreement and any explicit
 `NMDC_SCHEMA_VERSION` selection. Unsupported versions have no fallback.
-All Just recipes use the selected source extra; a plain `uv run` does not read
-`NMDC_SCHEMA_VERSION`, so use Just or specify the matching uv extra explicitly.
+The Just runtime and validation recipes use the selected source extra; a plain
+`uv run` does not read `NMDC_SCHEMA_VERSION`, so use those recipes or specify
+the matching uv extra explicitly. The `build`, `lock`, and `test-dist` recipes
+operate on the package or lock file without selecting a source extra.
 
 Before reading records and again before promoting a collection's staged output,
 both maintained export jobs read the existing MongoDB

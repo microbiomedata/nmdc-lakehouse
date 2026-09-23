@@ -169,8 +169,10 @@ just cli run-job biosample_set --dry-run
 Before a production run, follow the
 [source selection and rollout guide](source-schema-1124-rollout.md).
 Use `NMDC_SCHEMA_VERSION=11.23.0` while production remains on that contract;
-the default is the latest reviewed tag, 11.24.0. All Just recipes use the selected
-source dependency and its matching flat artifact. Both maintained exporters
+the default is the latest reviewed tag, 11.24.0. The Just runtime and validation
+recipes use the selected source dependency and its matching flat artifact.
+The `build`, `lock`, and `test-dist` recipes do not select a source extra.
+Both maintained exporters
 check MongoDB migration metadata before reading and before promoting each
 collection. A mismatch stops the job. The candidate schema dependency must
 be replaced with the published release before production use.
