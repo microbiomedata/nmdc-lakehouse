@@ -2,20 +2,16 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import os
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from click.testing import CliRunner
 from pydantic import ValidationError
 
 from nmdc_lakehouse import berdl_metadata
 from nmdc_lakehouse.berdl_metadata import (
-    AppliedMetadataTarget,
     BerdlMetadataError,
     BerdlMetadataOutcome,
     apply_berdl_staging_metadata,
@@ -23,7 +19,6 @@ from nmdc_lakehouse.berdl_metadata import (
     write_berdl_metadata_outcome,
 )
 from nmdc_lakehouse.berdl_staging import BerdlStagingOutcome, StagedTable
-from nmdc_lakehouse.cli import cli
 from nmdc_lakehouse.metadata_application import (
     MetadataApplicationPlan,
     MetadataOperation,
@@ -487,87 +482,6 @@ def test_apply_rejects_a_preview_from_different_inputs(tmp_path: Path) -> None:
             runtime=lambda _checkout: pytest.fail("runtime must not be initialized"),
             checkout_verifier=lambda *_args: pytest.fail("checkout must not be inspected"),
         )
-
-
-def test_cli_preview_is_offline_and_reports_input_hashes(tmp_path: Path) -> None:
-    plan_path = tmp_path / "metadata-plan.json"
-    staging_path = tmp_path / "staging-outcome.json"
-    plan_path.write_text(_plan().model_dump_json(), encoding="utf-8")
-    staging_path.write_text(_staging().model_dump_json(), encoding="utf-8")
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "berdl-apply-metadata",
-            str(plan_path),
-            str(staging_path),
-            "--ingest-checkout",
-            str(tmp_path / "not-contacted"),
-            "--output",
-            str(tmp_path / "outcome.json"),
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    document = json.loads(result.stdout)
-    assert document["status"] == "preview-only"
-    assert document["metadata_plan_sha256"] == hashlib.sha256(plan_path.read_bytes()).hexdigest()
-    assert document["staging_outcome_sha256"] == hashlib.sha256(staging_path.read_bytes()).hexdigest()
-    assert not (tmp_path / "outcome.json").exists()
-
-
-def test_cli_execution_requires_hashes_and_writes_verified_outcome(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    plan_path = tmp_path / "metadata-plan.json"
-    staging_path = tmp_path / "staging-outcome.json"
-    output_path = tmp_path / "metadata-outcome.json"
-    plan_path.write_text(_plan().model_dump_json(), encoding="utf-8")
-    staging_path.write_text(_staging().model_dump_json(), encoding="utf-8")
-    plan_sha256 = hashlib.sha256(plan_path.read_bytes()).hexdigest()
-    staging_sha256 = hashlib.sha256(staging_path.read_bytes()).hexdigest()
-    expected = BerdlMetadataOutcome(
-        outcome_format_version=1,
-        status="metadata-verified",
-        snapshot_id=SNAPSHOT_ID,
-        destination_id="berdl-production",
-        staging_namespace="nmdc.metadata_staging_20260820",
-        staging_outcome_sha256=staging_sha256,
-        metadata_plan_sha256=plan_sha256,
-        deferred_namespace_operations=1,
-        targets=[
-            AppliedMetadataTarget(
-                table="biosample_set",
-                table_description_status="verified",
-                columns_verified=["id"],
-            )
-        ],
-    )
-    monkeypatch.setattr(
-        "nmdc_lakehouse.berdl_metadata.apply_berdl_staging_metadata",
-        lambda *_args, **_kwargs: expected,
-    )
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "berdl-apply-metadata",
-            str(plan_path),
-            str(staging_path),
-            "--ingest-checkout",
-            str(tmp_path / "checkout"),
-            "--output",
-            str(output_path),
-            "--execute-metadata",
-            "--authorize-plan-sha256",
-            plan_sha256,
-            "--authorize-staging-outcome-sha256",
-            staging_sha256,
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert json.loads(output_path.read_text(encoding="utf-8"))["status"] == "metadata-verified"
 
 
 def test_metadata_outcome_publication_is_atomic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

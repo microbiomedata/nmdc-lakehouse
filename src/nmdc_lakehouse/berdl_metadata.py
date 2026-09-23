@@ -26,6 +26,7 @@ from nmdc_lakehouse.berdl_staging import (
     _run_command,
     execute_berdl_staging,
     is_staging_dataset,
+    render_berdl_staging_outcome,
 )
 from nmdc_lakehouse.metadata_application import (
     MetadataApplicationPlan,
@@ -255,6 +256,8 @@ def build_berdl_metadata_preview(
 def load_berdl_metadata_preview(
     metadata_plan_path: Path,
     staging_outcome_path: Path,
+    *,
+    staging_plan_path: Path,
 ) -> tuple[MetadataApplicationPlan, BerdlStagingOutcome, BerdlMetadataPreview]:
     """Load, hash, and cross-check the exact reviewed input bytes."""
     plan_model, plan_sha256 = _read_model(metadata_plan_path, MetadataApplicationPlan, "metadata plan")
@@ -263,6 +266,18 @@ def load_berdl_metadata_preview(
     staging = staging_model
     assert isinstance(plan, MetadataApplicationPlan)
     assert isinstance(staging, BerdlStagingOutcome)
+    try:
+        reviewed, reviewed_sha256 = _read_berdl_staging_plan(staging_plan_path)
+        _evidence_paths(reviewed)
+    except BerdlStagingPlanError as error:
+        raise BerdlMetadataError(str(error)) from error
+    if reviewed_sha256 != staging.staging_plan_sha256:
+        raise BerdlMetadataError("The staging plan does not match the plan recorded by data verification.")
+    reviewed_metadata_sha256 = next(
+        item.sha256 for item in reviewed.evidence if item.name == "metadata-application-plan.json"
+    )
+    if plan_sha256 != reviewed_metadata_sha256:
+        raise BerdlMetadataError("The metadata plan digest differs from the original reviewed staging plan.")
     return (
         plan,
         staging,
@@ -611,10 +626,18 @@ def execute_berdl_staging_with_metadata(
             "metadata_coverage": coverage,
         }
     try:
-        plan, recorded_staging, preview = load_berdl_metadata_preview(metadata_path, output_path)
+        # Use the exact bytes produced by the atomic data-outcome writer, not a hash of
+        # whatever happens to be on disk later. This also catches whitespace-only rewrites.
+        written_staging_sha256 = hashlib.sha256(
+            (render_berdl_staging_outcome(staging) + "\n").encode("utf-8")
+        ).hexdigest()
+        plan, recorded_staging, preview = load_berdl_metadata_preview(
+            metadata_path, output_path, staging_plan_path=plan_path
+        )
         if (
             staging.staging_plan_sha256 != staging_plan_sha256
             or preview.metadata_plan_sha256 != metadata_sha256
+            or preview.staging_outcome_sha256 != written_staging_sha256
             or recorded_staging != staging
         ):
             raise BerdlMetadataError("The data or metadata evidence changed between staging phases.")

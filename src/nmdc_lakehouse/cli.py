@@ -543,6 +543,13 @@ def berdl_upload_command(
 @click.argument("metadata_plan_path", type=click.Path(path_type=Path, dir_okay=False))
 @click.argument("staging_outcome_path", type=click.Path(path_type=Path, dir_okay=False))
 @click.option(
+    "--staging-plan",
+    "staging_plan_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    required=True,
+    help="Original reviewed staging plan, whose digest is recorded by the data outcome.",
+)
+@click.option(
     "--ingest-checkout",
     type=click.Path(path_type=Path, file_okay=False),
     required=True,
@@ -559,6 +566,7 @@ def berdl_upload_command(
 def berdl_apply_metadata_command(
     metadata_plan_path: Path,
     staging_outcome_path: Path,
+    staging_plan_path: Path,
     ingest_checkout: Path,
     output: Path,
     authorize_plan_sha256: str | None,
@@ -575,7 +583,9 @@ def berdl_apply_metadata_command(
     )
 
     try:
-        plan, staging, preview = load_berdl_metadata_preview(metadata_plan_path, staging_outcome_path)
+        plan, staging, preview = load_berdl_metadata_preview(
+            metadata_plan_path, staging_outcome_path, staging_plan_path=staging_plan_path
+        )
         if not execute_metadata:
             click.echo(render_berdl_metadata(preview))
             return

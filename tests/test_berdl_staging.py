@@ -1505,6 +1505,117 @@ def test_metadata_change_between_phases_does_not_get_applied(tmp_path, monkeypat
     monkeypatch.setattr(berdl_metadata, "execute_berdl_staging", change_after_data)
     result = CliRunner().invoke(cli, args + authorization)
     assert result.exit_code != 0
+    assert "metadata plan digest differs" in result.output
+    assert calls == ["data"]
+    assert not (tmp_path / "outcome.metadata.json").exists()
+
+
+def test_whitespace_change_to_data_outcome_is_rejected(tmp_path, monkeypatch):
+    args, authorization, _, calls = _staging_cli(tmp_path, monkeypatch)
+    execute = berdl_metadata.execute_berdl_staging
+
+    def change_after_data(*a, **kw):
+        result = execute(*a, **kw)
+        with (tmp_path / "outcome.json").open("a") as stream:
+            stream.write("\n")
+        return result
+
+    monkeypatch.setattr(berdl_metadata, "execute_berdl_staging", change_after_data)
+    result = CliRunner().invoke(cli, args + authorization)
+    assert result.exit_code != 0
     assert "changed between staging phases" in result.output
     assert calls == ["data"]
     assert not (tmp_path / "outcome.metadata.json").exists()
+
+
+def _metadata_retry_cli(tmp_path, monkeypatch):
+    args, authorization, paths, calls = _staging_cli(tmp_path, monkeypatch)
+    staging_plan_path = Path(args[1])
+    staging_plan = berdl_staging.load_berdl_staging_plan(staging_plan_path)
+    berdl_metadata.execute_berdl_staging(
+        staging_plan_path,
+        upstream_outcome_path=tmp_path / "upstream.json",
+        output_path=tmp_path / "outcome.json",
+        authorize_snapshot=SNAPSHOT_ID,
+        authorize_plan_sha256=authorization[-1],
+        execute_staging=True,
+    )
+    calls.clear()
+    return (
+        [
+            "berdl-apply-metadata",
+            str(paths["metadata"]),
+            str(tmp_path / "outcome.json"),
+            "--staging-plan",
+            str(staging_plan_path),
+            "--ingest-checkout",
+            staging_plan.ingest.checkout,
+            "--output",
+            str(tmp_path / "retry-metadata.json"),
+        ],
+        paths,
+        calls,
+    )
+
+
+def test_cli_metadata_retry_preview_is_offline_and_reports_hashes(tmp_path, monkeypatch):
+    args, paths, calls = _metadata_retry_cli(tmp_path, monkeypatch)
+    result = CliRunner().invoke(cli, args)
+    assert result.exit_code == 0, result.output
+    document = json.loads(result.stdout)
+    assert document["status"] == "preview-only"
+    assert document["metadata_plan_sha256"] == _file_sha256(paths["metadata"])
+    assert document["staging_outcome_sha256"] == _file_sha256(tmp_path / "outcome.json")
+    assert not calls
+    assert not (tmp_path / "retry-metadata.json").exists()
+
+
+def test_cli_metadata_retry_requires_hashes_and_writes_verified_outcome(tmp_path, monkeypatch):
+    args, paths, calls = _metadata_retry_cli(tmp_path, monkeypatch)
+    result = CliRunner().invoke(cli, args + ["--execute-metadata"])
+    assert result.exit_code != 0
+    assert not calls
+    result = CliRunner().invoke(
+        cli,
+        args
+        + [
+            "--execute-metadata",
+            "--authorize-plan-sha256",
+            _file_sha256(paths["metadata"]),
+            "--authorize-staging-outcome-sha256",
+            _file_sha256(tmp_path / "outcome.json"),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert calls == ["metadata"]
+    assert json.loads((tmp_path / "retry-metadata.json").read_text())["status"] == "metadata-verified"
+
+
+@pytest.mark.parametrize("changed", ["metadata", "staging-plan", "malformed-staging-plan"])
+def test_retry_rejects_changed_reviewed_evidence_even_with_new_authorization(tmp_path, monkeypatch, changed):
+    args, paths, calls = _metadata_retry_cli(tmp_path, monkeypatch)
+    staging_plan_path = Path(args[args.index("--staging-plan") + 1])
+    if changed == "metadata":
+        document = json.loads(paths["metadata"].read_text())
+        document["supported_operations"][0]["value"] = "Changed description not in the original staging plan"
+        paths["metadata"].write_text(json.dumps(document))
+    elif changed == "staging-plan":
+        with staging_plan_path.open("a") as stream:
+            stream.write("\n")
+    else:
+        staging_plan_path.write_text("not JSON")
+    result = CliRunner().invoke(
+        cli,
+        args
+        + [
+            "--execute-metadata",
+            "--authorize-plan-sha256",
+            _file_sha256(paths["metadata"]),
+            "--authorize-staging-outcome-sha256",
+            _file_sha256(tmp_path / "outcome.json"),
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Error:" in result.output
+    assert not calls
+    assert not (tmp_path / "retry-metadata.json").exists()

@@ -600,10 +600,15 @@ just berdl-apply-metadata \
   /path/to/metadata-application-plan.json \
   /path/to/nmdc-staging-outcome.json \
   /path/to/data-lakehouse-ingest \
-  /path/to/nmdc-staging-metadata-outcome.json
+  /path/to/nmdc-staging-metadata-outcome.json \
+  --staging-plan /path/to/berdl-staging-plan.json
 ```
 
-The preview is offline. Execution additionally requires `--execute-metadata`,
+The preview is offline and requires the original `--staging-plan`. Its checksum
+must match the data outcome, and the supplied metadata plan's checksum must
+match the metadata evidence bound into that staging plan. A retry cannot silently
+replace the reviewed descriptions: restore the original evidence if it changed.
+Execution additionally requires `--execute-metadata`,
 `--authorize-plan-sha256`, and `--authorize-staging-outcome-sha256` with the
 exact digests printed by the preview. It verifies that the stock KBase helper
 package still matches the ingest revision recorded by staging, applies only

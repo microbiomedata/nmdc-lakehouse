@@ -409,6 +409,9 @@ For the BERDL profile, `berdl-upload` automatically applies and reads back the
 approved table and column descriptions and planned schema-identity properties
 after the staging outcome is data-verified. `berdl-apply-metadata` remains the
 metadata-only preview/retry command for an already verified data outcome.
+Recovery requires `--staging-plan` with the original reviewed plan and checks
+its digest against the data outcome and its metadata digest against the supplied
+metadata plan.
 It binds the metadata plan, staging outcome, and stock ingest revision. Namespace
 properties remain a separate provider operation and are not implied by a
 successful table/column metadata outcome.

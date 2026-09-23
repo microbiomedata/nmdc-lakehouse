@@ -76,7 +76,7 @@ berdl-promotion-plan PUBLICATION_PLAN STAGING_OUTCOME METADATA_OUTCOME CANONICAL
 berdl-promote PROMOTION_PLAN INGEST_CHECKOUT *ARGS:
     {{ uv_run }} --no-sync nmdc-lakehouse berdl-promote "{{ PROMOTION_PLAN }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" {{ ARGS }}
 
-# Preview or apply approved table/column descriptions to verified BERDL staging tables.
+# Retry approved table metadata; ARGS must include --staging-plan ORIGINAL_PLAN.
 berdl-apply-metadata METADATA_PLAN STAGING_OUTCOME INGEST_CHECKOUT OUTCOME *ARGS:
     {{ uv_run }} --no-sync nmdc-lakehouse berdl-apply-metadata "{{ METADATA_PLAN }}" "{{ STAGING_OUTCOME }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" --output "{{ OUTCOME }}" {{ ARGS }}
 
