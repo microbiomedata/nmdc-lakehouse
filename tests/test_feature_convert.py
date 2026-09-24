@@ -194,7 +194,11 @@ def test_hits_on_an_id_shared_by_two_cds_rows_are_counted_not_written(
     run_files[ft.FUNCTIONAL] = _write(tmp_path, "functional_twin.gff", [*FUNCTIONAL_ROWS, twin])
     result = fc.convert_run(RUN, run_files, {}, tmp_path / "out")
     assert result.ambiguous_parent_hits["Pfam Annotation GFF"] == 3
+    assert "pfam" in result.dropped_keys
     rows = pq.read_table(result.outputs[0]).to_pylist()
+    twins = [r for r in rows if r["feature_id"].startswith(f"{G1}|")]
+    # Their hits were not written, so both rows keep the Pfam accessions.
+    assert all(("pfam", "PF00001,PF00002") in {(a["key"], a["value"]) for a in r["attributes"]} for r in twins)
     ids = {r["feature_id"] for r in rows}
     assert all(p in ids for r in rows for p in r["parent"])
 
@@ -204,3 +208,16 @@ def test_small_batches_give_the_same_output(run_files: dict[str, Path], tmp_path
     many = fc.convert_run(RUN, run_files, {}, tmp_path / "b", batch_rows=2)
     assert pq.read_table(one.outputs[0]).to_pylist() == pq.read_table(many.outputs[0]).to_pylist()
     assert not any(p.name.endswith(".partial") for p in (tmp_path / "b").iterdir())
+
+
+def test_cli_convert_refuses_an_empty_run_list(run_files: dict[str, Path], tmp_path: Path) -> None:
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    plan_path, runs_path, cache = _cli_fixture(run_files, tmp_path)
+    runs_path.write_text("")
+    args = [str(plan_path), "--runs", str(runs_path), "--cache-dir", str(cache), "--out-dir", str(tmp_path / "o")]
+    result = CliRunner().invoke(cli, ["feature-convert", *args])
+    assert result.exit_code != 0
+    assert "lists no runs" in result.output

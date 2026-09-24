@@ -120,8 +120,10 @@ def convert_run(
 
     Genome features come from the Functional Annotation GFF with `coordinate_system` `contig`.
     Hits come from each per-system GFF with `coordinate_system` `protein`, `parent` set to the
-    gene they sit on, and `seqid` set to that gene's contig, following the corpus profile
-    `nmdc-pfam-protein/1.0.0`. A hit's `feature_id` joins its GFF `ID`, its file type key and its
+    gene they sit on, and `seqid` set to that gene's contig. That borrows the protein-relative
+    coordinate and parent mapping of the corpus profile `nmdc-pfam-protein/1.0.0`; it does not
+    implement that profile, which covers Pfam only and needs CDS translations and bindings.
+    A hit's `feature_id` joins its GFF `ID`, its file type key and its
     column 3, because one gene can carry the same coordinates in several systems; the original
     `ID` stays in `attributes`.
 
@@ -177,9 +179,12 @@ def convert_run(
     # Observed 2026-09-23 in v1.0.2 and v1.0.4 runs: an RFAM hit over one interval on both strands
     # gets one `ID` twice, because the ID encodes the interval but not the strand. Those rows get
     # the strand appended, and a counter if that is still not enough.
-    id_counts = Counter(
-        _first(parse_attributes(r[8]) if len(r) > 8 else [], "ID") for r in read_table(files[FUNCTIONAL])
-    )
+    id_counts: Counter[str | None] = Counter()
+    cds_counts: Counter[str | None] = Counter()
+    for r in read_table(files[FUNCTIONAL]):
+        source = _first(parse_attributes(r[8]) if len(r) > 8 else [], "ID")
+        id_counts[source] += 1
+        cds_counts[source] += r[2] == "CDS"
     seen_ids: Counter[str] = Counter()
     cds_renamed: dict[str, list[str]] = {}
     for r in read_table(files[FUNCTIONAL]):
@@ -219,7 +224,9 @@ def convert_run(
                     for k, v in pairs
                     if (k != "ID" or feature_id != source_id)
                     and k not in ("Parent", "product", "product_source")
-                    and k not in drop
+                    # Hits on an ID two CDS rows share are not written, so those rows keep their
+                    # accession keys rather than lose the evidence both ways.
+                    and (k not in drop or cds_counts[source_id] > 1)
                 ],
                 "generated_by": run_id,
                 "source_files": [functional_url] if functional_url else [],

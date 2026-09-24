@@ -1366,8 +1366,11 @@ def feature_convert_command(
     from nmdc_lakehouse.feature_tables import FUNCTIONAL, cached_files, plan_from_json
 
     plan = plan_from_json(json.loads(plan_path.read_text()))
+    run_ids = _read_run_ids(runs_path)
+    if not run_ids:
+        raise click.ClickException(f"{runs_path} lists no runs; nothing would be converted.")
     summary = []
-    for run_id in _read_run_ids(runs_path):
+    for run_id in run_ids:
         try:
             files, urls = cached_files(plan.selected[run_id], cache_dir)
         except ValueError as error:

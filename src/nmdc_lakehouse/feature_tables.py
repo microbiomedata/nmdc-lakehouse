@@ -67,7 +67,8 @@ CALLER_TYPES: tuple[str, ...] = (
     "CRT Annotation GFF",
 )
 
-#: Types `check_run` reads. `convert_run` reads only FUNCTIONAL, HIT_TYPES, CONTIG_MAPPING and
+#: Types `check_run` reads. `convert_run` runs `check_run` first unless given its results, so it
+#: reads all of these; it writes rows only from FUNCTIONAL, HIT_TYPES, CONTIG_MAPPING and
 #: SCAFFOLD_LINEAGE, plus CALLER_TYPES when unselected calls are requested.
 CHECK_TYPES: tuple[str, ...] = (
     FUNCTIONAL,
