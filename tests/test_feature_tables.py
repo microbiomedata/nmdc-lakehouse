@@ -381,3 +381,28 @@ def test_selected_row_must_match_its_own_callers_row(run_files: dict[str, Path],
     assert result["passed"] is False
     assert result["selected_found_in_callers"] == 3
     assert result["selected_identical_to_caller_row"] == 2
+    # The rescored Prodigal row repeats nothing, so it counts as unselected.
+    assert result["unselected_caller_rows"] == 1
+
+
+def test_cli_sample_writes_no_run_list_when_the_manifest_is_refused(tmp_path: Path) -> None:
+    import json
+
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    outputs = [f"o-{t}" for t in ft.SAMPLE_REQUIRED_TYPES]
+    data_objects = [
+        {"id": f"o-{t}", "data_object_type": t, "url": f"https://example.org/f?{i}", "file_size_bytes": 3}
+        for i, t in enumerate(ft.SAMPLE_REQUIRED_TYPES)
+    ]
+    plan = ft.plan_runs([_run(RUN, ["in"], outputs)], data_objects)
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(json.dumps(ft.plan_to_json(plan)))
+    runs = tmp_path / "runs.txt"
+    args = [str(plan_path), "--runs", str(runs), "--manifest", str(tmp_path / "m.csv")]
+    result = CliRunner().invoke(cli, ["feature-sample", *args])
+    assert result.exit_code != 0
+    assert "neither file was written" in result.output
+    assert not runs.exists()
