@@ -362,7 +362,7 @@ def _require_target_validation(manifest: SnapshotManifest, report: TargetValidat
         raise BerdlStagingPlanError("The target validation report table coverage does not match the snapshot.")
     if set(manifest.target_schema_ids) != {report.target_schema_id}:
         raise BerdlStagingPlanError("The target validation report schema does not match the snapshot.")
-    if report.target_schema_sha256 != packaged_target_schema_sha256():
+    if report.target_schema_sha256 != packaged_target_schema_sha256(manifest):
         raise BerdlStagingPlanError("The target validation report does not match the packaged target schema.")
     if (
         {artifact.source_schema_id for artifact in manifest.artifacts} != {report.target_schema_source_id}
@@ -370,7 +370,9 @@ def _require_target_validation(manifest: SnapshotManifest, report: TargetValidat
         or report.target_schema_source_package_version != manifest.software.nmdc_schema_version
     ):
         raise BerdlStagingPlanError("The target validation report source schema does not match the snapshot.")
-    selection_bases = packaged_target_selection_bases({artifact.target_class for artifact in manifest.artifacts})
+    selection_bases = packaged_target_selection_bases(
+        {artifact.target_class for artifact in manifest.artifacts}, manifest
+    )
     for name, artifact in artifacts.items():
         table = tables[name]
         full = report.requested_mode == "full" or artifact.rows <= report.full_table_max_rows

@@ -239,3 +239,132 @@ def test_cli_and_report_boundaries(tmp_path: Path) -> None:
 def test_comparison_repeats(tmp_path: Path, repeats) -> None:
     with pytest.raises(DerivedTableError, match="positive integer"):
         queries.compare_provenance_queries(tmp_path, tmp_path, repeats=repeats)
+
+
+@pytest.fixture
+def derived_snapshot(tmp_path: Path):
+    output = tmp_path / "derived"
+    return output, local.derive_provenance(snapshot(tmp_path / "source"), output)
+
+
+def test_derived_cli_validation_and_staging_evidence(derived_snapshot, tmp_path, monkeypatch) -> None:
+    from nmdc_lakehouse import target_validation as tv
+    from nmdc_lakehouse.berdl_staging import BerdlStagingPlanError, _require_target_validation
+
+    output, manifest = derived_snapshot
+
+    # This contract is independent of whichever collection source/flat pair is installed.
+    def no_flat_schema():
+        raise AssertionError("Derived validation must not load the flattened collection schema")
+
+    monkeypatch.setattr(tv, "_published_target_schema_resource", no_flat_schema)
+    report_path = tmp_path / "validation.json"
+    result = CliRunner().invoke(
+        cli, ["validate-target-rows", str(output), "--output", str(report_path), "--mode", "full"]
+    )
+    assert result.exit_code == 0, result.output
+    report = tv.load_target_validation_report(report_path)
+    assert report.status == "success"
+    assert report.snapshot_id == manifest.snapshot_id
+    assert report.target_schema_sha256 == local.provenance_schema()[1]
+    assert report.target_schema_source_version == "11.23.0"
+    assert report.selected_rows == report.valid_rows == 14
+    assert all(table.selection_basis == "canonical-row" for table in report.tables)
+    _require_target_validation(manifest, report)
+    sample = tv.validate_target_snapshot(output, full_table_max_rows=0, sample_rows=2)
+    assert sample.selected_rows == 4
+    assert all(table.mode == "sampled" for table in sample.tables)
+    _require_target_validation(manifest, sample)
+    report.target_schema_sha256 = "0" * 64
+    with pytest.raises(BerdlStagingPlanError, match="packaged target schema"):
+        _require_target_validation(manifest, report)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("parent", "parent snapshot"),
+        ("self-parent", "parent snapshot"),
+        ("table", "two declared tables"),
+        ("class", "two declared tables"),
+        ("source-class", "two declared tables"),
+        ("source-version", "one recorded source"),
+        ("package-version", "one recorded source"),
+        ("target-version", "target schema versions"),
+        ("missing-version", "packaged provenance schema"),
+    ],
+)
+def test_derived_identity_refusals(derived_snapshot, mutation, message) -> None:
+    from nmdc_lakehouse.target_validation import TargetValidationError, packaged_target_schema_sha256
+
+    _, manifest = derived_snapshot
+    if mutation == "parent":
+        manifest.parent_snapshot_id = None
+    elif mutation == "self-parent":
+        manifest.parent_snapshot_id = manifest.snapshot_id
+    elif mutation == "table":
+        manifest.artifacts.pop()
+    elif mutation == "class":
+        manifest.artifacts[0].target_class = "GraphEdge"
+    elif mutation == "source-class":
+        manifest.artifacts[0].source_class = "Biosample"
+    elif mutation == "source-version":
+        manifest.artifacts[0].source_schema_version = "0.0.0"
+    elif mutation == "package-version":
+        manifest.software.nmdc_schema_version = ""
+    else:
+        value = "2.0.0" if mutation == "target-version" else ""
+        manifest.target_schema_versions = [value] if value else []
+        for artifact in manifest.artifacts:
+            artifact.target_schema_version = value
+            if not value:
+                artifact.footer_metadata_format_version = "1"
+    with pytest.raises(TargetValidationError, match=message):
+        packaged_target_schema_sha256(manifest)
+
+
+@pytest.mark.parametrize("key", [b"nmdc_lakehouse.input_snapshot_id", b"nmdc_lakehouse.target_schema_sha256"])
+def test_derived_footer_identity_refusal(derived_snapshot, key) -> None:
+    from nmdc_lakehouse.target_validation import TargetValidationError, build_target_validation_report
+
+    output, manifest = derived_snapshot
+    path = output / manifest.artifacts[0].path
+    table = pq.read_table(path)
+    pq.write_table(table.replace_schema_metadata({**table.schema.metadata, key: b"wrong"}), path)
+    # Test the schema binding after the caller's integrity check, independently of checksum rejection.
+    with pytest.raises(TargetValidationError, match="footer disagrees"):
+        build_target_validation_report(output, manifest, Path(str(local.provenance_schema_resource())))
+
+
+def test_derived_semantic_failure_blocks_staging(derived_snapshot) -> None:
+    from nmdc_lakehouse.berdl_staging import BerdlStagingPlanError, _require_target_validation
+    from nmdc_lakehouse.target_validation import build_target_validation_report
+
+    output, manifest = derived_snapshot
+    path = output / "biosample_to_workflow_run.parquet"
+    table = pq.read_table(path)
+    rows = table.to_pylist()
+    rows[0]["n_hops"] = 0  # Physical integer type is valid, but the LinkML minimum is 1.
+    pq.write_table(pa.Table.from_pylist(rows, schema=table.schema), path)
+    report = build_target_validation_report(
+        output, manifest, Path(str(local.provenance_schema_resource())), requested_mode="full"
+    )
+    assert report.status == "failure" and report.invalid_rows == 1
+    assert "nmdc:bsm-a" not in report.model_dump_json()
+    with pytest.raises(BerdlStagingPlanError, match="not successful"):
+        _require_target_validation(manifest, report)
+
+
+def test_derived_snapshot_rechecked_after_validation(derived_snapshot, monkeypatch) -> None:
+    from nmdc_lakehouse import target_validation as tv
+
+    output, _ = derived_snapshot
+    original = tv._validate_rows
+
+    def change_metrics(*args, **kwargs):
+        (output / "derivation-metrics.json").write_text("changed")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(tv, "_validate_rows", change_metrics)
+    with pytest.raises(SnapshotManifestError, match="checksum"):
+        tv.validate_target_snapshot(output)

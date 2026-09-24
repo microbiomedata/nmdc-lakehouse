@@ -1,4 +1,4 @@
-"""Validate manifested Parquet rows against the published target LinkML schema."""
+"""Validate manifested Parquet rows against the matching packaged LinkML schema."""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ from linkml_runtime import SchemaView
 from nmdc_lakehouse_schema.artifacts import flat_schema_resource
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from nmdc_lakehouse.local_provenance import TABLE_CLASSES, provenance_schema_resource
 from nmdc_lakehouse.snapshot_manifest import ArtifactRecord, SnapshotManifest, validate_snapshot
 
 REPORT_FORMAT_VERSION = 1
@@ -148,9 +149,21 @@ def assert_source_schema_aligned() -> None:
         )
 
 
-def packaged_target_schema_sha256() -> str:
+def _packaged_target_schema_resource(manifest: SnapshotManifest | None = None):
+    resource = (
+        provenance_schema_resource()
+        if manifest is not None and manifest.scope == "derived-provenance-snapshot"
+        else _published_target_schema_resource()
+    )
+    if manifest is not None and manifest.scope == "derived-provenance-snapshot":
+        with resources.as_file(resource) as path:
+            _schema_source_identity(manifest, SchemaView(str(path)))
+    return resource
+
+
+def packaged_target_schema_sha256(manifest: SnapshotManifest | None = None) -> str:
     """Return the digest of the target schema shipped with this installation."""
-    schema_resource = _published_target_schema_resource()
+    schema_resource = _packaged_target_schema_resource(manifest)
     with resources.as_file(schema_resource) as schema_path:
         return _sha256(schema_path)
 
@@ -162,9 +175,11 @@ def _target_selection_basis(schema_view: SchemaView, target_class: str) -> str:
     return f"target-identifier:{identifier_slot.name}" if identifier_slot is not None else "canonical-row"
 
 
-def packaged_target_selection_bases(target_classes: set[str]) -> dict[str, str]:
+def packaged_target_selection_bases(
+    target_classes: set[str], manifest: SnapshotManifest | None = None
+) -> dict[str, str]:
     """Return schema-derived row-selection bases for target classes."""
-    schema_resource = _published_target_schema_resource()
+    schema_resource = _packaged_target_schema_resource(manifest)
     with resources.as_file(schema_resource) as schema_path:
         schema_view = SchemaView(str(schema_path))
         return {name: _target_selection_basis(schema_view, name) for name in sorted(target_classes)}
@@ -315,6 +330,7 @@ def _validate_table(
     requested_mode: Literal["bounded", "full"],
     full_table_max_rows: int,
     sample_rows: int,
+    derived: bool = False,
 ) -> TableValidationRecord:
     started = time.monotonic()
     target_class = schema_view.get_class(artifact.target_class)
@@ -324,7 +340,7 @@ def _validate_table(
         "table_name": artifact.table,
         "source_class": artifact.source_class,
     }
-    for name, value in expected.items():
+    for name, value in ({} if derived else expected).items():
         if _annotation(target_class, name) != value:
             raise TargetValidationError(
                 f"Manifest table {artifact.table!r} disagrees with target-class {name} metadata."
@@ -364,22 +380,43 @@ def _validate_table(
     )
 
 
-def build_target_validation_report(
-    root: Path,
-    manifest: SnapshotManifest,
-    schema_path: Path,
-    *,
-    requested_mode: Literal["bounded", "full"] = "bounded",
-    full_table_max_rows: int = DEFAULT_FULL_TABLE_MAX_ROWS,
-    sample_rows: int = DEFAULT_SAMPLE_ROWS,
-    generated_at: str | None = None,
-) -> TargetValidationReport:
-    """Validate one already integrity-checked snapshot and return sanitized evidence."""
-    if full_table_max_rows < 0 or sample_rows < 1:
-        raise TargetValidationError("Validation thresholds must be nonnegative and sample rows must be positive.")
-    assert_source_schema_aligned()
-    started = time.monotonic()
-    schema_view = SchemaView(str(schema_path))
+def _provenance_source_identity(manifest: SnapshotManifest) -> tuple[str, str, str]:
+    """Check the derived contract without coupling it to an installed NMDC release."""
+    if (
+        not re.fullmatch(r"sha256:[0-9a-f]{64}", manifest.parent_snapshot_id or "")
+        or manifest.parent_snapshot_id == manifest.snapshot_id
+    ):
+        raise TargetValidationError("Derived provenance requires a distinct parent snapshot identity.")
+    if (
+        len(manifest.artifacts) != len(TABLE_CLASSES)
+        or {artifact.table: artifact.target_class for artifact in manifest.artifacts} != TABLE_CLASSES
+        or any(artifact.source_class != "Database" for artifact in manifest.artifacts)
+    ):
+        raise TargetValidationError("Derived provenance requires the two declared tables and target classes.")
+    identities = {(artifact.source_schema_id, artifact.source_schema_version) for artifact in manifest.artifacts}
+    if len(identities) != 1 or not all(next(iter(identities))) or not manifest.software.nmdc_schema_version:
+        raise TargetValidationError(
+            "Derived provenance requires one recorded source schema identity and package version."
+        )
+    source_id, source_version = next(iter(identities))
+    return source_id, source_version, manifest.software.nmdc_schema_version
+
+
+def _validate_provenance_footers(root: Path, manifest: SnapshotManifest, digest: str) -> None:
+    """Bind logical validation to the schema and parent recorded by the builder."""
+    for artifact in manifest.artifacts:
+        metadata = pq.read_schema(root / artifact.path).metadata or {}
+        if (
+            metadata.get(b"nmdc_lakehouse.input_snapshot_id") != (manifest.parent_snapshot_id or "").encode()
+            or metadata.get(b"nmdc_lakehouse.target_schema_sha256") != digest.encode()
+        ):
+            raise TargetValidationError(
+                "Derived provenance footer disagrees with its parent snapshot or target schema digest."
+            )
+
+
+def _schema_source_identity(manifest: SnapshotManifest, schema_view: SchemaView) -> tuple[str, str, str]:
+    """Require exact target identities and return the recorded source provenance."""
     schema_id = schema_view.schema.id
     if not isinstance(schema_id, str) or not schema_id:
         raise TargetValidationError("Published target schema has no stable identifier.")
@@ -409,6 +446,14 @@ def build_target_validation_report(
         raise TargetValidationError(
             "Manifested artifact target schema versions do not match the published target schema."
         )
+    if manifest.scope == "derived-provenance-snapshot":
+        with resources.as_file(provenance_schema_resource()) as path:
+            expected = SchemaView(str(path)).schema
+        if schema_id != expected.id or artifact_target_versions != {str(expected.version)}:
+            raise TargetValidationError(
+                "Derived provenance requires the packaged provenance schema identity and version."
+            )
+        return _provenance_source_identity(manifest)
     source_id = _annotation(schema_view.schema, "source_schema_id")
     source_version = _annotation(schema_view.schema, "source_schema_version")
     source_package_version = _annotation(schema_view.schema, "source_package_version")
@@ -423,6 +468,30 @@ def build_target_validation_report(
     if manifest.software.nmdc_schema_version != source_package_version:
         raise TargetValidationError("Snapshot and published target schema use different nmdc-schema package versions.")
 
+    return source_id, source_version, source_package_version
+
+
+def build_target_validation_report(
+    root: Path,
+    manifest: SnapshotManifest,
+    schema_path: Path,
+    *,
+    requested_mode: Literal["bounded", "full"] = "bounded",
+    full_table_max_rows: int = DEFAULT_FULL_TABLE_MAX_ROWS,
+    sample_rows: int = DEFAULT_SAMPLE_ROWS,
+    generated_at: str | None = None,
+) -> TargetValidationReport:
+    """Validate one already integrity-checked snapshot and return sanitized evidence."""
+    if full_table_max_rows < 0 or sample_rows < 1:
+        raise TargetValidationError("Validation thresholds must be nonnegative and sample rows must be positive.")
+    if manifest.scope != "derived-provenance-snapshot":
+        assert_source_schema_aligned()
+    started = time.monotonic()
+    schema_view = SchemaView(str(schema_path))
+    source_id, source_version, source_package_version = _schema_source_identity(manifest, schema_view)
+    if manifest.scope == "derived-provenance-snapshot":
+        _validate_provenance_footers(root, manifest, _sha256(schema_path))
+
     validator = Validator(
         schema_view.schema,
         validation_plugins=[JsonschemaValidationPlugin(closed=True)],
@@ -436,6 +505,7 @@ def build_target_validation_report(
             requested_mode=requested_mode,
             full_table_max_rows=full_table_max_rows,
             sample_rows=sample_rows,
+            derived=manifest.scope == "derived-provenance-snapshot",
         )
         for artifact in manifest.artifacts
     ]
@@ -445,7 +515,7 @@ def build_target_validation_report(
         status="failure" if invalid else "success",
         generated_at=generated_at or datetime.now(UTC).isoformat(),
         snapshot_id=manifest.snapshot_id,
-        target_schema_id=schema_id,
+        target_schema_id=str(schema_view.schema.id),
         target_schema_sha256=_sha256(schema_path),
         target_schema_source_id=source_id,
         target_schema_source_version=source_version,
@@ -475,9 +545,9 @@ def validate_target_snapshot(
     root = root.expanduser()
     manifest = validate_snapshot(root)
     root = root.resolve()
-    schema_resource = _published_target_schema_resource()
+    schema_resource = _packaged_target_schema_resource(manifest)
     with resources.as_file(schema_resource) as schema_path:
-        return build_target_validation_report(
+        report = build_target_validation_report(
             root,
             manifest,
             schema_path,
@@ -485,6 +555,10 @@ def validate_target_snapshot(
             full_table_max_rows=full_table_max_rows,
             sample_rows=sample_rows,
         )
+
+    if validate_snapshot(root) != manifest:
+        raise TargetValidationError("Snapshot changed during target row validation.")
+    return report
 
 
 def load_target_validation_report(path: Path) -> TargetValidationReport:
