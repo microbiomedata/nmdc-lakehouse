@@ -13,8 +13,12 @@
 > A failed query is noticed immediately; a wrong one is found out later, by somebody else, in
 > results they had no reason to doubt.
 >
-> If you depend on these tables, expect a window of minutes during a reload rather than degraded
-> answers. See https://github.com/microbiomedata/nmdc-lakehouse/issues/234.
+> A rebuild can fail and leave these tables absent; this happened during the
+> reload tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/341.
+> There is no established upper bound on the outage. A local builder and
+> measured query comparison are now available in the
+> [local provenance guide](local-provenance.md); publication of those artifacts
+> still needs a reviewed plan.
 
 ## Purpose
 
@@ -46,8 +50,10 @@ run) pair. Result queries join this table on `workflow_run_id`.
 
 `n_hops = 2` means the biosample fed directly into DataGeneration. Larger
 values indicate intermediate ProcessedSample / MaterialProcessing steps. The
-boolean columns record which processing classes appeared anywhere in that chain,
-regardless of workflow type.
+boolean columns record which processing classes appeared on any upstream branch
+of the workflow, regardless of workflow type. They are workflow-wide, not
+specific to the biosample path on each row. Pooling can associate one workflow
+with multiple biosamples; the mapping does not apportion results among them.
 
 ## Workflow types covered
 
@@ -64,14 +70,18 @@ did take. Query the current breakdown with
 
 ## Rebuilding it
 
+For a saved Parquet snapshot, use the [local builder](local-provenance.md).
+The following procedure is the existing Spark/catalog path, whose full rebuild
+has failed at current production volume; see issue 341 above.
+
 Every derived table is replaced by default, `graph_edges` first because this one
 walks it. `--table` selects a subset, which is what a promotion that rebuilt one
 and preserved the other needs; without it a rebuild replaces the preserved one
 too. Previewing is the default; execution needs the namespace named twice.
 
-<!-- unverified: this command has not been run against a live namespace. Running
-     it is tracked in
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
+<!-- unverified: the Spark walk has failed at current production volume;
+     a successful rebuild is tracked in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/341 -->
 
 ```bash
 just rebuild-derived-tables nmdc.metadata /path/to/data-lakehouse-ingest \
@@ -172,9 +182,8 @@ https://github.com/microbiomedata/nmdc-lakehouse/issues/248. The rebuild functio
 the qualified form and reject `nmdc_metadata`, because an unqualified name resolves in
 whatever catalog the session happens to point at and these statements replace tables.
 
-<!-- unverified: the module and its refusals are covered offline, but no rebuild has been run
-     against a live catalog, so the SQL is not yet known to compute the right provenance.
-     Tracked at https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
+<!-- unverified: the Spark walk has failed at current production volume;
+     successful completion is tracked at https://github.com/microbiomedata/nmdc-lakehouse/issues/341 -->
 ```python
 from nmdc_lakehouse.derived_tables import rebuild_biosample_to_workflow_run, rebuild_graph_edges
 
@@ -200,13 +209,14 @@ namespace has to be catalog-qualified.
 ### When a new MaterialProcessing subclass is added to the NMDC schema
 
 Add the type and a snake_case column name to `PROCESSING_TYPES` in
-`src/nmdc_lakehouse/derived_tables.py`. The rebuild does not detect unknown types for you;
-that preflight lived in the notebook and has not been ported, which is
-https://github.com/microbiomedata/nmdc-lakehouse/issues/130.
+`src/nmdc_lakehouse/derived_tables.py`, and add its described column to
+`src/nmdc_lakehouse/schemas/provenance.yaml`, updating that schema's version.
+Both builders refuse unknown processing types. Keep the schema and mapping
+consistent; tests check that every flag is represented.
 
 ### When a new workflow type is added to NMDC
 
-No action required. The build notebook selects all workflow types without
+No action required. Both builders select all workflow types without
 filtering, so new types appear automatically in the rebuilt table.
 
 ### When a new nmdc_results table is ingested (e.g., Centrifuge)

@@ -32,6 +32,7 @@ from importlib.metadata import metadata, version
 from pathlib import Path
 
 import nmdc_lakehouse
+from nmdc_lakehouse.local_provenance import provenance_schema
 
 
 def require(condition: bool, message: str) -> None:
@@ -57,6 +58,12 @@ cli = subprocess.run(
     text=True,
 )
 require(installed_version in cli.stdout, "The CLI does not report the installed distribution version.")
+
+provenance, _ = provenance_schema()
+require(
+    set(provenance.classes) == {"GraphEdge", "BiosampleToWorkflowRun"},
+    "The installed wheel cannot load its derived provenance schema.",
+)
 
 with zipfile.ZipFile(wheel) as archive:
     wheel_names = archive.namelist()
