@@ -382,6 +382,20 @@ def test_validation_rejects_duplicate_artifact_paths(tmp_path: Path) -> None:
         validate_snapshot(tmp_path)
 
 
+def test_distinct_artifact_paths_cannot_claim_the_same_table(tmp_path: Path) -> None:
+    metrics_path = _snapshot_fixture(tmp_path)
+    manifest = build_manifest(tmp_path, metrics_path, "nmdc-production")
+    original = manifest.artifacts[0]
+    duplicate = original.model_copy(update={"path": "another_file.parquet"})
+    (tmp_path / duplicate.path).write_bytes((tmp_path / original.path).read_bytes())
+    manifest.artifacts.append(duplicate)
+    manifest.snapshot_id = snapshot_manifest._snapshot_identity(manifest)
+    write_manifest(tmp_path, manifest)
+
+    with pytest.raises(SnapshotManifestError, match="changed after manifest creation"):
+        validate_snapshot(tmp_path)
+
+
 def test_validation_rejects_manifest_path_as_owned_content(tmp_path: Path) -> None:
     metrics_path = _snapshot_fixture(tmp_path)
     manifest = build_manifest(tmp_path, metrics_path, "nmdc-production")

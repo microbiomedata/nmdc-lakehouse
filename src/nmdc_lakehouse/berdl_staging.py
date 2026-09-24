@@ -800,7 +800,11 @@ def _evidence_paths(plan: BerdlStagingPlan) -> dict[str, Path]:
         "target-validation-report.json",
     }
     paths = {item.name: Path(item.path) for item in plan.evidence}
-    if set(paths) != expected or len(paths) != len(plan.evidence):
+    if (
+        set(paths) != expected
+        or len(paths) != len(plan.evidence)
+        or len({path.resolve() for path in paths.values()}) != len(paths)
+    ):
         raise BerdlStagingPlanError("The staging plan evidence set is not complete and unique.")
     return paths
 

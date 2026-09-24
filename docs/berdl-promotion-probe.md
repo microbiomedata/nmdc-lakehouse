@@ -1,9 +1,9 @@
 # Probing BERDL promotion and recovery capability
 
-`berdl-promote` performs a canonical promotion; see
-[the runbook](berdl-upload.md#performing-the-promotion). It has never been run
-against a live catalog, and recovery from a partial promotion is still not
-implemented, which is what this probe is for. The platform has to answer three
+`berdl-promote` now reviews and copies the metadata snapshot plus its derived
+pair; see [the runbook](berdl-upload.md#performing-the-promotion). That combined
+path has not yet run against a live catalog. It retains before state and an
+execution journal, but recovery from partial promotion is not automated. The platform has to answer three
 questions that no BERDL runbook currently answers: whether a table
 can be renamed across two namespaces in the same tenant catalog, whether a
 supported recovery operation exists and is permitted, and how long a snapshot
@@ -17,6 +17,23 @@ any namespace that names `nmdc_metadata`, `nmdc_results`, or `nmdc_ref_data`,
 and it requires both namespaces to use a disposable `<name>_probe_<suffix>`
 dataset inside one tenant. It creates its own two synthetic tables of two rows
 each and confines every mutation to them.
+
+## Limits of the existing recovery evidence
+
+The [2026-09-08 rehearsal](https://github.com/microbiomedata/nmdc-lakehouse/issues/234#issuecomment-5590401426)
+replaced an 85-row staging table with five rows and restored its original
+snapshot using `set_current_snapshot`. Row content, schema, comments and
+properties matched afterward. `rollback_to_snapshot` refused the pre-replacement
+snapshot because it was not an ancestor. This is narrower than changed-schema,
+dropped-table or multi-table recovery; none was demonstrated by that run.
+
+The existing probe below saves a recovery point after replacement, then undoes
+an insert. That is not a test of undoing replacement. It also reads the newest
+retained snapshot rather than the current reference; correction remains
+[issue 331](https://github.com/microbiomedata/nmdc-lakehouse/issues/331).
+The combined promotion planner reads the current Iceberg `main` reference and
+makes no automatic recovery claim. Its new table-writer metadata path still
+requires a disposable pod check before canonical execution.
 
 ## Preview the plan
 
