@@ -50,9 +50,11 @@ run's `has_output`, because many data objects have no `was_generated_by`.
   in `attributes`.
 - **Old pipeline versions pack KOs differently.** `KO:K02025_KO:K10118` (one underscore) rather
   than one KO per row; the parser splits both forms.
-- **Product Names labels RNA rows the Functional Annotation GFF does not.** Its third column says
-  `rRNA_28S` or `tRNA` where the Functional Annotation GFF has no `product_source`. That label is
-  not loaded.
+- **Product Names labels RNA rows the Functional Annotation GFF does not.** For rRNA, tRNA,
+  tmRNA and ncRNA rows, in every pipeline version, its third column says `rRNA_23S`, `tRNA`,
+  `tmRNA` or `ncRNA` where the Functional Annotation GFF has no `product_source`. The label restates
+  the feature type and, for rRNA, the subunit named in `product`, so it is not loaded. The check
+  fails if any other feature type lacks a source that only Product Names has.
 
 ## Output shape
 

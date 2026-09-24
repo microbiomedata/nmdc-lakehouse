@@ -1427,7 +1427,10 @@ def feature_check_command(plan_path: Path, runs_path: Path, cache_dir: Path, out
     passes: Counter[str] = Counter()
     for run_id in _read_run_ids(runs_path):
         entry = plan.selected[run_id]
-        files, _ = cached_files(entry, cache_dir)
+        try:
+            files, _ = cached_files(entry, cache_dir)
+        except ValueError as error:
+            raise click.ClickException(str(error)) from error
         bad_md5 = []
         for data_object_type, path in files.items():
             expected = entry["files"][data_object_type].get("md5_checksum")
@@ -1490,7 +1493,10 @@ def feature_convert_command(
     plan = plan_from_json(json.loads(plan_path.read_text()))
     summary = []
     for run_id in _read_run_ids(runs_path):
-        files, urls = cached_files(plan.selected[run_id], cache_dir)
+        try:
+            files, urls = cached_files(plan.selected[run_id], cache_dir)
+        except ValueError as error:
+            raise click.ClickException(str(error)) from error
         if FUNCTIONAL not in files:
             click.echo(f"  skip {run_id}: no Functional Annotation GFF in {cache_dir}")
             continue
@@ -1515,6 +1521,7 @@ def feature_convert_command(
                 "duplicate_feature_ids": result.duplicate_feature_ids,
                 "renamed_duplicate_ids": result.renamed_duplicate_ids,
                 "unselected_refused": result.unselected_refused,
+                "orphan_hits": dict(result.orphan_hits),
             }
         )
         click.echo(f"  {run_id}: {sum(result.feature_rows.values()):,} features, {result.contig_rows:,} contigs")

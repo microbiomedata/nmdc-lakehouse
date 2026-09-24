@@ -92,6 +92,11 @@ SAMPLE_REQUIRED_TYPES: tuple[str, ...] = tuple(t for t in CHECK_TYPES if t not i
 
 ASSEMBLY_RUN_TYPES = ("nmdc:MetagenomeAssembly", "nmdc:MetatranscriptomeAssembly")
 
+#: Feature types whose product_source appears only in Product Names. Measured 2026-09-23 on 50
+#: runs across all six pipeline versions: every such row was one of these four types (labels
+#: `rRNA_23S`, `tRNA`, `ncRNA`, `tmRNA`), and no CDS row lacked its source.
+PRODUCT_NAMES_ONLY_SOURCE_TYPES = frozenset({"rRNA", "tRNA", "tmRNA", "ncRNA"})
+
 ANNOTATION_RUN_TYPES = ("nmdc:MetagenomeAnnotation", "nmdc:MetatranscriptomeAnnotation")
 
 MANIFEST_COLUMNS: tuple[str, ...] = (
@@ -235,18 +240,20 @@ def plan_runs(
         keep = group[0]
         for other in group[1:]:
             plan.superseded[str(other["id"])] = str(keep["id"])
-        files: dict[str, dict[str, Any]] = {}
         for run in group:
             owned.update(run.get("has_output") or [])
+        by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for output in keep.get("has_output") or []:
             data_object = by_id.get(output)
-            if data_object is None:
-                continue
-            data_object_type = str(data_object["data_object_type"])
-            if data_object_type in files:
+            if data_object is not None:
+                by_type[str(data_object["data_object_type"])].append(dict(data_object))
+        # A type listed twice has no way to say which file is meant, so neither is used.
+        files: dict[str, dict[str, Any]] = {}
+        for data_object_type, candidates in by_type.items():
+            if len(candidates) > 1:
                 plan.ambiguous.append((str(keep["id"]), data_object_type))
-                continue
-            files[data_object_type] = dict(data_object)
+            else:
+                files[data_object_type] = candidates[0]
         run_record = dict(keep)
         run_record["assembly_run"] = next((producer[i] for i in keep.get("has_input") or [] if i in producer), None)
         plan.selected[str(keep["id"])] = {"run": run_record, "files": files}
@@ -360,6 +367,21 @@ def _accessions(pairs: Sequence[tuple[str, str]], key: str) -> set[str]:
     return {a for k, v in pairs if k == key for a in v.split(",") if a}
 
 
+def _accessions_by_id(
+    ids: Sequence[str | None], pairs: Sequence[Sequence[tuple[str, str]]], key: str
+) -> dict[str, set[str]]:
+    """Accessions under `key` per feature ID, combined across rows that share an ID.
+
+    Old runs repeat an ID (a CDS and an RNA on opposite strands, observed 2026-09-23), and a plain
+    dict comprehension would keep whichever row came last.
+    """
+    combined: dict[str, set[str]] = defaultdict(set)
+    for feature_id, feature_pairs in zip(ids, pairs, strict=True):
+        if feature_id:
+            combined[feature_id] |= _accessions(feature_pairs, key)
+    return dict(combined)
+
+
 _EC_SPLIT = re.compile(r"_(?=(?:KO|EC):)")
 
 
@@ -456,7 +478,7 @@ def check_run(files: Mapping[str, Path]) -> dict[str, dict[str, Any]]:
                 ec_by_gene[r[0]].update(ecs)
             else:
                 by_gene[r[0]].add(r[2])
-        f_sets = {g: _accessions(p, key) for g, p in zip(f_ids, f_pairs, strict=True) if g}
+        f_sets = _accessions_by_id(f_ids, f_pairs, key)
         genes = {g for g, s in f_sets.items() if s} | set(by_gene)
         equal = sum(1 for g in genes if f_sets.get(g, set()) == by_gene.get(g, set()))
         detail: dict[str, Any] = {
@@ -467,7 +489,7 @@ def check_run(files: Mapping[str, Path]) -> dict[str, dict[str, Any]]:
         }
         passed = equal == len(genes) and detail["hit_seqids_not_functional_ids"] == 0
         if hit_type == KO_EC:
-            f_ec = {g: _accessions(p, "ec_number") for g, p in zip(f_ids, f_pairs, strict=True) if g}
+            f_ec = _accessions_by_id(f_ids, f_pairs, "ec_number")
             ec_genes = {g for g, s in f_ec.items() if s} | set(ec_by_gene)
             ec_equal = sum(1 for g in ec_genes if f_ec.get(g, set()) == ec_by_gene.get(g, set()))
             detail.update(ec_genes=len(ec_genes), ec_genes_equal=ec_equal)
@@ -489,19 +511,23 @@ def check_run(files: Mapping[str, Path]) -> dict[str, dict[str, Any]]:
         )
 
     if PRODUCT_NAMES in files:
-        product = {g: (_first(p, "product"), _first(p, "product_source")) for g, p in zip(f_ids, f_pairs, strict=True)}
+        product: dict[str, list[tuple[str | None, str | None, str]]] = defaultdict(list)
+        for g, p, r in zip(f_ids, f_pairs, functional, strict=True):
+            if g:
+                product[g].append((_first(p, "product"), _first(p, "product_source"), r[2]))
         names = list(read_table(files[PRODUCT_NAMES]))
         name_matched = source_matched = source_only_here = 0
         for r in names:
-            f_product, f_source = product.get(r[0], (None, None))
             source_label = r[2] if len(r) > 2 else None
-            name_matched += f_product == r[1]
-            if f_source is None and source_label:
-                # Observed 2026-09-23 on RNA rows: Product Names says `rRNA_28S` or `tRNA` where
-                # the Functional Annotation GFF has no product_source at all.
+            candidates = [c for c in product.get(r[0], []) if c[0] == r[1]]
+            name_matched += bool(candidates)
+            if any(c[1] == source_label for c in candidates):
+                source_matched += 1
+            elif any(c[1] is None and c[2] in PRODUCT_NAMES_ONLY_SOURCE_TYPES for c in candidates) and source_label:
+                # RNA rows only: Product Names says `rRNA_28S` or `tRNA` where the Functional
+                # Annotation GFF has no product_source at all. Any other type missing its source
+                # fails the check.
                 source_only_here += 1
-            else:
-                source_matched += f_source == source_label
         results["product_names_in_functional"] = _check(
             name_matched == len(names) and source_matched + source_only_here == len(names),
             rows=len(names),
@@ -605,6 +631,8 @@ class ConversionResult:
     dropped_keys: list[str] = field(default_factory=list)
     duplicate_feature_ids: int = 0
     renamed_duplicate_ids: int = 0
+    #: Hits on genes absent from the Functional Annotation GFF, by file type; not written.
+    orphan_hits: Counter[str] = field(default_factory=Counter)
     #: Why unselected calls were not written although requested, or None.
     unselected_refused: str | None = None
     outputs: list[str] = field(default_factory=list)
@@ -716,12 +744,17 @@ def convert_run(
             continue
         label = "ko_ec" if hit_type == KO_EC else key
         for r in read_table(files[hit_type]):
+            if r[0] not in gene_seqid:
+                # The model needs a hit's parent to be a Feature and its seqid a Contig; a hit on a
+                # gene the Functional Annotation GFF lacks has neither, so it is counted, not written.
+                result.orphan_hits[hit_type] += 1
+                continue
             pairs = parse_attributes(r[8]) if len(r) > 8 else []
             source_id = _first(pairs, "ID") or f"{r[0]}_{r[3]}_{r[4]}"
             rows.append(
                 {
                     "feature_id": f"{source_id}|{label}|{r[2]}",
-                    "seqid": gene_seqid.get(r[0], r[0]),
+                    "seqid": gene_seqid[r[0]],
                     "source": r[1] or None,
                     "type": r[2],
                     "start": int(r[3]),
@@ -830,11 +863,15 @@ def cached_files(entry: Mapping[str, Any], cache_dir: Path) -> tuple[dict[str, P
 
     paths: dict[str, Path] = {}
     urls: dict[str, str] = {}
+    root = cache_dir.resolve()
     for data_object_type, data_object in entry["files"].items():
         url = data_object.get("url")
         if not url:
             continue
-        path = cache_dir / urlparse(url).path.lstrip("/")
+        path = (cache_dir / urlparse(url).path.lstrip("/")).resolve()
+        # Same rule as scripts/download_to_cache.py::cache_path_for: never read outside the cache.
+        if path != root and root not in path.parents:
+            raise ValueError(f"{url!r} resolves outside the cache directory {root}")
         if path.exists():
             paths[data_object_type] = path
             urls[data_object_type] = url

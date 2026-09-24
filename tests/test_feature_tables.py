@@ -257,6 +257,9 @@ def test_hits_follow_a_renamed_cds(run_files: dict[str, Path], tmp_path: Path) -
     assert hit["seqid"] == f"{RUN}_0001"
     contig_ids = {c["contig_id"] for c in pq.read_table(result.outputs[1]).to_pylist()}
     assert contig_ids == {f"{RUN}_0001", f"{RUN}_0002"}
+    # The RNA row comes last and has no pfam key; the CDS's accessions must still count.
+    assert ft.check_run(run_files)["hits_match_functional:pfam"]["passed"] is True
+    assert "pfam" in result.dropped_keys
     assert any(r["feature_id"] == f"{G1}|+" and r["type"] == "CDS" for r in rows)
 
 
@@ -473,3 +476,48 @@ def test_cli_check_fails_when_a_planned_file_is_missing(run_files: dict[str, Pat
     result = CliRunner().invoke(cli, ["feature-check", *args])
     assert result.exit_code == 1
     assert "failed  planned_files_present" in result.output
+
+
+def test_convert_run_counts_hits_on_unknown_genes_without_writing_them(
+    run_files: dict[str, Path], tmp_path: Path
+) -> None:
+    stray = "nmdc:missing_gene\tHMMER 3.1b2\tPF00003\t1\t9\t5.0\t.\t.\tID=stray"
+    pfam = run_files["Pfam Annotation GFF"]
+    pfam.write_text(pfam.read_text() + stray + "\n")
+    result = ft.convert_run(RUN, run_files, {}, tmp_path / "out")
+    assert result.orphan_hits == {"Pfam Annotation GFF": 1}
+    features = pq.read_table(result.outputs[0]).to_pylist()
+    assert not any(r["feature_id"].startswith("stray") for r in features)
+    contigs = {c["contig_id"] for c in pq.read_table(result.outputs[1]).to_pylist()}
+    assert "nmdc:missing_gene" not in contigs
+
+
+def test_cached_files_refuses_paths_outside_the_cache(tmp_path: Path) -> None:
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (tmp_path / "secret.txt").write_text("x")
+    entry = {"files": {ft.FUNCTIONAL: {"url": "https://example.org/../../secret.txt"}}}
+    with pytest.raises(ValueError, match="outside the cache"):
+        ft.cached_files(entry, cache)
+
+
+def test_plan_runs_uses_neither_file_when_a_type_is_listed_twice() -> None:
+    runs = [_run(RUN, ["in"], ["a", "b", "c"])]
+    data_objects = [
+        {"id": "a", "data_object_type": ft.FUNCTIONAL, "url": "u/a"},
+        {"id": "b", "data_object_type": ft.FUNCTIONAL, "url": "u/b"},
+        {"id": "c", "data_object_type": ft.STRUCTURAL, "url": "u/c"},
+    ]
+    plan = ft.plan_runs(runs, data_objects)
+    assert plan.ambiguous == [(RUN, ft.FUNCTIONAL)]
+    assert set(plan.selected[RUN]["files"]) == {ft.STRUCTURAL}
+
+
+def test_product_names_source_only_there_fails_for_a_cds(run_files: dict[str, Path], tmp_path: Path) -> None:
+    rows = [r.replace(";product_source=COG0001", "") for r in FUNCTIONAL_ROWS]
+    run_files[ft.FUNCTIONAL] = _write(tmp_path, "functional_nosource.gff", rows)
+    result = ft.check_run(run_files)["product_names_in_functional"]
+    assert result["passed"] is False
+    # Only the rRNA row may carry a label found in Product Names alone; the CDS may not.
+    assert result["source_label_only_in_product_names"] == 1
+    assert result["sources_matched"] == 1
