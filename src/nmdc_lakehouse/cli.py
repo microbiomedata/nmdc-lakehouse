@@ -646,7 +646,7 @@ def prepare_publication_command(configuration: Path, output: Path) -> None:
     except (ValueError, OSError) as error:
         raise click.ClickException(str(error)) from error
     click.echo(json.dumps(receipt, indent=2, sort_keys=True))
-    click.echo(f"prepared_directory={output.expanduser().resolve()}")
+    click.echo(f"prepared_directory={output.expanduser().resolve()}", err=True)
 
 
 @cli.command("metadata-bundle-schema")
