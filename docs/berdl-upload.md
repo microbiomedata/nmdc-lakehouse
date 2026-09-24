@@ -3,7 +3,9 @@
 Start with the [staging runbook](berdl-staging-runbook.md) for the operator
 sequence, credentials, evidence layout, and recovery decisions. The
 [2026-09-23 run record](runs/2026-09-23-production-staging.md) records the latest
-production export, setup failure and fix, reviewed preview, and pending live work.
+production export, setup failure and fix, and verified data/metadata staging.
+Separate derived staging, namespace metadata, source-preservation auditing, and
+canonical promotion remain outstanding in that record.
 
 This document contains two different things, and reading one for the other wastes
 time. The boundary is the "Historical off-cluster transport" heading:
@@ -505,8 +507,7 @@ snapshot and all reviewed evidence must therefore be available in that pod.
 Start the Spark Connect sidecar with `get_spark_session()` in a notebook before
 using the pod terminal for a long-running execution. Preview is the default:
 
-<!-- unverified: no run of this procedure is recorded. Running it is tracked in
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/136 -->
+<!-- verified: 2026-09-24 the equivalent CLI preview rechecked the production plan before execution; see runs/2026-09-23-production-staging.md. -->
 ```bash
 just berdl-upload \
   /path/to/berdl-staging-plan.json \
@@ -533,8 +534,7 @@ example, use `sha256sum` on Linux or `shasum -a 256` on macOS. Execute the same
 plan with both that digest and the snapshot ID printed in the plan as explicit,
 plan-bound authorization:
 
-<!-- unverified: no run of this procedure is recorded. Running it is tracked in
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/136 -->
+<!-- verified: 2026-09-24 the equivalent CLI execution verified all 46 production tables and planned table metadata; see runs/2026-09-23-production-staging.md. -->
 ```bash
 just berdl-upload \
   /path/to/berdl-staging-plan.json \
