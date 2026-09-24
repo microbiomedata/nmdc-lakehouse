@@ -110,9 +110,10 @@ through the manifest, but is not proof that a parent has been staged or promoted
 
 The staging planner accepts this report using the same provenance schema.
 Follow the [staging runbook](berdl-staging-runbook.md) with the **derived snapshot**
-as the input throughout: create a new metadata profile and bundle, inventory
-and publication policy, publication plan, metadata application plan, and
-staging command plan. Preserve descriptions from the Parquet footers. Choose a
+as the input throughout. `prepare-publication` reuses the derived snapshot and
+its full validation report and prepares its profile and bundle together. Continue
+with destination inventory, publication policy and plan, metadata application
+plan, and staging command plan. Preserve descriptions from the Parquet footers. Choose a
 new staging namespace and object prefix; do not append these files to the
 already reviewed 46-artifact snapshot or reuse its evidence. If comparing with
 an inventory of the full metadata namespace, explicitly preserve its tables

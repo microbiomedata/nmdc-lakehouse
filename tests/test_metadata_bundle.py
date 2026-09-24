@@ -19,14 +19,9 @@ from nmdc_lakehouse.metadata_bundle import (
     MetadataProfile,
     NamespaceProfile,
     build_metadata_bundle,
-    build_metadata_profile,
     load_metadata_bundle,
     load_metadata_profile,
     metadata_json_schema,
-    render_metadata_bundle,
-    render_metadata_profile,
-    write_metadata_bundle,
-    write_metadata_profile,
 )
 from nmdc_lakehouse.snapshot_manifest import (
     ArtifactRecord,
@@ -138,33 +133,6 @@ def _snapshot_files(root: Path) -> None:
         table_description="Generated relationship table.",
         column_description=None,
     )
-
-
-def test_profile_draft_uses_validated_snapshot_identity() -> None:
-    profile = build_metadata_profile(
-        _manifest(),
-        profile_id="nmdc-metadata-2026-08-18",
-        namespace_name="nmdc_metadata",
-        title="NMDC metadata",
-        description="Flattened NMDC metadata tables.",
-        documentation_url="https://github.com/microbiomedata/nmdc-lakehouse",
-        properties={"collection": "nmdc", "role": "metadata"},
-    )
-
-    assert profile.snapshot_id == SNAPSHOT_ID
-    assert profile.namespace.name == "nmdc_metadata"
-    assert profile.overrides == []
-
-
-def test_profile_draft_rejects_invalid_review_content() -> None:
-    with pytest.raises(MetadataBundleError, match="valid metadata profile"):
-        build_metadata_profile(
-            _manifest(),
-            profile_id="nmdc metadata",
-            namespace_name="nmdc_metadata",
-            title="NMDC metadata",
-            description="Flattened NMDC metadata tables.",
-        )
 
 
 def test_bundle_uses_footer_baseline_and_reviewed_overrides(tmp_path: Path) -> None:
@@ -335,39 +303,6 @@ def test_bundle_loader_rejects_duplicate_names(tmp_path: Path, duplicate: str) -
         load_metadata_bundle(path)
 
 
-def test_render_and_atomic_write_use_the_same_canonical_json(tmp_path: Path) -> None:
-    _snapshot_files(tmp_path)
-    bundle = build_metadata_bundle(
-        tmp_path,
-        _manifest(),
-        _profile(),
-        generated_at="2026-08-18T18:00:00+00:00",
-    )
-    destination = tmp_path / "output" / "metadata-bundle.json"
-
-    assert write_metadata_bundle(destination, bundle) == destination.resolve()
-    assert destination.read_text(encoding="utf-8") == render_metadata_bundle(bundle) + "\n"
-    assert not list(destination.parent.glob(".metadata-bundle.json.*.tmp"))
-
-    linked = tmp_path / "linked-output.json"
-    linked.symlink_to(destination)
-    with pytest.raises(MetadataBundleError, match="ordinary file path"):
-        write_metadata_bundle(linked, bundle)
-
-
-def test_render_and_atomic_write_profile_use_the_same_json(tmp_path: Path) -> None:
-    profile = _profile()
-    destination = tmp_path / "output" / "metadata-profile.json"
-
-    assert write_metadata_profile(destination, profile) == destination.resolve()
-    assert destination.read_text(encoding="utf-8") == render_metadata_profile(profile) + "\n"
-
-    blocked_parent = tmp_path / "blocked"
-    blocked_parent.write_text("not a directory", encoding="utf-8")
-    with pytest.raises(MetadataBundleError, match="Cannot write the metadata profile"):
-        write_metadata_profile(blocked_parent / "profile.json", profile)
-
-
 def test_metadata_schema_cli_emits_versioned_contracts() -> None:
     runner = CliRunner()
     profile = runner.invoke(cli, ["metadata-bundle-schema", "profile"])
@@ -378,93 +313,6 @@ def test_metadata_schema_cli_emits_versioned_contracts() -> None:
     assert json.loads(profile.output)["x-format-version"] == 1
     assert json.loads(bundle.output)["x-format-version"] == BUNDLE_FORMAT_VERSION
     assert metadata_json_schema("bundle")["title"] == "MetadataBundle"
-
-
-def test_metadata_bundle_cli_prints_and_writes_the_same_document(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _snapshot_files(tmp_path)
-    generated = build_metadata_bundle(
-        tmp_path,
-        _manifest(),
-        _profile(),
-        generated_at="2026-08-18T18:00:00+00:00",
-    )
-    monkeypatch.setattr("nmdc_lakehouse.metadata_bundle.generate_metadata_bundle", lambda *_args: generated)
-    destination = tmp_path / "metadata-bundle.json"
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "metadata-bundle",
-            str(tmp_path),
-            "--profile",
-            str(tmp_path / "profile.json"),
-            "--output",
-            str(destination),
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert json.loads(result.output) == generated.model_dump(mode="json")
-    assert destination.read_text(encoding="utf-8") == result.output
-
-
-def test_metadata_profile_cli_prints_and_writes_the_same_document(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    profile = _profile()
-    monkeypatch.setattr("nmdc_lakehouse.metadata_bundle.generate_metadata_profile", lambda *_args, **_kwargs: profile)
-    destination = tmp_path / "metadata-profile.json"
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "metadata-profile",
-            str(tmp_path),
-            "--profile-id",
-            profile.profile_id,
-            "--namespace-name",
-            "nmdc_metadata",
-            "--title",
-            "NMDC metadata",
-            "--description",
-            "Flattened NMDC metadata tables.",
-            "--property",
-            "role=metadata",
-            "--output",
-            str(destination),
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert json.loads(result.output) == profile.model_dump(mode="json")
-    assert destination.read_text(encoding="utf-8") == result.output
-
-
-def test_metadata_profile_cli_rejects_duplicate_properties(tmp_path: Path) -> None:
-    result = CliRunner().invoke(
-        cli,
-        [
-            "metadata-profile",
-            str(tmp_path),
-            "--profile-id",
-            "profile-1",
-            "--namespace-name",
-            "nmdc_metadata",
-            "--title",
-            "NMDC metadata",
-            "--description",
-            "Flattened NMDC metadata tables.",
-            "--property",
-            "role=metadata",
-            "--property",
-            "role=duplicate",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "unique KEY=VALUE" in result.output
 
 
 def _bundle_fixture(tmp_path: Path) -> MetadataBundle:
