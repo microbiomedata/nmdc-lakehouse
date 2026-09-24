@@ -15,6 +15,7 @@ import sys
 import tempfile
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -453,6 +454,7 @@ def execute_promotion(
     journal.mkdir(mode=0o700)
     fd, log_name = tempfile.mkstemp(prefix="runtime-", suffix=".log", dir=journal)
     print(f"Private promotion log: {log_name}", file=sys.stderr, flush=True)
+    started_at = datetime.now(UTC).isoformat()
     attempted = None
     verified = []
     with progress("combined promotion"), os.fdopen(fd, "w") as log:
@@ -476,7 +478,10 @@ def execute_promotion(
                         _verify_copies(spark, plan, copies)
                         checked_before_drops = True
                     attempted = op.table
-                    save_json(journal / f"{index:03d}-attempt.json", op.model_dump(mode="json"))
+                    save_json(
+                        journal / f"{index:03d}-attempt.json",
+                        {"operation": op.model_dump(mode="json"), "attempted_at": datetime.now(UTC).isoformat()},
+                    )
                     # Recheck each canonical target immediately before its mutation.
                     names = _table_names(spark, plan.canonical_namespace)
                     before = _catalog_table(spark, plan.canonical_namespace, op.table) if op.table in names else None
@@ -500,6 +505,7 @@ def execute_promotion(
                         {
                             "table": op.table,
                             "status": "verified",
+                            "verified_at": datetime.now(UTC).isoformat(),
                             "after": after.model_dump(mode="json") if after else None,
                         },
                     )
@@ -509,6 +515,9 @@ def execute_promotion(
                 _verify_copies(spark, plan, copies)
                 result = {
                     "status": "promotion-verified",
+                    "started_at": started_at,
+                    "finished_at": datetime.now(UTC).isoformat(),
+                    "snapshot_ids": [source.snapshot_id for source in plan.sources],
                     "plan_sha256": digest,
                     "canonical_namespace": plan.canonical_namespace,
                     "tables": sorted(expected_names),
@@ -522,6 +531,8 @@ def execute_promotion(
                     journal / "failure.json",
                     {
                         "status": "incomplete",
+                        "started_at": started_at,
+                        "finished_at": datetime.now(UTC).isoformat(),
                         "attempted": attempted,
                         "verified": verified,
                         "recovery_attempted": False,

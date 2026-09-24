@@ -636,7 +636,8 @@ schema and metadata bundle. Staging tables and object-store artifacts remain.
 
 The command creates `combined-promotion.execution/` beside the reviewed plan.
 It retains `before.json`, a private runtime log, and separate attempted/verified
-records for every operation. An operation recorded as attempted may have taken
+records for every operation, including timestamps and the new catalog snapshot
+identities. An operation recorded as attempted may have taken
 effect even if verification failed or execution was interrupted. `failure.json`
 names the latest attempt and completed verifications; `outcome.json` is written
 only after all final checks pass. Directory creation prevents concurrent attempts

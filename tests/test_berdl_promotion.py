@@ -241,6 +241,8 @@ def test_combined_plan_and_copy_preserve_metadata_and_verify_all(candidate):
     assert "Expected result: 4 tables" in text and "No automatic rollback" in text
     result = run(c)
     assert result["status"] == "promotion-verified"
+    assert result["snapshot_ids"] == [PARENT, DERIVED]
+    assert result["started_at"] <= result["finished_at"]
     assert len(result["tables"]) == 4 and len(result["dropped"]) == 9
     assert [a for a, _ in c.spark.writes[:4]] == ["replace", "add", "add", "replace"]
     assert all(a == "drop" for a, _ in c.spark.writes[4:])
@@ -253,6 +255,10 @@ def test_combined_plan_and_copy_preserve_metadata_and_verify_all(candidate):
     journal = c.path.with_suffix(".execution")
     assert len(list(journal.glob("*-verified.json"))) == 13
     assert (journal / "outcome.json").is_file()
+    after = json.loads((journal / "000-verified.json").read_text())
+    assert after["after"]["snapshot_id"] == "201"
+    assert after["after"]["columns"]["id"] == "Stable identifier"
+    assert after["verified_at"] >= result["started_at"]
     assert journal.stat().st_mode & 0o077 == 0
     with pytest.raises(promotion.PromotionPlanError, match="Automatic replay"):
         run(c)
