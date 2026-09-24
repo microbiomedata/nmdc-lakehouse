@@ -79,12 +79,49 @@ MongoDB schema.
 
 The original snapshot is rechecked before the derived manifest is completed.
 No MongoDB dump is repeated, and the original snapshot and staging plan are
-unchanged. The current BERDL staging adapter and target-row validator expect
-the published flattened schema; this new derived schema still needs a reviewed
-publication path under
+unchanged. The local builder does not replace the promotion CLI's Spark rebuild
+automatically.
+
+## Validate and prepare separate staging evidence
+
+The maintained `validate-target-rows` command selects the packaged provenance
+schema for a `derived-provenance-snapshot`. Collection snapshots continue to
+use the published flattened schema from `nmdc-lakehouse-schema`. The derived
+schema does not depend on the installed source release; the report preserves
+the source schema identity and producer package version recorded in the
+manifest instead of assigning the validator's installed source version.
+
+Write the report outside the immutable derived snapshot, to a new file:
+
+<!-- verified: 2026-09-23 validated all 194,562 existing derived rows with this command; zero invalid rows -->
+```bash
+just validate-target-rows /path/to/new-provenance-snapshot /path/to/provenance-validation.json --mode full
+```
+
+Validation requires both declared table classes, target schema ID and version,
+and the exact packaged schema digest recorded in each Parquet footer. It checks
+that both footers name the manifest's parent snapshot, and rechecks snapshot
+integrity after reading rows. Full mode validates every row against the LinkML
+constraints. Bounded mode uses the existing deterministic sampling rules.
+Neither mode recalculates graph reachability or confirms that the parent still
+exists on disk; use `compare-provenance-queries` with the parent for the separate
+pair-and-hop comparison. The report's snapshot ID binds the parent identity
+through the manifest, but is not proof that a parent has been staged or promoted.
+
+The staging planner accepts this report using the same provenance schema.
+Follow the [staging runbook](berdl-staging-runbook.md) with the **derived snapshot**
+as the input throughout: create a new metadata profile and bundle, inventory
+and publication policy, publication plan, metadata application plan, and
+staging command plan. Preserve descriptions from the Parquet footers. Choose a
+new staging namespace and object prefix; do not append these files to the
+already reviewed 46-artifact snapshot or reuse its evidence. If comparing with
+an inventory of the full metadata namespace, explicitly preserve its tables
+that are absent from this two-table snapshot in the publication policy.
+
+Actual staging, catalog readback, and replacing the failing promotion-time
+Spark rebuild remain tracked in
 [issue 341](https://github.com/microbiomedata/nmdc-lakehouse/issues/341).
-Do not append these files to the already reviewed 46-artifact plan. The local
-builder does not replace the promotion CLI's Spark rebuild automatically.
+Planning alone does not modify the lakehouse or authorize canonical promotion.
 
 ## Measured query comparison
 

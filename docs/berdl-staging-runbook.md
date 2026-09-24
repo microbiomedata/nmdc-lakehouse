@@ -79,6 +79,12 @@ Keep a Spark session alive during execution. A notebook session or an outer
 IPython process can provide that lifetime while the maintained CLI runs. See
 [running a script in the pod](berdl-upload.md#running-a-script-in-the-pod).
 
+For the two [derived provenance tables](local-provenance.md#validate-and-prepare-separate-staging-evidence),
+use their separate snapshot throughout these steps. Row validation and staging
+planning select its independent provenance schema. Its manifest retains the
+parent metadata snapshot identity; keep both snapshots and their evidence.
+Do not combine their files or reuse the collection snapshot's validation report.
+
 ## One durable run directory
 
 Keep the immutable snapshot separate from the evidence and runtime checkouts.

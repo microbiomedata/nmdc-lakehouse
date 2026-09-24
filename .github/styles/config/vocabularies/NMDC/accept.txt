@@ -178,3 +178,5 @@ worktrees
 schema's
 CLI's
 precomputation
+reachability
+readback

@@ -187,7 +187,7 @@ def validate_target_rows_command(
     full_table_max_rows: int,
     sample_rows: int,
 ) -> None:
-    """Validate manifested Parquet rows against the published target schema."""
+    """Validate manifested Parquet rows against the matching packaged target schema."""
     from typing import Literal, cast
 
     from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError
