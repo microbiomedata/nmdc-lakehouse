@@ -107,14 +107,14 @@ def test_a_plan_describes_every_object_and_changes_nothing() -> None:
         _publication_plan(
             _entry("biosample_set", Disposition.REPLACE, 27352),
             _entry("organism_set", Disposition.ADD, 0),
-            _entry("graph_edges", Disposition.REBUILD, None),
+            _entry("graph_edges", Disposition.PRESERVE, None),
         ),
         _staging(("biosample_set", 27352), ("organism_set", 0)),
     )
 
     assert plan.status == "plan-only"
     assert len(plan.operations) == 3
-    assert plan.derived_rebuilds == ["graph_edges"]
+    assert plan.derived_rebuilds == []
     assert "nothing has been changed" in render_promotion_plan(plan)
 
 
@@ -193,8 +193,8 @@ def test_a_staged_table_with_no_disposition_is_refused() -> None:
 
 
 def test_a_rebuild_nothing_can_perform_is_refused() -> None:
-    """A rebuild disposition has to name a table this repository knows how to rebuild."""
-    with pytest.raises(PromotionPlanError, match="No rebuild procedure exists for: mystery_set"):
+    """No rebuild disposition can invoke the retired Spark path."""
+    with pytest.raises(PromotionPlanError, match="Spark provenance rebuilds are retired"):
         _build(
             _publication_plan(_entry("mystery_set", Disposition.REBUILD, None)),
             _staging(),
@@ -255,38 +255,9 @@ def _full_plan():
             _entry("biosample_set", Disposition.REPLACE, 27352),
             _entry("study_set", Disposition.REPLACE, 41),
             _entry("organism_set", Disposition.ADD, 0),
-            _entry("graph_edges", Disposition.REBUILD, None),
-            _entry("biosample_to_workflow_run", Disposition.REBUILD, None),
         ),
         _staging(("biosample_set", 27352), ("study_set", 41), ("organism_set", 0)),
     )
-
-
-def test_the_derived_tables_are_dropped_before_the_replacements_and_rebuilt_after() -> None:
-    """Mark's decision on 2026-08-26, and the ordering is the decision.
-
-    Leaving them in place while the tables they are computed from are replaced underneath would
-    leave them returning provenance that no longer exists, and those answers look correct.
-    """
-    from nmdc_lakehouse.berdl_promotion import promotion_steps
-
-    steps = promotion_steps(_full_plan())
-
-    assert "drop" in steps[0]
-    assert "replace" in steps[1]
-    assert "rebuild" in steps[3]
-    assert steps.index([s for s in steps if s.startswith("drop")][0]) < steps.index(
-        [s for s in steps if s.startswith("replace")][0]
-    )
-
-
-def test_the_rendered_plan_states_the_outage_before_authorization() -> None:
-    """Prominent where the operator is, not only in a runbook."""
-    rendered = render_promotion_plan(_full_plan())
-
-    assert "OUTAGE" in rendered
-    assert "graph_edges" in rendered
-    assert "fail for the whole run" in rendered
 
 
 def test_a_plan_with_nothing_derived_says_nothing_about_an_outage() -> None:
@@ -299,21 +270,6 @@ def test_a_plan_with_nothing_derived_says_nothing_about_an_outage() -> None:
     )
 
     assert "OUTAGE" not in rendered
-
-
-def test_rebuilds_are_ordered_by_dependency_not_alphabetically() -> None:
-    """biosample_to_workflow_run walks graph_edges, so sorting reversed the required order.
-
-    The plan said to rebuild the consumer first while `derived_tables` and its documentation both
-    say graph_edges goes first, which is a plan contradicting the module it plans for.
-    """
-    from nmdc_lakehouse.derived_tables import DERIVED_TABLES
-
-    plan = _full_plan()
-
-    assert plan.derived_rebuilds == list(DERIVED_TABLES)
-    assert plan.derived_rebuilds[0] == "graph_edges"
-    assert plan.derived_rebuilds != sorted(plan.derived_rebuilds), "alphabetical would be wrong here"
 
 
 def test_a_disposition_with_no_step_is_refused() -> None:
@@ -384,69 +340,6 @@ def test_a_missing_candidate_row_count_is_refused_as_missing_not_as_a_mismatch()
         )
 
 
-def test_a_rebuild_with_no_replacements_does_not_claim_the_sources_were_replaced() -> None:
-    """The step text described a plan that is not the one about to run.
-
-    A rebuild reads whatever the destination holds at the moment it runs. Calling those "the
-    replaced provenance side tables" when this plan replaced nothing tells the operator a
-    replacement is part of the sequence they are authorizing, and it is not.
-    """
-    from nmdc_lakehouse.berdl_promotion import promotion_steps
-
-    plan = _build(
-        _publication_plan(
-            _entry("functional_annotation_agg", Disposition.PRESERVE, None),
-            _entry("graph_edges", Disposition.REBUILD, None),
-        ),
-        _staging(),
-    )
-    steps = " ".join(promotion_steps(plan))
-
-    assert "rebuild" in steps
-    assert "replaced provenance side tables" not in steps
-    assert "already in the destination" in steps
-
-
-def test_the_outage_names_the_tables_this_plan_drops() -> None:
-    """It named biosample_to_workflow_run whatever the plan actually dropped.
-
-    An operator dropping only graph_edges was warned about joins from a table this plan does not
-    touch, which is both wrong and the kind of wrong that teaches people to skim the block.
-    """
-    rendered = render_promotion_plan(
-        _build(
-            _publication_plan(
-                _entry("biosample_set", Disposition.REPLACE, 1),
-                _entry("graph_edges", Disposition.REBUILD, None),
-            ),
-            _staging(("biosample_set", 1)),
-        )
-    )
-
-    # Normalised, because the block is wrapped and a phrase can straddle two lines.
-    outage = " ".join(rendered[rendered.index("OUTAGE") :].split())
-
-    assert "graph_edges is dropped" in outage
-    assert "biosample_to_workflow_run" not in outage
-    # The verbs were made conditional and the pronouns were not, which reads as a half-edit
-    # rather than as a sentence. Asserted here so the number agreement holds across the block.
-    assert "does not exist again" in outage
-    assert "against it, and joins from it" in outage
-    assert "leaving it in place" in outage
-    assert "them" not in outage
-
-
-def test_the_outage_agrees_with_itself_when_both_derived_tables_are_dropped() -> None:
-    """The singular case is the new one, so the plural is the control that it did not break."""
-    outage = " ".join(render_promotion_plan(_full_plan()).split())
-
-    assert "graph_edges, biosample_to_workflow_run are dropped" in outage
-    assert "do not exist again" in outage
-    assert "against them, and joins from them" in outage
-    assert "leaving them in place" in outage
-    assert " it " not in outage.split("OUTAGE")[1].split("recovery")[0]
-
-
 def test_a_staging_outcome_naming_one_table_twice_is_refused() -> None:
     """The row check read a dict, so the second entry quietly replaced the first.
 
@@ -507,7 +400,7 @@ def _plan_document() -> dict:
         "destination_metadata_capabilities": [],
         "tables": [
             json.loads(_entry("biosample_set", Disposition.REPLACE, 27352).model_dump_json()),
-            json.loads(_entry("graph_edges", Disposition.REBUILD, None).model_dump_json()),
+            json.loads(_entry("study_set", Disposition.ADD, 1).model_dump_json()),
         ],
     }
 
@@ -535,7 +428,14 @@ def _staging_document() -> dict:
                 "rows": 27352,
                 "destination_rows": 27352,
                 "source_basis": "snapshot",
-            }
+            },
+            {
+                "table": "study_set",
+                "artifact_sha256": "6" * 64,
+                "rows": 1,
+                "destination_rows": 1,
+                "source_basis": "snapshot",
+            },
         ],
     }
 
@@ -662,10 +562,10 @@ def test_the_command_writes_a_plan_and_changes_nothing(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     assert "nothing has been changed" in result.output
-    assert "OUTAGE" in result.output
+    assert "OUTAGE" not in result.output
     written = json.loads(output.read_text(encoding="utf-8"))
     assert written["status"] == "plan-only"
-    assert written["derived_rebuilds"] == ["graph_edges"]
+    assert written["derived_rebuilds"] == []
 
 
 def test_the_command_reports_a_refusal_as_a_usage_error_not_a_traceback(tmp_path: Path) -> None:
@@ -773,7 +673,7 @@ class _RecordingSpark:
     def __init__(self, fail_on: int | None = None, counts: dict[str, int] | None = None) -> None:
         self.statements: list[str] = []
         self._fail_on = fail_on
-        self._counts = {"biosample_set": 27352} if counts is None else counts
+        self._counts = {"biosample_set": 27352, "study_set": 1} if counts is None else counts
 
     def sql(self, statement: str) -> object:
         if statement.startswith("SELECT COUNT(*)"):
@@ -793,19 +693,6 @@ def _executable_plan(tmp_path: Path) -> tuple[BerdlPromotionPlan, str]:
     plan = plan_berdl_promotion_from_files(canonical_namespace=CANONICAL, recovery=RECOVERY, **_files(tmp_path))
     path = _write(tmp_path / "promotion.json", json.loads(plan.model_dump_json()))
     return load_promotion_plan(path)
-
-
-def test_the_drops_precede_every_replacement(tmp_path: Path) -> None:
-    """Order is the decision this encodes. A derived table left standing over replaced provenance
-    answers questions about rows that no longer exist, and those answers look correct."""
-    plan, _digest = _executable_plan(tmp_path)
-
-    steps = [step for step, _table, _statement in promotion_statements(plan)]
-
-    assert "drop" in steps, steps
-    assert max(index for index, step in enumerate(steps) if step == "drop") < min(
-        index for index, step in enumerate(steps) if step != "drop"
-    ), steps
 
 
 def test_promotion_refuses_a_digest_that_does_not_match_the_plan(tmp_path: Path) -> None:
@@ -923,7 +810,8 @@ def test_the_promote_command_previews_without_both_authorizations(tmp_path: Path
         # The statements are shown so a reviewer reads what would run, and the digest is shown
         # because it is what the next invocation has to name.
         assert digest in result.output, extra
-        assert "DROP TABLE IF EXISTS" in result.output, extra
+        assert "CREATE TABLE" in result.output, extra
+        assert "DROP TABLE" not in result.output, extra
 
 
 def test_the_promote_command_executes_and_refuses_to_call_it_verified(tmp_path: Path, monkeypatch) -> None:
@@ -962,11 +850,9 @@ def test_the_promote_command_executes_and_refuses_to_call_it_verified(tmp_path: 
     assert spark.statements == [statement for _step, _table, statement in promotion_statements(plan)]
     assert "NOT VERIFIED" in result.output, result.output
     assert "rerun with all three --authorize- options" not in result.output, result.output
-    for table in plan.derived_rebuilds:
-        assert table in result.output, result.output
 
 
-def test_a_plan_naming_a_table_that_is_not_an_identifier_is_refused(tmp_path: Path) -> None:
+def test_old_rebuild_list_is_refused_even_with_an_invalid_identifier(tmp_path: Path) -> None:
     """The plan is JSON on disk, and its digest is of the file as it is, not of one anyone vouched
     for. A name carrying a semicolon becomes extra statements inside a DROP."""
     path = _promotion_plan_file(tmp_path)
@@ -974,12 +860,12 @@ def test_a_plan_naming_a_table_that_is_not_an_identifier_is_refused(tmp_path: Pa
     document["derived_rebuilds"] = ["graph_edges; DROP TABLE nmdc.metadata.biosample_set"]
     tampered = _write(tmp_path / "tampered.json", document)
 
-    with pytest.raises(PromotionPlanError, match="not a plain table identifier"):
+    with pytest.raises(PromotionPlanError, match="Spark provenance rebuilds are retired"):
         load_promotion_plan(tampered)
 
 
 def test_a_plan_whose_operation_names_a_bad_table_is_refused(tmp_path: Path) -> None:
-    """Both lists of table names reach SQL, so both are checked. Fixing one would leave the other."""
+    """Operation table names still reach SQL and must remain safe identifiers."""
     path = _promotion_plan_file(tmp_path)
     document = json.loads(path.read_text())
     document["operations"][0]["table"] = "biosample_set`; DROP TABLE x"
@@ -1117,17 +1003,13 @@ def test_a_plan_whose_provider_is_not_the_catalog_it_writes_into_is_refused() ->
 
 
 def test_a_plan_naming_a_rebuild_that_is_not_a_rebuild_operation_is_refused(tmp_path: Path) -> None:
-    """derived_rebuilds is dropped from, so an edited entry destroys a table nobody planned.
-
-    The builder derives this list from the rebuild operations. Loading a file re-derives nothing,
-    so every invariant that lived only in the builder was absent for an edited plan.
-    """
+    """Refuse old derived lists even when the operation list contains only supported copies."""
     path = _promotion_plan_file(tmp_path)
     document = json.loads(path.read_text())
     document["derived_rebuilds"] = ["biosample_set"]
     tampered = _write(tmp_path / "tampered-rebuilds.json", document)
 
-    with pytest.raises(PromotionPlanError, match="derived_rebuilds must be exactly"):
+    with pytest.raises(PromotionPlanError, match="Spark provenance rebuilds are retired"):
         load_promotion_plan(tampered)
 
 
@@ -1213,47 +1095,6 @@ def test_a_plan_whose_provider_is_not_the_catalog_it_reads_from_is_refused() -> 
         )
 
 
-def test_a_plan_rebuilding_one_derived_table_names_only_that_one_in_the_follow_up(tmp_path: Path, monkeypatch) -> None:
-    """A plan can rebuild one derived table and preserve the other, and the fixture does.
-
-    `rebuild-derived-tables` with no `--table` replaces every table in DERIVED_TABLES, so an
-    instruction that named only the command would have an operator mutate a table this plan
-    preserved. The command prints the selection instead.
-    """
-    from click.testing import CliRunner
-
-    import nmdc_lakehouse.derived_tables as derived_tables
-    from nmdc_lakehouse.cli import cli
-    from nmdc_lakehouse.derived_tables import DERIVED_TABLES
-
-    path = _promotion_plan_file(tmp_path)
-    plan, digest = load_promotion_plan(path)
-    assert 0 < len(plan.derived_rebuilds) < len(DERIVED_TABLES), plan.derived_rebuilds
-    monkeypatch.setattr(derived_tables, "spark_session", lambda _checkout: _RecordingSpark())
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "berdl-promote",
-            str(path),
-            "--ingest-checkout",
-            str(tmp_path),
-            "--authorize-plan-sha256",
-            digest,
-            "--authorize-canonical-namespace",
-            CANONICAL,
-            "--authorize-destination-id",
-            plan.destination_id,
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    for table in plan.derived_rebuilds:
-        assert f"--table {table}" in result.output, result.output
-    for untouched in set(DERIVED_TABLES) - set(plan.derived_rebuilds):
-        assert f"--table {untouched}" not in result.output, result.output
-
-
 def test_a_version_one_plan_is_refused_rather_than_loaded_without_its_provider(tmp_path: Path) -> None:
     """destination_provider became required, so a v1 plan cannot be bound to a catalog.
 
@@ -1294,20 +1135,6 @@ def test_promotion_refuses_staging_that_no_longer_holds_the_rows_the_plan_names(
         )
 
     assert spark.statements == [], "nothing may be dropped or replaced before the counts agree"
-
-
-def test_a_rebuild_naming_something_that_is_not_a_derived_table_is_refused(tmp_path: Path) -> None:
-    """It was filtered out of the derived list, so it validated and was then silently skipped.
-
-    The operator authorized a rebuild that was never going to run and nothing reported that.
-    """
-    path = _promotion_plan_file(tmp_path)
-    document = json.loads(path.read_text())
-    document["operations"].append({"table": "mystery_set", "disposition": "rebuild", "rationale": "r"})
-    tampered = _write(tmp_path / "mystery.json", document)
-
-    with pytest.raises(PromotionPlanError, match="must name a derived table"):
-        load_promotion_plan(tampered)
 
 
 def test_a_preserve_only_plan_does_not_claim_statements_built_tables(tmp_path: Path, monkeypatch) -> None:
@@ -1398,92 +1225,6 @@ def test_the_statements_name_the_format_the_probe_actually_ran() -> None:
         assert " USING iceberg AS SELECT " in statement, statement
 
 
-def test_the_printed_follow_up_is_the_command_that_actually_rebuilds(tmp_path: Path, monkeypatch) -> None:
-    """Without --authorize-namespace it previews and returns, leaving the tables dropped.
-
-    An operator copying the printed line during an outage would see it exit cleanly and rebuild
-    nothing, which is the worst moment to hand someone a command that does not do its job.
-    """
-    from click.testing import CliRunner
-
-    import nmdc_lakehouse.derived_tables as derived_tables
-    from nmdc_lakehouse.cli import cli
-
-    path = _promotion_plan_file(tmp_path)
-    plan, digest = load_promotion_plan(path)
-    assert plan.derived_rebuilds, "this test needs a plan that drops a derived table"
-    monkeypatch.setattr(derived_tables, "spark_session", lambda _checkout: _RecordingSpark())
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "berdl-promote",
-            str(path),
-            "--ingest-checkout",
-            str(tmp_path),
-            "--authorize-plan-sha256",
-            digest,
-            "--authorize-canonical-namespace",
-            CANONICAL,
-            "--authorize-destination-id",
-            plan.destination_id,
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    printed = next(line for line in result.output.splitlines() if "rebuild-derived-tables" in line)
-    assert f"--authorize-namespace {CANONICAL}" in printed, printed
-
-
-def test_the_printed_follow_up_survives_a_shell(tmp_path: Path, monkeypatch) -> None:
-    """It was printed with `<checkout>`, which a shell reads as two redirections.
-
-    `<checkout` opens a file and `>` takes the next word as an output target, so the shell
-    consumed the `--table` flag, left the table name in the checkout position, and diverted every
-    message into a file named `--table`. A rebuild with no `--table` replaces every derived table,
-    which is what the selection exists to prevent, and this is the instruction an operator follows
-    while the tables are already dropped.
-    """
-    import shlex
-
-    from click.testing import CliRunner
-
-    import nmdc_lakehouse.derived_tables as derived_tables
-    from nmdc_lakehouse.cli import cli
-
-    path = _promotion_plan_file(tmp_path)
-    plan, digest = load_promotion_plan(path)
-    assert plan.derived_rebuilds, "this test needs a plan that drops a derived table"
-    monkeypatch.setattr(derived_tables, "spark_session", lambda _checkout: _RecordingSpark())
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "berdl-promote",
-            str(path),
-            "--ingest-checkout",
-            str(tmp_path),
-            "--authorize-plan-sha256",
-            digest,
-            "--authorize-canonical-namespace",
-            CANONICAL,
-            "--authorize-destination-id",
-            plan.destination_id,
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    printed = next(line for line in result.output.splitlines() if "rebuild-derived-tables" in line)
-    command = printed.split("run: ", 1)[1]
-    # shlex is the shell's own tokenizer, so this asks what a shell would actually receive rather
-    # than what the string looks like.
-    assert "<" not in command and ">" not in command, command
-    words = shlex.split(command)
-    for table in plan.derived_rebuilds:
-        assert words[words.index("--table") + 1] == table, words
-    assert words[words.index("--authorize-namespace") + 1] == CANONICAL, words
-
-
 def _promote(plan, digest, spark):
     return execute_promotion(
         spark,
@@ -1558,3 +1299,47 @@ def test_a_count_that_is_not_a_row_count_refuses(tmp_path: Path, value: object) 
         _promote(plan, digest, spark)
 
     assert spark.statements == []
+
+
+@pytest.mark.parametrize("table", ["graph_edges", "biosample_to_workflow_run", "mystery_set"])
+def test_rebuild_dispositions_are_refused_by_the_planner(table: str) -> None:
+    with pytest.raises(PromotionPlanError, match="Spark provenance rebuilds are retired"):
+        _build(_publication_plan(_entry(table, Disposition.REBUILD, None)), _staging())
+
+
+@pytest.mark.parametrize("old_field", ["operations", "derived_rebuilds", "both"])
+def test_old_rebuild_plan_is_refused_before_connecting(tmp_path: Path, monkeypatch, old_field: str) -> None:
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    path = _promotion_plan_file(tmp_path)
+    payload = json.loads(path.read_text())
+    if old_field in ("operations", "both"):
+        payload["operations"].append({"table": "graph_edges", "disposition": "rebuild", "rationale": "old plan"})
+    if old_field in ("derived_rebuilds", "both"):
+        payload["derived_rebuilds"] = ["graph_edges"]
+    path.write_text(json.dumps(payload))
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def unexpected_connection(_checkout):
+        pytest.fail("A retired plan must be refused before opening a catalog connection")
+
+    monkeypatch.setattr("nmdc_lakehouse.derived_tables.spark_session", unexpected_connection)
+    result = CliRunner().invoke(
+        cli,
+        [
+            "berdl-promote",
+            str(path),
+            "--ingest-checkout",
+            str(tmp_path),
+            "--authorize-plan-sha256",
+            digest,
+            "--authorize-canonical-namespace",
+            CANONICAL,
+            "--authorize-destination-id",
+            "nmdc-production",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "Spark provenance rebuilds are retired" in result.output

@@ -1,24 +1,15 @@
 # biosample_to_workflow_run: precomputed provenance table
 
-> **This table disappears during a reload.**
->
-> Promotion drops `biosample_to_workflow_run` and `graph_edges` **before** replacing the tables
-> they are computed from, and rebuilds them afterwards. For the duration of a promotion both are
-> absent: queries against them fail, and so do joins from `biosample_to_workflow_run` into
-> `nmdc_results`.
->
-> That is deliberate, decided 2026-08-26. The alternative was leaving them in place while their
-> inputs were replaced underneath, which would have returned biosample-to-workflow mappings built
-> from provenance that no longer existed. Those answers look correct, so nobody would notice.
-> A failed query is noticed immediately; a wrong one is found out later, by somebody else, in
-> results they had no reason to doubt.
->
-> A rebuild can fail and leave these tables absent; this happened during the
-> reload tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/341.
-> There is no established upper bound on the outage. A local builder and
-> measured query comparison are now available in the
-> [local provenance guide](local-provenance.md); publication of those artifacts
-> still needs a reviewed plan.
+Build `graph_edges` and `biosample_to_workflow_run` from the saved metadata
+snapshot with the [local builder](local-provenance.md), then validate and stage
+the resulting Parquet. The Spark rebuild that failed at production volume has
+been retired. Older promotion plans that drop these tables for a subsequent
+rebuild are refused before execution.
+
+Promotion of the metadata snapshot together with its derived snapshot remains
+[issue 234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
+The snapshots must share the recorded parent identity; staging alone does not
+update the canonical tables.
 
 ## Purpose
 
@@ -70,31 +61,10 @@ did take. Query the current breakdown with
 
 ## Rebuilding it
 
-For a saved Parquet snapshot, use the [local builder](local-provenance.md).
-The following procedure is the existing Spark/catalog path, whose full rebuild
-has failed at current production volume; see issue 341 above.
-
-Every derived table is replaced by default, `graph_edges` first because this one
-walks it. `--table` selects a subset, which is what a promotion that rebuilt one
-and preserved the other needs; without it a rebuild replaces the preserved one
-too. Previewing is the default; execution needs the namespace named twice.
-
-<!-- unverified: the Spark walk has failed at current production volume;
-     a successful rebuild is tracked in
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/341 -->
-
-```bash
-just rebuild-derived-tables nmdc.metadata /path/to/data-lakehouse-ingest \
-  --authorize-namespace nmdc.metadata
-```
-
-Without `--authorize-namespace` it prints what it would replace and stops. The
-namespace has to be given twice, so a destructive run cannot be reached by
-editing one argument in a shell history entry.
-
-The walk refuses rather than truncates if it is still finding paths at
-`--max-depth`, which defaults to 15. A truncated walk loses provenance only for
-the deepest biosamples, which is the hardest kind of gap to notice afterwards.
+Use the [local builder and validation procedure](local-provenance.md#build-from-an-existing-snapshot).
+It reads the existing Parquet snapshot without a MongoDB tunnel or Spark session
+and writes a separate snapshot containing both derived tables. The original
+dump does not need to run again. Rebuild whenever the source snapshot changes.
 
 ## Example queries
 
@@ -145,78 +115,34 @@ Add to any query:
 AND  b2wr.workflow_type = 'nmdc:ReadBasedTaxonomyAnalysis'
 ```
 
-## Generation
+## Generation and maintenance
 
-`nmdc_lakehouse.derived_tables` generates and registers both tables. See
-[Maintenance](#maintenance) for the two calls and their order.
+The local builder combines four provenance side tables into `graph_edges`, then
+walks upstream from each workflow with a visited set. It records minimum hop
+counts and workflow-wide processing flags. Input-reference, processing-type,
+cycle, and depth checks run before completing the derived snapshot.
 
-An iterative breadth-first walk over `graph_edges`, one join per hop level, which is what
-avoids Trino's 150-stage `WITH RECURSIVE` limit. `graph_edges` is created or replaced from
-the four provenance side tables and persists, so refresh it whenever those are reloaded.
+The two tables have their own schema,
+`src/nmdc_lakehouse/schemas/provenance.yaml`. The local guide documents its
+metadata, validation, and measured comparison with recursive queries. There is
+one supported builder; the former notebook and Spark/catalog rebuild are retired.
 
-Each hop is cached as it is built. A temp view is lazy, so without that each hop's plan
-contains every earlier hop and the end-of-walk union re-executes all of them.
-
-The result is written by `CREATE OR REPLACE TABLE ... AS SELECT`, in the catalog's own
-format. No Bronze roundtrip, and no pinned table format: the notebook wrote
-`spark.createDataFrame().write.saveAsTable()` into Delta, which was right for the Hive
-namespace it targeted and wrong for an Iceberg one.
-
-## Maintenance
-
-### When NMDC data is reloaded
-
-Both derived tables are rebuilt by `nmdc_lakehouse.derived_tables`. Call it yourself after a
-reload: nothing calls it automatically yet, and wiring it into a promotion is
-https://github.com/microbiomedata/nmdc-lakehouse/issues/234.
-
-This matters because a reload replaces every table these two are derived from, so leaving
-them alone leaves two populated tables describing data that no longer exists, and nothing
-in the namespace says so.
-
-**Pass the catalog-qualified name.** The examples elsewhere on this page say
-`nmdc_metadata.biosample_to_workflow_run`, which is the legacy Hive address for the same
-tables; `nmdc.metadata` is the Iceberg one. They are two addresses onto one dataset rather
-than two copies, measured in
-https://github.com/microbiomedata/nmdc-lakehouse/issues/248. The rebuild functions require
-the qualified form and reject `nmdc_metadata`, because an unqualified name resolves in
-whatever catalog the session happens to point at and these statements replace tables.
-
-<!-- unverified: the Spark walk has failed at current production volume;
-     successful completion is tracked at https://github.com/microbiomedata/nmdc-lakehouse/issues/341 -->
-```python
-from nmdc_lakehouse.derived_tables import rebuild_biosample_to_workflow_run, rebuild_graph_edges
-
-rebuild_graph_edges(spark, "nmdc.metadata")
-rebuild_biosample_to_workflow_run(spark, "nmdc.metadata", progress=print)
-```
-
-Order matters: `graph_edges` is what the walk traverses, so it is rebuilt first from the
-four provenance side tables.
-
-The work started in `notebooks/build_biosample_to_workflow_run.ipynb`, which was deleted on
-2026-08-27 once it was a second, untested implementation of the same walk. Three things changed
-in the move into `derived_tables`, and each was a reason the notebook could not run unattended: it used a Trino cursor for the walk and Spark for the writes, so
-an automated run needed two connections; it accumulated every hop into pandas frames in the
-driver; and each hop inlined every frontier identifier into an `IN (...)` clause, which at
-33,234 workflow runs is a statement megabytes wide that grows with the data. The walk is the
-same breadth-first algorithm.
-
-It also wrote `USING DELTA` into the unqualified `nmdc_metadata`. That was right for the Hive
-namespace it targeted and wrong for the Iceberg one, so the format is no longer pinned and the
-namespace has to be catalog-qualified.
+The examples above use the legacy Hive address `nmdc_metadata`. The
+catalog-qualified Iceberg address is `nmdc.metadata`; the relationship between
+these names was measured in
+[issue 248](https://github.com/microbiomedata/nmdc-lakehouse/issues/248).
 
 ### When a new MaterialProcessing subclass is added to the NMDC schema
 
 Add the type and a snake_case column name to `PROCESSING_TYPES` in
 `src/nmdc_lakehouse/derived_tables.py`, and add its described column to
 `src/nmdc_lakehouse/schemas/provenance.yaml`, updating that schema's version.
-Both builders refuse unknown processing types. Keep the schema and mapping
+The builder refuses unknown processing types. Keep the schema and mapping
 consistent; tests check that every flag is represented.
 
 ### When a new workflow type is added to NMDC
 
-No action required. Both builders select all workflow types without
+No action required. The builder selects all workflow types without
 filtering, so new types appear automatically in the rebuilt table.
 
 ### When a new nmdc_results table is ingested (e.g., Centrifuge)
