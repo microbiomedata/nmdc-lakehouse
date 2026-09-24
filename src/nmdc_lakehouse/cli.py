@@ -1243,7 +1243,13 @@ def feature_check_command(plan_path: Path, runs_path: Path, cache_dir: Path, out
     import json
     from collections import Counter
 
-    from nmdc_lakehouse.feature_tables import cached_files, check_run, missing_planned_files, plan_from_json
+    from nmdc_lakehouse.feature_tables import (
+        ambiguous_planned_files,
+        cached_files,
+        check_run,
+        missing_planned_files,
+        plan_from_json,
+    )
 
     plan = plan_from_json(json.loads(plan_path.read_text()))
     run_ids = _read_run_ids(runs_path)
@@ -1255,6 +1261,15 @@ def feature_check_command(plan_path: Path, runs_path: Path, cache_dir: Path, out
     passes: Counter[str] = Counter()
     for run_id in run_ids:
         entry = plan.selected[run_id]
+        ambiguous = ambiguous_planned_files(plan, run_id)
+        if ambiguous:
+            report[run_id] = {
+                "type": entry["run"].get("type"),
+                "version": entry["run"].get("version"),
+                "checks": {"planned_files_unambiguous": {"passed": False, "ambiguous": ambiguous}},
+            }
+            failures["planned_files_unambiguous"] += 1
+            continue
         try:
             files, _ = cached_files(entry, cache_dir)
         except ValueError as error:
@@ -1313,7 +1328,13 @@ def feature_convert_command(
     import json
 
     from nmdc_lakehouse.feature_convert import convert_run
-    from nmdc_lakehouse.feature_tables import FUNCTIONAL, cached_files, missing_planned_files, plan_from_json
+    from nmdc_lakehouse.feature_tables import (
+        FUNCTIONAL,
+        ambiguous_planned_files,
+        cached_files,
+        missing_planned_files,
+        plan_from_json,
+    )
 
     plan = plan_from_json(json.loads(plan_path.read_text()))
     run_ids = _read_run_ids(runs_path)
@@ -1322,8 +1343,14 @@ def feature_convert_command(
     summary = []
     missing: list[str] = []
     missing_inputs: dict[str, list[str]] = {}
+    ambiguous_inputs: dict[str, list[str]] = {}
     for run_id in run_ids:
         entry = plan.selected[run_id]
+        ambiguous = ambiguous_planned_files(plan, run_id)
+        if ambiguous:
+            ambiguous_inputs[run_id] = ambiguous
+            click.echo(f"  ambiguous {run_id}: planned inputs {ambiguous}")
+            continue
         try:
             files, urls = cached_files(entry, cache_dir)
         except ValueError as error:
@@ -1368,7 +1395,12 @@ def feature_convert_command(
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "conversion_summary.json").write_text(
         json.dumps(
-            {"converted": summary, "missing_functional_gff": missing, "missing_planned_files": missing_inputs},
+            {
+                "converted": summary,
+                "missing_functional_gff": missing,
+                "missing_planned_files": missing_inputs,
+                "ambiguous_planned_files": ambiguous_inputs,
+            },
             indent=1,
         )
     )
@@ -1377,6 +1409,8 @@ def feature_convert_command(
         failures.append(f"{len(missing)} run(s) had no Functional Annotation GFF in the cache: {missing[:3]}")
     if missing_inputs:
         failures.append(f"{len(missing_inputs)} run(s) have missing planned cache files")
+    if ambiguous_inputs:
+        failures.append(f"{len(ambiguous_inputs)} run(s) have ambiguous planned inputs")
     refused = [item["run_id"] for item in summary if item["unselected_refused"]]
     if refused:
         failures.append(f"{len(refused)} run(s) refused --include-unselected: {refused[:3]}")

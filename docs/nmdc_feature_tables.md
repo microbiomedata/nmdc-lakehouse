@@ -100,10 +100,24 @@ prevents that run's conversion. Missing file types are recorded per run under
 `missing_planned_files`, and the command exits non-zero after saving the summary.
 Files absent from the plan and zero-byte optional inputs omitted from the download manifest
 do not trigger this check. The completeness rule is shared with `feature-check`.
+Both commands also refuse ambiguous inputs recorded by `feature-plan`, including
+optional mapping and lineage sidecars. The planner excludes duplicate types from
+its file map, so absence from that map is not enough to call an input optional.
+Conversion records these types per run under `ambiguous_planned_files`; checking
+records a failed `planned_files_unambiguous` check. Neither command parses an
+ambiguous run, and both exit non-zero after saving their report.
 If `--include-unselected` is refused for any run, the command also exits non-zero after
 writing the summary. Each affected run records its reason under `unselected_refused`;
 its selected features and hits remain available, but it has no unselected caller rows.
 Other runs continue to be processed, so inspect the summary before using partial results.
+
+Every `parent` reference must name a feature emitted in the same run. Forward
+references are allowed. Unselected caller rows point to the selected or
+caller-qualified parent ID when the caller identifies exactly one parent.
+Missing or ambiguous parents, including unresolvable source references after
+strand qualification, refuse the run before publication and preserve any
+previous output for it. Unlike a requested-unselected refusal, this identity
+failure stops conversion immediately; no new summary is promised in that case.
 
 Features carry the annotation run as `generated_by`. Contigs carry the assembly run, found by
 `feature-plan` as the run whose `has_output` includes the annotation run's input, and null when
@@ -165,27 +179,34 @@ call at the same interval is a separate observation with its own score. Across t
 of 43,518,479 caller rows (47%) are unselected. The KO_EC rows
 first failed in those same runs because of the parser, which now splits both packing forms.
 
-Conversion of the 50 runs, rerun 2026-09-24 with the code in this change, took 25 minutes on one
-core. It wrote 3.38 GiB of Parquet: 85,834,048 features, of which 23,107,955 are genome features
+An earlier 50-run conversion on 2026-09-24, before the later provenance,
+caller-ID and Parent-reference review fixes, took 25 minutes on one core. It wrote 3.38 GiB of Parquet: 85,834,048 features, of which 23,107,955 are genome features
 and 62,726,093 are hits, plus 16,757,384 contigs. No feature ID repeats within a run, 32 were
 renamed for the strand, no hit lacked its gene, every hit's `parent` is a genome feature in the
 same run, and every contig carries an assembly run. Every run's hit files matched, so every run
 dropped all eight accession keys.
 
-Later review fixes were checked on four cached runs spanning v1.0.2, v1.0.4,
-v1.0.5 and v1.1.0 with `--include-unselected`: 93,998 features and 24,724 contigs.
-Readback verified per-contig source-file membership, unique feature IDs, and each
-protein hit's parent and contig. Three runs included unselected calls; the v1.0.2
-run refused them and caused the expected non-zero exit with a saved summary.
-All cached file checksums matched. This smaller check supplements the earlier
-50-run measurement; it is not a repeat of that benchmark.
+A new 50-run default conversion completed on 2026-09-24 at commit `2148430`,
+with the provenance, CDS-parent and caller-ID fixes present. It produced the
+same feature and contig counts, occupying 3,646,704,752 bytes of Parquet.
+All 1,024 cached input files matched their recorded MD5s. Independent readback
+verified unique IDs, all 62,746,156 Parent references, each protein hit's unique
+CDS parent and contig, every contig's assembly run, and per-contig source-file
+membership. No orphan or ambiguous protein hits were reported. All 50 selected
+runs had unambiguous planned inputs.
 
-The later caller-ID review expanded this check to one run from each of all six
-pipeline versions, including metatranscriptome annotation: 987,346 features and
-217,648 contigs. Every one of 539,840 protein hits had exactly one CDS parent on
-the same contig; feature IDs and per-contig source membership also verified.
-Five runs included 188,899 unselected calls in total; the v1.0.2 run refused them.
-All six runs passed source-file checksum and planned-file completeness checks.
+That default run predates the subsequent ambiguous-input guard and caller-parent
+rewrite and did not request unselected calls. The caller-parent fix was then
+exercised on one cached run from each of all six pipeline versions with
+`--include-unselected`: 987,346 features, 217,648 contigs and 188,899 unselected
+calls. All 540,143 Parent references now resolve, including unselected CRISPR
+children; all 539,840 protein hits have one CDS parent on the same contig.
+IDs, assembly provenance and per-contig source membership also verified.
+The old-pipeline v1.0.2 run retained its selected output, refused unselected calls
+and caused the expected non-zero exit with a saved summary. The earlier check
+of these six runs covered only protein parents and missed the CRISPR links;
+it is superseded by this readback of every Parent reference. This is still a
+local prototype check, not BER-model conformance or BERDL acceptance.
 
 ## Not done
 

@@ -625,6 +625,11 @@ def check_run(files: Mapping[str, Path]) -> dict[str, dict[str, Any]]:
     return results
 
 
+def ambiguous_planned_files(plan: RunPlan, run_id: str) -> list[str]:
+    """Check/conversion types with multiple candidate inputs, excluded from the file map."""
+    return sorted({kind for run, kind in plan.ambiguous if run == run_id and kind in CHECK_TYPES})
+
+
 def missing_planned_files(entry: Mapping[str, Any], files: Mapping[str, Path]) -> list[str]:
     """Non-empty planned check/conversion inputs absent from the download cache."""
     return sorted(

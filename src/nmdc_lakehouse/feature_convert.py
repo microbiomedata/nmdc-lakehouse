@@ -165,7 +165,8 @@ def convert_run(
     contigs and contig IDs grows with the run, so peak memory still grows with run size.
 
     Raises DuplicateFeatureIdError if two rows would share a `feature_id`; nothing is published
-    for that run.
+    for that run. Raises ValueError before publishing when any Parent reference does not
+    name an emitted feature, including source IDs changed by strand or caller qualification.
     """
     import shutil
 
@@ -188,6 +189,7 @@ def convert_run(
     writer = pq.ParquetWriter(partial / "features.parquet", schema, compression="zstd")
     buffer: list[dict[str, Any]] = []
     seen_feature_ids: set[str] = set()
+    pending_parent_ids: set[str] = set()
     repeated: list[str] = []
     contig_ids: set[str] = set()
 
@@ -195,6 +197,9 @@ def convert_run(
         if row["feature_id"] in seen_feature_ids:
             repeated.append(row["feature_id"])
         seen_feature_ids.add(row["feature_id"])
+        # Forward references are allowed. Protein hits usually name an already emitted CDS,
+        # so they do not add another per-gene index to memory.
+        pending_parent_ids.update(parent for parent in row["parent"] if parent not in seen_feature_ids)
         contig_ids.add(row["seqid"])
         buffer.append(row)
         if len(buffer) >= batch_rows:
@@ -325,12 +330,27 @@ def convert_run(
         # selected" would mislabel the source of a selected feature as unselected.
         result.unselected_refused = "selected rows are not all found in the caller files"
     elif include_unselected:
-        caller_id_counts = Counter(
-            (_first(parse_attributes(r[8]) if len(r) > 8 else [], "ID") or f"{r[0]}_{r[3]}_{r[4]}", r[1])
-            for caller_type in CALLER_TYPES
-            if caller_type in files
-            for r in read_table(files[caller_type])
-        )
+        caller_id_counts: Counter[tuple[str, str]] = Counter()
+        caller_parent_keys: set[tuple[str, str]] = set()
+        for caller_type in CALLER_TYPES:
+            if caller_type not in files:
+                continue
+            for r in read_table(files[caller_type]):
+                pairs = parse_attributes(r[8]) if len(r) > 8 else []
+                source_id = _first(pairs, "ID") or f"{r[0]}_{r[3]}_{r[4]}"
+                caller_id_counts[(source_id, r[1])] += 1
+                caller_parent_keys.update((parent, r[1]) for parent in _parents(pairs))
+        # Only index source IDs actually referenced by caller rows. A selected parent's final
+        # ID can differ from its caller ID; an unselected parent gains the caller qualifier.
+        selected_parent_ids: dict[tuple[str, str], set[str]] = {}
+        if caller_parent_keys:
+            for r in read_table(files[FUNCTIONAL]):
+                pairs = parse_attributes(r[8]) if len(r) > 8 else []
+                source_id = _first(pairs, "ID")
+                caller_key = (source_id or f"{r[0]}_{r[3]}_{r[4]}", r[1])
+                if caller_key in caller_parent_keys:
+                    final_id = f"{source_id}|{r[6]}" if source_id and id_counts[source_id] > 1 else caller_key[0]
+                    selected_parent_ids.setdefault(caller_key, set()).add(final_id)
         for caller_type in CALLER_TYPES:
             if caller_type not in files:
                 continue
@@ -355,6 +375,15 @@ def convert_run(
                 if caller_id_counts[(source_id, r[1])] > 1:
                     feature_id = f"{feature_id}|{r[6]}"
                     result.renamed_duplicate_ids += 1
+                parents = []
+                for parent in _parents(pairs):
+                    parent_key = (parent, r[1])
+                    selected_ids = selected_parent_ids.get(parent_key, set())
+                    if caller_id_counts[parent_key] != 1 or len(selected_ids) > 1:
+                        writer.close()
+                        shutil.rmtree(partial, ignore_errors=True)
+                        raise ValueError(f"{run_id}: unresolved Parent ID {parent!r} in caller {r[1]!r}")
+                    parents.append(next(iter(selected_ids)) if selected_ids else f"{parent}|unselected|{r[1]}")
                 emit(
                     {
                         "feature_id": feature_id,
@@ -367,7 +396,7 @@ def convert_run(
                         "score": _number(r[5], float),
                         "strand": r[6],
                         "phase": _number(r[7], int),
-                        "parent": _parents(pairs),
+                        "parent": parents,
                         "attributes": [{"key": k, "value": v} for k, v in pairs],
                         "generated_by": run_id,
                         "source_files": [urls[caller_type]] if caller_type in urls else [],
@@ -388,6 +417,11 @@ def convert_run(
         shutil.rmtree(partial, ignore_errors=True)
         examples = sorted(set(repeated))[:3]
         raise DuplicateFeatureIdError(f"{run_id}: {len(repeated)} repeated feature_id, e.g. {examples}")
+
+    unresolved = pending_parent_ids - seen_feature_ids
+    if unresolved:
+        shutil.rmtree(partial, ignore_errors=True)
+        raise ValueError(f"{run_id}: {len(unresolved)} unresolved Parent IDs, e.g. {sorted(unresolved)[:3]}")
 
     lineage: dict[str, tuple[list[str], float | None]] = {}
     if SCAFFOLD_LINEAGE in files:

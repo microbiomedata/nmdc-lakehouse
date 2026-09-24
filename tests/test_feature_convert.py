@@ -190,6 +190,7 @@ def test_cli_convert_fails_when_a_run_has_no_functional_file(run_files: dict[str
         "converted": [],
         "missing_functional_gff": [RUN],
         "missing_planned_files": {RUN: [ft.FUNCTIONAL]},
+        "ambiguous_planned_files": {},
     }
 
 
@@ -474,3 +475,117 @@ def test_a_hit_takes_its_cds_contig_when_an_rna_row_comes_first(run_files: dict[
     ]
     assert {h["seqid"] for h in hits} == {f"{RUN}_0001"}
     assert {tuple(h["parent"]) for h in hits} == {(f"{G1}|+",)}
+
+
+@pytest.mark.parametrize("renamed", [False, True])
+def test_unresolved_parent_refuses_run_and_preserves_previous_output(
+    run_files: dict[str, Path], tmp_path: Path, renamed: bool
+) -> None:
+    out = tmp_path / "out"
+    previous = fc.convert_run(RUN, run_files, {}, out)
+    original = {p: Path(p).read_bytes() for p in previous.outputs}
+    rows = list(FUNCTIONAL_ROWS)
+    parent = "missing"
+    if renamed:
+        rows.append(f"{RUN}_0001\tINFERNAL\trRNA\t2\t730\t.\t-\t.\tID={G1}")
+        parent = G1
+    rows.append(f"{RUN}_0001\tx\texon\t3\t8\t.\t+\t.\tID=child;Parent={parent}")
+    run_files[ft.FUNCTIONAL] = _write(tmp_path, "unresolved.gff", rows)
+    with pytest.raises(ValueError, match="unresolved Parent"):
+        fc.convert_run(RUN, run_files, {}, out, batch_rows=1)
+    assert {p: Path(p).read_bytes() for p in original} == original
+    assert not list((out / ".partial").rglob("*.parquet"))
+
+
+def test_parent_can_refer_to_later_features_and_multiple_ids(run_files: dict[str, Path], tmp_path: Path) -> None:
+    child = f"{RUN}_0001\tx\texon\t3\t8\t.\t+\t.\tID=child;Parent={G1},{G2}"
+    run_files[ft.FUNCTIONAL] = _write(tmp_path, "forward.gff", [child, *FUNCTIONAL_ROWS])
+    result = fc.convert_run(RUN, run_files, {}, tmp_path / "out", batch_rows=1)
+    rows = pq.read_table(result.outputs[0]).to_pylist()
+    assert next(r for r in rows if r["feature_id"] == "child")["parent"] == [G1, G2]
+
+
+@pytest.mark.parametrize("child_first", [False, True])
+def test_unselected_parent_is_rewritten_to_its_emitted_id(
+    run_files: dict[str, Path], tmp_path: Path, child_first: bool
+) -> None:
+    caller = run_files["Prodigal Annotation GFF"]
+    # The named parent is itself unselected and therefore gets a qualified feature ID.
+    child = f"{RUN}_0003\tProdigal v2.6.3\texon\t6\t8\t.\t+\t.\tID=child;Parent={RUN}_0003_5_99,{G1}\n"
+    caller.write_text(child + caller.read_text() if child_first else caller.read_text() + child)
+    result = fc.convert_run(RUN, run_files, {}, tmp_path / "out", include_unselected=True, batch_rows=1)
+    rows = pq.read_table(result.outputs[0]).to_pylist()
+    child_row = next(r for r in rows if r["feature_id"] == "child|unselected|Prodigal v2.6.3")
+    assert child_row["parent"] == [f"{RUN}_0003_5_99|unselected|Prodigal v2.6.3", G1]
+    assert all(parent in {r["feature_id"] for r in rows} for parent in child_row["parent"])
+
+
+@pytest.mark.parametrize("ambiguous", [False, True])
+def test_unselected_missing_or_ambiguous_parent_refuses_publication(
+    run_files: dict[str, Path], tmp_path: Path, ambiguous: bool
+) -> None:
+    caller = run_files["Prodigal Annotation GFF"]
+    extra = f"{RUN}_0003\tProdigal v2.6.3\texon\t6\t8\t.\t+\t.\tID=child;Parent=unknown\n"
+    if ambiguous:
+        extra += "".join(
+            f"{RUN}_0003\tProdigal v2.6.3\tCDS\t5\t99\t.\t{strand}\t0\tID=unknown\n" for strand in ("+", "-")
+        )
+    caller.write_text(caller.read_text() + extra)
+    out = tmp_path / "out"
+    with pytest.raises(ValueError, match="unresolved Parent"):
+        fc.convert_run(RUN, run_files, {}, out, include_unselected=True, batch_rows=1)
+    assert not list(out.rglob("*.parquet"))
+
+
+def test_unselected_child_can_name_a_strand_qualified_selected_parent(
+    run_files: dict[str, Path], tmp_path: Path
+) -> None:
+    extra = f"{RUN}_0001\tINFERNAL 1.1.3\tmisc_feature\t2\t730\t9\t-\t.\tID={G1}"
+    run_files[ft.FUNCTIONAL] = _write(tmp_path, "selected_parent.gff", [*FUNCTIONAL_ROWS, extra])
+    rfam = run_files["RFAM Annotation GFF"]
+    rfam.write_text(rfam.read_text() + extra + "\n")
+    caller = run_files["Prodigal Annotation GFF"]
+    caller.write_text(caller.read_text() + f"{RUN}_0001\tProdigal v2.6.3\texon\t3\t8\t.\t+\t.\tID=child;Parent={G1}\n")
+    result = fc.convert_run(RUN, run_files, {}, tmp_path / "out", include_unselected=True)
+    assert result.unselected_refused is None
+    child = next(r for r in pq.read_table(result.outputs[0]).to_pylist() if r["feature_id"].startswith("child|"))
+    assert child["parent"] == [f"{G1}|+"]
+
+
+@pytest.mark.parametrize("command", ["feature-convert", "feature-check"])
+@pytest.mark.parametrize("kind", [ft.FUNCTIONAL, "Pfam Annotation GFF", ft.CONTIG_MAPPING, ft.SCAFFOLD_LINEAGE])
+def test_cli_refuses_ambiguous_planned_inputs(
+    run_files: dict[str, Path], tmp_path: Path, command: str, kind: str
+) -> None:
+    import json
+
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    plan_path, runs_path, cache = _cli_fixture(run_files, tmp_path)
+    old = ft.plan_from_json(json.loads(plan_path.read_text()))
+    entry = old.selected[RUN]
+    objects = list(entry["files"].values())
+    duplicate = {**entry["files"][kind], "id": "duplicate"}
+    # plan_runs removes both candidates from files and records the ambiguity separately.
+    plan = ft.plan_runs(
+        [{**entry["run"], "has_output": [*entry["run"]["has_output"], "duplicate"]}], [*objects, duplicate]
+    )
+    assert kind not in plan.selected[RUN]["files"]
+    assert plan.ambiguous == [(RUN, kind)]
+    plan_path.write_text(json.dumps(ft.plan_to_json(plan)))
+    out = tmp_path / "out"
+    option = "--out-dir" if command == "feature-convert" else "--output"
+    result = CliRunner().invoke(
+        cli, [command, str(plan_path), "--runs", str(runs_path), "--cache-dir", str(cache), option, str(out)]
+    )
+    assert result.exit_code != 0
+    if command == "feature-convert":
+        summary = json.loads((out / "conversion_summary.json").read_text())
+        assert summary["ambiguous_planned_files"] == {RUN: [kind]}
+        assert summary["converted"] == []
+        assert not list(out.rglob("*.parquet"))
+    else:
+        report = json.loads(out.read_text())
+        assert report["runs"][RUN]["checks"] == {"planned_files_unambiguous": {"passed": False, "ambiguous": [kind]}}
