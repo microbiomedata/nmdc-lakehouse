@@ -26,7 +26,7 @@ Measured on a 50-run sample on 2026-09-23 (see [Sample results](#sample-results)
 | Structural Annotation GFF | skip | the Functional Annotation GFF minus its functional keys, row for row |
 | Annotation KEGG Orthology, Annotation Enzyme Commission | skip | the same (gene, accession) pairs as KO_EC Annotation GFF |
 | Product Names | skip | `product` and `product_source` of the Functional Annotation GFF; see the RNA exception below |
-| Prodigal, GeneMark, tRNA, RFAM, CRT Annotation GFF | skip, except unselected calls | selected calls repeat the Functional Annotation GFF, except in old versions, see below |
+| Prodigal, GeneMark, tRNA, RFAM, CRT Annotation GFF | skip, except unselected calls | each selected row repeats the same caller's row; about half the caller rows are unselected, including the losing caller's call at the same interval |
 | Contig Mapping File, Scaffold Lineage tsv | load | assembly contig ID and per-contig lineage, one row per contig |
 | Gene Phylogeny tsv, Crispr Terms | not decided | not checked |
 
@@ -41,8 +41,8 @@ matched it exactly; otherwise the key stays.
 
 ## Exceptions found in the sample
 
-- **Old pipeline versions change coordinates after selection.** In v1.0.2 and v1.0.4 runs, some
-  selected CDS rows have coordinates no caller file reports (a Prodigal call at 1 to 336 selected
+- **Old pipeline versions change coordinates after selection.** In all 9 sampled v1.0.2 runs and 4
+  of the 9 v1.0.4 runs, some selected CDS rows have coordinates no caller file reports (a Prodigal call at 1 to 336 selected
   as 1 to 177, in `nmdc:wfmgan-11-24e11y58.1`). In those runs, a caller row missing from the
   Functional Annotation GFF is not necessarily an unselected call, so `--include-unselected` is
   refused for such runs.
@@ -124,9 +124,12 @@ it downloads, under which one of these runs is 3.04 GiB and the same seed picks 
 | Product Names equals Functional Annotation GFF product fields | 50 | 0 |
 | feature IDs unique once strand is included | 50 | 0 |
 | Functional Annotation GFF contigs all in Contig Mapping File (37 runs have the file) | 37 | 0 |
-| every selected row appears in a caller file | 37 | 13 |
+| every selected row repeats a row of the same caller (column 2, location, score, phase, attributes) | 37 | 13 |
 
-The 13 failures are every sampled v1.0.2 and v1.0.4 run; see the exceptions above. The KO_EC rows
+The 13 failures are all 9 sampled v1.0.2 runs and 4 of the 9 v1.0.4 runs; see the exceptions
+above. The check matches a selected row to a row of the same caller, because the losing caller's
+call at the same interval is a separate observation with its own score. Across the 50 runs, 20,473,878
+of 43,518,479 caller rows (47%) are unselected. The KO_EC rows
 first failed in those same runs because of the parser, which now splits both packing forms.
 
 Conversion of the 50 runs, rerun 2026-09-24 with the code in this change, took 25 minutes on one

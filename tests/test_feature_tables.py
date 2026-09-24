@@ -360,3 +360,24 @@ def test_cli_check_refuses_an_empty_run_list(run_files: dict[str, Path], tmp_pat
     result = CliRunner().invoke(cli, ["feature-check", *args])
     assert result.exit_code != 0
     assert "lists no runs" in result.output
+
+
+def test_a_competing_call_at_the_selected_interval_is_unselected(run_files: dict[str, Path], tmp_path: Path) -> None:
+    # GeneMark also called G1's interval, with its own score; Prodigal's call was selected.
+    competing = f"{RUN}_0001\tGeneMark.hmm-2\tCDS\t2\t730\t21.5\t+\t0\tID={G1};translation_table=11"
+    genemark = run_files["Genemark Annotation GFF"]
+    genemark.write_text(genemark.read_text() + competing + "\n")
+    result = ft.check_run(run_files)["selected_rows_in_callers"]
+    assert result["passed"] is True
+    assert result["unselected_caller_rows"] == 2
+
+
+def test_selected_row_must_match_its_own_callers_row(run_files: dict[str, Path], tmp_path: Path) -> None:
+    # Same interval and caller, different score: the selected row does not repeat the caller row.
+    run_files["Prodigal Annotation GFF"] = _write(
+        tmp_path, "prodigal_rescored.gff", [f"{RUN}_0001\tProdigal v2.6.3\tCDS\t2\t730\t99.9\t+\t0\tID={G1}"]
+    )
+    result = ft.check_run(run_files)["selected_rows_in_callers"]
+    assert result["passed"] is False
+    assert result["selected_found_in_callers"] == 3
+    assert result["selected_identical_to_caller_row"] == 2

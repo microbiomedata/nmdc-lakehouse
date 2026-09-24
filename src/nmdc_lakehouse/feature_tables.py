@@ -450,21 +450,37 @@ def check_run(files: Mapping[str, Path]) -> dict[str, dict[str, Any]]:
     else:
         results["structural_is_functional_subset"] = {"passed": False, "skipped": "missing"}
 
-    def locus(r: Sequence[str]) -> tuple[str, ...]:
-        return (r[0], r[2], r[3], r[4], r[6])
+    # A call is its caller (column 2) and its location. Without the caller, GeneMark's call at the
+    # interval Prodigal won looked selected: observed 2026-09-24 as millions of sample rows.
+    def call(r: Sequence[str]) -> tuple[str, ...]:
+        return (r[0], r[1], r[2], r[3], r[4], r[6])
 
     present_callers = [t for t in CALLER_TYPES if t in files]
-    caller_keys: set[tuple[str, ...]] = set()
+    caller_rows: dict[tuple[str, ...], list[list[str]]] = defaultdict(list)
     for t in present_callers:
-        caller_keys.update(locus(r) for r in read_table(files[t]))
-    selected_keys = {locus(r) for r in functional}
+        for r in read_table(files[t]):
+            caller_rows[call(r)].append(r)
+    found = identical = 0
+    selected_calls = set()
+    for r, pairs in zip(functional, f_pairs, strict=True):
+        selected_calls.add(call(r))
+        same_call_rows = caller_rows.get(call(r), [])
+        found += bool(same_call_rows)
+        # The selected row repeats the caller's row when score and phase match and every caller
+        # attribute is in the selected row, which adds keys such as start_type and product.
+        identical += any(
+            c[5] == r[5] and c[7] == r[7] and set(parse_attributes(c[8]) if len(c) > 8 else []) <= set(pairs)
+            for c in same_call_rows
+        )
+    unselected = sum(len(rows) for key, rows in caller_rows.items() if key not in selected_calls)
     results["selected_rows_in_callers"] = _check(
-        selected_keys <= caller_keys,
+        identical == len(functional),
         callers_present=len(present_callers),
-        selected=len(selected_keys),
-        selected_found_in_callers=len(selected_keys & caller_keys),
-        caller_rows=len(caller_keys),
-        unselected_caller_rows=len(caller_keys - selected_keys),
+        selected=len(functional),
+        selected_found_in_callers=found,
+        selected_identical_to_caller_row=identical,
+        caller_rows=sum(len(rows) for rows in caller_rows.values()),
+        unselected_caller_rows=unselected,
     )
 
     gene_ids = set(f_ids)
