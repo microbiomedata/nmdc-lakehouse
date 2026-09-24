@@ -1,0 +1,187 @@
+"""Tests for `nmdc_lakehouse.feature_convert`."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pyarrow.parquet as pq
+import pytest
+
+from nmdc_lakehouse import feature_convert as fc
+from nmdc_lakehouse import feature_tables as ft
+from tests.feature_files import (  # noqa: F401
+    FUNCTIONAL_ROWS,
+    G1,
+    G2,
+    R1,
+    RUN,
+    _cli_fixture,
+    _run,
+    _structural,
+    _write,
+)
+
+
+def test_convert_run_loads_each_observation_once(run_files: dict[str, Path], tmp_path: Path) -> None:
+    urls = {t: f"https://example.org/{p.name}" for t, p in run_files.items()}
+    result = fc.convert_run(RUN, run_files, urls, tmp_path / "out")
+    assert result.duplicate_feature_ids == 0
+    assert result.dropped_keys == ["cog", "ec_number", "ko", "pfam"]
+    features = pq.read_table(result.outputs[0]).to_pylist()
+    by_type = {}
+    for row in features:
+        by_type.setdefault(row["source_data_object_type"], []).append(row)
+    assert len(by_type[ft.FUNCTIONAL]) == 3
+    assert len(by_type["Pfam Annotation GFF"]) == 3
+    assert "Prodigal Annotation GFF" not in by_type
+
+    gene = next(r for r in by_type[ft.FUNCTIONAL] if r["feature_id"] == G1)
+    assert gene["product"] == "hypothetical protein"
+    assert {a["key"] for a in gene["attributes"]} == {"translation_table"}
+
+    hit = by_type["Pfam Annotation GFF"][0]
+    assert hit["coordinate_system"] == "protein"
+    assert hit["parent"] == [G1]
+    assert hit["seqid"] == f"{RUN}_0001"
+    assert hit["strand"] == "."
+    assert hit["phase"] is None
+
+    contigs = pq.read_table(result.outputs[1]).to_pylist()
+    first = next(c for c in contigs if c["contig_id"] == f"{RUN}_0001")
+    assert first["assembly_contig_id"] == "nmdc:wfmgas-99-a_scf_1"
+    assert first["taxonomic_lineage"] == ["Bacteria", "Pseudomonadota"]
+
+
+def test_convert_run_keeps_accessions_when_the_hit_file_is_missing(run_files: dict[str, Path], tmp_path: Path) -> None:
+    del run_files["Pfam Annotation GFF"]
+    result = fc.convert_run(RUN, run_files, {}, tmp_path / "out")
+    assert "pfam" not in result.dropped_keys
+    gene = next(r for r in pq.read_table(result.outputs[0]).to_pylist() if r["feature_id"] == G1)
+    assert ("pfam", "PF00001,PF00002") in {(a["key"], a["value"]) for a in gene["attributes"]}
+
+
+def test_convert_run_adds_unselected_calls_only_on_request(run_files: dict[str, Path], tmp_path: Path) -> None:
+    result = fc.convert_run(RUN, run_files, {}, tmp_path / "out", include_unselected=True)
+    rows = pq.read_table(result.outputs[0]).to_pylist()
+    unselected = [r for r in rows if r["is_selected"] is False]
+    assert [r["start"] for r in unselected] == [5]
+
+
+def test_convert_run_renames_ids_repeated_on_opposite_strands(run_files: dict[str, Path], tmp_path: Path) -> None:
+    extra = f"{RUN}_0004\tINFERNAL 1.1.3\tmisc_feature\t328\t430\t%s\t%s\t.\tID=dup;model=RF02000"
+    rows = [*FUNCTIONAL_ROWS, extra % ("41.5", "-"), extra % ("42.2", "+")]
+    run_files[ft.FUNCTIONAL] = _write(tmp_path, "functional_dup.gff", rows)
+    del run_files[ft.STRUCTURAL]
+    assert ft.check_run(run_files)["functional_ids_unique_with_strand"]["passed"] is True
+    result = fc.convert_run(RUN, run_files, {}, tmp_path / "out")
+    assert result.duplicate_feature_ids == 0
+    assert result.renamed_duplicate_ids == 2
+    renamed = [r for r in pq.read_table(result.outputs[0]).to_pylist() if r["feature_id"].startswith("dup|")]
+    assert sorted(r["feature_id"] for r in renamed) == ["dup|+", "dup|-"]
+    assert all(("ID", "dup") in {(a["key"], a["value"]) for a in r["attributes"]} for r in renamed)
+
+
+def test_convert_run_refuses_unselected_when_callers_miss_selected_rows(
+    run_files: dict[str, Path], tmp_path: Path
+) -> None:
+    del run_files["Genemark Annotation GFF"]
+    result = fc.convert_run(RUN, run_files, {}, tmp_path / "out", include_unselected=True)
+    assert result.unselected_refused
+    assert all(r["is_selected"] is not False for r in pq.read_table(result.outputs[0]).to_pylist())
+
+
+def test_hits_follow_a_renamed_cds(run_files: dict[str, Path], tmp_path: Path) -> None:
+    rna = f"{RUN}_0001\tINFERNAL 1.1.3\tmisc_feature\t2\t730\t108.4\t-\t.\tID={G1};model=RF02743"
+    run_files[ft.FUNCTIONAL] = _write(tmp_path, "functional_shared.gff", [*FUNCTIONAL_ROWS, rna])
+    result = fc.convert_run(RUN, run_files, {}, tmp_path / "out")
+    rows = pq.read_table(result.outputs[0]).to_pylist()
+    hit = next(r for r in rows if r["source_data_object_type"] == "Pfam Annotation GFF")
+    assert hit["parent"] == [f"{G1}|+"]
+    assert hit["seqid"] == f"{RUN}_0001"
+    contig_ids = {c["contig_id"] for c in pq.read_table(result.outputs[1]).to_pylist()}
+    assert contig_ids == {f"{RUN}_0001", f"{RUN}_0002"}
+    # The RNA row comes last and has no pfam key; the CDS's accessions must still count.
+    assert ft.check_run(run_files)["hits_match_functional:pfam"]["passed"] is True
+    assert "pfam" in result.dropped_keys
+    assert any(r["feature_id"] == f"{G1}|+" and r["type"] == "CDS" for r in rows)
+
+
+def test_cli_convert_writes_a_summary(run_files: dict[str, Path], tmp_path: Path) -> None:
+    import json
+
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    plan_path, runs_path, cache = _cli_fixture(run_files, tmp_path)
+    out = tmp_path / "parquet"
+    args = [str(plan_path), "--runs", str(runs_path), "--cache-dir", str(cache), "--out-dir", str(out)]
+    result = CliRunner().invoke(cli, ["feature-convert", *args, "--include-unselected"])
+    assert result.exit_code == 0, result.output
+    summary = json.loads((out / "conversion_summary.json").read_text())
+    assert summary[0]["run_id"] == RUN
+    assert summary[0]["unselected_refused"] is None
+    assert summary[0]["orphan_hits"] == {}
+
+
+def test_cli_convert_skips_a_run_without_its_functional_file(run_files: dict[str, Path], tmp_path: Path) -> None:
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    plan_path, runs_path, cache = _cli_fixture(run_files, tmp_path)
+    (cache / "data" / "functional.gff").unlink()
+    result = CliRunner().invoke(
+        cli,
+        [
+            "feature-convert",
+            str(plan_path),
+            "--runs",
+            str(runs_path),
+            "--cache-dir",
+            str(cache),
+            "--out-dir",
+            str(tmp_path / "out"),
+        ],
+    )
+    assert result.exit_code == 0
+    assert "skip" in result.output
+
+
+def test_convert_run_refuses_to_write_a_repeated_feature_id(run_files: dict[str, Path], tmp_path: Path) -> None:
+    # Same ID, strand and everything: renaming by strand cannot separate these, but the counter can.
+    row = f"{RUN}_0004\tx\tmisc_feature\t1\t9\t.\t+\t.\tID=same"
+    run_files[ft.FUNCTIONAL] = _write(tmp_path, "functional_same.gff", [*FUNCTIONAL_ROWS, row, row])
+    result = fc.convert_run(RUN, run_files, {}, tmp_path / "ok")
+    assert result.renamed_duplicate_ids == 2
+    # A hit whose derived feature_id collides has no renaming rule, so conversion must stop.
+    hit = f"{G1}\tHMMER 3.1b2\tPF00001\t10\t80\t50.3\t.\t.\tID={G1}_10_80"
+    run_files["Pfam Annotation GFF"] = _write(tmp_path, "pfam_twice.gff", [hit, hit])
+    out = tmp_path / "bad"
+    with pytest.raises(fc.DuplicateFeatureIdError):
+        fc.convert_run(RUN, run_files, {}, out)
+    assert not out.exists()
+
+
+def test_contigs_carry_the_assembly_run(run_files: dict[str, Path], tmp_path: Path) -> None:
+    result = fc.convert_run(RUN, run_files, {}, tmp_path / "out", assembly_run="nmdc:wfmgas-99-a.1")
+    contigs = pq.read_table(result.outputs[1]).to_pylist()
+    assert {c["generated_by"] for c in contigs} == {"nmdc:wfmgas-99-a.1"}
+    features = pq.read_table(result.outputs[0]).to_pylist()
+    assert {f["generated_by"] for f in features} == {RUN}
+    unknown = fc.convert_run(RUN, run_files, {}, tmp_path / "unknown")
+    assert {c["generated_by"] for c in pq.read_table(unknown.outputs[1]).to_pylist()} == {None}
+
+
+def test_convert_run_counts_hits_on_unknown_genes_without_writing_them(
+    run_files: dict[str, Path], tmp_path: Path
+) -> None:
+    stray = "nmdc:missing_gene\tHMMER 3.1b2\tPF00003\t1\t9\t5.0\t.\t.\tID=stray"
+    pfam = run_files["Pfam Annotation GFF"]
+    pfam.write_text(pfam.read_text() + stray + "\n")
+    result = fc.convert_run(RUN, run_files, {}, tmp_path / "out")
+    assert result.orphan_hits == {"Pfam Annotation GFF": 1}
+    features = pq.read_table(result.outputs[0]).to_pylist()
+    assert not any(r["feature_id"].startswith("stray") for r in features)
+    contigs = {c["contig_id"] for c in pq.read_table(result.outputs[1]).to_pylist()}
+    assert "nmdc:missing_gene" not in contigs

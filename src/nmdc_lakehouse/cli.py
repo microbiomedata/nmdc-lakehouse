@@ -1467,5 +1467,62 @@ def feature_check_command(plan_path: Path, runs_path: Path, cache_dir: Path, out
         raise SystemExit(1)
 
 
+@cli.command("feature-convert")
+@click.argument("plan_path", type=click.Path(path_type=Path, dir_okay=False, exists=True))
+@click.option("--runs", "runs_path", type=click.Path(path_type=Path, dir_okay=False, exists=True), required=True)
+@click.option("--cache-dir", type=click.Path(path_type=Path, file_okay=False, exists=True), required=True)
+@click.option("--out-dir", type=click.Path(path_type=Path, file_okay=False), required=True)
+@click.option("--include-unselected", is_flag=True, help="Also write caller predictions the pipeline did not select.")
+def feature_convert_command(
+    plan_path: Path, runs_path: Path, cache_dir: Path, out_dir: Path, include_unselected: bool
+) -> None:
+    """Write features.parquet and contigs.parquet per run, in the BER feature model's shape.
+
+    Writes local files only. Nothing is uploaded to BERDL.
+    """
+    import json
+
+    from nmdc_lakehouse.feature_convert import DuplicateFeatureIdError, convert_run
+    from nmdc_lakehouse.feature_tables import FUNCTIONAL, cached_files, plan_from_json
+
+    plan = plan_from_json(json.loads(plan_path.read_text()))
+    summary = []
+    for run_id in _read_run_ids(runs_path):
+        try:
+            files, urls = cached_files(plan.selected[run_id], cache_dir)
+        except ValueError as error:
+            raise click.ClickException(str(error)) from error
+        if FUNCTIONAL not in files:
+            click.echo(f"  skip {run_id}: no Functional Annotation GFF in {cache_dir}")
+            continue
+        entry = plan.selected[run_id]
+        try:
+            result = convert_run(
+                run_id,
+                files,
+                urls,
+                out_dir,
+                include_unselected=include_unselected,
+                assembly_run=entry["run"].get("assembly_run"),
+            )
+        except DuplicateFeatureIdError as error:
+            raise click.ClickException(str(error)) from error
+        summary.append(
+            {
+                "run_id": run_id,
+                "feature_rows": dict(result.feature_rows),
+                "contig_rows": result.contig_rows,
+                "dropped_keys": result.dropped_keys,
+                "duplicate_feature_ids": result.duplicate_feature_ids,
+                "renamed_duplicate_ids": result.renamed_duplicate_ids,
+                "unselected_refused": result.unselected_refused,
+                "orphan_hits": dict(result.orphan_hits),
+            }
+        )
+        click.echo(f"  {run_id}: {sum(result.feature_rows.values()):,} features, {result.contig_rows:,} contigs")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "conversion_summary.json").write_text(json.dumps(summary, indent=1))
+
+
 if __name__ == "__main__":
     cli()

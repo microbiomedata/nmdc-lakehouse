@@ -16,7 +16,7 @@ and most of them repeat one another. Measured on one run on 2026-09-23
   not select.
 
 `check_run` restates each of those as a check, so a sample of runs can confirm them before they
-are relied on. Conversion is https://github.com/microbiomedata/nmdc-lakehouse/issues/362 .
+are relied on. `nmdc_lakehouse.feature_convert` applies the result.
 
 Separately, some assemblies were annotated more than once (an older `.1` run and a newer `.2` run
 over the same input). `plan_runs` keeps one annotation run per input so the same genes are not
@@ -68,7 +68,8 @@ CALLER_TYPES: tuple[str, ...] = (
     "CRT Annotation GFF",
 )
 
-#: Types `check_run` reads.
+#: Types `check_run` reads. `convert_run` reads only FUNCTIONAL, HIT_TYPES, CONTIG_MAPPING and
+#: SCAFFOLD_LINEAGE, plus CALLER_TYPES when unselected calls are requested.
 CHECK_TYPES: tuple[str, ...] = (
     FUNCTIONAL,
     STRUCTURAL,
