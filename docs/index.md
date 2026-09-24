@@ -11,6 +11,7 @@ is implemented, while destination publication remains manual and external.
 - [Package versions and releases](releases.md)
 - [MongoDB connection](mongodb-connection.md)
 - [BERDL staging runbook](berdl-staging-runbook.md)
+- [Local provenance and query comparison](local-provenance.md)
 - [BERDL command details](berdl-upload.md)
 - [Portable publication and replacement contract](publication-contract.md)
 - [BERDL metadata shaping](berdl-metadata-shaping.md)

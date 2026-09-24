@@ -63,6 +63,14 @@ berdl-upload-plan SNAPSHOT_ROOT BUNDLE INVENTORY PLAN METADATA_PLAN TARGET_VALID
 berdl-upload PLAN UPSTREAM_OUTCOME OUTCOME *ARGS:
     {{ uv_run }} --no-sync nmdc-lakehouse berdl-upload "{{ PLAN }}" --upstream-outcome "{{ UPSTREAM_OUTCOME }}" --output "{{ OUTCOME }}" {{ ARGS }}
 
+# Build both derived provenance tables locally in a new, separate snapshot directory.
+derive-provenance SNAPSHOT_ROOT OUTPUT_ROOT *ARGS:
+    {{ uv_run }} --no-sync nmdc-lakehouse derive-provenance "{{ SNAPSHOT_ROOT }}" "{{ OUTPUT_ROOT }}" {{ ARGS }}
+
+# Compare complete provenance answers and local query times without accessing BERDL.
+compare-provenance-queries SNAPSHOT_ROOT DERIVED_ROOT OUTPUT *ARGS:
+    {{ uv_run }} --no-sync nmdc-lakehouse compare-provenance-queries "{{ SNAPSHOT_ROOT }}" "{{ DERIVED_ROOT }}" "{{ OUTPUT }}" {{ ARGS }}
+
 # Rebuild the two derived tables. Previews by default; needs --authorize-namespace to execute.
 rebuild-derived-tables NAMESPACE INGEST_CHECKOUT *ARGS:
     {{ uv_run }} --no-sync nmdc-lakehouse rebuild-derived-tables "{{ NAMESPACE }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" {{ ARGS }}
