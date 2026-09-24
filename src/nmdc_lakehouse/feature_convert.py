@@ -98,6 +98,8 @@ class ConversionResult:
     renamed_duplicate_ids: int = 0
     #: Hits on genes absent from the Functional Annotation GFF, by file type; not written.
     orphan_hits: Counter[str] = field(default_factory=Counter)
+    #: Hits on an ID two CDS rows share, so their gene is ambiguous, by file type; not written.
+    ambiguous_parent_hits: Counter[str] = field(default_factory=Counter)
     #: Why unselected calls were not written although requested, or None.
     unselected_refused: str | None = None
     outputs: list[str] = field(default_factory=list)
@@ -112,6 +114,7 @@ def convert_run(
     include_unselected: bool = False,
     checks: Mapping[str, Mapping[str, Any]] | None = None,
     assembly_run: str | None = None,
+    batch_rows: int = 200_000,
 ) -> ConversionResult:
     """Write `features.parquet` and `contigs.parquet` for one run under `out_dir/<run id>/`.
 
@@ -127,15 +130,39 @@ def convert_run(
 
     `assembly_contig_id` and `source_data_object_type` are not slots of the model yet.
 
-    Raises DuplicateFeatureIdError, before writing anything, if two rows would share a
-    `feature_id`.
+    Rows are written in batches of `batch_rows` into `<run dir>.partial` and renamed into place
+    only when the run is complete, so memory stays bounded and no half-written run is published.
+
+    Raises DuplicateFeatureIdError if two rows would share a `feature_id`; nothing is published
+    for that run.
     """
+    import shutil
+
     import pyarrow as pa
     import pyarrow.parquet as pq
 
     checks = checks if checks is not None else check_run(files)
     result = ConversionResult(run_id=run_id)
-    rows: list[dict[str, Any]] = []
+    run_dir = out_dir / run_id.replace(":", "_")
+    partial = run_dir.with_name(run_dir.name + ".partial")
+    shutil.rmtree(partial, ignore_errors=True)
+    partial.mkdir(parents=True)
+    schema = _feature_schema()
+    writer = pq.ParquetWriter(partial / "features.parquet", schema, compression="zstd")
+    buffer: list[dict[str, Any]] = []
+    seen_feature_ids: set[str] = set()
+    repeated: list[str] = []
+    contig_ids: set[str] = set()
+
+    def emit(row: dict[str, Any]) -> None:
+        if row["feature_id"] in seen_feature_ids:
+            repeated.append(row["feature_id"])
+        seen_feature_ids.add(row["feature_id"])
+        contig_ids.add(row["seqid"])
+        buffer.append(row)
+        if len(buffer) >= batch_rows:
+            writer.write_table(pa.Table.from_pylist(buffer, schema=schema))
+            buffer.clear()
 
     drop: set[str] = set()
     for key, hit_type in DERIVABLE_KEYS.items():
@@ -174,7 +201,7 @@ def convert_run(
             # Hits name their gene by the source ID, which a renamed row no longer carries.
             gene_seqid.setdefault(source_id, r[0])
         selected_loci.add((r[0], r[2], r[3], r[4], r[6]))
-        rows.append(
+        emit(
             {
                 "feature_id": feature_id,
                 "seqid": r[0],
@@ -214,9 +241,13 @@ def convert_run(
                 # gene the Functional Annotation GFF lacks has neither, so it is counted, not written.
                 result.orphan_hits[hit_type] += 1
                 continue
+            if len(cds_renamed.get(r[0], [])) > 1:
+                # Two CDS rows share this ID (opposite strands), so the hit's gene is ambiguous.
+                result.ambiguous_parent_hits[hit_type] += 1
+                continue
             pairs = parse_attributes(r[8]) if len(r) > 8 else []
             source_id = _first(pairs, "ID") or f"{r[0]}_{r[3]}_{r[4]}"
-            rows.append(
+            emit(
                 {
                     "feature_id": f"{source_id}|{label}|{r[2]}",
                     "seqid": gene_seqid[r[0]],
@@ -228,7 +259,7 @@ def convert_run(
                     "score": _number(r[5], float),
                     "strand": r[6],
                     "phase": _number(r[7], int),
-                    "parent": cds_renamed[r[0]] if len(cds_renamed.get(r[0], [])) == 1 else [r[0]],
+                    "parent": cds_renamed.get(r[0], [r[0]]),
                     "attributes": [{"key": k, "value": v} for k, v in pairs],
                     "generated_by": run_id,
                     "source_files": [urls[hit_type]] if hit_type in urls else [],
@@ -254,7 +285,7 @@ def convert_run(
                     continue
                 pairs = parse_attributes(r[8]) if len(r) > 8 else []
                 source_id = _first(pairs, "ID") or f"{r[0]}_{r[3]}_{r[4]}"
-                rows.append(
+                emit(
                     {
                         "feature_id": f"{source_id}|unselected|{r[1]}",
                         "seqid": r[0],
@@ -278,11 +309,15 @@ def convert_run(
                 )
                 result.feature_rows[caller_type] += 1
 
-    ids = Counter(r["feature_id"] for r in rows)
-    result.duplicate_feature_ids = sum(v - 1 for v in ids.values() if v > 1)
-    if result.duplicate_feature_ids:
-        examples = sorted(k for k, v in ids.items() if v > 1)[:3]
-        raise DuplicateFeatureIdError(f"{run_id}: {result.duplicate_feature_ids} repeated feature_id, e.g. {examples}")
+    if buffer:
+        writer.write_table(pa.Table.from_pylist(buffer, schema=schema))
+        buffer.clear()
+    writer.close()
+    result.duplicate_feature_ids = len(repeated)
+    if repeated:
+        shutil.rmtree(partial, ignore_errors=True)
+        examples = sorted(set(repeated))[:3]
+        raise DuplicateFeatureIdError(f"{run_id}: {len(repeated)} repeated feature_id, e.g. {examples}")
 
     lineage: dict[str, tuple[list[str], float | None]] = {}
     if SCAFFOLD_LINEAGE in files:
@@ -297,7 +332,7 @@ def convert_run(
             if len(r) > 1:
                 assembly[r[1]] = r[0]
     contig_rows = []
-    for contig_id in sorted({r["seqid"] for r in rows}):
+    for contig_id in sorted(contig_ids):
         tax, confidence = lineage.get(contig_id, ([], None))
         sources = [urls[t] for t in (CONTIG_MAPPING, SCAFFOLD_LINEAGE) if t in urls and t in files]
         contig_rows.append(
@@ -312,11 +347,10 @@ def convert_run(
         )
     result.contig_rows = len(contig_rows)
 
-    run_dir = out_dir / run_id.replace(":", "_")
-    run_dir.mkdir(parents=True, exist_ok=True)
-    features_path = run_dir / "features.parquet"
-    contigs_path = run_dir / "contigs.parquet"
-    pq.write_table(pa.Table.from_pylist(rows, schema=_feature_schema()), features_path, compression="zstd")
-    pq.write_table(pa.Table.from_pylist(contig_rows, schema=_contig_schema()), contigs_path, compression="zstd")
-    result.outputs = [str(features_path), str(contigs_path)]
+    pq.write_table(
+        pa.Table.from_pylist(contig_rows, schema=_contig_schema()), partial / "contigs.parquet", compression="zstd"
+    )
+    shutil.rmtree(run_dir, ignore_errors=True)
+    partial.rename(run_dir)
+    result.outputs = [str(run_dir / "features.parquet"), str(run_dir / "contigs.parquet")]
     return result

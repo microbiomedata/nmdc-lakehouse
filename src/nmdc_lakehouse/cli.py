@@ -1523,6 +1523,7 @@ def feature_convert_command(
                 "renamed_duplicate_ids": result.renamed_duplicate_ids,
                 "unselected_refused": result.unselected_refused,
                 "orphan_hits": dict(result.orphan_hits),
+                "ambiguous_parent_hits": dict(result.ambiguous_parent_hits),
             }
         )
         click.echo(f"  {run_id}: {sum(result.feature_rows.values()):,} features, {result.contig_rows:,} contigs")

@@ -160,7 +160,7 @@ def test_convert_run_refuses_to_write_a_repeated_feature_id(run_files: dict[str,
     out = tmp_path / "bad"
     with pytest.raises(fc.DuplicateFeatureIdError):
         fc.convert_run(RUN, run_files, {}, out)
-    assert not out.exists()
+    assert list(out.iterdir()) == []
 
 
 def test_contigs_carry_the_assembly_run(run_files: dict[str, Path], tmp_path: Path) -> None:
@@ -185,3 +185,22 @@ def test_convert_run_counts_hits_on_unknown_genes_without_writing_them(
     assert not any(r["feature_id"].startswith("stray") for r in features)
     contigs = {c["contig_id"] for c in pq.read_table(result.outputs[1]).to_pylist()}
     assert "nmdc:missing_gene" not in contigs
+
+
+def test_hits_on_an_id_shared_by_two_cds_rows_are_counted_not_written(
+    run_files: dict[str, Path], tmp_path: Path
+) -> None:
+    twin = FUNCTIONAL_ROWS[0].replace("\t+\t0\t", "\t-\t0\t")
+    run_files[ft.FUNCTIONAL] = _write(tmp_path, "functional_twin.gff", [*FUNCTIONAL_ROWS, twin])
+    result = fc.convert_run(RUN, run_files, {}, tmp_path / "out")
+    assert result.ambiguous_parent_hits["Pfam Annotation GFF"] == 3
+    rows = pq.read_table(result.outputs[0]).to_pylist()
+    ids = {r["feature_id"] for r in rows}
+    assert all(p in ids for r in rows for p in r["parent"])
+
+
+def test_small_batches_give_the_same_output(run_files: dict[str, Path], tmp_path: Path) -> None:
+    one = fc.convert_run(RUN, run_files, {}, tmp_path / "a")
+    many = fc.convert_run(RUN, run_files, {}, tmp_path / "b", batch_rows=2)
+    assert pq.read_table(one.outputs[0]).to_pylist() == pq.read_table(many.outputs[0]).to_pylist()
+    assert not any(p.name.endswith(".partial") for p in (tmp_path / "b").iterdir())
