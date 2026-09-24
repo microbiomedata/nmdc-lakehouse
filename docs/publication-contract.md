@@ -150,14 +150,15 @@ receives exactly one disposition:
 - **replace**: candidate Parquet is the complete authoritative replacement;
 - **add**: candidate table does not yet exist and is safe to introduce;
 - **preserve**: target content has no verified candidate replacement;
-- **rebuild**: derived content must be recreated from the promoted source tables;
+- **rebuild**: legacy contract value rejected by the current BERDL promotion command;
 - **retire**: removal has separate evidence, approval, and recovery instructions.
 
 No publication command may infer retirement merely because a target table is absent
 from the candidate. In particular, `functional_annotation_agg` remains preserved
 until a verified replacement exists. `graph_edges` and
-`biosample_to_workflow_run` are derived products: the plan names their rebuild
-procedure and order, or preserves them when a safe rebuild is unavailable.
+`biosample_to_workflow_run` are [built and validated locally](local-provenance.md)
+as a separate Parquet snapshot bound to their parent metadata snapshot. Stage
+those files; preserve existing canonical tables until their promotion is reviewed.
 
 The 2026-08-18 candidate/BERDL comparison is an example of why classification is
 necessary, not a permanent allowlist. The schema and deployed table sets will
@@ -335,7 +336,8 @@ provider and catalog behavior instead of inferring it from a historical runbook.
 ### 2. Produce and approve the disposition and metadata plans
 
 Join the candidate and live inventories, assign one disposition to every table,
-and print all additions, replacements, preserves, rebuilds, and retirements.
+and print all additions, replacements, preserves, and proposed retirements.
+Reject legacy rebuild operations before catalog access.
 Generate the metadata application plan for the explicit staging namespace from
 the approved bundle and same destination inventory. The provider profile also
 states the promotion mechanism, validation queries, and rollback procedure.
@@ -366,8 +368,8 @@ into a staging namespace or equivalent. Do not overwrite the canonical target
 during this phase.
 
 Apply only the supported operations in the reviewed metadata application plan to
-staging, report unsupported operations, and rebuild staging copies of every table
-classified as **rebuild**.
+staging and report unsupported operations. Stage the separately validated
+provenance Parquet rather than rebuilding it in Spark. Legacy rebuild plans are refused.
 
 For the BERDL profile, `berdl-upload` automatically applies and reads back the
 approved table and column descriptions and planned schema-identity properties
