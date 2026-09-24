@@ -44,7 +44,7 @@ out where a description went missing.
 
 Nobody applies step 5 when the footer carried the description, which is the
 normal case: Spark reads the footer key and creates an already-described table
-in the commit it was making anyway. `berdl-apply-metadata` then reads every
+in the commit it was making anyway. `stage-publication` then reads every
 planned column back and writes no column descriptions. It is not otherwise
 read-only: it still writes any missing table descriptions and the schema
 identity properties.
@@ -133,7 +133,7 @@ the measurement instead.
 Changing one column description on a live table that is not being reloaded is
 **not supported**, decided 2026-08-27 in
 [#297](https://github.com/microbiomedata/nmdc-lakehouse/issues/297) and enforced
-since: `berdl-apply-metadata` refuses a target that is not a staging namespace,
+since: `stage-publication` refuses a target that is not a staging namespace,
 naming the 560-then-833 failure and pointing here. Reload into a fresh staging
 namespace instead, where the descriptions arrive in the footer at no extra
 cost.
@@ -181,5 +181,5 @@ Staging a script and running it in the pod is covered in
 time: a local path fails at the executor after the driver has already resolved
 the schema, a bare namespace resolves to `spark_catalog` rather than to the
 `nmdc` Iceberg catalog, and `mc` moves bulk data to object storage directly for
-one-off transfers, though the maintained `berdl-upload` path still reads its
+one-off transfers, though the maintained `stage-publication` path still reads its
 snapshot from the pod filesystem.

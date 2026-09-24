@@ -270,7 +270,7 @@ before using the executor for the authorized staging reload.
 The executor revalidates the plan and evidence after every started live command,
 including a failed command, then
 creates a separate immutable NMDC outcome with status `data-verified`. That
-status means data staging passed. The normal `berdl-upload` command then applies
+status means data staging passed. The normal `stage-publication` command then applies
 and reads back the approved table metadata and writes the separate metadata
 outcome before returning success. A metadata failure returns nonzero and retains
 the data outcome for a metadata-only retry. Its final report lists missing
@@ -336,13 +336,12 @@ Apply only the supported operations in the reviewed metadata application plan to
 staging and report unsupported operations. Stage the separately validated
 provenance Parquet rather than rebuilding it in Spark. Legacy rebuild plans are refused.
 
-For the BERDL profile, `berdl-upload` automatically applies and reads back the
+For the BERDL profile, `stage-publication` automatically applies and reads back the
 approved table and column descriptions and planned schema-identity properties
-after the staging outcome is data-verified. `berdl-apply-metadata` remains the
-metadata-only preview/retry command for an already verified data outcome.
-Recovery requires `--staging-plan` with the original reviewed plan and checks
-its digest against the data outcome and its metadata digest against the supplied
-metadata plan.
+after the staging outcome is data-verified. The same command selects a
+metadata-only retry for an already verified data outcome. It reads the original
+plan from the run directory and checks its digest against the data outcome and
+its metadata digest against the saved metadata plan.
 It binds the metadata plan, staging outcome, and stock ingest revision. Namespace
 properties remain a separate provider operation and are not implied by a
 successful table/column metadata outcome.

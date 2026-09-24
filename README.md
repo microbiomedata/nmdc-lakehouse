@@ -165,7 +165,8 @@ operational-command inventory.
 | `just validate-target-rows SNAPSHOT_ROOT REPORT` | Validate manifested rows against the packaged target LinkML schema |
 | `just prepare-publication CONFIGURATION OUTPUT` | Select the source pair and prepare a snapshot, full validation, and metadata together |
 | `just plan-publication ROOT CONFIGURATION` | Build disposition, metadata and exact staging plans together from a prepared directory |
-| `just berdl-upload ...` | Preview or stage and verify data plus approved table and column metadata |
+| `just stage-publication ROOT ...` | Preview, stage, or resume metadata after verified data |
+| `just publication-status ROOT` | Check saved evidence and show the next action |
 | `just install`      | Synchronize the locked development environment    |
 | `just install-all`  | Synchronize locked development and docs extras    |
 | `just lock`         | Refresh `uv.lock`                                |

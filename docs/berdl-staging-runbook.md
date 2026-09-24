@@ -14,18 +14,19 @@ For source migration decisions, see
 [source-version selection](source-schema-1124-rollout.md#select-production-now-and-switch-after-migration).
 A saved full validation report avoids another row-validation run.
 
-| Phase | Where | Existing command or operation | Completion evidence |
+| Phase | Where | Command or operation | Completion evidence |
 | --- | --- | --- | --- |
-| Prepare | Workstation | `just prepare-publication CONFIGURATION OUTPUT`, described below | Snapshot, full validation, metadata profile and bundle in one directory |
-| Transfer | Workstation to BERDL pod | Transfer the snapshot and evidence; verify hashes in the pod | The same manifest and file hashes; no row validation rerun |
-| Observe destination | BERDL pod | `scripts/python/audit_database_metadata.py` with `--publication-inventory` | Fresh inventory of the explicitly selected catalog and namespace |
-| Plan | BERDL pod | `just plan-publication ROOT CONFIGURATION`, using [destination settings](berdl-upload.md#build-the-maintained-staging-command-plan) | Dispositions, preflight, metadata plan and final staging plan in `evidence/` |
-| Preview | Same pod and environment | `berdl-upload` without `--execute-staging` | Exact command and metadata coverage, with no destination writes |
-| Stage and verify | Same pod and environment | `berdl-upload --execute-staging` with the reviewed snapshot and plan digests | Data outcome, metadata outcome, and combined coverage report |
+| Prepare | Workstation | `just prepare-publication CONFIGURATION OUTPUT` | Immutable snapshot, full validation, descriptions and receipt |
+| Send | Workstation to pod | Archive and `labctl pod put`, below | Same archive hash and manifested files |
+| Plan | Pod | `plan-publication ROOT CONFIGURATION` | Dispositions, preflight, metadata plan and staging plan |
+| Stage | Same pod/runtime | `stage-publication ROOT`, then its authorized execution | Data and table metadata outcomes |
+| Status/resume | Same pod/runtime | `publication-status ROOT`; repeat stage for metadata-only retry | Checked saved evidence and next action |
 
-The unprefixed names above are `nmdc-lakehouse` subcommands. Several also have
-`just` wrappers. Workstation preparation resumes completed work. Pod setup, transfer, and inventory acquisition
-still use the documented steps below; their consolidation remains issue 353.
+Pod commands above are subcommands of `.venv/bin/nmdc-lakehouse` from the NMDC
+checkout; each also has a `just` recipe. Runtime setup and the read-only inventory
+are explicit prerequisites below. There is no run-specific Python or shell script
+to edit. The new combined pod commands await live acceptance under
+[issue 353](https://github.com/microbiomedata/nmdc-lakehouse/issues/353).
 
 Full target validation checks generated-table conformance. It does not prove
 that every populated MongoDB source value was retained. Keep the focused source
@@ -97,9 +98,7 @@ The output directory contains `snapshot/`, `evidence/target-validation.json`,
 A separate validation digest binds the saved report even if metadata preparation
 fails before the final receipt. Existing output directories must be private
 (mode `0700`); symlinked input files and snapshot directories are refused.
-Transfer the snapshot and evidence using the next steps in this runbook.
-Automated transfer and pod setup remain
-[issue 353](https://github.com/microbiomedata/nmdc-lakehouse/issues/353).
+Send the snapshot and evidence using the next steps in this runbook.
 
 Rerunning the same command checks and reuses completed work. A metadata failure
 does not require another full validation; an incomplete dump is retained and
@@ -111,48 +110,133 @@ digest, retain it and supply it explicitly to a new preparation directory. For c
 directory and refer to the previous successful full validation report. Never
 write preparation output inside the immutable source snapshot.
 
-## Access and runtime
+## Send to the pod
 
-The export needs MongoDB read credentials and a route to the source, such as
-the [production tunnel](mongodb-connection.md). After the dump, local validation
-and BERDL staging use the saved snapshot. They do not need that tunnel. A later
-source preservation audit needs MongoDB access again.
+The dump needs MongoDB read credentials and the production route/tunnel. Once it
+is complete, preparation of saved files and BERDL staging do not need that tunnel.
+A later source preservation audit needs MongoDB access again.
 
-Transfer through JupyterHub needs a Hub API token or an authenticated browser
-session. Execution needs a running BERDL pod, its authenticated KBase session,
-and permissions to read the selected catalog and write the selected tenant
-staging namespace and object prefix. Keep credentials in the established
-environment; never put them in the run configuration or evidence files.
+The send step needs an authenticated JupyterHub session. These commands use the
+operator's existing `labctl pod put LOCAL_FILE REMOTE_FILE`, whose remote paths
+are relative to that user's pod home. `labctl` is a separately installed operator
+tool, not a Python dependency of this repository. Configure it for your account;
+the authenticated Jupyter file browser can transfer the same files instead.
+BERDL execution additionally needs the pod's KBase session and permission to read
+the catalog and write the selected staging namespace and object prefix. Keep all
+credentials in their established environment, outside configurations and evidence.
 
-Use a clean official `kbase/data-lakehouse-ingest` checkout at the revision
-accepted by `plan-publication`. The September run used v0.1.5 at
-`a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3`. BERIL source code is not a runtime
-dependency of this maintained path.
+On the workstation, from a durable transfer directory, set `PREPARED` to the
+absolute output of preparation. Only snapshot, reviewed evidence and the receipt
+are sent; export logs and workstation input paths are excluded. Bounded parts
+avoid the large contents-API upload failures observed in earlier runs.
 
-The pod interpreter must supply Python 3.13 and the BERDL runtime packages.
-Select the same source version there before installing or running the remaining
-source-dependent commands; the preparation recipe selects it only on the workstation.
-An ordinary isolated Python environment may import the NMDC CLI but fail later
-when it needs Spark or the object-store client. The September run created its
-environment with `--system-site-packages`, installed the locked 11.23.0 source
-extra, and checked actual runtime imports before planning. Its inherited pod
-packages are not completely pinned by the NMDC lockfile. Record that limitation
-and the tested environment; do not describe it as a fully reproducible container.
+<!-- unverified: combined pod workflow awaits acceptance in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
+```bash
+PREPARED=/absolute/path/to/prepared-publication
+mkdir -p local/publication-transfer
+cd local/publication-transfer
+COPYFILE_DISABLE=1 tar -czf publication.tar.gz -C "$PREPARED" snapshot evidence preparation.json
+shasum -a 256 publication.tar.gz > publication.sha256
+split -b 64m publication.tar.gz publication.part-
+labctl pod put publication.sha256 publication.sha256
+for part in publication.part-*; do labctl pod put "$part" "${part##*/}" || break; done
+```
 
-Pip may inherit a user-install default from the pod. When installing into an
-isolated tool environment, pass `pip install --no-user` explicitly. This avoids
-the observed `User site-packages are not visible in this virtualenv` failure
-without changing the pod's global pip configuration.
+Use an empty transfer directory for each run so old parts cannot join the new
+archive. Do not stage until every part has transferred. `COPYFILE_DISABLE=1`
+prevents macOS metadata files from entering the snapshot. On the pod, from its
+home directory, reconstruct, verify and extract to a **new** private directory:
 
-Keep a Spark session alive during execution. A notebook session or an outer
-IPython process can provide that lifetime while the maintained CLI runs. See
-[running a script in the pod](berdl-upload.md#running-a-script-in-the-pod).
+<!-- unverified: combined pod workflow awaits acceptance in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
+```bash
+export PUBLICATION_ROOT="$PWD/nmdc-publication-reviewed"
+cat publication.part-* > publication.tar.gz
+sha256sum -c publication.sha256
+mkdir -m 700 "$PUBLICATION_ROOT"
+python3 -m tarfile --filter data --extract publication.tar.gz "$PUBLICATION_ROOT"
+```
 
-For the two [derived provenance tables](local-provenance.md#validate-and-prepare-separate-staging-evidence),
-use their separate snapshot throughout these steps. Row validation and staging
-planning select its independent provenance schema. Its manifest retains the
-parent metadata snapshot identity; keep both snapshots and their evidence.
-Do not combine their files or reuse the collection snapshot's validation report.
+Run these in order and stop on any failure. Keep the local original and verified
+pod copy; retain the transfer parts until verification and planning succeed.
+The safe extraction filter requires Python 3.12 or newer; the runtime below uses
+3.13. Planning rechecks every manifested file and the prepared evidence hashes.
+A matching archive hash is the transfer check, not a substitute for those checks.
+
+## Set up the pod runtime once
+
+Use a new durable runtime checkout for this publication. Existing reviewed plans
+bind their interpreter and adapter, so do not update a runtime serving an older
+plan. Clone merged NMDC code and the approved official ingest revision:
+
+<!-- unverified: combined pod workflow awaits acceptance in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
+```bash
+mkdir -p "$HOME/nmdc-publication-runtime"
+cd "$HOME/nmdc-publication-runtime"
+git clone https://github.com/microbiomedata/nmdc-lakehouse.git
+cd nmdc-lakehouse
+git rev-parse HEAD
+git clone https://github.com/kbase/data-lakehouse-ingest.git ../data-lakehouse-ingest
+git -C ../data-lakehouse-ingest checkout --detach a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3
+python3 -c 'import sys; assert sys.version_info[:2] == (3, 13), "Use the pod Python 3.13"'
+python3 -m venv .tools
+.tools/bin/python -m pip install --no-user uv==0.12.17
+export PATH="$PWD/.tools/bin:$PATH"
+uv venv --system-site-packages --python "$(command -v python3)" .venv
+export NMDC_SCHEMA_VERSION=11.23.0
+bash scripts/uv_with_source.sh sync --locked
+export PATH="$PWD/.venv/bin:$PATH"
+.venv/bin/python -c 'from berdl_notebook_utils.setup_spark_session import get_spark_session; from berdl_notebook_utils.clients import get_s3_client; import nmdc_lakehouse'
+```
+
+Select the version recorded in `preparation.json`; 11.23.0 above is the September
+production source, not a permanent default. `--system-site-packages` retains the
+pod's Spark/object-store libraries. These inherited packages are not completely
+pinned by the NMDC lockfile. `--no-user` avoids the pod's inherited pip user-install
+setting. The ingest revision above is the supported stock v0.1.5 revision; the
+planner refuses unreviewed revisions. BERIL is not a runtime dependency.
+
+Capture a fresh read-only inventory with the maintained audit script, with raw
+runtime diagnostics kept in a private log:
+
+<!-- unverified: combined pod workflow awaits acceptance in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
+```bash
+umask 077
+.venv/bin/python scripts/python/audit_database_metadata.py nmdc.metadata \
+  --publication-inventory "$PUBLICATION_ROOT/evidence/destination-inventory.json" \
+  --destination-id nmdc-production --provider nmdc --table-format iceberg \
+  --metadata-capability namespace --metadata-capability table --metadata-capability column \
+  > "$PUBLICATION_ROOT/evidence/inventory.log" 2>&1
+```
+
+This can take minutes because it counts catalog tables. It changes no lakehouse
+tables. Stop if it fails; do not use a partial or historical inventory. The
+[inventory reference](berdl-upload.md#capture-a-fresh-destination-inventory-without-mutation)
+describes its checks. Write the [destination JSON](berdl-upload.md#build-the-maintained-staging-command-plan)
+with the inventory and ingest checkout paths above, plus an unused namespace and
+object prefix. All paths in that JSON are relative to the JSON file unless absolute.
+Then plan, preview and inspect status from this checkout:
+
+<!-- unverified: combined pod workflow awaits acceptance in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
+```bash
+.venv/bin/nmdc-lakehouse plan-publication "$PUBLICATION_ROOT" /absolute/path/to/destination.json
+.venv/bin/nmdc-lakehouse stage-publication "$PUBLICATION_ROOT"
+.venv/bin/nmdc-lakehouse publication-status "$PUBLICATION_ROOT"
+```
+
+After reviewing the preview and metadata application plan, run the exact
+`next_command` from status using `.venv/bin/nmdc-lakehouse` in this environment.
+The command requires the reviewed snapshot ID and plan checksum plus `--execute`.
+It retains Spark for the run, keeps raw diagnostics in a private log, and reports
+a heartbeat every 30 seconds. It refuses occupied destinations before upload.
+
+For the two [derived provenance tables](local-provenance.md), use their separate
+snapshot and full report throughout. Their manifest records the parent metadata
+snapshot identity. Do not combine their files or reuse the parent's validation.
 
 ## One durable run directory
 
@@ -179,7 +263,7 @@ intermediates, not the only copy of scripts or verification evidence.
 
 ## What success means
 
-`data-and-table-metadata-verified` requires both phases of `berdl-upload` to
+`data-and-table-metadata-verified` requires both phases of `stage-publication` to
 finish. A `data-verified` file alone means the metadata phase may still need work.
 
 | Level | What the maintained command retains or checks | Limit to report |
@@ -197,30 +281,24 @@ operations. Those are dated measurements, not defaults for later snapshots.
 
 ## Resume at the failed phase
 
-| Observed state | Next action |
+Run `publication-status ROOT` to validate the local evidence and see the next
+action. This reports recorded verification; it does not reread the live catalog.
+
+| Status or observation | Next action |
 | --- | --- |
-| Bootstrap failed; no staging plan | Repair setup and reuse the transferred files and clean checkouts |
-| Plan exists; preview failed | Inspect the saved plan and error; do not silently replace the plan |
-| Upload or verification failed | Preserve object keys, namespace, logs, and any outcomes; review partial effects before an explicit retry |
-| Data verified; metadata failed | Use `berdl-apply-metadata` with the original staging plan and exact data outcome; do not reload the data |
-| Both phases verified | Record the outcomes; stop at staging unless canonical promotion is separately authorized |
+| `prepared` | Send to the pod, complete runtime/inventory setup and plan |
+| Plan failed before completion | Correct setup and repeat plan with the same inputs; changed inputs require a new prepared directory |
+| `planned` | Preview, review, then execute the exact authorized staging command |
+| `partial-staging` | Retain all artifacts and inspect the private log; automatic data replay is refused |
+| `data-verified-metadata-pending` | Repeat stage with the same authorization; it retries only metadata |
+| `data-and-table-metadata-verified` | Retain the outcomes; repeated stage returns checked evidence without writes |
 
-A fresh run should use an unused staging namespace and object prefix. Replaying
-the same authorized plan can overwrite its staging destination. A retry therefore
-needs an explicit decision based on the saved state; it is not an automatic
-restart of the whole workflow. See the
-[metadata-only recovery procedure](berdl-upload.md#retry-metadata-after-a-partial-staging-run).
-
-## Simplification target
-
-[Issue #353](https://github.com/microbiomedata/nmdc-lakehouse/issues/353) owns the
-next implementation slice: one credential-free run configuration, one maintained
-entry point with separate prepare and execute modes, and a status command that
-gives the next action. The target is at most two invocations after pod setup,
-without run-specific script editing or repeated paths and digests to copy.
-
-Reuse the current validators, plans, immutable outcomes, and automatic metadata
-verification. Resume from completed phases rather than repeating export or
-validation. Transport changes, package slimming, remaining namespace metadata,
-and canonical promotion stay separately scoped. The proposed interface is not
-available yet; do not mistake this target for a command that can be run today.
+A lock refuses concurrent stage invocations on the same directory. Saved plans
+and outcomes are immutable. Metadata retry verifies every planned description
+and property; it skips values already correct. Failed uploads require inspection
+and a new unused destination, not deletion of evidence to bypass the guard.
+Canonical promotion remains separately reviewed under
+[issue 234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
+The September parent snapshot is already staged and must not be reloaded solely
+to test this new workflow. Its separately prepared derived pair is the next pod
+acceptance run, tracked in [issue 341](https://github.com/microbiomedata/nmdc-lakehouse/issues/341).

@@ -236,3 +236,26 @@ def test_cli_replaces_old_commands_and_emits_parseable_status(planned):
     result = runner.invoke(cli, ["publication-status", str(root)])
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["columns_verified"] == 15
+
+
+def test_staging_cannot_run_concurrently(planned):
+    import fcntl
+
+    root, authorization, calls, _ = planned
+    with (root / "evidence/.stage.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(PreparationError, match="Another staging"):
+            staging.stage_publication(root, **authorization)
+    assert not calls
+
+
+@pytest.mark.parametrize("name", ["berdl-staging-plan.json", "nmdc-staging-outcome.json", "staging-attempt.json"])
+def test_status_refuses_redirected_evidence(planned, name):
+    root, authorization, calls, _ = planned
+    path = root / "evidence" / name
+    if path.exists():
+        path.rename(path.with_suffix(".retained"))
+    path.symlink_to(root / "absent")
+    with pytest.raises(PreparationError, match="ordinary files"):
+        staging.stage_publication(root, **authorization)
+    assert not calls

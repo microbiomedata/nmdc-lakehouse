@@ -16,7 +16,7 @@ time. The boundary is the "Historical off-cluster transport" heading:
   and say so in their headings. "Getting table data back out" is unverified,
   because no reviewed command performs an export and nobody has run the one it
   shows. "Move bulk data with `mc`, for a one-off transfer" is verified but is
-  not part of the maintained upload: `berdl-upload` reads its snapshot from the
+  not part of the maintained upload: `stage-publication` reads its snapshot from the
   pod filesystem, so `mc` is for moving data around rather than for feeding that
   command.
 - **Everything below it is the April 2026 record.** It is kept for provenance. Do
@@ -34,7 +34,7 @@ catalog and provider, and classify every candidate and live table.
 `LAKEHOUSE_ROOT` (see the configuration table in `README.md`), and that output has
 been assembled into a completed snapshot with a manifest.
 
-From there, `plan-publication`, `berdl-upload`, `berdl-apply-metadata`, and the
+From there, `plan-publication`, `stage-publication`, `publication-status`, and the
 destination-inventory script all run **inside a BERDL JupyterHub pod**, where MinIO
 and Spark are local. That path needs:
 
@@ -186,7 +186,7 @@ existing evidence. A changed inventory, destination or prepared input requires a
 new prepared directory. A runtime-check failure can be repaired and retried
 without a new dump or full validation. An existing final plan binds its runtime;
 never replace its checkout or interpreter silently. Inventory acquisition,
-transport and pod setup remain separate steps tracked in
+transport and initial pod setup are documented in the runbook; acceptance is tracked in
 [#353](https://github.com/microbiomedata/nmdc-lakehouse/issues/353).
 
 The planner re-runs the portable preflight; verifies the metadata plan's
@@ -213,7 +213,7 @@ release dependency of this workflow.
 The generated command intentionally omits the live execution flag and outcome
 path. Do not add them by hand.
 
-Applying descriptions reports progress on stderr as it goes, naming the table it
+Applying descriptions records progress in the private staging log as it goes, naming the table it
 is on, the columns verified so far against the total, how many of those it
 actually wrote, elapsed time, and an estimate of the time remaining. A
 description the catalog already holds is not written again, so a rerun after a
@@ -235,7 +235,7 @@ for 117 minutes and failed. See
 
 ## Move the snapshot and evidence into the pod
 
-`plan-publication` binds absolute paths and `berdl-upload` runs in the pod, so the
+`plan-publication` binds absolute paths and `stage-publication` runs in the pod, so the
 completed snapshot and every reviewed evidence file have to be in the pod
 filesystem first. Transfer happens over the JupyterHub contents API, either through
 the notebook file browser or through a client that speaks to it. The SOCKS tunnels
@@ -463,178 +463,69 @@ closed 2026-08-24.
 
 ## Preview and execute data staging with metadata
 
-`just berdl-upload` completes both data verification and application/read-back
-of the approved table and column metadata. Metadata is part of the normal
-command; it is not an optional step to remember after an upload. The reviewed
-staging plan already binds the metadata application plan by checksum, so the
-same snapshot and plan authorization covers both phases.
+`stage-publication` applies and verifies the reviewed table and column metadata
+as part of staging. Its root directory supplies all input and output paths.
+See the [operator runbook](berdl-staging-runbook.md) for preparation, transfer,
+runtime setup, planning and the metadata coverage at each level.
 
-The metadata coverage is deliberately explicit:
+From the same pod checkout and environment that created the plan:
 
-| Level | Retained or verified by this workflow | Remaining limits |
-| --- | --- | --- |
-| Snapshot | Manifest, source/target schema identities, software provenance, artifact hashes, row counts, and validation evidence | Keep the reviewed evidence with the run; these are not tenant registry entries |
-| Parquet file | Exact uploaded bytes are read back and hashed, retaining footer and field metadata; the object gets an `nmdc-sha256` user metadata field | The complete metadata bundle is not expanded into object-store user metadata |
-| Namespace/dataset | Approved title, description, documentation link, and properties remain in the bundle and application plan | Namespace operations are reported as deferred; dataset/tenant registry writes have no supported adapter here |
-| Table | Planned descriptions are applied and read back; versioned plans also set and verify snapshot and target-schema properties | Older plans without a target version cannot supply those identity properties |
-| Column | Every planned description is read back, including comments already retained during ingest | Missing source descriptions are reported, not invented; richer LinkML constraints remain in the portable bundle/schema |
-| Row and relationship | Exported identifiers, `type` values, helper-table parent references, and ordering columns remain data | This step adds no cell annotations and does not prove source-to-output losslessness |
-
-The preview and final stdout JSON both include `metadata_coverage`, listing
-missing descriptions, unsupported operations, and deferred namespace operations.
-Successful status `data-and-table-metadata-verified` covers the planned table
-metadata, not every possible metadata level. Review the listed gaps before
-accepting a staging run. Namespace application remains tracked in
-[#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114).
-
-Generate the plan and run its preview and execution in the same BERDL
-JupyterHub pod. The plan binds absolute paths, the Python interpreter, this
-repository's adapter, and the official KBase ingest checkout. The completed
-snapshot and all reviewed evidence must therefore be available in that pod.
-Start the Spark Connect sidecar with `get_spark_session()` in a notebook before
-using the pod terminal for a long-running execution. Preview is the default:
-
-<!-- verified: 2026-09-24 the equivalent CLI preview rechecked the production plan before execution; see runs/2026-09-23-production-staging.md. -->
+<!-- unverified: combined pod workflow awaits acceptance in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
 ```bash
-just berdl-upload \
-  /path/to/berdl-staging-plan.json \
-  /path/to/kbase-ingest-outcome.json \
-  /path/to/nmdc-staging-outcome.json \
-  --metadata-output /path/to/nmdc-staging-metadata-outcome.json
+.venv/bin/nmdc-lakehouse stage-publication "$PUBLICATION_ROOT"
+.venv/bin/nmdc-lakehouse publication-status "$PUBLICATION_ROOT"
 ```
 
-Preview re-hashes and reloads every reviewed input, validates the snapshot,
-rechecks the clean official ingest revision and source hashes, and reconstructs
-the argument vector. It does not start the adapter, read credentials, contact
-a service, upload data, or change a catalog. The upstream, NMDC data, and metadata outcome paths
-must be distinct, must not already exist, and must remain outside the immutable
-snapshot directory and the reviewed KBase ingest checkout. An outcome created inside
-the checkout would make it dirty and invalidate the required post-run revision
-check after staging had already changed the destination.
+The preview checks the manifest, full validation, exact table coverage, metadata
+plan, runtime and source hashes without service access. The status response
+prints the execution command containing the exact snapshot ID and plan SHA-256.
+Review the preview and metadata coverage before running that command. Both
+`--authorize-snapshot` and `--authorize-plan-sha256`, together with `--execute`,
+are required. They bind the destination and all approved descriptions as well as
+the data. A changed plan needs a new review.
 
-Without `--metadata-output`, the metadata outcome is saved beside the data
-outcome as `<output stem>.metadata.json`. All outcome paths are checked before
-uploading. Existing evidence is never overwritten.
+Execution first refuses an existing staging namespace or occupied object prefix.
+It holds a Spark session through upload and metadata verification, so this
+command does not require a separate notebook to keep Spark running. The reviewed adapter
+uploads the manifested files, reads back and hashes the objects, and ingests them
+with the stock KBase package. It independently counts each resulting catalog
+table and requires the exact table set, source hashes and row counts before
+recording data success. Every planned table/column description and schema
+identity property is then applied as needed and verified by read-back.
 
-After reviewing that preview, compute the plan file's SHA-256 digest. For
-example, use `sha256sum` on Linux or `shasum -a 256` on macOS. Execute the same
-plan with both that digest and the snapshot ID printed in the plan as explicit,
-plan-bound authorization:
+The fixed evidence files are `kbase-ingest-outcome.json`,
+`nmdc-staging-outcome.json`, and `nmdc-staging-metadata-outcome.json`, under
+`evidence/`. Existing outcomes are never replaced. The preview includes explicit
+missing descriptions, unsupported operations and deferred namespace operations.
+The final response summarizes verified tables/columns, description gaps and
+deferred namespace operations; detailed operations remain in the metadata plan.
+Success is `data-and-table-metadata-verified`. A data outcome alone is not success.
 
-<!-- verified: 2026-09-24 the equivalent CLI execution verified all 46 production tables and planned table metadata; see runs/2026-09-23-production-staging.md. -->
-```bash
-just berdl-upload \
-  /path/to/berdl-staging-plan.json \
-  /path/to/kbase-ingest-outcome.json \
-  /path/to/nmdc-staging-outcome.json \
-  --metadata-output /path/to/nmdc-staging-metadata-outcome.json \
-  --execute-staging \
-  --authorize-snapshot 'sha256:FULL_SNAPSHOT_DIGEST' \
-  --authorize-plan-sha256 'FULL_PLAN_FILE_SHA256'
-```
-
-These values authorize the exact immutable plan, not one invocation. Reusing
-them intentionally replays the overwrite-mode load into the same isolated
-staging namespace and object prefix. Use new outcome paths for every attempt,
-retain failed-attempt evidence, and do not reuse an authorization after the
-reviewed plan or snapshot changes.
-
-The executor passes an argument vector directly to the reviewed NMDC adapter;
-it does not invoke a shell. Adapter and KBase ingest progress is routed to
-stderr so stdout remains a parseable JSON report. On success, the report contains
-`data`, `metadata`, and `metadata_coverage`; the two immutable outcome files keep
-their existing formats for promotion and recovery commands. Save stdout with the
-run evidence to retain the combined coverage report. The plan
-digest binds authorization to the reviewed destination as well as the snapshot.
-After every started adapter process exits, fails, or is interrupted, the
-executor revalidates the plan, snapshot, and external source revision before
-returning control. After a successful command, it requires the adapter's strict
-outcome to report the planned bucket, bronze prefix, staging namespace, exact
-table set, object-storage-verified source SHA-256, and matching
-source-versus-catalog row counts for every manifested Parquet artifact. The
-adapter requires the stock report to name the planned fully qualified table,
-then independently counts that table through Spark rather than treating the
-ingest report's write count as destination evidence. The
-source digest must equal the artifact digest in the reviewed snapshot. Only
-then does it create the immutable, credential-free NMDC
-outcome with status `data-verified`.
-
-The command then applies and reads back the approved table/column descriptions
-and planned schema-identity properties using the same reviewed ingest checkout.
-It writes a separate `metadata-verified` outcome only after those checks pass.
-An execution returns zero only after both phases complete. The intermediate
-`data-verified` file by itself is not a completed staging run.
-
-The adapter uploads every manifested Parquet file to the plan's unique bronze
-prefix, reads each object back to verify its SHA-256 digest, stores the inline
-ingest configuration, and calls stock `data_lakehouse_ingest.ingest` in-process.
-It does not depend on BERIL Research Observatory source code. The first live
-attempt must use a disposable staging namespace and remains an integration
-rehearsal until the pod run and catalog queries confirm the complete contract.
-
-Failure does not remove the unique bronze prefix, progress key, config key, or
-staging namespace. Retain them with the upstream outcome for diagnosis and make
-any retry an explicit new invocation. A metadata failure returns nonzero while
-retaining the verified data outcome. Use the metadata-only command below to
-finish that phase without repeating the data upload. If execution was
-interrupted, inspect which outcome files exist before deciding which phase to
-retry. Canonical replacement still requires the separate promotion procedure;
-this command does not authorize it.
+Runtime diagnostics, including child-process output, go to a private
+`evidence/staging-*.log`. Standard error prints its path and a heartbeat every
+30 seconds; standard output is credential-free JSON. Retain failed attempts and
+logs. An execution lock prevents two staging commands on the same run directory.
+The command never promotes or changes canonical tables.
 
 ### Retry metadata after a partial staging run
 
-When data succeeded but metadata did not, preview the table and column
-description operations bound to the retained data outcome:
+Use the same preview, status and authorized execution commands. If the data
+outcome and upstream verification match the original plan, but no metadata
+outcome exists, the command previews and retries **metadata only**. It verifies
+the same descriptions and properties without uploading or recreating tables.
 
-<!-- unverified: no run of this procedure is recorded. Running it is tracked in
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/114 -->
-```bash
-just berdl-apply-metadata \
-  /path/to/metadata-application-plan.json \
-  /path/to/nmdc-staging-outcome.json \
-  /path/to/data-lakehouse-ingest \
-  /path/to/nmdc-staging-metadata-outcome.json \
-  --staging-plan /path/to/berdl-staging-plan.json
-```
+A complete run returns its checked, saved status without another catalog write.
+Status is based on recorded evidence and is explicitly **not a fresh catalog
+audit**. Missing or altered evidence cannot establish completion.
 
-The preview is offline and requires the original `--staging-plan`. Its checksum
-must match the data outcome, and the supplied metadata plan's checksum must
-match the metadata evidence bound into that staging plan. A retry cannot silently
-replace the reviewed descriptions: restore the original evidence if it changed.
-The retry also checks its output path before changing catalog metadata: it must
-be new and outside the immutable snapshot, the original reviewed ingest checkout,
-and the ingest checkout supplied for the retry.
-Execution additionally requires `--execute-metadata`,
-`--authorize-plan-sha256`, and `--authorize-staging-outcome-sha256` with the
-exact digests printed by the preview. It verifies that the stock KBase helper
-package still matches the ingest revision recorded by staging, applies the
-approved table and column descriptions plus planned schema-identity properties,
-and reads them back from the catalog. The outcome is created once and records namespace
-operations as deferred work for #114. This step does not change canonical
-tables, promote staging, or claim that missing descriptions were filled.
-
-The destination, catalog, and table format are explicit observations. Do not
-copy the historical Delta examples below unless current discovery confirms
-them. A missing or blank value is a readiness failure.
-This is a BERDL destination-profile requirement enforced by `berdl-doctor` and
-the BERDL inventory producer. The portable publication preflight permits absent
-provider or table-format labels for destinations, such as file-only publication,
-where those concepts do not apply.
-
-The default check is offline. To make one bounded TCP probe of the separately
-managed local BERDL proxy, opt in:
-
-<!-- unverified: no run of this procedure is recorded, and no tracking issue is
-     named here. -->
-```bash
-just berdl-doctor /absolute/path/to/completed-snapshot \
-  --service-check berdl-proxy
-```
-
-The probe defaults to loopback port 8123. `BERDL_PROXY_HOST` and
-`BERDL_PROXY_PORT` can describe a different local proxy. The doctor never
-starts a proxy, opens a tunnel, refreshes a token, installs packages, changes
-the external checkout, uploads files, or changes a catalog.
+If upload started but no valid data outcome exists, status is `partial-staging`.
+The command refuses automatic replay: retain the namespace, object keys,
+outcomes and private log; inspect the effects before selecting a new unused
+destination. Do not delete an attempt marker to make a partial run look fresh.
+A failed empty-destination check leaves no attempt marker and can be retried
+once its cause is understood. Namespace and registry metadata remain deferred
+under [issue 114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114).
 
 ## Plan separately authorized canonical promotion
 
@@ -719,7 +610,7 @@ Two things are not done by promotion and are easy to assume are:
 
 - **Table comments and properties do not come with it, and no command fixes
   that afterwards.** The statements build tables from a query result, and a
-  table comment and `TBLPROPERTIES` are not part of one. `berdl-apply-metadata`
+  table comment and `TBLPROPERTIES` are not part of one. `stage-publication`
   cannot be pointed at a canonical namespace: it refuses one deliberately,
   because applying descriptions a column at a time stopped partway through
   `biosample_set` on 2026-08-20 and left it half described
@@ -763,7 +654,7 @@ browser is a real shell in the pod.
 Stage the file with `labctl pod put` rather than pasting it. **`labctl pod put`
 is for scripts and small files.** For bulk data see the section below: `mc`
 moves it to object storage directly, which is the right route for a one-off
-transfer, while the maintained `berdl-upload` path still reads its snapshot
+transfer, while the maintained `stage-publication` path still reads its snapshot
 from the pod filesystem.
 
 Use `python script.py` when the script builds its own session, which is what
@@ -874,7 +765,7 @@ the reason for the workaround survived only as five cryptic filenames.
 The rule, with its boundary: **`labctl pod put` is for scripts and small files.
 For a one-off transfer, or for data you are placing where something already
 reads it from object storage, use `mc`.** It is not a substitute for the
-maintained `berdl-upload` inputs: that path binds `--data-dir` to a local
+maintained `stage-publication` inputs: that path binds `--data-dir` to a local
 snapshot and the adapter reads those Parquet files from the pod filesystem
 before uploading them itself (`berdl_staging.py:598-604`,
 `berdl_adapter.py:241-251`), so removing the local copy would leave the command
@@ -1175,7 +1066,7 @@ SELECT COUNT(*) FROM nmdc_nmdc_linkml_store.functional_annotation_agg;
   promotion, and rollback requirements for a current replacement.
 - [#50](https://github.com/microbiomedata/nmdc-lakehouse/issues/50): consolidated ETL output to `LAKEHOUSE_ROOT`, which is why this doc's paths are stable. Closed 2026-08-17.
 - [#51](https://github.com/microbiomedata/nmdc-lakehouse/issues/51): the publication automation umbrella.
-  The maintained `just berdl-upload` command now stages and verifies data and table
+  The maintained `just stage-publication` command now stages and verifies data and table
   metadata in the pod; remaining operator simplification is tracked in
   [#353](https://github.com/microbiomedata/nmdc-lakehouse/issues/353).
 - `README.md`: where `LAKEHOUSE_ROOT` and the other ETL configuration variables are documented.
