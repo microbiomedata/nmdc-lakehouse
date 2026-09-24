@@ -534,14 +534,23 @@ def prepare_publication_command(configuration: Path, output: Path) -> None:
 
     from pydantic import ValidationError
 
-    from nmdc_lakehouse.publication_prepare import prepare_publication
+    from nmdc_lakehouse.publication_prepare import PreparationConfig, prepare_publication
 
     try:
         receipt = prepare_publication(configuration, output)
     except ValidationError as error:
-        raise click.ClickException(
-            "Invalid preparation configuration or evidence; inspect the named input files."
-        ) from error
+        schema = PreparationConfig.model_json_schema()
+        fields = set(schema["properties"])
+        for definition in schema.get("$defs", {}).values():
+            fields.update(definition.get("properties", {}))
+        details = []
+        for item in error.errors(include_input=False, include_context=False, include_url=False):
+            location = ".".join(
+                str(part) if isinstance(part, int) or part in fields else "<item>" for part in item["loc"]
+            )
+            # Free-form validator messages and dictionary keys can contain submitted values.
+            details.append(f"{location or '<document>'}: {item['type'].replace('_', ' ')}")
+        raise click.ClickException("Invalid preparation configuration or evidence:\n" + "\n".join(details)) from error
     except (ValueError, OSError) as error:
         raise click.ClickException(str(error)) from error
     click.echo(json.dumps(receipt, indent=2, sort_keys=True))
