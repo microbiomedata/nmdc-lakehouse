@@ -133,8 +133,11 @@ immutable outcomes and the original preview. That local check validates the
 returned evidence; the live catalog and object-store checks were performed by
 the pod execution path.
 
-| Outcome file | SHA-256 |
+| Retrieved evidence file | SHA-256 |
 | --- | --- |
+| `execution-preview-20260924T013152772832Z.json` | `fa894619c216887716d1bb83e7899639f218bf0cf66c302f26a478df3deaed88` |
+| `staging-destination-check-20260924T013152772832Z.json` | `6c686c3d034449b57ff7ebe4fcbc898ecd6a1a4c9a6f7a1cb8469bd9cccce608` |
+| `staging-20260924T013152772832Z.log` | `4d2d79187e0b7239ecf1057ade2ddf8619613c7688c4aab0f04108c4b70efb65` |
 | `kbase-ingest-outcome.json` | `c39eaf5a4292430199e75eba1dbfc81d87288c7d73278aa97818e9e973371f27` |
 | `nmdc-staging-outcome.json` | `d109783f1dcda2890c4f5f2529a601d0cbcc2b47477fd48cf90a7ae79bc7791f` |
 | `nmdc-staging-metadata-outcome.json` | `eb083bf61ff231927897a2e2c8cc08ddf062dead1d84dd8c2dadc051ab061677` |

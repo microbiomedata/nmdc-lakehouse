@@ -3,7 +3,9 @@
 Start with the [staging runbook](berdl-staging-runbook.md) for the operator
 sequence, credentials, evidence layout, and recovery decisions. The
 [2026-09-23 run record](runs/2026-09-23-production-staging.md) records the latest
-production export, setup failure and fix, reviewed preview, and pending live work.
+production export, setup failure and fix, and verified data/metadata staging.
+Separate derived staging, namespace metadata, source-preservation auditing, and
+canonical promotion remain outstanding in that record.
 
 This document contains two different things, and reading one for the other wastes
 time. The boundary is the "Historical off-cluster transport" heading:
