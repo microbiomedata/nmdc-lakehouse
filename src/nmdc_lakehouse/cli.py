@@ -912,90 +912,27 @@ def berdl_doctor(
     context.exit(report.exit_code)
 
 
-@cli.command("metadata-profile")
-@click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
-@click.option("--profile-id", required=True, help="Stable credential-free identity for this reviewed profile.")
-@click.option("--namespace-name", required=True, help="Logical destination-neutral namespace name.")
-@click.option("--title", required=True, help="Human-readable namespace title.")
-@click.option("--description", required=True, help="Reviewed namespace description.")
-@click.option("--documentation-url", help="Optional HTTPS documentation URL.")
-@click.option(
-    "--property",
-    "properties",
-    multiple=True,
-    metavar="KEY=VALUE",
-    help="Repeatable credential-free namespace property.",
-)
-@click.option("--output", type=click.Path(path_type=Path, dir_okay=False), help="Also write the profile draft here.")
-def metadata_profile_command(
-    snapshot_root: Path,
-    profile_id: str,
-    namespace_name: str,
-    title: str,
-    description: str,
-    documentation_url: str | None,
-    properties: tuple[str, ...],
-    output: Path | None,
-) -> None:
-    """Generate a strict profile draft bound to a validated snapshot."""
-    from nmdc_lakehouse.metadata_bundle import (
-        MetadataBundleError,
-        generate_metadata_profile,
-        render_metadata_profile,
-        write_metadata_profile,
-    )
-    from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError
+@cli.command("prepare-publication")
+@click.argument("configuration", type=click.Path(path_type=Path, dir_okay=False))
+@click.argument("output", type=click.Path(path_type=Path, file_okay=False))
+def prepare_publication_command(configuration: Path, output: Path) -> None:
+    """Prepare a snapshot, full validation, and reviewed metadata together."""
+    import json
 
-    parsed_properties: dict[str, str] = {}
-    for item in properties:
-        key, separator, value = item.partition("=")
-        if not separator or not key or key in parsed_properties:
-            raise click.ClickException("Each namespace property must be a unique KEY=VALUE pair.")
-        parsed_properties[key] = value
-    try:
-        profile = generate_metadata_profile(
-            snapshot_root,
-            profile_id=profile_id,
-            namespace_name=namespace_name,
-            title=title,
-            description=description,
-            documentation_url=documentation_url,
-            properties=parsed_properties,
-        )
-        if output is not None:
-            write_metadata_profile(output, profile)
-    except (MetadataBundleError, SnapshotManifestError) as error:
-        raise click.ClickException(str(error)) from error
-    click.echo(render_metadata_profile(profile))
+    from pydantic import ValidationError
 
-
-@cli.command("metadata-bundle")
-@click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
-@click.option(
-    "--profile",
-    "profile_path",
-    type=click.Path(path_type=Path, dir_okay=False),
-    required=True,
-    help="Reviewed provider-neutral metadata profile JSON.",
-)
-@click.option("--output", type=click.Path(path_type=Path, dir_okay=False), help="Also write the generated bundle here.")
-def metadata_bundle_command(snapshot_root: Path, profile_path: Path, output: Path | None) -> None:
-    """Generate a snapshot-linked metadata bundle entirely offline."""
-    from nmdc_lakehouse.metadata_bundle import (
-        MetadataBundleError,
-        generate_metadata_bundle,
-        render_metadata_bundle,
-        write_metadata_bundle,
-    )
-    from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError
+    from nmdc_lakehouse.publication_prepare import prepare_publication
 
     try:
-        bundle = generate_metadata_bundle(snapshot_root, profile_path)
-        if output is not None:
-            write_metadata_bundle(output, bundle)
-    except (MetadataBundleError, SnapshotManifestError) as error:
+        receipt = prepare_publication(configuration, output)
+    except ValidationError as error:
+        raise click.ClickException(
+            "Invalid preparation configuration or evidence; inspect the named input files."
+        ) from error
+    except (ValueError, OSError) as error:
         raise click.ClickException(str(error)) from error
-    click.echo(render_metadata_bundle(bundle))
+    click.echo(json.dumps(receipt, indent=2, sort_keys=True))
+    click.echo(f"prepared_directory={output.expanduser().resolve()}")
 
 
 @cli.command("metadata-bundle-schema")

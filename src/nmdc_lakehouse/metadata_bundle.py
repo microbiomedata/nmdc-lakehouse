@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import json
-import os
 import re
-import tempfile
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 
@@ -14,7 +11,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from nmdc_lakehouse.snapshot_manifest import ArtifactRecord, SnapshotManifest, validate_snapshot
+from nmdc_lakehouse.snapshot_manifest import ArtifactRecord, SnapshotManifest
 
 PROFILE_FORMAT_VERSION: Literal[1] = 1
 # Bumped from 1 when target_schema_versions was added. Version 1 documents are still read, and
@@ -299,58 +296,6 @@ def load_metadata_bundle(path: Path) -> MetadataBundle:
     return bundle
 
 
-def build_metadata_profile(
-    manifest: SnapshotManifest,
-    *,
-    profile_id: str,
-    namespace_name: str,
-    title: str,
-    description: str,
-    documentation_url: str | None = None,
-    properties: dict[str, str] | None = None,
-) -> MetadataProfile:
-    """Build a strict review draft bound to an already validated snapshot."""
-    try:
-        return MetadataProfile(
-            profile_format_version=PROFILE_FORMAT_VERSION,
-            profile_id=profile_id,
-            snapshot_id=manifest.snapshot_id,
-            namespace=NamespaceProfile(
-                name=namespace_name,
-                title=title,
-                description=description,
-                documentation_url=documentation_url,
-                properties=properties or {},
-            ),
-            overrides=[],
-        )
-    except ValidationError as error:
-        raise MetadataBundleError("Cannot generate a valid metadata profile from the supplied content.") from error
-
-
-def generate_metadata_profile(
-    snapshot_root: Path,
-    *,
-    profile_id: str,
-    namespace_name: str,
-    title: str,
-    description: str,
-    documentation_url: str | None = None,
-    properties: dict[str, str] | None = None,
-) -> MetadataProfile:
-    """Validate a snapshot and build a review draft with its exact identity."""
-    manifest = validate_snapshot(snapshot_root.expanduser())
-    return build_metadata_profile(
-        manifest,
-        profile_id=profile_id,
-        namespace_name=namespace_name,
-        title=title,
-        description=description,
-        documentation_url=documentation_url,
-        properties=properties,
-    )
-
-
 def _metadata_value(metadata: dict[bytes, bytes] | None, key: str, *, table: str) -> str | None:
     value = (metadata or {}).get(_PREFIX + key.encode())
     if value is None:
@@ -476,14 +421,6 @@ def build_metadata_bundle(
     )
 
 
-def generate_metadata_bundle(snapshot_root: Path, profile_path: Path) -> MetadataBundle:
-    """Validate all offline inputs and generate their provider-neutral bundle."""
-    snapshot = snapshot_root.expanduser()
-    manifest = validate_snapshot(snapshot)
-    profile = load_metadata_profile(profile_path)
-    return build_metadata_bundle(snapshot.resolve(), manifest, profile, generated_at=datetime.now(UTC).isoformat())
-
-
 def metadata_json_schema(document: Literal["profile", "bundle"]) -> dict[str, Any]:
     """Return the selected metadata document's versioned JSON Schema."""
     models: dict[str, tuple[type[BaseModel], int]] = {
@@ -494,54 +431,3 @@ def metadata_json_schema(document: Literal["profile", "bundle"]) -> dict[str, An
     schema = model.model_json_schema()
     schema["x-format-version"] = format_version
     return schema
-
-
-def render_metadata_bundle(bundle: MetadataBundle) -> str:
-    """Render canonical reviewable JSON for stdout or a file."""
-    return json.dumps(bundle.model_dump(mode="json"), indent=2, sort_keys=True)
-
-
-def render_metadata_profile(profile: MetadataProfile) -> str:
-    """Render canonical reviewable profile JSON for stdout or a file."""
-    return json.dumps(profile.model_dump(mode="json"), indent=2, sort_keys=True)
-
-
-def _write_metadata_document(path: Path, rendered: str, *, label: str) -> Path:
-    destination = path.expanduser()
-    if destination.is_symlink():
-        raise MetadataBundleError(f"{label} output must be an ordinary file path.")
-    destination = destination.resolve()
-    if destination.exists() and (destination.is_symlink() or not destination.is_file()):
-        raise MetadataBundleError(f"{label} output must be an ordinary file path.")
-    temporary: Path | None = None
-    descriptor: int | None = None
-    try:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        descriptor, temporary_name = tempfile.mkstemp(
-            prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
-        )
-        temporary = Path(temporary_name)
-        stream = os.fdopen(descriptor, "w", encoding="utf-8")
-        descriptor = None
-        with stream:
-            stream.write(rendered)
-            stream.write("\n")
-        temporary.replace(destination)
-    except OSError as error:
-        raise MetadataBundleError(f"Cannot write the {label.lower()}.") from error
-    finally:
-        if descriptor is not None:
-            os.close(descriptor)
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
-    return destination
-
-
-def write_metadata_bundle(path: Path, bundle: MetadataBundle) -> Path:
-    """Atomically write a generated bundle to an ordinary local path."""
-    return _write_metadata_document(path, render_metadata_bundle(bundle), label="Metadata bundle")
-
-
-def write_metadata_profile(path: Path, profile: MetadataProfile) -> Path:
-    """Atomically write a generated profile draft to an ordinary local path."""
-    return _write_metadata_document(path, render_metadata_profile(profile), label="Metadata profile")
