@@ -94,6 +94,9 @@ The output directory contains `snapshot/`, `evidence/target-validation.json`,
 `evidence/metadata-profile.json`, `evidence/metadata-bundle.json`, and a
 `preparation.json` receipt with snapshot identity, counts, and evidence hashes.
 `preparation-inputs.json` records the resolved local inputs for resuming the run.
+A separate validation digest binds the saved report even if metadata preparation
+fails before the final receipt. Existing output directories must be private
+(mode `0700`); symlinked input files and snapshot directories are refused.
 Transfer the snapshot and evidence using the next steps in this runbook.
 Automated transfer and pod setup remain
 [issue 353](https://github.com/microbiomedata/nmdc-lakehouse/issues/353).
@@ -101,7 +104,8 @@ Automated transfer and pod setup remain
 Rerunning the same command checks and reuses completed work. A metadata failure
 does not require another full validation; an incomplete dump is retained and
 requires a new output directory for another dump. Changed inputs or corrupted
-outputs cause refusal. For corrected configuration or descriptions, choose a new
+outputs cause refusal. If interruption leaves a report without its completion
+digest, retain it and supply it explicitly to a new preparation directory. For corrected configuration or descriptions, choose a new
 directory and refer to the previous successful full validation report. Never
 write preparation output inside the immutable source snapshot.
 

@@ -45,7 +45,7 @@ class PreparationConfig(BaseModel):
     profile: Path | None = None
     namespace: NamespaceProfile | None = None
     overrides: list[DescriptionOverride] = Field(default_factory=list)
-    source_label: str = Field(default="nmdc-production", pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+    source_label: str = Field(default="nmdc-production", pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
     @model_validator(mode="after")
     def reviewed_metadata(self) -> PreparationConfig:
@@ -164,12 +164,15 @@ def prepare_publication(config_path: Path, root: Path) -> dict[str, Any]:
     )
 
     config_path = config_path.expanduser().absolute()
-    file_digest(config_path)
+    configuration_digest = file_digest(config_path)
     config = PreparationConfig.model_validate_json(config_path.read_bytes())
     for field in ("snapshot", "target_validation", "profile"):
         value = getattr(config, field)
         if value is not None:
-            setattr(config, field, (config_path.parent / value.expanduser()).resolve())
+            path = config_path.parent / value.expanduser()
+            if path.is_symlink():
+                raise PreparationError(f"The {field} input cannot be a symlink.")
+            setattr(config, field, path.resolve())
     if version("nmdc-schema") != config.source_version:
         raise PreparationError("Installed nmdc-schema differs from source_version; use just prepare-publication.")
     assert_source_schema_aligned()
@@ -179,6 +182,8 @@ def prepare_publication(config_path: Path, root: Path) -> dict[str, Any]:
     root = root.resolve()
     if config.snapshot is not None and (root.is_relative_to(config.snapshot) or config.snapshot.is_relative_to(root)):
         raise PreparationError("The input snapshot and preparation directory must be disjoint.")
+    if root.exists() and root.stat().st_mode & 0o077:
+        raise PreparationError("The existing preparation directory must be private (mode 0700).")
     if root.exists() and not (root / "preparation-inputs.json").exists():
         if any(p.name != ".prepare.lock" for p in root.iterdir()):
             raise PreparationError("Use a new directory, or resume one created by prepare-publication.")
@@ -191,17 +196,18 @@ def prepare_publication(config_path: Path, root: Path) -> dict[str, Any]:
             fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
             raise PreparationError("Another preparation is already using this directory.") from error
+        input_paths = {
+            name: path
+            for name, path in (
+                ("validation", config.target_validation),
+                ("profile", config.profile),
+                ("manifest", config.snapshot / "snapshot-manifest.json" if config.snapshot is not None else None),
+            )
+            if path is not None
+        }
         inputs = {
             "config": config.model_dump(mode="json"),
-            "input_hashes": {
-                name: file_digest(path)
-                for name, path in (
-                    ("validation", config.target_validation),
-                    ("profile", config.profile),
-                    ("manifest", config.snapshot / "snapshot-manifest.json" if config.snapshot is not None else None),
-                )
-                if path is not None
-            },
+            "input_hashes": {n: file_digest(p) for n, p in input_paths.items()},
         }
         save_json(root / "preparation-inputs.json", inputs)
         evidence = root / "evidence"
@@ -223,6 +229,7 @@ def prepare_publication(config_path: Path, root: Path) -> dict[str, Any]:
         if manifest.software.nmdc_schema_version != config.source_version:
             raise PreparationError("The snapshot does not describe the configured source version.")
         report_path = evidence / "target-validation.json"
+        report_digest_path = evidence / "target-validation-digest.json"
         if not report_path.exists():
             if config.target_validation is not None:
                 report = load_target_validation_report(config.target_validation)
@@ -236,6 +243,15 @@ def prepare_publication(config_path: Path, root: Path) -> dict[str, Any]:
                 _copy(config.target_validation, report_path)
             else:
                 write_target_validation_report(report_path, report, snapshot_root=snapshot)
+            save_json(report_digest_path, {"sha256": file_digest(report_path)})
+        if not report_digest_path.is_file():
+            raise PreparationError(
+                "The saved validation report lacks its completion digest; "
+                "use a new preparation directory with that report as an explicit input."
+            )
+        save_json(report_digest_path, {"sha256": file_digest(report_path)})
+        if config.target_validation is not None and file_digest(report_path) != inputs["input_hashes"]["validation"]:
+            raise PreparationError("The saved validation report differs from the supplied report.")
         report = load_target_validation_report(report_path)
         _require_target_validation(manifest, report)
         if report.requested_mode != "full":
@@ -263,6 +279,10 @@ def prepare_publication(config_path: Path, root: Path) -> dict[str, Any]:
         save_json(bundle_path, bundle.model_dump(mode="json"))
         if validate_snapshot(snapshot) != manifest:
             raise PreparationError("The snapshot changed during preparation.")
+        if file_digest(config_path) != configuration_digest or inputs["input_hashes"] != {
+            name: file_digest(path) for name, path in input_paths.items()
+        }:
+            raise PreparationError("Preparation inputs changed during the run; no completion receipt was published.")
         receipt = {
             "status": "prepared",
             "snapshot_id": manifest.snapshot_id,

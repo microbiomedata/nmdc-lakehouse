@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 from click.testing import CliRunner
+from pydantic import ValidationError
 
 from nmdc_lakehouse import publication_prepare as preparation
 from nmdc_lakehouse import target_validation as validation
@@ -156,6 +157,85 @@ def test_corrupt_copied_artifact_refuses_resume(inputs):
     (output / "snapshot/graph_edges.parquet").write_bytes(b"changed")
     with pytest.raises(preparation.PreparationError, match="Prepared input differs"):
         preparation.prepare_publication(config, output)
+
+
+@pytest.mark.parametrize("field", ["snapshot", "target_validation", "profile"])
+def test_symlinked_inputs_are_rejected_before_resolution(inputs, field):
+    config, source, _, output = inputs
+    link = config.parent / "linked-input"
+    link.symlink_to(source if field == "snapshot" else config)
+    data = json.loads(config.read_text())
+    data[field] = link.name
+    if field == "profile":
+        del data["namespace"]
+    config.write_text(json.dumps(data))
+    with pytest.raises(preparation.PreparationError, match=f"{field} input cannot be a symlink"):
+        preparation.prepare_publication(config, output)
+    assert not output.exists()
+
+
+def test_symlinked_parent_cannot_redirect_output_inside_snapshot(inputs):
+    config, source, _, _ = inputs
+    link = config.parent / "source-alias"
+    link.symlink_to(source)
+    before = {p.name: p.read_bytes() for p in source.iterdir()}
+    with pytest.raises(preparation.PreparationError, match="must be disjoint"):
+        preparation.prepare_publication(config, link / "prepared")
+    assert {p.name: p.read_bytes() for p in source.iterdir()} == before
+
+
+def test_existing_shared_output_directory_is_rejected(inputs):
+    config, _, _, output = inputs
+    output.mkdir(mode=0o755)
+    output.chmod(0o755)
+    with pytest.raises(preparation.PreparationError, match="must be private"):
+        preparation.prepare_publication(config, output)
+    assert list(output.iterdir()) == []
+
+
+def test_invalid_source_label_fails_before_a_dump(inputs):
+    config, _, _, output = inputs
+    data = json.loads(config.read_text())
+    data.pop("snapshot")
+    data["source_label"] = "x" * 65
+    config.write_text(json.dumps(data))
+    with pytest.raises(ValidationError):
+        preparation.prepare_publication(config, output)
+    assert not output.exists()
+
+
+def test_interrupted_preparation_rejects_changed_validation_report(inputs, monkeypatch):
+    config, _, _, output = inputs
+    real_builder = preparation.build_metadata_bundle
+    monkeypatch.setattr(
+        preparation, "build_metadata_bundle", lambda *_a, **_k: (_ for _ in ()).throw(ValueError("interrupted"))
+    )
+    with pytest.raises(ValueError, match="interrupted"):
+        preparation.prepare_publication(config, output)
+    report = output / "evidence/target-validation.json"
+    report.write_bytes(report.read_bytes() + b"\n")
+    monkeypatch.setattr(preparation, "build_metadata_bundle", real_builder)
+    monkeypatch.setattr(validation, "validate_target_snapshot", no_revalidation)
+    with pytest.raises(preparation.PreparationError, match="target-validation-digest.json differs"):
+        preparation.prepare_publication(config, output)
+    assert not (output / "preparation.json").exists()
+
+
+@pytest.mark.parametrize("name", ["configuration", "manifest"])
+def test_inputs_changing_during_preparation_prevent_completion(inputs, monkeypatch, name):
+    config, source, _, output = inputs
+    real_builder = preparation.build_metadata_bundle
+
+    def change_input(*args, **kwargs):
+        bundle = real_builder(*args, **kwargs)
+        path = config if name == "configuration" else source / "snapshot-manifest.json"
+        path.write_bytes(path.read_bytes() + b"\n")
+        return bundle
+
+    monkeypatch.setattr(preparation, "build_metadata_bundle", change_input)
+    with pytest.raises(preparation.PreparationError, match="inputs changed during the run"):
+        preparation.prepare_publication(config, output)
+    assert not (output / "preparation.json").exists()
 
 
 def test_invalid_metadata_can_resume_without_revalidating_rows(inputs, monkeypatch):
