@@ -1436,7 +1436,8 @@ def feature_check_command(plan_path: Path, runs_path: Path, cache_dir: Path, out
             expected = entry["files"][data_object_type].get("md5_checksum")
             with path.open("rb") as handle:
                 digest = hashlib.file_digest(handle, lambda: hashlib.md5(usedforsecurity=False)).hexdigest()
-            if expected and digest != expected:
+            # No recorded digest means nothing was compared, which is not a pass.
+            if not expected or digest != expected:
                 bad_md5.append(data_object_type)
         # A file that does not match NMDC's checksum is not the file the checks are about, and
         # parsing a truncated or replaced file can raise rather than fail cleanly.
@@ -1448,7 +1449,12 @@ def feature_check_command(plan_path: Path, runs_path: Path, cache_dir: Path, out
                 checks = {"parse": {"passed": False, "error": f"{type(error).__name__}: {error}"}}
         checks["md5_matches_nmdc"] = {"passed": not bad_md5, "mismatched": bad_md5, "files": len(files)}
         # A planned file absent from the cache would otherwise only mark its checks skipped.
-        missing = sorted(t for t in entry["files"] if t in CHECK_TYPES and t not in files)
+        # Zero-byte files are left out of the download manifest, so they are not expected here.
+        missing = sorted(
+            t
+            for t, data_object in entry["files"].items()
+            if t in CHECK_TYPES and t not in files and int(data_object.get("file_size_bytes") or 0) > 0
+        )
         checks["planned_files_present"] = {"passed": not missing, "missing": missing}
         for name, result in checks.items():
             if result.get("skipped"):
