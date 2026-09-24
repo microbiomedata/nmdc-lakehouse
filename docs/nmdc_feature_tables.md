@@ -77,7 +77,9 @@ superseded reruns and 67 data objects no run lists. The sample was 50 runs, 8 or
 MetagenomeAnnotation v1.0.2, v1.0.4, v1.0.5, v1.1.0, v1.1.5 and MetatranscriptomeAnnotation
 v1.1.4, capped at 3 GiB per run: 1,024 files, 42.55 GiB, downloaded in 9.1 minutes. Every file's
 MD5 matched NMDC's record. Twelve of the files are empty CRT and Crispr Terms outputs, which
-`feature-sample` now leaves out of the manifest, so the same sample lists 1,012 files.
+`feature-sample` now leaves out of the manifest, so the same sample lists 1,012 files. The sample
+was drawn when the 3 GiB cap counted required files only; `feature-sample` now counts every file
+it downloads, under which one of these runs is 3.04 GiB and the same seed picks a different set.
 
 | check | runs passed | runs failed |
 |---|---|---|

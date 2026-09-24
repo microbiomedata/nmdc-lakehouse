@@ -308,3 +308,52 @@ def test_cli_check_does_not_expect_zero_byte_files(run_files: dict[str, Path], t
     args = [str(plan_path), "--runs", str(runs_path), "--cache-dir", str(cache), "--output", str(report)]
     result = CliRunner().invoke(cli, ["feature-check", *args])
     assert result.exit_code == 0, result.output
+
+
+def test_product_names_rna_label_must_restate_the_row(run_files: dict[str, Path], tmp_path: Path) -> None:
+    rows = [
+        f"{G1}\thypothetical protein\tHypo-rule applied",
+        f"{G2}\tkinase\tCOG0001",
+        f"{R1}\t5S ribosomal RNA\tInfernal",
+    ]
+    run_files[ft.PRODUCT_NAMES] = _write(tmp_path, "product_names_new_label.tsv", rows)
+    result = ft.check_run(run_files)["product_names_in_functional"]
+    assert result["passed"] is False
+    assert result["source_label_only_in_product_names"] == 0
+
+
+def test_restates_rna_accepts_only_type_or_subunit_labels() -> None:
+    assert ft._restates_rna("tRNA", "tRNA", "tRNA_Leu_TAA")
+    assert ft._restates_rna("rRNA_23S", "rRNA", "23S ribosomal RNA")
+    assert ft._restates_rna("rRNA_5_8S", "rRNA", "5.8S ribosomal RNA")
+    assert not ft._restates_rna("rRNA_16S", "rRNA", "23S ribosomal RNA")
+    assert not ft._restates_rna("tRNA", "CDS", "kinase")
+
+
+def test_sample_cap_counts_optional_files() -> None:
+    outputs = [f"o-{t}" for t in ft.CHECK_TYPES]
+    data_objects = [
+        {
+            "id": f"o-{t}",
+            "data_object_type": t,
+            "url": f"https://example.org/{i}",
+            "file_size_bytes": 100 if t == ft.CONTIG_MAPPING else 1,
+        }
+        for i, t in enumerate(ft.CHECK_TYPES)
+    ]
+    plan = ft.plan_runs([_run(RUN, ["in"], outputs)], data_objects)
+    assert ft.sample_runs(plan, 1, max_run_bytes=50) == []
+    assert ft.sample_runs(plan, 1, max_run_bytes=200) == [RUN]
+
+
+def test_cli_check_refuses_an_empty_run_list(run_files: dict[str, Path], tmp_path: Path) -> None:
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    plan_path, runs_path, cache = _cli_fixture(run_files, tmp_path)
+    runs_path.write_text("\n")
+    args = [str(plan_path), "--runs", str(runs_path), "--cache-dir", str(cache), "--output", str(tmp_path / "r.json")]
+    result = CliRunner().invoke(cli, ["feature-check", *args])
+    assert result.exit_code != 0
+    assert "lists no runs" in result.output

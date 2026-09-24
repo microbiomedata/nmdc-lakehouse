@@ -1422,10 +1422,14 @@ def feature_check_command(plan_path: Path, runs_path: Path, cache_dir: Path, out
     from nmdc_lakehouse.feature_tables import CHECK_TYPES, cached_files, check_run, plan_from_json
 
     plan = plan_from_json(json.loads(plan_path.read_text()))
+    run_ids = _read_run_ids(runs_path)
+    if not run_ids:
+        # An empty or truncated list would otherwise write an empty report and exit 0.
+        raise click.ClickException(f"{runs_path} lists no runs; nothing would be checked.")
     report: dict[str, object] = {}
     failures: Counter[str] = Counter()
     passes: Counter[str] = Counter()
-    for run_id in _read_run_ids(runs_path):
+    for run_id in run_ids:
         entry = plan.selected[run_id]
         try:
             files, _ = cached_files(entry, cache_dir)
