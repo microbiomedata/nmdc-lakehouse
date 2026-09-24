@@ -101,6 +101,14 @@ def _safe_run_dir_name(run_id: str) -> str:
     return name
 
 
+def _parents(pairs: list[tuple[str, str]]) -> list[str]:
+    """GFF3 `Parent` values in source order; one attribute can list several, comma-separated.
+
+    NMDC files do not percent-encode (see `parse_attributes`), so values are not decoded.
+    """
+    return [parent for key, value in pairs if key == "Parent" for parent in value.split(",") if parent]
+
+
 class DuplicateFeatureIdError(ValueError):
     """Two rows of one run would share a feature_id, which the model requires to be unique."""
 
@@ -232,7 +240,11 @@ def convert_run(
         gene_seqid[feature_id] = r[0]
         if source_id:
             # Hits name their gene by the source ID, which a renamed row no longer carries.
-            gene_seqid.setdefault(source_id, r[0])
+            # A CDS wins, since hits sit on proteins and must share their parent CDS's contig.
+            if r[2] == "CDS":
+                gene_seqid[source_id] = r[0]
+            else:
+                gene_seqid.setdefault(source_id, r[0])
         if include_unselected:
             selected_calls.setdefault((r[0], r[1], r[2], r[3], r[4], r[6]), []).append((r[5], r[7], frozenset(pairs)))
         emit(
@@ -247,7 +259,7 @@ def convert_run(
                 "score": _number(r[5], float),
                 "strand": r[6],
                 "phase": _number(r[7], int),
-                "parent": [v for k, v in pairs if k == "Parent"],
+                "parent": _parents(pairs),
                 "attributes": [
                     {"key": k, "value": v}
                     for k, v in pairs
@@ -346,7 +358,7 @@ def convert_run(
                         "score": _number(r[5], float),
                         "strand": r[6],
                         "phase": _number(r[7], int),
-                        "parent": [v for k, v in pairs if k == "Parent"],
+                        "parent": _parents(pairs),
                         "attributes": [{"key": k, "value": v} for k, v in pairs],
                         "generated_by": run_id,
                         "source_files": [urls[caller_type]] if caller_type in urls else [],

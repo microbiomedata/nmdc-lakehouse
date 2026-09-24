@@ -310,3 +310,20 @@ def test_convert_run_refuses_a_symlinked_staging_directory(run_files: dict[str, 
     with pytest.raises(ValueError, match="symlink"):
         fc.convert_run(RUN, run_files, {}, out)
     assert (outside / f"{RUN.replace(':', '_')}" / "keep.txt").exists()
+
+
+def test_parent_lists_are_split_on_commas() -> None:
+    assert fc._parents([("ID", "x"), ("Parent", "a,b"), ("Parent", "c")]) == ["a", "b", "c"]
+    assert fc._parents([("ID", "x")]) == []
+
+
+def test_a_hit_takes_its_cds_contig_when_an_rna_row_comes_first(run_files: dict[str, Path], tmp_path: Path) -> None:
+    # An RNA on another contig shares G1's ID and comes before the CDS.
+    rna = f"{RUN}_0009\tINFERNAL 1.1.3\tmisc_feature\t2\t730\t9.0\t-\t.\tID={G1};model=RF1"
+    run_files[ft.FUNCTIONAL] = _write(tmp_path, "functional_rna_first.gff", [rna, *FUNCTIONAL_ROWS])
+    result = fc.convert_run(RUN, run_files, {}, tmp_path / "out")
+    hits = [
+        r for r in pq.read_table(result.outputs[0]).to_pylist() if r["source_data_object_type"] == "Pfam Annotation GFF"
+    ]
+    assert {h["seqid"] for h in hits} == {f"{RUN}_0001"}
+    assert {tuple(h["parent"]) for h in hits} == {(f"{G1}|+",)}
