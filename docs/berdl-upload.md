@@ -540,8 +540,9 @@ its saved input hashes and data/metadata outcomes are checked without rebuilding
 that historical staging plan with the new adapter. No dump or parent staging
 rerun is needed. The two sources must use the same official ingest revision and
 destination, and the derived manifest must name the metadata snapshot as parent.
-The derived input must contain exactly `graph_edges` and
-`biosample_to_workflow_run`.
+The parent manifest must have `full-mongodb-metadata-snapshot` scope. The derived
+manifest must have `derived-provenance-snapshot` scope and contain exactly
+`graph_edges` and `biosample_to_workflow_run`.
 
 From the maintained NMDC checkout in the pod, with its environment active:
 
@@ -582,7 +583,8 @@ nine known obsolete TextValue helper removals, each listed as a separate action:
 - `biosample_set_watering_regm`
 
 Each removal requires the corresponding `list<string>` field in the new
-`biosample_set` Parquet schema. Their values now live in string lists on that
+`biosample_set` Parquet schema and `array<string>` field in the actual staged
+table that promotion will copy. Their values now live in string lists on that
 parent table. Any other canonical table absent from both inputs causes refusal;
 there is no generic retirement policy or wildcard removal. An already absent
 obsolete helper needs no removal. This shape check does not independently prove
@@ -637,7 +639,13 @@ schema and metadata bundle. Staging tables and object-store artifacts remain.
 The command creates `combined-promotion.execution/` beside the reviewed plan.
 It retains `before.json`, a private runtime log, and separate attempted/verified
 records for every operation, including timestamps and the new catalog snapshot
-identities. An operation recorded as attempted may have taken
+identities. Each operation's table name identifies its canonical before-state in
+`before.json` under `before`; an absent entry means an addition. The pre-write
+guard requires the live state to equal that recorded state. A verified drop has
+`after: null`, meaning the read-back confirmed absence. This avoids duplicating
+large schema/description records in every journal entry.
+
+An operation recorded as attempted may have taken
 effect even if verification failed or execution was interrupted. `failure.json`
 names the latest attempt and completed verifications; `outcome.json` is written
 only after all final checks pass. Directory creation prevents concurrent attempts

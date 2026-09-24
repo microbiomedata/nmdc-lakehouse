@@ -40,15 +40,24 @@ def state(rows=2, snapshot_id="101"):
 
 
 class FakeFrame:
-    def __init__(self, spark, value):
+    def __init__(self, spark, value, source):
+        self.source = source
         self.spark, self.value = spark, value.model_copy(deep=True)
         self.schema = SimpleNamespace(
-            fields=[SimpleNamespace(name=n, metadata={"preserved": "value", "comment": "old"}) for n in value.columns]
+            fields=[
+                SimpleNamespace(
+                    name=n,
+                    metadata={"preserved": "value", "comment": "old"},
+                    dataType=SimpleNamespace(simpleString=lambda name=n: spark.column_types.get(name, "string")),
+                )
+                for n in value.columns
+            ]
         )
 
     def limit(self, n):
         assert n == 0
         self.value.rows = 0
+        self.spark.reads.append((self.source, None))
         return self
 
     def __getitem__(self, name):
@@ -112,25 +121,28 @@ class FakeReader:
         value = self.spark.tables[source]
         assert value.snapshot_id == self.snapshot_id
         self.spark.reads.append((source, self.snapshot_id))
-        return FakeFrame(self.spark, value)
+        return FakeFrame(self.spark, value, source)
 
 
 class FakeSpark:
     def __init__(self, tables):
         self.tables = tables
+        self.column_types = {
+            table.removeprefix("biosample_set_"): "array<string>" for table in promotion.OBSOLETE_TEXTVALUE_TABLES
+        }
         self.writes, self.reads, self.projections, self.queries = [], [], [], []
         self.failure = self.after_write = None
         self.read = FakeReader(self)
         self.catalog = SimpleNamespace(
             getTable=lambda name: SimpleNamespace(description=self.tables[name].table_description),
             listColumns=lambda name: [
-                SimpleNamespace(name=n, description=v, dataType="string") for n, v in self.tables[name].columns.items()
+                SimpleNamespace(name=n, description=v, dataType=self.column_types.get(n, "string"))
+                for n, v in self.tables[name].columns.items()
             ],
         )
 
     def table(self, name):
-        self.reads.append((name, None))
-        return FakeFrame(self, self.tables[name])
+        return FakeFrame(self, self.tables[name], name)
 
     def sql(self, query):
         self.queries.append(query)
@@ -174,6 +186,7 @@ def candidate(tmp_path, monkeypatch):
     sources = [
         promotion.PromotionSource(
             root=str(root),
+            scope="full-mongodb-metadata-snapshot" if index == 0 else "derived-provenance-snapshot",
             snapshot_id=PARENT if index == 0 else DERIVED,
             parent_snapshot_id=None if index == 0 else PARENT,
             staging_namespace="nmdc.nmdc_metadata_staging_test" if index == 0 else "nmdc.nmdc_provenance_staging_test",
@@ -207,6 +220,7 @@ def candidate(tmp_path, monkeypatch):
             for name in ["biosample_set", "graph_edges", *sorted(promotion.OBSOLETE_TEXTVALUE_TABLES)]
         }
     )
+    tables[f"{sources[0].staging_namespace}.biosample_set"].columns.update({field.name: None for field in fields})
     spark = FakeSpark(tables)
     monkeypatch.setattr(promotion, "_runtime", lambda *a: spark)
     checkout = tmp_path / "ingest"
@@ -254,6 +268,15 @@ def test_combined_plan_and_copy_preserve_metadata_and_verify_all(candidate):
             assert promotion._same_content_and_metadata(observed, op.expected)
     journal = c.path.with_suffix(".execution")
     assert len(list(journal.glob("*-verified.json"))) == 13
+    before = json.loads((journal / "before.json").read_text())["before"]
+    for path in sorted(journal.glob("*-attempt.json")):
+        operation = json.loads(path.read_text())["operation"]
+        previous = before.get(operation["table"])
+        assert (previous is None) == (operation["action"] == "add")
+        if operation["action"] == "drop":
+            assert previous["snapshot_id"] == "99" and previous["rows"] == 7
+            verified = json.loads(path.with_name(path.name.replace("-attempt", "-verified")).read_text())
+            assert verified["after"] is None and verified["status"] == "verified"
     assert (journal / "outcome.json").is_file()
     after = json.loads((journal / "000-verified.json").read_text())
     assert after["after"]["snapshot_id"] == "201"
@@ -278,6 +301,7 @@ def test_wrong_authorization_never_connects_or_writes(candidate, monkeypatch, fi
     "change",
     [
         "parent",
+        "scope",
         "version",
         "destination",
         "derived-tables",
@@ -295,9 +319,10 @@ def test_wrong_authorization_never_connects_or_writes(candidate, monkeypatch, fi
 )
 def test_saved_plan_refuses_inconsistent_or_unsupported_shapes(candidate, change):
     data = candidate.plan.model_dump()
-    if change in {"parent", "version", "destination", "revision", "namespace"}:
+    if change in {"parent", "scope", "version", "destination", "revision", "namespace"}:
         field = {
             "parent": "parent_snapshot_id",
+            "scope": "scope",
             "version": "source_version",
             "destination": "destination_id",
             "revision": "ingest_revision",
@@ -334,6 +359,8 @@ def test_saved_plan_refuses_inconsistent_or_unsupported_shapes(candidate, change
         "column",
         "properties",
         "missing-staged",
+        "staged-column",
+        "staged-type",
         "extra-canonical",
         "missing-column",
         "wrong-column",
@@ -350,6 +377,10 @@ def test_preview_refuses_changed_stage_or_missing_projection(candidate, change):
         staged.columns["id"] = "changed"
     elif change == "properties":
         staged.properties = {}
+    elif change == "staged-column":
+        staged.columns.pop("host_diet")
+    elif change == "staged-type":
+        c.spark.column_types["host_diet"] = "string"
     elif change == "missing-staged":
         del c.spark.tables[f"{c.sources[1].staging_namespace}.graph_edges"]
     elif change == "extra-canonical":
@@ -533,4 +564,19 @@ def test_real_completed_stage_evidence_loads_without_old_runtime_revalidation(pl
     assert all(file_digest(Path(path)) == digest for path, digest in source.evidence.items())
     (root / "evidence/metadata-bundle.json").write_text("changed")
     with pytest.raises(promotion.PromotionPlanError, match="Changed staging evidence"):
+        promotion._load_source(root)
+
+
+@pytest.mark.parametrize("change", ["missing", "duplicate"])
+def test_historical_staging_requires_the_complete_unique_evidence_set(planned, change):
+    root, authorization, _, _ = planned
+    staging.stage_publication(root, **authorization)
+    path = root / "evidence/berdl-staging-plan.json"
+    document = json.loads(path.read_text())
+    if change == "missing":
+        document["evidence"] = [item for item in document["evidence"] if item["name"] != "metadata-bundle.json"]
+    else:
+        document["evidence"].append(document["evidence"][0])
+    path.write_text(json.dumps(document))
+    with pytest.raises(berdl_staging.BerdlStagingPlanError, match="complete and unique"):
         promotion._load_source(root)

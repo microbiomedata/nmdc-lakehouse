@@ -17,7 +17,7 @@ import traceback
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -45,6 +45,7 @@ OBSOLETE_TEXTVALUE_TABLES = frozenset(
         "watering_regm",
     )
 )
+SnapshotScope = Literal["full-mongodb-metadata-snapshot", "derived-provenance-snapshot"]
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 
 
@@ -69,6 +70,7 @@ class PromotionSource(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
     root: str
+    scope: SnapshotScope
     snapshot_id: str
     parent_snapshot_id: str | None
     staging_namespace: str
@@ -111,6 +113,8 @@ class BerdlPromotionPlan(BaseModel):
     def consistent_operations(self) -> BerdlPromotionPlan:
         """Require the parent pair and an exact, ordered canonical replacement plan."""
         metadata, derived = self.sources
+        if metadata.scope != "full-mongodb-metadata-snapshot" or derived.scope != "derived-provenance-snapshot":
+            raise ValueError("Promotion requires the metadata parent and derived provenance manifest roles.")
         if metadata.parent_snapshot_id is not None or derived.parent_snapshot_id != metadata.snapshot_id:
             raise ValueError("The derived snapshot must name the selected metadata snapshot as its parent.")
         if metadata.source_version != derived.source_version or metadata.destination_id != derived.destination_id:
@@ -161,6 +165,7 @@ def _load_source(root: Path) -> tuple[PromotionSource, MetadataApplicationPlan, 
     evidence = root / "evidence"
     plan_path = evidence / "berdl-staging-plan.json"
     plan = berdl_staging.load_berdl_staging_plan(plan_path)
+    berdl_staging._evidence_paths(plan)
     coverage = plan.target_validation
     if coverage.requested_mode != "full" or coverage.selected_rows != coverage.eligible_rows:
         raise PromotionPlanError("Combined promotion requires full target-row validation for each input.")
@@ -193,6 +198,7 @@ def _load_source(root: Path) -> tuple[PromotionSource, MetadataApplicationPlan, 
     return (
         PromotionSource(
             root=str(root),
+            scope=cast(SnapshotScope, manifest.scope),
             snapshot_id=manifest.snapshot_id,
             parent_snapshot_id=manifest.parent_snapshot_id,
             staging_namespace=plan.staging_namespace,
@@ -252,10 +258,13 @@ def _require_planned_metadata(table: str, state: CatalogTable, metadata: Metadat
         raise PromotionPlanError(f"Staged schema identity properties changed: {table}.")
 
 
-def _check_textvalue_replacements(root: Path, drops: set[str]) -> None:
+def _check_textvalue_replacements(root: Path, drops: set[str], spark: Any, namespace: str) -> None:
     if not drops:
         return
     schema = pq.read_schema(root / "snapshot/biosample_set.parquet")
+    staged = {
+        field.name: field.dataType.simpleString() for field in spark.table(f"{namespace}.biosample_set").schema.fields
+    }
     for table in drops:
         slot = table.removeprefix("biosample_set_")
         if slot not in schema.names:
@@ -263,6 +272,8 @@ def _check_textvalue_replacements(root: Path, drops: set[str]) -> None:
         kind = schema.field(slot).type
         if not (pa.types.is_list(kind) and pa.types.is_string(kind.value_type)):
             raise PromotionPlanError(f"Expected a TextValue string-list projection for {table}.")
+        if staged.get(slot) != "array<string>":
+            raise PromotionPlanError(f"The staged biosample_set lacks the string-list replacement for {table}.")
 
 
 def _implementation_digest() -> str:
@@ -285,7 +296,7 @@ def build_promotion_plan(
     if unknown:
         raise PromotionPlanError("Unmatched canonical tables: " + ", ".join(sorted(unknown)))
     drops = before_names - set(source_tables)
-    _check_textvalue_replacements(metadata_root, drops)
+    _check_textvalue_replacements(metadata_root, drops, spark, sources[0].staging_namespace)
     before = {name: _catalog_table(spark, "nmdc.metadata", name) for name in sorted(before_names)}
     operations = []
     for source, metadata, _ in inputs:
