@@ -133,8 +133,8 @@ avoid the large contents-API upload failures observed in earlier runs.
 (
 set -e
 PREPARED=/absolute/path/to/prepared-publication
-mkdir -m 700 local/publication-transfer
-cd local/publication-transfer
+mkdir -m 700 publication-transfer
+cd publication-transfer
 COPYFILE_DISABLE=1 tar -czf publication.tar.gz -C "$PREPARED" snapshot evidence preparation.json
 shasum -a 256 publication.tar.gz > publication.sha256
 split -b 64m publication.tar.gz publication.part-
@@ -177,21 +177,21 @@ plan. Clone merged NMDC code and the approved official ingest revision:
 <!-- unverified: combined pod workflow awaits acceptance in
      https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
 ```bash
-mkdir -p "$HOME/nmdc-publication-runtime"
-cd "$HOME/nmdc-publication-runtime"
-git clone https://github.com/microbiomedata/nmdc-lakehouse.git
-cd nmdc-lakehouse
-git rev-parse HEAD
-git clone https://github.com/kbase/data-lakehouse-ingest.git ../data-lakehouse-ingest
-git -C ../data-lakehouse-ingest checkout --detach a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3
-python3 -c 'import sys; assert sys.version_info[:2] == (3, 13), "Use the pod Python 3.13"'
-python3 -m venv .tools
-.tools/bin/python -m pip install --no-user uv==0.12.17
-export PATH="$PWD/.tools/bin:$PATH"
-uv venv --system-site-packages --python "$(command -v python3)" .venv
-export NMDC_SCHEMA_VERSION=11.23.0
-bash scripts/uv_with_source.sh sync --locked
-export PATH="$PWD/.venv/bin:$PATH"
+mkdir -p "$HOME/nmdc-publication-runtime" &&
+cd "$HOME/nmdc-publication-runtime" &&
+git clone https://github.com/microbiomedata/nmdc-lakehouse.git &&
+cd nmdc-lakehouse &&
+git rev-parse HEAD &&
+git clone https://github.com/kbase/data-lakehouse-ingest.git ../data-lakehouse-ingest &&
+git -C ../data-lakehouse-ingest checkout --detach a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3 &&
+python3 -c 'import sys; assert sys.version_info[:2] == (3, 13), "Use the pod Python 3.13"' &&
+python3 -m venv .tools &&
+.tools/bin/python -m pip install --no-user uv==0.12.17 &&
+export PATH="$PWD/.tools/bin:$PATH" &&
+uv venv --system-site-packages --python "$(command -v python3)" .venv &&
+export NMDC_SCHEMA_VERSION=11.23.0 &&
+bash scripts/uv_with_source.sh sync --locked &&
+export PATH="$PWD/.venv/bin:$PATH" &&
 .venv/bin/python -c 'from berdl_notebook_utils.setup_spark_session import get_spark_session; from berdl_notebook_utils.clients import get_s3_client; import nmdc_lakehouse'
 ```
 
@@ -287,6 +287,9 @@ operations. Those are dated measurements, not defaults for later snapshots.
 
 Run `publication-status ROOT` to validate the local evidence and see the next
 action. This reports recorded verification; it does not reread the live catalog.
+Each status includes expected plan/data/metadata outcome paths and existing
+private log paths. A listed expected path does not assert that the file exists;
+the status indicates which phase has completed.
 
 | Status or observation | Next action |
 | --- | --- |

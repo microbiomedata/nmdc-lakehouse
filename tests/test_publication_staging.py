@@ -97,6 +97,8 @@ def test_status_and_preview_are_offline_then_completed_retry_is_noop(planned, ca
     root, authorization, calls, _ = planned
     state = staging.publication_status(root)
     assert state["status"] == "planned"
+    assert state["evidence_paths"]["plan"] == str(root / "evidence/berdl-staging-plan.json")
+    assert state["log_paths"] == []
     assert state["tables"] == 2
     assert authorization["authorize_plan_sha256"] in state["next_command"]
     assert staging.stage_publication(root)["status"] == "preview-only"
@@ -104,6 +106,8 @@ def test_status_and_preview_are_offline_then_completed_retry_is_noop(planned, ca
     state = staging.stage_publication(root, **authorization)
     assert state["status"] == "data-and-table-metadata-verified"
     assert state["columns_verified"] == 15
+    assert state["evidence_paths"]["metadata_outcome"] == str(root / "evidence/nmdc-staging-metadata-outcome.json")
+    assert len(state["log_paths"]) == 1
     assert state["next_command"] is None
     assert calls == ["empty-destination", "data", "metadata"]
     assert staging.stage_publication(root, **authorization) == state
@@ -119,7 +123,10 @@ def test_metadata_failure_retries_without_upload_and_requires_same_authorization
     failure["metadata"] = True
     with pytest.raises(PreparationError, match="Staging stopped"):
         staging.stage_publication(root, **authorization)
-    assert staging.publication_status(root)["status"] == "data-verified-metadata-pending"
+    pending = staging.publication_status(root)
+    assert pending["status"] == "data-verified-metadata-pending"
+    assert pending["evidence_paths"]["data_outcome"] == str(root / "evidence/nmdc-staging-outcome.json")
+    assert pending["log_paths"]
     assert staging.stage_publication(root)["phase"] == "metadata-only"
     calls.clear()
     with pytest.raises(PreparationError, match="exact reviewed"):

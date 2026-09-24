@@ -160,3 +160,25 @@ def test_cli_replaces_four_commands_and_sanitizes_invalid_config(prepared, monke
     assert result.exit_code != 0
     assert "secret-example" not in result.output
     assert "Invalid planning configuration" in result.output
+
+
+@pytest.mark.parametrize("change", ["receipt", "installed", "flat-pair"])
+def test_source_alignment_is_required_for_derived_planning(prepared, monkeypatch, change):
+    root, config = prepared
+    if change == "receipt":
+        path = root / "preparation.json"
+        receipt = json.loads(path.read_text())
+        receipt["source_version"] = "0.0.0"
+        path.write_text(json.dumps(receipt))
+    elif change == "installed":
+        monkeypatch.setattr(planning, "version", lambda name: "0.0.0")
+    else:
+
+        def mismatch():
+            raise PreparationError("source/flat mismatch")
+
+        monkeypatch.setattr(planning, "assert_source_schema_aligned", mismatch)
+    with pytest.raises(PreparationError):
+        planning.plan_publication(root, config, runner=GitRunner())
+    assert not (root / "evidence/planning-inputs.json").exists()
+    assert not (root / "evidence/berdl-staging-plan.json").exists()
