@@ -408,7 +408,12 @@ def berdl_promote_command(
     """Preview the saved plan; all three authorizations enable execution and read-back."""
     import json
 
-    from nmdc_lakehouse.berdl_promotion import execute_promotion, load_promotion_plan, render_promotion_plan
+    from nmdc_lakehouse.berdl_promotion import (
+        PromotionPlanError,
+        execute_promotion,
+        load_promotion_plan,
+        render_promotion_plan,
+    )
 
     try:
         plan, digest = load_promotion_plan(plan_path)
@@ -425,6 +430,8 @@ def berdl_promote_command(
             authorize_canonical_namespace=authorize_canonical_namespace,
             authorize_destination_id=authorize_destination_id,
         )
+    except PromotionPlanError as error:
+        raise click.ClickException(str(error)) from error
     except (ValueError, OSError) as error:
         raise click.ClickException(
             "Promotion refused or incomplete; inspect the execution journal and private log if present. "

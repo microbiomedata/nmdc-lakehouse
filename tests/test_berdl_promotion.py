@@ -314,6 +314,16 @@ def test_wrong_authorization_never_connects_or_writes(candidate, monkeypatch, fi
     monkeypatch.setattr(promotion, "_runtime", lambda *a: pytest.fail("Must not connect"))
     with pytest.raises(promotion.PromotionPlanError, match="exact reviewed"):
         run(candidate, **{field: "wrong"})
+    options = {
+        "authorize_plan_sha256": file_digest(candidate.path),
+        "authorize_canonical_namespace": CANONICAL,
+        "authorize_destination_id": "nmdc-production",
+    }
+    options[field] = "wrong"
+    args = [part for key, value in options.items() for part in ("--" + key.replace("_", "-"), value)]
+    result = CliRunner().invoke(cli, ["berdl-promote", str(candidate.path), *args])
+    assert result.exit_code == 1 and "Supply the exact reviewed plan digest" in result.output
+    assert "private log" not in result.output and not candidate.spark.writes
     assert not candidate.path.with_suffix(".execution").exists()
 
 
@@ -587,7 +597,7 @@ def test_real_completed_stage_evidence_loads_without_old_runtime_revalidation(pl
         promotion._load_source(root)
 
 
-@pytest.mark.parametrize("change", ["missing", "duplicate"])
+@pytest.mark.parametrize("change", ["missing", "duplicate", "duplicate-path", "alias-path"])
 def test_historical_staging_requires_the_complete_unique_evidence_set(planned, change):
     root, authorization, _, _ = planned
     staging.stage_publication(root, **authorization)
@@ -595,8 +605,16 @@ def test_historical_staging_requires_the_complete_unique_evidence_set(planned, c
     document = json.loads(path.read_text())
     if change == "missing":
         document["evidence"] = [item for item in document["evidence"] if item["name"] != "metadata-bundle.json"]
-    else:
+    elif change == "duplicate":
         document["evidence"].append(document["evidence"][0])
+    else:
+        first, second = document["evidence"][:2]
+        target = Path(first["path"])
+        if change == "alias-path":
+            alias = target.parent / "alias"
+            alias.mkdir()
+            target = alias / ".." / target.name
+        second.update(path=str(target), sha256=first["sha256"])
     path.write_text(json.dumps(document))
     with pytest.raises(berdl_staging.BerdlStagingPlanError, match="complete and unique"):
         promotion._load_source(root)

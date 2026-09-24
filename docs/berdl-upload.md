@@ -594,6 +594,8 @@ source losslessness; keep the source preservation audit separate.
 
 `berdl-promote` previews the saved plan locally unless all three authorizations
 are present. Old single-snapshot plans and Spark rebuild instructions are refused.
+Incorrect authorization values produce a correction message before any catalog
+connection or execution journal is created.
 
 <!-- unverified: combined promotion awaits pod acceptance and exact-plan approval,
      tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
