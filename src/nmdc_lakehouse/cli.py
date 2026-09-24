@@ -932,9 +932,12 @@ def prepare_publication_command(configuration: Path, output: Path) -> None:
             fields.update(definition.get("properties", {}))
         details = []
         for item in error.errors(include_input=False, include_context=False, include_url=False):
-            location = ".".join(
-                str(part) if isinstance(part, int) or part in fields else "<item>" for part in item["loc"]
-            )
+            parts = list(item["loc"])
+            if "properties" in parts:
+                parts[parts.index("properties") + 1 :] = ["<item>"]
+            if item["type"] == "extra_forbidden" and parts:
+                parts[-1] = "<item>"
+            location = ".".join(str(part) if isinstance(part, int) or part in fields else "<item>" for part in parts)
             # Free-form validator messages and dictionary keys can contain submitted values.
             details.append(f"{location or '<document>'}: {item['type'].replace('_', ' ')}")
         raise click.ClickException("Invalid preparation configuration or evidence:\n" + "\n".join(details)) from error
