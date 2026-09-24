@@ -83,6 +83,9 @@ def _number(value: str, kind: type) -> Any:
     return kind(value)
 
 
+#: Written into each run directory, so a later conversion only replaces its own run's output.
+RUN_ID_FILE = "run_id.txt"
+
 _RUN_DIR_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
@@ -379,7 +382,15 @@ def convert_run(
     # Written even when empty, so a run with no contigs still has a readable contigs.parquet.
     contig_writer.write_table(pa.Table.from_pylist(contig_batch, schema=contig_schema))
     contig_writer.close()
-    shutil.rmtree(run_dir, ignore_errors=True)
+    (partial / RUN_ID_FILE).write_text(run_id + "\n")
+    if run_dir.exists():
+        # Two run IDs can map to one directory name (`nmdc:x` and `nmdc_x`). Only replace a
+        # directory this same run wrote.
+        previous = run_dir / RUN_ID_FILE
+        if not previous.is_file() or previous.read_text().strip() != run_id:
+            shutil.rmtree(partial, ignore_errors=True)
+            raise ValueError(f"{run_dir} holds output for another run; refusing to replace it with {run_id}")
+        shutil.rmtree(run_dir)
     partial.rename(run_dir)
     result.outputs = [str(run_dir / "features.parquet"), str(run_dir / "contigs.parquet")]
     return result

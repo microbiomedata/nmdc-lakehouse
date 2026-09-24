@@ -245,3 +245,15 @@ def test_unselected_keeps_a_competing_call_at_a_selected_interval(run_files: dic
     rows = pq.read_table(result.outputs[0]).to_pylist()
     unselected = sorted((r["source"], r["start"]) for r in rows if r["is_selected"] is False)
     assert unselected == [("GeneMark.hmm-2", 2), ("Prodigal v2.6.3", 5)]
+
+
+def test_convert_run_does_not_replace_another_runs_output(run_files: dict[str, Path], tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    first = fc.convert_run("nmdc:wfmgan-x.1", run_files, {}, out)
+    with pytest.raises(ValueError, match="another run"):
+        fc.convert_run("nmdc_wfmgan-x.1", run_files, {}, out)
+    assert Path(first.outputs[0]).exists()
+    assert (Path(first.outputs[0]).parent / fc.RUN_ID_FILE).read_text().strip() == "nmdc:wfmgan-x.1"
+    # The same run converts again over its own output.
+    fc.convert_run("nmdc:wfmgan-x.1", run_files, {}, out)
+    assert not any(p.name.endswith(".partial") for p in out.iterdir())

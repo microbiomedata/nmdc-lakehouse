@@ -74,8 +74,12 @@ set to their gene, `seqid` set to that gene's contig, and `is_selected` null. A 
 Functional Annotation GFF lacks is counted in the run summary and not written.
 
 `contigs.parquet`: `contig_id`, `assembly_contig_id` (not in the model), `taxonomic_lineage`
-(list), `lineage_confidence`, `generated_by`, `source_files`. Contig length is not filled; it needs
-the assembly FASTA.
+(list), `lineage_confidence`, `generated_by`, `source_files`. The model's `length_bp` and
+`topology` are not filled: length needs the assembly FASTA, and no NMDC annotation file states
+topology.
+
+Each run directory also holds `run_id.txt`. `feature-convert` replaces a run directory only if that
+file names the same run, so two run IDs that map to one directory name cannot overwrite each other.
 
 A hit's `feature_id` is its GFF `ID`, its annotation system and its column 3 joined with `|`,
 because one gene can carry the same coordinates in several systems. If any `feature_id` still
