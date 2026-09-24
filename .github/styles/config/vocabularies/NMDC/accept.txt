@@ -161,6 +161,12 @@ rollout
 migrators
 unreviewed
 losslessness
+[Cc]ontigs?
+SUPERFam
+Orthology
+KOs
+[Mm]etagenome
+[Mm]etatranscriptome
 IPython
 lockfile
 subcommands
