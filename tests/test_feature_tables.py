@@ -255,3 +255,56 @@ def test_plan_records_the_assembly_run() -> None:
     assemblies = [{"id": "nmdc:wfmgas-99-a.1", "has_output": ["dobj-contigs"]}]
     assert ft.plan_runs(runs, data_objects, assemblies).selected[RUN]["run"]["assembly_run"] == "nmdc:wfmgas-99-a.1"
     assert ft.plan_runs(runs, data_objects).selected[RUN]["run"]["assembly_run"] is None
+
+
+def test_manifest_refuses_urls_that_share_a_cache_path(tmp_path: Path) -> None:
+    from nmdc_lakehouse.data_object_manifest import DataObjectManifestError
+
+    outputs = [f"o-{t}" for t in ft.SAMPLE_REQUIRED_TYPES]
+    data_objects = [
+        {"id": f"o-{t}", "data_object_type": t, "url": f"https://example.org/f?{i}", "file_size_bytes": 3}
+        for i, t in enumerate(ft.SAMPLE_REQUIRED_TYPES)
+    ]
+    plan = ft.plan_runs([_run(RUN, ["in"], outputs)], data_objects)
+    with pytest.raises(DataObjectManifestError, match="more than one URL"):
+        ft.write_download_manifest(plan, [RUN], ft.CHECK_TYPES, tmp_path / "m.csv")
+
+
+def test_cli_check_fails_when_nmdc_records_no_checksum(run_files: dict[str, Path], tmp_path: Path) -> None:
+    import json
+
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    plan_path, runs_path, cache = _cli_fixture(run_files, tmp_path)
+    plan = json.loads(plan_path.read_text())
+    plan["selected"][RUN]["files"][ft.FUNCTIONAL]["md5_checksum"] = None
+    plan_path.write_text(json.dumps(plan))
+    report = tmp_path / "r.json"
+    args = [str(plan_path), "--runs", str(runs_path), "--cache-dir", str(cache), "--output", str(report)]
+    result = CliRunner().invoke(cli, ["feature-check", *args])
+    assert result.exit_code == 1
+    assert json.loads(report.read_text())["runs"][RUN]["checks"]["md5_matches_nmdc"]["mismatched"] == [ft.FUNCTIONAL]
+
+
+def test_cli_check_does_not_expect_zero_byte_files(run_files: dict[str, Path], tmp_path: Path) -> None:
+    import json
+
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    plan_path, runs_path, cache = _cli_fixture(run_files, tmp_path)
+    plan = json.loads(plan_path.read_text())
+    plan["selected"][RUN]["files"]["CRT Annotation GFF"] = {
+        "id": "dobj-crt",
+        "data_object_type": "CRT Annotation GFF",
+        "url": "https://example.org/data/crt.gff",
+        "file_size_bytes": 0,
+    }
+    plan_path.write_text(json.dumps(plan))
+    report = tmp_path / "r.json"
+    args = [str(plan_path), "--runs", str(runs_path), "--cache-dir", str(cache), "--output", str(report)]
+    result = CliRunner().invoke(cli, ["feature-check", *args])
+    assert result.exit_code == 0, result.output

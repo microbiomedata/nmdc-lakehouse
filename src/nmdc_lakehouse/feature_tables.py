@@ -1,4 +1,4 @@
-"""Plan, check and convert NMDC annotation feature files into the BER feature model's shape.
+"""Plan, sample and check NMDC annotation feature files, to learn which repeat each other.
 
 The BER feature model is the draft LinkML schema at
 https://github.com/turbomam/feature-table-corpus/blob/main/model/schema/ber_feature_model.yaml .
@@ -25,7 +25,6 @@ loaded twice. Nothing here writes to BERDL.
 
 from __future__ import annotations
 
-import csv
 import json
 import random
 import re
@@ -97,15 +96,6 @@ ASSEMBLY_RUN_TYPES = ("nmdc:MetagenomeAssembly", "nmdc:MetatranscriptomeAssembly
 PRODUCT_NAMES_ONLY_SOURCE_TYPES = frozenset({"rRNA", "tRNA", "tmRNA", "ncRNA"})
 
 ANNOTATION_RUN_TYPES = ("nmdc:MetagenomeAnnotation", "nmdc:MetatranscriptomeAnnotation")
-
-MANIFEST_COLUMNS: tuple[str, ...] = (
-    "id",
-    "url",
-    "data_object_type",
-    "was_generated_by",
-    "file_size_bytes",
-    "md5_checksum",
-)
 
 
 # ---------------------------------------------------------------------------
@@ -304,29 +294,23 @@ def sample_runs(
 
 
 def write_download_manifest(plan: RunPlan, run_ids: Sequence[str], types: Sequence[str], path: Path) -> int:
-    """Write the CSV `scripts/download_to_cache.py` reads. Returns the number of rows."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    rows = 0
-    with path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=MANIFEST_COLUMNS)
-        writer.writeheader()
-        for run_id in run_ids:
-            for data_object_type in types:
-                data_object = plan.selected[run_id]["files"].get(data_object_type)
-                if not data_object or not data_object.get("url"):
-                    continue
-                writer.writerow(
-                    {
-                        "id": data_object["id"],
-                        "url": data_object["url"],
-                        "data_object_type": data_object_type,
-                        "was_generated_by": run_id,
-                        "file_size_bytes": data_object.get("file_size_bytes"),
-                        "md5_checksum": data_object.get("md5_checksum"),
-                    }
-                )
-                rows += 1
-    return rows
+    """Write the CSV `scripts/download_to_cache.py` reads. Returns the number of rows.
+
+    Goes through `data_object_manifest.build_manifest`, so the sample gets the same refusals as
+    `just data-object-manifest`: URLs that share a cache path, escape the cache, or have no path.
+    That also drops zero-byte files, which `feature-check` then treats as present.
+    """
+    from nmdc_lakehouse.data_object_manifest import build_manifest, write_manifest
+
+    records = [
+        {**data_object, "was_generated_by": run_id}
+        for run_id in run_ids
+        for data_object_type, data_object in plan.selected[run_id]["files"].items()
+        if data_object_type in types
+    ]
+    outcome = build_manifest(records, list(types))
+    write_manifest(outcome, path)
+    return outcome.total
 
 
 # ---------------------------------------------------------------------------

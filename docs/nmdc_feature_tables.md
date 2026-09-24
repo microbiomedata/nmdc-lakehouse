@@ -110,7 +110,8 @@ Measured 2026-09-23. The plan from the public NMDC API kept 4,607 annotation run
 superseded reruns and 67 data objects no run lists. The sample was 50 runs, 8 or 9 from each of
 MetagenomeAnnotation v1.0.2, v1.0.4, v1.0.5, v1.1.0, v1.1.5 and MetatranscriptomeAnnotation
 v1.1.4, capped at 3 GiB per run: 1,024 files, 42.55 GiB, downloaded in 9.1 minutes. Every file's
-MD5 matched NMDC's record.
+MD5 matched NMDC's record. Twelve of the files are empty CRT and Crispr Terms outputs, which
+`feature-sample` now leaves out of the manifest, so the same sample lists 1,012 files.
 
 | check | runs passed | runs failed |
 |---|---|---|
