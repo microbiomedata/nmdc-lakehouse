@@ -90,6 +90,8 @@ CHECK_TYPES: tuple[str, ...] = (
 #: 2026-09-23), so requiring them would leave those versions out of the sample.
 SAMPLE_REQUIRED_TYPES: tuple[str, ...] = tuple(t for t in CHECK_TYPES if t not in (CONTIG_MAPPING, SCAFFOLD_LINEAGE))
 
+ASSEMBLY_RUN_TYPES = ("nmdc:MetagenomeAssembly", "nmdc:MetatranscriptomeAssembly")
+
 ANNOTATION_RUN_TYPES = ("nmdc:MetagenomeAnnotation", "nmdc:MetatranscriptomeAnnotation")
 
 MANIFEST_COLUMNS: tuple[str, ...] = (
@@ -146,7 +148,7 @@ def fetch_collection(
 
 
 def fetch_inventory(types: Sequence[str] = CHECK_TYPES) -> dict[str, Any]:
-    """Annotation runs and every data object of `types`, from the public API."""
+    """Annotation runs, assembly runs, and every data object of `types`, from the public API."""
     runs = fetch_collection(
         "workflow_execution_set",
         {"type": {"$in": list(ANNOTATION_RUN_TYPES)}},
@@ -157,7 +159,10 @@ def fetch_inventory(types: Sequence[str] = CHECK_TYPES) -> dict[str, Any]:
         {"data_object_type": {"$in": list(types)}},
         ["id", "data_object_type", "url", "file_size_bytes", "md5_checksum", "was_generated_by"],
     )
-    return {"runs": runs, "data_objects": data_objects}
+    assemblies = fetch_collection(
+        "workflow_execution_set", {"type": {"$in": list(ASSEMBLY_RUN_TYPES)}}, ["id", "type", "has_output"]
+    )
+    return {"runs": runs, "data_objects": data_objects, "assemblies": assemblies}
 
 
 # ---------------------------------------------------------------------------
@@ -203,15 +208,24 @@ class RunPlan:
         }
 
 
-def plan_runs(runs: Iterable[Mapping[str, Any]], data_objects: Iterable[Mapping[str, Any]]) -> RunPlan:
+def plan_runs(
+    runs: Iterable[Mapping[str, Any]],
+    data_objects: Iterable[Mapping[str, Any]],
+    assemblies: Iterable[Mapping[str, Any]] = (),
+) -> RunPlan:
     """Keep the highest-ranked annotation run per input and attach its files.
 
     Files are attached through the run's `has_output`, not the data object's `was_generated_by`:
     on 2026-09-23, 1,870 of 5,146 Functional Annotation GFF records had no `was_generated_by`
     although their run listed them.
+
+    Each kept run records `assembly_run`, the run whose `has_output` includes one of its inputs,
+    because contigs come from the assembly and features from the annotation. It is None when no
+    assembly run lists the input.
     """
     plan = RunPlan()
     by_id = {d["id"]: d for d in data_objects}
+    producer = {o: str(a["id"]) for a in assemblies for o in a.get("has_output") or []}
     by_input: dict[tuple[str, ...], list[Mapping[str, Any]]] = defaultdict(list)
     for run in runs:
         by_input[tuple(sorted(run.get("has_input") or [run["id"]]))].append(run)
@@ -233,7 +247,9 @@ def plan_runs(runs: Iterable[Mapping[str, Any]], data_objects: Iterable[Mapping[
                 plan.ambiguous.append((str(keep["id"]), data_object_type))
                 continue
             files[data_object_type] = dict(data_object)
-        plan.selected[str(keep["id"])] = {"run": dict(keep), "files": files}
+        run_record = dict(keep)
+        run_record["assembly_run"] = next((producer[i] for i in keep.get("has_input") or [] if i in producer), None)
+        plan.selected[str(keep["id"])] = {"run": run_record, "files": files}
     plan.orphans = [dict(d) for d in by_id.values() if d["id"] not in owned]
     return plan
 
@@ -575,6 +591,10 @@ def _number(value: str, kind: type) -> Any:
     return kind(value)
 
 
+class DuplicateFeatureIdError(ValueError):
+    """Two rows of one run would share a feature_id, which the model requires to be unique."""
+
+
 @dataclass
 class ConversionResult:
     """What `convert_run` wrote for one run, and what it left out."""
@@ -598,6 +618,7 @@ def convert_run(
     *,
     include_unselected: bool = False,
     checks: Mapping[str, Mapping[str, Any]] | None = None,
+    assembly_run: str | None = None,
 ) -> ConversionResult:
     """Write `features.parquet` and `contigs.parquet` for one run under `out_dir/<run id>/`.
 
@@ -608,7 +629,13 @@ def convert_run(
     column 3, because one gene can carry the same coordinates in several systems; the original
     `ID` stays in `attributes`.
 
+    A contig's `generated_by` is `assembly_run`, the workflow that made the contig, and stays
+    null when that is unknown rather than naming the annotation run.
+
     `assembly_contig_id` and `source_data_object_type` are not slots of the model yet.
+
+    Raises DuplicateFeatureIdError, before writing anything, if two rows would share a
+    `feature_id`.
     """
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -650,6 +677,9 @@ def convert_run(
                 # Observed 2026-09-23: a GeneMark CDS and an RFAM sRNA sharing one ID.
                 cds_renamed.setdefault(source_id, []).append(feature_id)
         gene_seqid[feature_id] = r[0]
+        if source_id:
+            # Hits name their gene by the source ID, which a renamed row no longer carries.
+            gene_seqid.setdefault(source_id, r[0])
         selected_loci.add((r[0], r[2], r[3], r[4], r[6]))
         rows.append(
             {
@@ -752,6 +782,9 @@ def convert_run(
 
     ids = Counter(r["feature_id"] for r in rows)
     result.duplicate_feature_ids = sum(v - 1 for v in ids.values() if v > 1)
+    if result.duplicate_feature_ids:
+        examples = sorted(k for k, v in ids.items() if v > 1)[:3]
+        raise DuplicateFeatureIdError(f"{run_id}: {result.duplicate_feature_ids} repeated feature_id, e.g. {examples}")
 
     lineage: dict[str, tuple[list[str], float | None]] = {}
     if SCAFFOLD_LINEAGE in files:
@@ -775,7 +808,7 @@ def convert_run(
                 "assembly_contig_id": assembly.get(contig_id),
                 "taxonomic_lineage": tax,
                 "lineage_confidence": confidence,
-                "generated_by": run_id,
+                "generated_by": assembly_run,
                 "source_files": sources,
             }
         )

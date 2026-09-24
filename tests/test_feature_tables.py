@@ -254,6 +254,9 @@ def test_hits_follow_a_renamed_cds(run_files: dict[str, Path], tmp_path: Path) -
     rows = pq.read_table(result.outputs[0]).to_pylist()
     hit = next(r for r in rows if r["source_data_object_type"] == "Pfam Annotation GFF")
     assert hit["parent"] == [f"{G1}|+"]
+    assert hit["seqid"] == f"{RUN}_0001"
+    contig_ids = {c["contig_id"] for c in pq.read_table(result.outputs[1]).to_pylist()}
+    assert contig_ids == {f"{RUN}_0001", f"{RUN}_0002"}
     assert any(r["feature_id"] == f"{G1}|+" and r["type"] == "CDS" for r in rows)
 
 
@@ -424,3 +427,49 @@ def test_fetch_collection_follows_page_tokens() -> None:
     rows = ft.fetch_collection("data_object_set", {}, ["id"], session=session)  # type: ignore[arg-type]
     assert rows == [{"id": 1}, {"id": 2}]
     assert session.calls[1]["page_token"] == "t"
+
+
+def test_convert_run_refuses_to_write_a_repeated_feature_id(run_files: dict[str, Path], tmp_path: Path) -> None:
+    # Same ID, strand and everything: renaming by strand cannot separate these, but the counter can.
+    row = f"{RUN}_0004\tx\tmisc_feature\t1\t9\t.\t+\t.\tID=same"
+    run_files[ft.FUNCTIONAL] = _write(tmp_path, "functional_same.gff", [*FUNCTIONAL_ROWS, row, row])
+    result = ft.convert_run(RUN, run_files, {}, tmp_path / "ok")
+    assert result.renamed_duplicate_ids == 2
+    # A hit whose derived feature_id collides has no renaming rule, so conversion must stop.
+    hit = f"{G1}\tHMMER 3.1b2\tPF00001\t10\t80\t50.3\t.\t.\tID={G1}_10_80"
+    run_files["Pfam Annotation GFF"] = _write(tmp_path, "pfam_twice.gff", [hit, hit])
+    out = tmp_path / "bad"
+    with pytest.raises(ft.DuplicateFeatureIdError):
+        ft.convert_run(RUN, run_files, {}, out)
+    assert not out.exists()
+
+
+def test_plan_records_the_assembly_run_and_contigs_use_it(run_files: dict[str, Path], tmp_path: Path) -> None:
+    runs = [_run(RUN, ["dobj-contigs"], ["dobj-f"])]
+    data_objects = [{"id": "dobj-f", "data_object_type": ft.FUNCTIONAL, "url": "u", "file_size_bytes": 1}]
+    assemblies = [{"id": "nmdc:wfmgas-99-a.1", "has_output": ["dobj-contigs"]}]
+    plan = ft.plan_runs(runs, data_objects, assemblies)
+    assert plan.selected[RUN]["run"]["assembly_run"] == "nmdc:wfmgas-99-a.1"
+    assert ft.plan_runs(runs, data_objects).selected[RUN]["run"]["assembly_run"] is None
+
+    result = ft.convert_run(RUN, run_files, {}, tmp_path / "out", assembly_run="nmdc:wfmgas-99-a.1")
+    contigs = pq.read_table(result.outputs[1]).to_pylist()
+    assert {c["generated_by"] for c in contigs} == {"nmdc:wfmgas-99-a.1"}
+    features = pq.read_table(result.outputs[0]).to_pylist()
+    assert {f["generated_by"] for f in features} == {RUN}
+    unknown = ft.convert_run(RUN, run_files, {}, tmp_path / "unknown")
+    assert {c["generated_by"] for c in pq.read_table(unknown.outputs[1]).to_pylist()} == {None}
+
+
+def test_cli_check_fails_when_a_planned_file_is_missing(run_files: dict[str, Path], tmp_path: Path) -> None:
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    plan_path, runs_path, cache = _cli_fixture(run_files, tmp_path)
+    (cache / "data" / "functional.gff").unlink()
+    report = tmp_path / "r.json"
+    args = [str(plan_path), "--runs", str(runs_path), "--cache-dir", str(cache), "--output", str(report)]
+    result = CliRunner().invoke(cli, ["feature-check", *args])
+    assert result.exit_code == 1
+    assert "failed  planned_files_present" in result.output

@@ -1365,7 +1365,7 @@ def feature_plan_command(output: Path) -> None:
     from nmdc_lakehouse.feature_tables import fetch_inventory, plan_runs, plan_to_json
 
     inventory = fetch_inventory()
-    plan = plan_runs(inventory["runs"], inventory["data_objects"])
+    plan = plan_runs(inventory["runs"], inventory["data_objects"], inventory.get("assemblies", ()))
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps({"summary": plan.summary(), **plan_to_json(plan)}, indent=1))
     click.echo(json.dumps(plan.summary(), indent=2))
@@ -1419,7 +1419,7 @@ def feature_check_command(plan_path: Path, runs_path: Path, cache_dir: Path, out
     import json
     from collections import Counter
 
-    from nmdc_lakehouse.feature_tables import cached_files, check_run, plan_from_json
+    from nmdc_lakehouse.feature_tables import CHECK_TYPES, cached_files, check_run, plan_from_json
 
     plan = plan_from_json(json.loads(plan_path.read_text()))
     report: dict[str, object] = {}
@@ -1431,7 +1431,8 @@ def feature_check_command(plan_path: Path, runs_path: Path, cache_dir: Path, out
         bad_md5 = []
         for data_object_type, path in files.items():
             expected = entry["files"][data_object_type].get("md5_checksum")
-            digest = hashlib.md5(path.read_bytes(), usedforsecurity=False).hexdigest()
+            with path.open("rb") as handle:
+                digest = hashlib.file_digest(handle, lambda: hashlib.md5(usedforsecurity=False)).hexdigest()
             if expected and digest != expected:
                 bad_md5.append(data_object_type)
         # A file that does not match NMDC's checksum is not the file the checks are about, and
@@ -1443,6 +1444,9 @@ def feature_check_command(plan_path: Path, runs_path: Path, cache_dir: Path, out
             except (IndexError, ValueError, UnicodeDecodeError) as error:
                 checks = {"parse": {"passed": False, "error": f"{type(error).__name__}: {error}"}}
         checks["md5_matches_nmdc"] = {"passed": not bad_md5, "mismatched": bad_md5, "files": len(files)}
+        # A planned file absent from the cache would otherwise only mark its checks skipped.
+        missing = sorted(t for t in entry["files"] if t in CHECK_TYPES and t not in files)
+        checks["planned_files_present"] = {"passed": not missing, "missing": missing}
         for name, result in checks.items():
             if result.get("skipped"):
                 continue
@@ -1475,7 +1479,13 @@ def feature_convert_command(
     """
     import json
 
-    from nmdc_lakehouse.feature_tables import FUNCTIONAL, cached_files, convert_run, plan_from_json
+    from nmdc_lakehouse.feature_tables import (
+        FUNCTIONAL,
+        DuplicateFeatureIdError,
+        cached_files,
+        convert_run,
+        plan_from_json,
+    )
 
     plan = plan_from_json(json.loads(plan_path.read_text()))
     summary = []
@@ -1484,7 +1494,18 @@ def feature_convert_command(
         if FUNCTIONAL not in files:
             click.echo(f"  skip {run_id}: no Functional Annotation GFF in {cache_dir}")
             continue
-        result = convert_run(run_id, files, urls, out_dir, include_unselected=include_unselected)
+        entry = plan.selected[run_id]
+        try:
+            result = convert_run(
+                run_id,
+                files,
+                urls,
+                out_dir,
+                include_unselected=include_unselected,
+                assembly_run=entry["run"].get("assembly_run"),
+            )
+        except DuplicateFeatureIdError as error:
+            raise click.ClickException(str(error)) from error
         summary.append(
             {
                 "run_id": run_id,

@@ -66,8 +66,13 @@ run's `has_output`, because many data objects have no `was_generated_by`.
 (list), `lineage_confidence`, `generated_by`, `source_files`.
 
 A hit's `feature_id` is its GFF `ID`, its annotation system and its column 3 joined with `|`,
-because one gene can carry the same coordinates in several systems. Contig length is not filled;
+because one gene can carry the same coordinates in several systems. If any `feature_id` still
+repeats within a run, `feature-convert` stops before writing that run. Contig length is not filled;
 it needs the assembly FASTA.
+
+Features carry the annotation run as `generated_by`. Contigs carry the assembly run, found by
+`feature-plan` as the run whose `has_output` includes the annotation run's input, and null when
+none does.
 
 ## Run it
 
@@ -85,7 +90,8 @@ just feature-convert
 `feature-sample` takes runs from each (run type, pipeline version) group in turn, so small
 versions are represented. The second argument skips runs over that many GiB, which biases the
 sample toward small runs. `feature-check` verifies each file's MD5 against NMDC and exits
-non-zero if any check fails; its report is `check-report.json`.
+non-zero if any check fails or any planned file is missing from the cache; its report is
+`check-report.json`.
 
 ## Sample results
 
