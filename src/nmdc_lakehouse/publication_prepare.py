@@ -123,10 +123,10 @@ def _copy(source: Path, destination: Path) -> None:
 
 def _export(root: Path, source_label: str) -> None:
     snapshot = root / "snapshot"
-    if (snapshot / "snapshot-manifest.json").is_file():
-        return
     if snapshot.exists():
-        raise PreparationError("An incomplete dump exists; retain it and use a new directory for another dump.")
+        raise PreparationError(
+            "An export exists; reuse it as an explicit snapshot input in a new directory if its manifest validates."
+        )
     env = dict(
         os.environ, LAKEHOUSE_ROOT=str(snapshot), LAKEHOUSE_SKIP_COLLECTIONS="", LAKEHOUSE_DROP_EMPTY_COLS="false"
     )

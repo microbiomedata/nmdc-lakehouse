@@ -257,7 +257,8 @@ def test_later_source_artifact_change_does_not_invalidate_verified_copy(inputs, 
     assert {p.name: p.read_bytes() for p in (output / "snapshot").iterdir()} == before
 
 
-def test_fresh_export_produces_full_evidence_and_resumes_without_export(inputs, monkeypatch):
+@pytest.mark.parametrize("completed", [True, False])
+def test_fresh_export_and_explicit_reuse_after_refused_restart(inputs, monkeypatch, completed):
     config, source, manifest, output = inputs
     data = json.loads(config.read_text())
     del data["snapshot"]
@@ -282,7 +283,18 @@ def test_fresh_export_produces_full_evidence_and_resumes_without_export(inputs, 
     assert {table.name for table in bundle.tables} == {a.table for a in manifest.artifacts}
     assert (output / "evidence/target-validation-digest.json").is_file()
     monkeypatch.setattr(validation, "validate_target_snapshot", no_revalidation)
-    assert preparation.prepare_publication(config, output) == receipt
+    if not completed:
+        (output / "preparation.json").unlink()
+    with pytest.raises(preparation.PreparationError, match="An export exists"):
+        preparation.prepare_publication(config, output)
+    data["snapshot"] = str(output / "snapshot")
+    data["target_validation"] = str(output / "evidence/target-validation.json")
+    reuse = config.parent / "reuse.json"
+    reuse.write_text(json.dumps(data))
+    reused = preparation.prepare_publication(reuse, output.with_name("explicit-reuse"))
+    assert reused["snapshot_id"] == receipt["snapshot_id"]
+    assert reused["parent_snapshot_id"] == receipt["parent_snapshot_id"]
+    assert reused["evidence"]["target-validation.json"] == receipt["evidence"]["target-validation.json"]
     assert len(calls) == 2
 
 
@@ -318,7 +330,7 @@ def test_export_clears_skips_keeps_empty_columns_and_stops_on_failure(tmp_path, 
     assert calls[0][1]["LAKEHOUSE_SKIP_COLLECTIONS"] == ""
     assert calls[0][1]["LAKEHOUSE_DROP_EMPTY_COLS"] == "false"
     assert os.stat(tmp_path / "export.log").st_mode & 0o777 == 0o600
-    with pytest.raises(preparation.PreparationError, match="incomplete dump"):
+    with pytest.raises(preparation.PreparationError, match="An export exists"):
         preparation._export(tmp_path, "production")
     assert len(calls) == 1
 
