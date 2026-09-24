@@ -10,7 +10,6 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 from click.testing import CliRunner
-from pydantic import ValidationError
 
 from nmdc_lakehouse import berdl_metadata, berdl_staging
 from nmdc_lakehouse import berdl_promotion as promotion
@@ -524,8 +523,22 @@ def test_output_locations_and_legacy_plan_refused(candidate):
     with pytest.raises(ValueError):
         promotion.load_promotion_plan(link)
     c.path.write_text('{"plan_format_version":2,"derived_rebuilds":[]}')
-    with pytest.raises(ValidationError):
+    with pytest.raises(promotion.PromotionPlanError, match="Invalid combined promotion plan"):
         promotion.load_promotion_plan(c.path)
+
+
+@pytest.mark.parametrize(
+    "raw, reason",
+    [('{"plan_format_version":2,"private-input":"secret-value"}', "literal_error"), ("secret-value", "json_invalid")],
+)
+def test_invalid_plan_cli_reports_safe_reason_before_execution(candidate, monkeypatch, raw, reason):
+    monkeypatch.setattr(promotion, "_runtime", lambda *a: pytest.fail("Must not connect"))
+    candidate.path.write_text(raw)
+    result = CliRunner().invoke(cli, ["berdl-promote", str(candidate.path)])
+    assert result.exit_code == 1 and "Invalid combined promotion plan" in result.output
+    assert reason in result.output and "Regenerate it with berdl-promotion-plan" in result.output
+    assert all(value not in result.output for value in ("secret-value", "private-input", "journal", "private log"))
+    assert not candidate.path.with_suffix(".execution").exists() and not candidate.spark.writes
 
 
 def test_preview_wrapper_private_log_and_cli(candidate, monkeypatch, capsys):

@@ -21,7 +21,7 @@ from typing import Any, Literal, cast
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from nmdc_lakehouse import berdl_metadata, berdl_staging
 from nmdc_lakehouse.berdl_promotion_probe import _scalar
@@ -388,7 +388,14 @@ def load_promotion_plan(path: Path) -> tuple[BerdlPromotionPlan, str]:
     if path.is_symlink() or not path.is_file():
         raise PromotionPlanError("Use an ordinary promotion plan file.")
     raw = path.read_bytes()
-    return BerdlPromotionPlan.model_validate_json(raw), hashlib.sha256(raw).hexdigest()
+    try:
+        plan = BerdlPromotionPlan.model_validate_json(raw)
+    except ValidationError as error:
+        reasons = sorted({item["type"] for item in error.errors(include_input=False, include_context=False)})
+        raise PromotionPlanError(
+            f"Invalid combined promotion plan ({', '.join(reasons)}). Regenerate it with berdl-promotion-plan."
+        ) from error
+    return plan, hashlib.sha256(raw).hexdigest()
 
 
 def render_promotion_plan(plan: BerdlPromotionPlan) -> str:

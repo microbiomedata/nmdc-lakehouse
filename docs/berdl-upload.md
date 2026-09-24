@@ -596,6 +596,8 @@ source losslessness; keep the source preservation audit separate.
 are present. Old single-snapshot plans and Spark rebuild instructions are refused.
 Incorrect authorization values produce a correction message before any catalog
 connection or execution journal is created.
+Malformed or legacy plans report validation categories and direct the operator
+to regenerate the combined plan, without printing submitted values.
 
 <!-- unverified: combined promotion awaits pod acceptance and exact-plan approval,
      tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
