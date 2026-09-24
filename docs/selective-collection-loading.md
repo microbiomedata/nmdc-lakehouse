@@ -68,7 +68,7 @@ snapshot-shaped.
 
 Selectivity at the destination is expressed as reviewed dispositions rather than
 as a partial upload. The publication plan assigns every candidate and live table
-one of `replace`, `add`, `preserve`, `rebuild`, or `retire`, and the staging
+one of `replace`, `add`, `preserve`, or separately reviewed `retire`, and the staging
 namespace is loaded in full before anything canonical is touched.
 
 Two properties follow, and both are enforced rather than conventional:

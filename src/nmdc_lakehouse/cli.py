@@ -663,107 +663,6 @@ def compare_provenance_queries_command(snapshot_root: Path, derived_root: Path, 
     click.echo(f"report={output.resolve()}")
 
 
-@cli.command("rebuild-derived-tables")
-@click.argument("namespace")
-@click.option("--ingest-checkout", type=click.Path(path_type=Path, file_okay=False), required=True)
-@click.option(
-    "--max-depth",
-    type=click.IntRange(min=1),
-    default=None,
-    help="Refuse rather than truncate past this many hops.",
-)
-@click.option(
-    "--table",
-    "tables",
-    multiple=True,
-    help="Rebuild only these derived tables. Repeatable. Defaults to all of them.",
-)
-@click.option(
-    "--authorize-namespace",
-    help="Exact namespace, required to run. Without it this prints what it would do and stops.",
-)
-def rebuild_derived_tables_command(
-    namespace: str,
-    ingest_checkout: Path,
-    max_depth: int | None,
-    tables: tuple[str, ...],
-    authorize_namespace: str | None,
-) -> None:
-    """Rebuild the derived tables in a namespace.
-
-    Every derived table by default, or only those named by `--table`. The selection exists because
-    a promotion plan can rebuild one and preserve the other, and rebuilding both would replace a
-    table nobody authorized touching. Whatever is selected is ordered by `DERIVED_TABLES`, since
-    the second walks the first.
-
-    Nothing here is incremental, and a reload of the tables they are computed from leaves them
-    describing data that no longer exists, which is why they exist as a rebuild rather than as
-    something maintained in place.
-
-    Previewing is the default. Execution needs `--authorize-namespace` naming the same namespace,
-    so the destructive form cannot be reached by editing a path in a shell history entry.
-    """
-    from nmdc_lakehouse.derived_tables import (
-        DEFAULT_MAX_DEPTH,
-        DERIVED_TABLES,
-        DerivedTableError,
-        check_namespace,
-        rebuild_all,
-        spark_session,
-    )
-
-    # Refused before the preview, not after it. A preview that renders for a namespace the rebuild
-    # will always reject reads as an actionable plan for something that can never run.
-    try:
-        check_namespace(namespace)
-    except DerivedTableError as error:
-        raise click.ClickException(str(error)) from error
-
-    # An unknown name is refused here rather than after the first table has been replaced, for the
-    # same reason the namespace is.
-    unknown = sorted(set(tables) - set(DERIVED_TABLES))
-    if unknown:
-        raise click.ClickException(
-            "No rebuild procedure exists for: " + ", ".join(unknown) + ". Known: " + ", ".join(DERIVED_TABLES) + "."
-        )
-    # Ordered by DERIVED_TABLES whatever order they were typed in, because the second walks the
-    # first and that does not stop being true because a caller listed them differently.
-    selected = [table for table in DERIVED_TABLES if table in set(tables)] if tables else list(DERIVED_TABLES)
-
-    depth = DEFAULT_MAX_DEPTH if max_depth is None else max_depth
-    targets = ", ".join(f"{namespace}.{table}" for table in selected)
-    click.echo(f"rebuild plan for {namespace}")
-    click.echo(f"  replaces      {targets}")
-    click.echo(
-        f"  order         {' then '.join(selected)}"
-        + (", because the second walks the first" if len(selected) > 1 else "")
-    )
-    click.echo(f"  max depth     {depth}")
-
-    if authorize_namespace is None:
-        click.echo("  nothing has been changed; rerun with --authorize-namespace to execute")
-        return
-    if authorize_namespace != namespace:
-        raise click.ClickException(f"--authorize-namespace is '{authorize_namespace}' but the target is '{namespace}'.")
-
-    try:
-        spark = spark_session(ingest_checkout)
-        outcomes = rebuild_all(
-            spark,
-            namespace,
-            max_depth=depth,
-            progress=lambda message: click.echo(f"  {message}"),
-            tables=selected,
-        )
-    except DerivedTableError as error:
-        raise click.ClickException(str(error)) from error
-    for outcome in outcomes:
-        detail = f", depth {outcome.depth_reached}" if outcome.depth_reached else ""
-        # outcome.table is already catalog-qualified. Prefixing it again produced
-        # nmdc.metadata.nmdc.metadata.biosample_to_workflow_run, which reads as a real name.
-        click.echo(f"  rebuilt {outcome.table}: {outcome.rows} rows{detail}")
-
-
 @cli.command("berdl-promotion-plan")
 @click.option("--plan", "publication_plan_path", type=click.Path(path_type=Path, dir_okay=False), required=True)
 @click.option(
@@ -841,21 +740,10 @@ def berdl_promote_command(
     authorize_canonical_namespace: str | None,
     authorize_destination_id: str | None,
 ) -> None:
-    """Perform the promotion a reviewed plan describes.
+    """Preview a promotion, or execute with explicit plan, namespace, and destination authorization.
 
-    This is the destructive half. It replaces canonical tables, and when the plan rebuilds derived
-    tables it drops those first, which is a deliberate outage: they do not exist again until the
-    rebuild. A plan with no rebuild dispositions issues no drop and starts no outage, and a
-    preserve-only plan issues nothing at all.
-
-    Previewing is the default and prints the plan, the digest to authorize with, the destination,
-    and the exact statements. Execution needs all three authorizations and none is optional: the
-    digest binds the run to the plan a human read, the namespace is typed again because a digest
-    gets copied from a previous command while a namespace does not, and the destination is
-    asserted because nothing here can verify which deployment the session reaches.
-
-    Rebuilding the derived tables is `rebuild-derived-tables`, run after this. Doing it here would
-    make one command that cannot be stopped between the drop and the rebuild.
+    Plans that require a Spark provenance rebuild are refused. Build and validate
+    derived Parquet locally before staging; combined promotion is tracked in issue 234.
     """
     from nmdc_lakehouse.berdl_promotion import (
         PromotionPlanError,
@@ -904,28 +792,10 @@ def berdl_promote_command(
         ) from error
 
     click.echo(f"  performed {len(performed)} statement(s)")
-    if plan.derived_rebuilds:
-        # Naming the exact tables, not just the command. A plan can rebuild one derived table and
-        # preserve the other, and `rebuild-derived-tables` with no `--table` replaces both, so a
-        # bare instruction would have an operator mutate a table this plan preserved.
-        selection = " ".join(f"--table {shlex.quote(table)}" for table in plan.derived_rebuilds)
-        click.echo("  the derived table(s) are dropped and not yet rebuilt: " + ", ".join(plan.derived_rebuilds) + ".")
-        # PATH_TO_CHECKOUT, not <checkout>. Angle brackets are two redirections: `<checkout` reads
-        # from a file and `>` takes the next word as an output file, so a shell swallowed the
-        # `--table` flag as a redirection target, left the table name in the checkout position, and
-        # wrote every message into a file named `--table`. A rebuild with no `--table` replaces
-        # every derived table, which is the exact hazard the selection three lines up exists to
-        # avoid, and this is the instruction an operator follows while the tables are dropped.
-        click.echo(
-            f"  run: just rebuild-derived-tables {shlex.quote(plan.canonical_namespace)} PATH_TO_CHECKOUT "
-            f"{selection} --authorize-namespace {shlex.quote(plan.canonical_namespace)}"
-        )
     # A statement that succeeded is not a table that holds what it should, and the plan's last
     # step is a read-back this command does not perform. Saying only how many statements ran
     # would let the output stand in for the verification nobody has done yet.
-    # Only when a table was built. A preserve-only plan issues nothing and a rebuild-only plan
-    # issues drops, and telling either operator that "these statements build tables from a query"
-    # describes statements that did not run.
+    # A preserve-only plan does not build tables.
     if any(step in ("replace", "add") for step, _table, _statement in promotion_statements(plan)):
         click.echo("")
         _echo_metadata_warning(plan)
