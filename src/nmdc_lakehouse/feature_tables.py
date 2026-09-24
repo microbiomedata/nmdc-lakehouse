@@ -275,7 +275,8 @@ def sample_runs(
             continue
         if any(int(files[t].get("file_size_bytes") or 0) == 0 for t in required_types if t not in may_be_empty):
             continue
-        total = sum(int(files[t].get("file_size_bytes") or 0) for t in required_types)
+        # Every file the manifest will list, not only the required ones, so the cap bounds the download.
+        total = sum(int(files[t].get("file_size_bytes") or 0) for t in CHECK_TYPES if t in files)
         if max_run_bytes is not None and total > max_run_bytes:
             continue
         run = entry["run"]
@@ -384,6 +385,20 @@ def split_ko_ec(column3: str) -> tuple[set[str], set[str]]:
 # ---------------------------------------------------------------------------
 # Overlap checks
 # ---------------------------------------------------------------------------
+
+
+def _restates_rna(label: str, feature_type: str, product: str | None) -> bool:
+    """Whether a Product Names label only restates an RNA row's type, or an rRNA's subunit.
+
+    Observed 2026-09-23: `tRNA`, `tmRNA` and `ncRNA` repeat the type, and `rRNA_23S` repeats the
+    subunit named in the product `23S ribosomal RNA`. Any other label is new information.
+    """
+    if feature_type not in PRODUCT_NAMES_ONLY_SOURCE_TYPES:
+        return False
+    if label == feature_type:
+        return True
+    subunit = label.removeprefix("rRNA_").replace("_", ".")
+    return feature_type == "rRNA" and label.startswith("rRNA_") and bool(product) and subunit in str(product)
 
 
 def _check(passed: bool, **counts: Any) -> dict[str, Any]:
@@ -506,7 +521,7 @@ def check_run(files: Mapping[str, Path]) -> dict[str, dict[str, Any]]:
             name_matched += bool(candidates)
             if any(c[1] == source_label for c in candidates):
                 source_matched += 1
-            elif any(c[1] is None and c[2] in PRODUCT_NAMES_ONLY_SOURCE_TYPES for c in candidates) and source_label:
+            elif source_label and any(c[1] is None and _restates_rna(source_label, c[2], c[0]) for c in candidates):
                 # RNA rows only: Product Names says `rRNA_28S` or `tRNA` where the Functional
                 # Annotation GFF has no product_source at all. Any other type missing its source
                 # fails the check.

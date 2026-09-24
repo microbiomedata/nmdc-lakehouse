@@ -679,26 +679,13 @@ table must have a disposition; and neither the plan nor the staging outcome may
 name one table twice. A `retire` disposition is refused outright, because nothing
 implements it.
 
-The rendered plan states the step order and, when derived tables are involved,
-the outage:
-
-```
-  1. drop 2 derived table(s): graph_edges, biosample_to_workflow_run
-  2. replace 2 table(s) from staging
-  3. add 1 table(s) absent from the destination
-  4. rebuild those derived table(s) from the replaced provenance side tables
-  5. note that table comments and properties do not travel with these statements
-  6. verify all 5 object(s) by read-back
-
-  OUTAGE: graph_edges, biosample_to_workflow_run are dropped at step 1 and do
-  not exist again until the rebuild. Queries against them, and joins from them
-  into the results tables, fail for the whole run. ...
-```
-
-Dropping first is the ordering Mark chose on 2026-08-26, and
-`docs/biosample_to_workflow_run.md` explains why: leaving those tables in place
-while the tables they are computed from are replaced underneath would have them
-return provenance that no longer exists, and those answers look correct.
+`rebuild` dispositions and nonempty `derived_rebuilds` lists in saved plans are
+also refused. The Spark provenance rebuild is retired. Use the
+[local builder](local-provenance.md) to prepare both derived tables before
+staging. Combining the verified metadata and derived snapshots in a promotion
+with metadata preservation and recovery remains
+[issue 234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
+Do not promote the current production snapshots with this incomplete path.
 
 The output file is created once and never replaced, because it is the artifact a
 human authorizes against.
@@ -740,27 +727,6 @@ because nothing in this repository can verify which deployment a session reaches
 the runtime comes from the checkout named by `--ingest-checkout`, and the code
 establishes only that the session helper was imported from that checkout, not
 what it is configured to talk to.
-
-**When the plan rebuilds derived tables, the outage starts at the first
-statement.** Those tables are dropped before the replacements, so queries against
-them fail from then until `rebuild-derived-tables` finishes. The command does not
-rebuild them, so that cannot be run as one step nobody can stop in between. A
-plan with no rebuild dispositions issues no drop and starts no outage; the
-rendered plan says which kind you have.
-
-Rebuild exactly the tables the plan dropped, which the command prints for you:
-
-<!-- unverified: no run of this command against a live catalog is recorded.
-     Running it is tracked in
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
-```bash
-just rebuild-derived-tables nmdc.metadata ~/gitrepos/BERIL-research-observatory \
-    --table graph_edges \
-    --authorize-namespace nmdc.metadata
-```
-
-Without `--table` it rebuilds every derived table, which replaces any the plan
-deliberately preserved.
 
 Two things are not done by promotion and are easy to assume are:
 

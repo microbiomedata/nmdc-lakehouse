@@ -30,7 +30,7 @@ There is one mapping row per reachable biosample and workflow, with the
 minimum number of edges between them. `workflow_type` retains the workflow's
 source `type` value. Each processing flag describes **any upstream branch of
 the workflow**, not specifically the path to the biosample on that row. This
-matches the existing Spark builder's aggregation contract.
+preserves the aggregation contract of the retired Spark builder.
 
 Pooling can associate one workflow with several biosamples. The mapping does
 not allocate a pooled measurement among samples. Summing a workflow's result
@@ -79,8 +79,8 @@ MongoDB schema.
 
 The original snapshot is rechecked before the derived manifest is completed.
 No MongoDB dump is repeated, and the original snapshot and staging plan are
-unchanged. The local builder does not replace the promotion CLI's Spark rebuild
-automatically.
+unchanged. The Spark rebuild command is retired; use this builder for both
+derived tables. Old promotion plans requiring a subsequent rebuild are refused.
 
 ## Validate and prepare separate staging evidence
 
@@ -118,9 +118,10 @@ already reviewed 46-artifact snapshot or reuse its evidence. If comparing with
 an inventory of the full metadata namespace, explicitly preserve its tables
 that are absent from this two-table snapshot in the publication policy.
 
-Actual staging, catalog readback, and replacing the failing promotion-time
-Spark rebuild remain tracked in
+Actual staging and catalog readback remain tracked in
 [issue 341](https://github.com/microbiomedata/nmdc-lakehouse/issues/341).
+Combined parent-and-derived promotion remains
+[issue 234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
 Planning alone does not modify the lakehouse or authorize canonical promotion.
 
 ## Measured query comparison
