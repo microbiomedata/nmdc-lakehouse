@@ -462,13 +462,13 @@ def check_run(files: Mapping[str, Path]) -> dict[str, dict[str, Any]]:
     selected_calls = set()
     for r, pairs in zip(functional, f_pairs, strict=True):
         selected_calls.add(call(r))
-        candidates = caller_rows.get(call(r), [])
-        found += bool(candidates)
+        same_call_rows = caller_rows.get(call(r), [])
+        found += bool(same_call_rows)
         # The selected row repeats the caller's row when score and phase match and every caller
         # attribute is in the selected row, which adds keys such as start_type and product.
         identical += any(
             c[5] == r[5] and c[7] == r[7] and set(parse_attributes(c[8]) if len(c) > 8 else []) <= set(pairs)
-            for c in candidates
+            for c in same_call_rows
         )
     unselected = sum(len(rows) for key, rows in caller_rows.items() if key not in selected_calls)
     results["selected_rows_in_callers"] = _check(
