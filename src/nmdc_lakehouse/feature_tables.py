@@ -386,6 +386,9 @@ def split_ko_ec(column3: str) -> tuple[set[str], set[str]]:
 # ---------------------------------------------------------------------------
 
 
+_SUBUNIT = re.compile(r"\d+(?:\.\d+)?S")
+
+
 def _restates_rna(label: str, feature_type: str, product: str | None) -> bool:
     """Whether a Product Names label only restates an RNA row's type, or an rRNA's subunit.
 
@@ -396,8 +399,11 @@ def _restates_rna(label: str, feature_type: str, product: str | None) -> bool:
         return False
     if label == feature_type:
         return True
+    if feature_type != "rRNA" or not label.startswith("rRNA_") or not product:
+        return False
+    # The subunit must look like one (`23S`, `5.8S`) and be the product's first word.
     subunit = label.removeprefix("rRNA_").replace("_", ".")
-    return feature_type == "rRNA" and label.startswith("rRNA_") and bool(product) and subunit in str(product)
+    return bool(_SUBUNIT.fullmatch(subunit)) and str(product).split(" ", 1)[0] == subunit
 
 
 def _check(passed: bool, **counts: Any) -> dict[str, Any]:

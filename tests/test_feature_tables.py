@@ -327,6 +327,9 @@ def test_restates_rna_accepts_only_type_or_subunit_labels() -> None:
     assert ft._restates_rna("rRNA_23S", "rRNA", "23S ribosomal RNA")
     assert ft._restates_rna("rRNA_5_8S", "rRNA", "5.8S ribosomal RNA")
     assert not ft._restates_rna("rRNA_16S", "rRNA", "23S ribosomal RNA")
+    assert not ft._restates_rna("rRNA_ribosomal", "rRNA", "5S ribosomal RNA")
+    assert not ft._restates_rna("rRNA_RNA", "rRNA", "5S ribosomal RNA")
+    assert not ft._restates_rna("rRNA_", "rRNA", "5S ribosomal RNA")
     assert not ft._restates_rna("tRNA", "CDS", "kinase")
 
 
