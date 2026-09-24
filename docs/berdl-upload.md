@@ -622,6 +622,10 @@ snapshot ID. Empty tables with no snapshot reference are copied as empty schema.
 A single projection carries column descriptions and existing field metadata;
 Spark's table writer supplies the table comment and NMDC identity properties at
 table creation/replacement. This avoids a separate per-column canonical backfill.
+Immediately before each copy, the command rechecks the staged table's current
+snapshot, count, schema, descriptions and NMDC properties against the reviewed
+state. This also catches metadata changes that leave the data snapshot unchanged.
+
 The new destination snapshot ID is recorded by read-back, not assumed to equal
 the source snapshot ID. The checks compare counts, column names/types, table and
 column comments, and every copied NMDC identity property. They do not compute a

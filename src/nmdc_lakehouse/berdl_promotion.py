@@ -415,11 +415,9 @@ def _copy_table(spark: Any, plan: BerdlPromotionPlan, op: PromotionOperation) ->
     assert op.expected is not None and op.source_namespace is not None
     source = f"{op.source_namespace}.{op.table}"
     state = op.expected
+    if _catalog_table(spark, op.source_namespace, op.table) != state:
+        raise PromotionPlanError("The reviewed staged source changed before copying.")
     if state.snapshot_id is None:
-        if state.rows:
-            raise PromotionPlanError("A populated staged table must have an Iceberg snapshot ID.")
-        if _catalog_table(spark, op.source_namespace, op.table) != state:
-            raise PromotionPlanError("The reviewed empty source changed before copying.")
         frame = spark.table(source).limit(0)
     else:
         frame = spark.read.format("iceberg").option("snapshot-id", state.snapshot_id).load(source)

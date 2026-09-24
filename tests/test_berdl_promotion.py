@@ -657,3 +657,28 @@ def test_new_canonical_table_after_copies_prevents_helper_removal(candidate):
         run(c)
     assert len(c.spark.writes) == 4
     assert not any(action == "drop" for action, _ in c.spark.writes)
+
+
+@pytest.mark.parametrize("change", ["table-description", "column-description", "property"])
+def test_source_metadata_change_without_new_snapshot_stops_before_copy(candidate, change):
+    c = candidate
+    source = f"{c.sources[1].staging_namespace}.graph_edges"
+    original_snapshot = c.spark.tables[source].snapshot_id
+
+    def change_metadata(_target):
+        staged = c.spark.tables[source]
+        if change == "table-description":
+            staged.table_description = "Concurrent description"
+        elif change == "column-description":
+            staged.columns["id"] = "Concurrent column description"
+        else:
+            staged.properties["nmdc_lakehouse.snapshot_id"] = "concurrent-property-value"
+
+    c.spark.after_write = change_metadata
+    with pytest.raises(promotion.PromotionPlanError, match="Promotion stopped"):
+        run(c)
+    assert c.spark.tables[source].snapshot_id == original_snapshot
+    assert len(c.spark.writes) == 3
+    assert not any(target == f"{CANONICAL}.graph_edges" or action == "drop" for action, target in c.spark.writes)
+    failure = json.loads((c.path.with_suffix(".execution") / "failure.json").read_text())
+    assert failure["attempted"] == "graph_edges"
