@@ -81,17 +81,109 @@ python3 ~/prepare-nmdc-20260923-58277b41.py
 bash ~/plan-nmdc-20260923-58277b41.sh
 ```
 
-The actual staging helper has been prepared and uploaded. It rechecks the exact
+The staging helper completed successfully. It rechecks the exact
 plan, checks that the staging namespace and bronze prefix are unused, and calls
 the maintained CLI with the recorded snapshot and plan authorization. It keeps
 the outer Spark session alive, reports progress every 30 seconds, and preserves
-stdout, diagnostics, and immutable outcomes. Its Python syntax and uploaded
-bytes were checked; live execution remains pending in this record.
+stdout, diagnostics, and immutable outcomes. Its uploaded bytes and the returned
+outcomes were checked against the reviewed local copies.
 
-<!-- unverified: live staging execution pending; tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/136 -->
+<!-- verified: 2026-09-24 the pod helper completed staging and data/table-metadata verification for all 46 tables. -->
 ```bash
 ipython ~/stage-nmdc-20260923-58277b41.py
 ```
+
+## Verified staging execution
+
+A subsequent inspection through the operator's signed-in Chrome session found
+the plan and preview but none of the three expected outcome files. That
+inspection did not query the catalog or object prefix, so missing files alone
+did not establish that the destination was empty. Command-line requests had
+returned HTTP 403; the successful browser inspection showed why that response
+was insufficient evidence of pod unavailability.
+
+The pod helper matched SHA-256
+`5b35e654e9832fb449d22b7d415eac8a91bc20384e5b3b15dbc853b9c7de9c72`,
+and the pod plan matched the reviewed digest above. After the operator approved
+execution, the browser operator reported launching the helper once in a new
+JupyterLab terminal. The helper's destination checks run before any upload.
+The retained destination check confirms that the namespace was absent and the
+object prefix empty before execution.
+
+The run started at `2026-09-24T01:31:52Z` and completed both phases at about
+`01:34:54Z`. The upload pipeline reported 46 tables, zero errors, and about
+109 seconds of pipeline time. The complete operation included destination
+checks, source-versus-catalog verification, and metadata application/read-back.
+
+| Verification | Result |
+| --- | --- |
+| Combined status | `data-and-table-metadata-verified` |
+| Source and destination artifact rows | 53,217,239 across all 46 tables |
+| Table descriptions | 46 verified |
+| Column descriptions | 1,994 verified; all already correct from ingestion |
+| Table schema/snapshot properties | Verified for all 46 tables |
+| Missing column descriptions | 23, as recorded in the reviewed plan |
+| Deferred namespace operations | Nine, as recorded in the reviewed plan |
+
+All seven retrieved evidence files matched their reported pod SHA-256 digests.
+A local check then reconstructed the expected data outcome from the reviewed
+plan and upstream outcome, checked the data/metadata hash bindings, verified the
+exact table and column coverage, and compared the combined result with both
+immutable outcomes and the original preview. That local check validates the
+returned evidence; the live catalog and object-store checks were performed by
+the pod execution path.
+
+| Outcome file | SHA-256 |
+| --- | --- |
+| `kbase-ingest-outcome.json` | `c39eaf5a4292430199e75eba1dbfc81d87288c7d73278aa97818e9e973371f27` |
+| `nmdc-staging-outcome.json` | `d109783f1dcda2890c4f5f2529a601d0cbcc2b47477fd48cf90a7ae79bc7791f` |
+| `nmdc-staging-metadata-outcome.json` | `eb083bf61ff231927897a2e2c8cc08ddf062dead1d84dd8c2dadc051ab061677` |
+| `staging-result-20260924T013152772832Z.json` | `9a5a27a3b1cedaf09147b06c3a04e8feed6d89454b5bf4ccd0f8c00359be5484` |
+
+The outcome copies, destination check, preview, and run log are retained in the
+Mac evidence directory under `pod-execution-readback/`. The corresponding pod
+evidence remains in its original run directory. A telemetry-upload warning did
+not prevent data or metadata verification. No canonical promotion was performed.
+
+Keep browser operation and API operation distinct when diagnosing access. Use
+the authenticated interface that works, retain credentials in that interface,
+and report the exact failed route. Do not treat an API error as proof that the
+operator's browser session is unavailable.
+
+## Separate derived provenance candidate
+
+The two derived provenance tables use their own snapshot and the independent
+schema documented in [local provenance](../local-provenance.md). They are not
+additional files in the 46-table snapshot or its already reviewed staging plan.
+
+| Item | Recorded value |
+| --- | --- |
+| Derived snapshot | `sha256:b79eb4208c3d6e2883223142e5ac1c7b753ce9c911f464e4cf7bc5a3290d9410` |
+| Parent | The `58277b41` metadata snapshot identified above |
+| `graph_edges` | 136,776 rows |
+| `biosample_to_workflow_run` | 57,786 rows |
+| Full target validation | 194,562 selected; zero invalid |
+| Target schema | `https://w3id.org/nmdc/lakehouse/provenance`, version `1.0.0` |
+| Description coverage | Both tables and all 15 columns |
+| Preparation code | PR #356 merge, `2ed4b7c30a1a250f1314d59b69962ed164b8235e` |
+| Proposed staging namespace | `nmdc.nmdc_provenance_staging_20260923_b79eb420` |
+
+The derived transfer archive contains the unchanged snapshot, full validation
+report, approved profile and metadata bundle, exact provenance schema, and
+historical local planning evidence. It is 3,101,393 bytes with SHA-256
+`b483cc0f37aeb61a8fd7bcd272ecdd2a2e51df884ef85fcccbaaa6fa60e8937f`.
+A local extraction verified all 14 member hashes, snapshot integrity, and the
+existing validation report. No repeat MongoDB dump or full row validation is
+required to transfer those bytes.
+
+The archive's `evidence/local-preview` files are historical observations and
+plans. Before execution, collect a fresh destination inventory and construct a
+separate pod-bound plan using the merged validator. Preserve every canonical
+table outside the two-table candidate, and check that its staging namespace and
+object prefix are unused. The original run's pinned checkout and immutable plan
+remain separate. Namespace metadata operations are still deferred; the parent
+identity is retained in the manifest and evidence rather than claimed as a
+verified live namespace property.
 
 ## What the plan includes
 
@@ -130,7 +222,7 @@ preserving its evidence. The uploaded helper files are in the pod home. No
 credential, production row, or private connection string belongs in the tracked
 documentation or issue comments.
 
-Still outstanding: the live staging/data/metadata outcomes; the source preservation
+Still outstanding: separate derived-provenance staging; the source preservation
 audit in issue #347; namespace metadata support in
 [issue #114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114); and any
 separately authorized canonical promotion. The transport parts remain available

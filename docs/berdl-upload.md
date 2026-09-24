@@ -505,8 +505,7 @@ snapshot and all reviewed evidence must therefore be available in that pod.
 Start the Spark Connect sidecar with `get_spark_session()` in a notebook before
 using the pod terminal for a long-running execution. Preview is the default:
 
-<!-- unverified: no run of this procedure is recorded. Running it is tracked in
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/136 -->
+<!-- verified: 2026-09-24 the equivalent CLI preview rechecked the production plan before execution; see runs/2026-09-23-production-staging.md. -->
 ```bash
 just berdl-upload \
   /path/to/berdl-staging-plan.json \
@@ -533,8 +532,7 @@ example, use `sha256sum` on Linux or `shasum -a 256` on macOS. Execute the same
 plan with both that digest and the snapshot ID printed in the plan as explicit,
 plan-bound authorization:
 
-<!-- unverified: no run of this procedure is recorded. Running it is tracked in
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/136 -->
+<!-- verified: 2026-09-24 the equivalent CLI execution verified all 46 production tables and planned table metadata; see runs/2026-09-23-production-staging.md. -->
 ```bash
 just berdl-upload \
   /path/to/berdl-staging-plan.json \
