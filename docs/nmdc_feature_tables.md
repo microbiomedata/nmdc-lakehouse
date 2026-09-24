@@ -24,7 +24,7 @@ Measured on a 50-run sample on 2026-09-23 (see [Sample results](#sample-results)
 | Functional Annotation GFF | load | the selected gene and RNA calls with every functional key |
 | Pfam, COG, TIGRFam, SMART, CATH FunFams, SUPERFam, KO_EC Annotation GFF | load | only source of hit coordinates, scores, e-values and repeated hits; the Functional Annotation GFF lists only their accessions |
 | Structural Annotation GFF | skip | the Functional Annotation GFF minus its functional keys, row for row |
-| Annotation KEGG Orthology, Annotation Enzyme Commission | skip | the same (gene, accession) pairs as KO_EC Annotation GFF |
+| Annotation KEGG Orthology, Annotation Enzyme Commission | skip | every row, including identity, coordinates, e-value and bit score, is in the KO_EC Annotation GFF |
 | Product Names | skip | `product` and `product_source` of the Functional Annotation GFF; see the RNA exception below |
 | Prodigal, GeneMark, tRNA, RFAM, CRT Annotation GFF | skip, except unselected calls | each selected row repeats the same caller's row; about half the caller rows are unselected, including the losing caller's call at the same interval |
 | Contig Mapping File, Scaffold Lineage tsv | load | assembly contig ID and per-contig lineage, one row per contig |
@@ -85,8 +85,8 @@ it downloads, under which one of these runs is 3.04 GiB and the same seed picks 
 |---|---|---|
 | Structural Annotation GFF is the Functional Annotation GFF minus keys | 50 | 0 |
 | each hit file's accessions per gene equal the Functional Annotation GFF's (Pfam, COG, TIGRFam, SMART, CATH, SUPERFam, KO_EC) | 50 | 0 |
-| KEGG Orthology TSV pairs equal KO_EC Annotation GFF pairs | 50 | 0 |
-| Enzyme Commission TSV pairs equal KO_EC Annotation GFF pairs | 50 | 0 |
+| every KEGG Orthology TSV row, all 11 fields, is in the KO_EC Annotation GFF (8,118,880 rows) | 50 | 0 |
+| every Enzyme Commission TSV row, all 11 fields, is in the KO_EC Annotation GFF (5,120,669 rows) | 50 | 0 |
 | Product Names equals Functional Annotation GFF product fields | 50 | 0 |
 | feature IDs unique once strand is included | 50 | 0 |
 | Functional Annotation GFF contigs all in Contig Mapping File (37 runs have the file) | 37 | 0 |

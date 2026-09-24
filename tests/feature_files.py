@@ -6,6 +6,10 @@ from pathlib import Path
 
 from nmdc_lakehouse import feature_tables as ft
 
+#: KO and EC TSV columns 4-11 for the one KO_EC hit: identity, query start and end, subject start
+#: and end, e-value, bit score, alignment length.
+BLAST_FIELDS = "47.7\t2\t389\t231\t624\t1e-9\t362\t388"
+
 RUN = "nmdc:wfmgan-99-test.1"
 G1 = f"{RUN}_0001_2_730"
 G2 = f"{RUN}_0001_838_2616"
@@ -68,10 +72,16 @@ def make_run_files(tmp_path: Path) -> dict[str, Path]:
         ft.KO_EC: _write(
             tmp_path,
             "ko_ec.gff",
-            [f"{G1}\tlastal 1456\tKO:K00001__EC:1.1.1.1_EC:2.2.2.2\t2\t389\t362\t.\t.\tID={G1}_2_389;evalue=1e-9"],
+            [
+                f"{G1}\tlastal 1456\tKO:K00001__EC:1.1.1.1_EC:2.2.2.2\t2\t389\t362\t.\t.\tID={G1}_2_389;"
+                "subject_gene_ids=277;subject_start=231;subject_end=624;evalue=1e-9;percent_identity=47.7;"
+                "alignment_length=388"
+            ],
         ),
-        ft.KO_TSV: _write(tmp_path, "ko.tsv", [f"{G1}\t277\tKO:K00001\t47.7"]),
-        ft.EC_TSV: _write(tmp_path, "ec.tsv", [f"{G1}\t277\tEC:1.1.1.1\t47.7", f"{G1}\t277\tEC:2.2.2.2\t47.7"]),
+        ft.KO_TSV: _write(tmp_path, "ko.tsv", [f"{G1}\t277\tKO:K00001\t{BLAST_FIELDS}"]),
+        ft.EC_TSV: _write(
+            tmp_path, "ec.tsv", [f"{G1}\t277\tEC:1.1.1.1\t{BLAST_FIELDS}", f"{G1}\t277\tEC:2.2.2.2\t{BLAST_FIELDS}"]
+        ),
         ft.PRODUCT_NAMES: _write(
             tmp_path,
             "product_names.tsv",

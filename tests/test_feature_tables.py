@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 from nmdc_lakehouse import feature_tables as ft
-from tests.feature_files import (  # noqa: F401
+from tests.feature_files import (
+    BLAST_FIELDS,  # noqa: F401
     FUNCTIONAL_ROWS,
     G1,
     G2,
@@ -406,3 +407,24 @@ def test_cli_sample_writes_no_run_list_when_the_manifest_is_refused(tmp_path: Pa
     assert result.exit_code != 0
     assert "neither file was written" in result.output
     assert not runs.exists()
+
+
+def test_tsv_row_differing_in_one_field_is_not_a_repeat(run_files: dict[str, Path], tmp_path: Path) -> None:
+    # Same gene and KO, different e-value: the TSV row is not in the GFF.
+    run_files[ft.KO_TSV] = _write(
+        tmp_path, "ko_changed.tsv", [f"{G1}\t277\tKO:K00001\t47.7\t2\t389\t231\t624\t1e-5\t362\t388"]
+    )
+    result = ft.check_run(run_files)["ko_tsv_in_ko_ec_gff"]
+    assert result["passed"] is False
+    assert result["tsv_pairs"] == result["gff_pairs"] == 1
+    assert result["tsv_rows_fully_in_gff"] == 0
+
+
+def test_cached_files_strips_url_whitespace(tmp_path: Path) -> None:
+    cache = tmp_path / "cache"
+    (cache / "data").mkdir(parents=True)
+    (cache / "data" / "f.gff").write_text("x")
+    entry = {"files": {ft.FUNCTIONAL: {"url": "  https://example.org/data/f.gff \n"}}}
+    paths, urls = ft.cached_files(entry, cache)
+    assert urls[ft.FUNCTIONAL] == "https://example.org/data/f.gff"
+    assert paths[ft.FUNCTIONAL].name == "f.gff"
