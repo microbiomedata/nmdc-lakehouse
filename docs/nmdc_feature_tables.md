@@ -83,7 +83,9 @@ file names the same run, so two run IDs that map to one directory name cannot ov
 
 A hit's `feature_id` is its GFF `ID`, its annotation system and its column 3 joined with `|`,
 because one gene can carry the same coordinates in several systems. If any `feature_id` still
-repeats within a run, `feature-convert` stops before writing that run.
+repeats within a run, `feature-convert` stops before writing that run. A run whose Functional
+Annotation GFF is missing from the cache is listed under `missing_functional_gff` in
+`conversion_summary.json`, and the command exits non-zero.
 
 Features carry the annotation run as `generated_by`. Contigs carry the assembly run, found by
 `feature-plan` as the run whose `has_output` includes the annotation run's input, and null when

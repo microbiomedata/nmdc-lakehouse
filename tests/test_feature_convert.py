@@ -119,12 +119,13 @@ def test_cli_convert_writes_a_summary(run_files: dict[str, Path], tmp_path: Path
     result = CliRunner().invoke(cli, ["feature-convert", *args, "--include-unselected"])
     assert result.exit_code == 0, result.output
     summary = json.loads((out / "conversion_summary.json").read_text())
-    assert summary[0]["run_id"] == RUN
-    assert summary[0]["unselected_refused"] is None
-    assert summary[0]["orphan_hits"] == {}
+    assert summary["missing_functional_gff"] == []
+    assert summary["converted"][0]["run_id"] == RUN
+    assert summary["converted"][0]["unselected_refused"] is None
+    assert summary["converted"][0]["orphan_hits"] == {}
 
 
-def test_cli_convert_skips_a_run_without_its_functional_file(run_files: dict[str, Path], tmp_path: Path) -> None:
+def test_cli_convert_fails_when_a_run_has_no_functional_file(run_files: dict[str, Path], tmp_path: Path) -> None:
     from click.testing import CliRunner
 
     from nmdc_lakehouse.cli import cli
@@ -144,17 +145,22 @@ def test_cli_convert_skips_a_run_without_its_functional_file(run_files: dict[str
             str(tmp_path / "out"),
         ],
     )
-    assert result.exit_code == 0
-    assert "skip" in result.output
+    assert result.exit_code != 0
+    assert "had no Functional Annotation GFF" in result.output
+    import json
+
+    summary = json.loads((tmp_path / "out" / "conversion_summary.json").read_text())
+    assert summary == {"converted": [], "missing_functional_gff": [RUN]}
 
 
 def test_convert_run_refuses_to_write_a_repeated_feature_id(run_files: dict[str, Path], tmp_path: Path) -> None:
-    # Same ID, strand and everything: renaming by strand cannot separate these, but the counter can.
+    # Same ID and strand: the strand cannot separate these, so the run is refused, not numbered.
     row = f"{RUN}_0004\tx\tmisc_feature\t1\t9\t.\t+\t.\tID=same"
-    run_files[ft.FUNCTIONAL] = _write(tmp_path, "functional_same.gff", [*FUNCTIONAL_ROWS, row, row])
-    result = fc.convert_run(RUN, run_files, {}, tmp_path / "ok")
-    assert result.renamed_duplicate_ids == 2
-    # A hit whose derived feature_id collides has no renaming rule, so conversion must stop.
+    same = dict(run_files)
+    same[ft.FUNCTIONAL] = _write(tmp_path, "functional_same.gff", [*FUNCTIONAL_ROWS, row, row])
+    with pytest.raises(fc.DuplicateFeatureIdError, match=r"same\|\+"):
+        fc.convert_run(RUN, same, {}, tmp_path / "same")
+    # A hit whose derived feature_id collides has no renaming rule either.
     hit = f"{G1}\tHMMER 3.1b2\tPF00001\t10\t80\t50.3\t.\t.\tID={G1}_10_80"
     run_files["Pfam Annotation GFF"] = _write(tmp_path, "pfam_twice.gff", [hit, hit])
     out = tmp_path / "bad"

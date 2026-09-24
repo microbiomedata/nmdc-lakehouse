@@ -1324,13 +1324,16 @@ def feature_convert_command(
     if not run_ids:
         raise click.ClickException(f"{runs_path} lists no runs; nothing would be converted.")
     summary = []
+    missing: list[str] = []
     for run_id in run_ids:
         try:
             files, urls = cached_files(plan.selected[run_id], cache_dir)
         except ValueError as error:
             raise click.ClickException(str(error)) from error
         if FUNCTIONAL not in files:
-            click.echo(f"  skip {run_id}: no Functional Annotation GFF in {cache_dir}")
+            # Required input missing: recorded and reported, and the command fails at the end.
+            click.echo(f"  missing {run_id}: no Functional Annotation GFF in {cache_dir}")
+            missing.append(run_id)
             continue
         entry = plan.selected[run_id]
         try:
@@ -1360,7 +1363,13 @@ def feature_convert_command(
         )
         click.echo(f"  {run_id}: {sum(result.feature_rows.values()):,} features, {result.contig_rows:,} contigs")
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "conversion_summary.json").write_text(json.dumps(summary, indent=1))
+    (out_dir / "conversion_summary.json").write_text(
+        json.dumps({"converted": summary, "missing_functional_gff": missing}, indent=1)
+    )
+    if missing:
+        raise click.ClickException(
+            f"{len(missing)} run(s) had no Functional Annotation GFF in the cache: {missing[:3]}"
+        )
 
 
 if __name__ == "__main__":

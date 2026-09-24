@@ -203,14 +203,14 @@ def convert_run(
     functional_url = urls.get(FUNCTIONAL)
     # Observed 2026-09-23 in v1.0.2 and v1.0.4 runs: an RFAM hit over one interval on both strands
     # gets one `ID` twice, because the ID encodes the interval but not the strand. Those rows get
-    # the strand appended, and a counter if that is still not enough.
+    # the strand appended. If the strand does not separate them, the run is refused by the
+    # repeated-ID check below rather than numbered in file order.
     id_counts: Counter[str | None] = Counter()
     cds_counts: Counter[str | None] = Counter()
     for r in read_table(files[FUNCTIONAL]):
         source = _first(parse_attributes(r[8]) if len(r) > 8 else [], "ID")
         id_counts[source] += 1
         cds_counts[source] += r[2] == "CDS"
-    seen_ids: Counter[str] = Counter()
     cds_renamed: dict[str, list[str]] = {}
     for r in read_table(files[FUNCTIONAL]):
         pairs = parse_attributes(r[8]) if len(r) > 8 else []
@@ -218,9 +218,6 @@ def convert_run(
         feature_id = source_id or f"{r[0]}_{r[3]}_{r[4]}"
         if source_id and id_counts[source_id] > 1:
             feature_id = f"{source_id}|{r[6]}"
-            seen_ids[feature_id] += 1
-            if seen_ids[feature_id] > 1:
-                feature_id = f"{feature_id}|{seen_ids[feature_id]}"
             result.renamed_duplicate_ids += 1
             if r[2] == "CDS":
                 # Hits sit on proteins, so a renamed CDS is the only row they can belong to.
