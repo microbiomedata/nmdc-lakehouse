@@ -175,6 +175,8 @@ def _load_source(root: Path) -> tuple[PromotionSource, MetadataApplicationPlan, 
     plan_path = evidence / "berdl-staging-plan.json"
     plan = berdl_staging.load_berdl_staging_plan(plan_path)
     berdl_staging._evidence_paths(plan)
+    if len({artifact.table for artifact in plan.artifacts}) != len(plan.artifacts):
+        raise PromotionPlanError("The staging plan must name each artifact table exactly once.")
     coverage = plan.target_validation
     if coverage.requested_mode != "full" or coverage.selected_rows != coverage.eligible_rows:
         raise PromotionPlanError("Combined promotion requires full target-row validation for each input.")

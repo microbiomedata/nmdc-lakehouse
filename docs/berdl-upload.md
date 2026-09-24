@@ -638,8 +638,9 @@ column comments, and every copied NMDC identity property. They do not compute a
 row-content hash of the catalog table.
 
 Planning compares every staged table's column names and types with the validated
-Parquet using the writer's existing Arrow-to-Spark mapping. It ignores top-level
-field nullability because catalog loading can relax it; it does not compare
+Parquet using the writer's existing Arrow-to-Spark mapping. The staging plan and
+validated manifest must each identify one Parquet artifact per table. The type
+comparison ignores top-level field nullability because catalog loading can relax it; it does not compare
 incompatible Arrow and Spark schema digests.
 
 All replacements/additions and the complete canonical table set must verify

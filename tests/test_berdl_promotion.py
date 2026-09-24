@@ -610,6 +610,17 @@ def test_real_completed_stage_evidence_loads_without_old_runtime_revalidation(pl
         promotion._load_source(root)
 
 
+def test_duplicate_staging_artifact_table_is_refused(planned):
+    root, authorization, _, _ = planned
+    staging.stage_publication(root, **authorization)
+    path = root / "evidence/berdl-staging-plan.json"
+    document = json.loads(path.read_text())
+    document["artifacts"].append({**document["artifacts"][0], "path": "another_file.parquet"})
+    path.write_text(json.dumps(document))
+    with pytest.raises(promotion.PromotionPlanError, match="each artifact table exactly once"):
+        promotion._load_source(root)
+
+
 @pytest.mark.parametrize(
     "relative_path, validator, before_read",
     [
