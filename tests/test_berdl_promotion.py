@@ -604,6 +604,8 @@ def test_real_completed_stage_evidence_loads_without_old_runtime_revalidation(pl
     assert source.snapshot_id == manifest.snapshot_id == metadata.snapshot_id
     assert source.parent_snapshot_id == manifest.parent_snapshot_id
     assert set(source.tables) == {"graph_edges", "biosample_to_workflow_run"}
+    for artifact in manifest.artifacts:
+        assert source.evidence[str(root / "snapshot" / artifact.path)] == artifact.sha256
     assert all(file_digest(Path(path)) == digest for path, digest in source.evidence.items())
     (root / "evidence/metadata-bundle.json").write_text("changed")
     with pytest.raises(promotion.PromotionPlanError, match="Changed staging evidence"):
@@ -630,6 +632,8 @@ def test_duplicate_staging_artifact_table_is_refused(planned):
         ("evidence/nmdc-staging-outcome.json", "verified_staging_metadata", False),
         ("evidence/kbase-ingest-outcome.json", "verified_staging_metadata", False),
         ("evidence/berdl-staging-plan.json", "verified_staging_metadata", False),
+        ("snapshot/graph_edges.parquet", "validate_snapshot", False),
+        ("snapshot/graph_edges.parquet", "verified_staging_metadata", False),
     ],
 )
 def test_evidence_replaced_during_validation_is_refused(planned, monkeypatch, relative_path, validator, before_read):

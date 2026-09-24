@@ -193,6 +193,8 @@ def _load_source(root: Path) -> tuple[PromotionSource, MetadataApplicationPlan, 
     manifest = validate_snapshot(manifest_path.parent)
     if manifest.snapshot_id != plan.snapshot_id:
         raise PromotionPlanError("The staged snapshot identity differs from the manifest.")
+    for artifact in manifest.artifacts:
+        bindings[str(manifest_path.parent / artifact.path)] = artifact.sha256
     metadata, _ = verified_staging_metadata(evidence, plan)
     if {a.table: (a.rows, a.sha256) for a in plan.artifacts} != {
         a.table: (a.rows, a.sha256) for a in manifest.artifacts
