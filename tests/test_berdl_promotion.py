@@ -341,15 +341,19 @@ def test_combined_plan_and_copy_preserve_metadata_and_verify_all(candidate):
     assert [a for a, _ in c.spark.writes[:4]] == ["replace", "add", "add", "replace"]
     assert all(a == "drop" for a, _ in c.spark.writes[4:])
     assert len(c.spark.projections) == 4
-    assert set(c.spark.reads) == {
+    expected_reads = {
         (f"{op.source_namespace}.{op.table}", op.expected.snapshot_id)
         for op in c.plan.operations
         if op.expected is not None
     }
+    expected_reads.update(
+        (f"{CANONICAL}.{name}", c.spark.tables[f"{CANONICAL}.{name}"].snapshot_id) for name in result["tables"]
+    )
+    assert set(c.spark.reads) == expected_reads
     for op in c.plan.operations:
         if op.expected is not None:
             observed = promotion._catalog_table(c.spark, CANONICAL, op.table)
-            assert promotion._same_content_and_metadata(observed, op.expected)
+            assert promotion._same_table_summary(observed, op.expected)
     journal = c.path.with_suffix(".execution")
     assert len(list(journal.glob("*-verified.json"))) == 13
     before = json.loads((journal / "before.json").read_text())["before"]
@@ -557,6 +561,45 @@ def test_changed_content_before_execution_refuses_all_writes(candidate):
         run(c)
     assert not c.spark.writes
     assert not (c.path.with_suffix(".execution") / "outcome.json").exists()
+
+
+@pytest.mark.parametrize("change", ["value", "null-key", "duplicate-count", "array-order", "catalog"])
+def test_corrupt_copy_is_not_verified_and_prevents_helper_removal(candidate, change):
+    c = candidate
+
+    def corrupt(target):
+        rows = c.spark.table_rows[target]
+        if change == "value":
+            rows[0]["id"] = "changed-by-writer"
+        elif change == "null-key":
+            rows[0]["id"] = None
+        elif change == "duplicate-count":
+            rows[2] = deepcopy(rows[1])
+        elif change == "array-order":
+            rows[0]["host_diet"].reverse()
+        else:
+
+            def rewrite_during_comparison():
+                c.spark.after_compare = None
+                c.spark.tables[target].snapshot_id = "changed-during-readback"
+
+            c.spark.after_compare = rewrite_during_comparison
+
+    c.spark.after_write = corrupt
+    with pytest.raises(promotion.PromotionPlanError, match="Promotion stopped"):
+        run(c)
+    assert len(c.spark.writes) == 1
+    assert c.spark.writes[0][0] == "replace"
+    journal = c.path.with_suffix(".execution")
+    assert not list(journal.glob("*-verified.json"))
+    assert not (journal / "outcome.json").exists()
+    failure = json.loads((journal / "failure.json").read_text())
+    assert failure["attempted"] == "biosample_set" and failure["verified"] == []
+
+
+def test_copy_row_order_does_not_affect_verification(candidate):
+    candidate.spark.after_write = lambda target: candidate.spark.table_rows[target].reverse()
+    assert run(candidate)["status"] == "promotion-verified"
 
 
 @pytest.mark.parametrize("change", ["live", "evidence", "implementation"])

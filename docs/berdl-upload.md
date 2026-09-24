@@ -650,8 +650,12 @@ state. This also catches metadata changes that leave the data snapshot unchanged
 
 The new destination snapshot ID is recorded by read-back, not assumed to equal
 the source snapshot ID. The checks compare counts, column names/types, table and
-column comments, and every copied NMDC identity property. They do not compute a
-row-content hash of the catalog table.
+column comments, and every copied NMDC identity property. Before a table is marked
+verified, its read-back snapshot is also compared with the reviewed staged snapshot
+using `EXCEPT ALL` in both directions. This catches altered or null key values and
+changed duplicate counts, even when the table summary is unchanged. The canonical
+state is rechecked after comparison. A failure stops further copies and helper
+removal and leaves an incomplete journal; it does not undo earlier writes.
 
 Planning compares every staged table's column names and types with the validated
 Parquet using the writer's existing Arrow-to-Spark mapping. The staging plan and

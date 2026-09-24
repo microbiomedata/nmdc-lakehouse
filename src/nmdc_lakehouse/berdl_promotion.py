@@ -294,6 +294,18 @@ def _implementation_digest() -> str:
     return digest.hexdigest()
 
 
+def _snapshot_frame(spark: Any, namespace: str, table: str, state: CatalogTable) -> Any:
+    name = f"{namespace}.{table}"
+    if state.snapshot_id is None:
+        return spark.table(name).limit(0)
+    return spark.read.format("iceberg").option("snapshot-id", state.snapshot_id).load(name)
+
+
+def _same_rows(first: Any, second: Any) -> bool:
+    # EXCEPT ALL compares by column position and preserves duplicate multiplicities.
+    return not (first.exceptAll(second).limit(1).count() or second.exceptAll(first).limit(1).count())
+
+
 def _require_staged_content(
     spark: Any, client: Any, plan: berdl_staging.BerdlStagingPlan, artifact: ArtifactRecord, state: CatalogTable
 ) -> None:
@@ -302,15 +314,9 @@ def _require_staged_content(
     if berdl_adapter._remote_sha256(client, plan.bucket, key) != artifact.sha256:
         raise PromotionPlanError(f"Retained source Parquet changed: {artifact.table}.")
     source = spark.read.parquet(f"s3a://{plan.bucket}/{key}")
-    name = f"{plan.staging_namespace}.{artifact.table}"
-    staged = (
-        spark.table(name).limit(0)
-        if state.snapshot_id is None
-        else spark.read.format("iceberg").option("snapshot-id", state.snapshot_id).load(name)
-    )
-    # EXCEPT ALL compares by column position and preserves duplicate multiplicities.
+    staged = _snapshot_frame(spark, plan.staging_namespace, artifact.table, state)
     # The caller has already checked the ordered physical schema against this Parquet.
-    if source.exceptAll(staged).limit(1).count() or staged.exceptAll(source).limit(1).count():
+    if not _same_rows(source, staged):
         raise PromotionPlanError(f"Staged content differs from the validated source: {artifact.table}.")
     if (
         berdl_adapter._remote_sha256(client, plan.bucket, key) != artifact.sha256
@@ -459,14 +465,10 @@ def render_promotion_plan(plan: BerdlPromotionPlan) -> str:
 
 def _copy_table(spark: Any, plan: BerdlPromotionPlan, op: PromotionOperation) -> None:
     assert op.expected is not None and op.source_namespace is not None
-    source = f"{op.source_namespace}.{op.table}"
     state = op.expected
     if _catalog_table(spark, op.source_namespace, op.table) != state:
         raise PromotionPlanError("The reviewed staged source changed before copying.")
-    if state.snapshot_id is None:
-        frame = spark.table(source).limit(0)
-    else:
-        frame = spark.read.format("iceberg").option("snapshot-id", state.snapshot_id).load(source)
+    frame = _snapshot_frame(spark, op.source_namespace, op.table, state)
     # Attach all descriptions to one projection before the table write, avoiding
     # per-column catalog commits and the historical canonical backfill timeout.
     columns = []
@@ -487,7 +489,7 @@ def _copy_table(spark: Any, plan: BerdlPromotionPlan, op: PromotionOperation) ->
         writer.replace()
 
 
-def _same_content_and_metadata(observed: CatalogTable, expected: CatalogTable) -> bool:
+def _same_table_summary(observed: CatalogTable, expected: CatalogTable) -> bool:
     return observed.model_dump(exclude={"snapshot_id"}) == expected.model_dump(exclude={"snapshot_id"})
 
 
@@ -565,9 +567,15 @@ def execute_promotion(
                     else:
                         _copy_table(spark, plan, op)
                         after = _catalog_table(spark, plan.canonical_namespace, op.table)
-                        assert op.expected is not None
-                        if not _same_content_and_metadata(after, op.expected):
+                        assert op.expected is not None and op.source_namespace is not None
+                        if not _same_table_summary(after, op.expected):
                             raise PromotionPlanError(f"Promoted data or metadata did not verify: {op.table}.")
+                        source = _snapshot_frame(spark, op.source_namespace, op.table, op.expected)
+                        copied = _snapshot_frame(spark, plan.canonical_namespace, op.table, after)
+                        if not _same_rows(source, copied):
+                            raise PromotionPlanError(f"Promoted rows differ from the reviewed source: {op.table}.")
+                        if _catalog_table(spark, plan.canonical_namespace, op.table) != after:
+                            raise PromotionPlanError(f"Canonical state changed during readback: {op.table}.")
                         copies[op.table] = after
                     verified.append(op.table)
                     save_json(
