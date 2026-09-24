@@ -84,7 +84,11 @@ def publication_status(root: Path) -> dict[str, Any]:
             **paths,
             "status": "prepared",
             "snapshot_id": manifest.snapshot_id,
-            "next_action": "Send to the pod and run plan-publication with the destination configuration.",
+            "next_action": (
+                "Preparation is verified; planning has not completed. In the pod, run or repeat "
+                "plan-publication with this root and the same destination configuration after correcting setup. "
+                "Retain the completed snapshot and full report."
+            ),
         }
     plan = berdl_staging.revalidate_berdl_staging_plan(berdl_staging.load_berdl_staging_plan(plan_path))
     digest = file_digest(plan_path)

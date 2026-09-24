@@ -20,6 +20,7 @@ from nmdc_lakehouse.metadata_application import build_metadata_application_plan
 from nmdc_lakehouse.metadata_bundle import load_metadata_bundle
 from nmdc_lakehouse.publication_plan import (
     Disposition,
+    MetadataCapability,
     PolicyRule,
     PublicationPolicy,
     build_publication_plan,
@@ -86,6 +87,8 @@ def plan_publication(root: Path, configuration: Path, *, runner: CommandRunner =
         raise PreparationError("Preparation and snapshot identities differ.")
     bundle = load_metadata_bundle(evidence / "metadata-bundle.json")
     inventory = load_destination_inventory(config.inventory)
+    if not {MetadataCapability.TABLE, MetadataCapability.COLUMN}.issubset(inventory.metadata_capabilities):
+        raise PreparationError("BERDL publication requires table and column metadata capabilities.")
     policy = PublicationPolicy(
         policy_format_version=1,
         rules=[
