@@ -164,24 +164,12 @@ The 2026-08-18 candidate/BERDL comparison is an example of why classification is
 necessary, not a permanent allowlist. The schema and deployed table sets will
 change.
 
-The maintained offline planner implements this checkpoint without contacting a
-destination:
-
-<!-- unverified: no run of this procedure is recorded, and no tracking issue is
-     named here. -->
-```bash
-uv run nmdc-lakehouse publication-plan ./completed-snapshot \
-  --inventory destination-inventory.json \
-  --policy publication-policy.json \
-  --output publication-plan.json
-```
-
-It validates the candidate snapshot manifest, a credential-free destination
-inventory, and reviewed policy JSON. Common tables default to `replace`, and
-candidate-only tables default to `add`. Every live-only table requires an explicit
-policy rule and rationale; no omission implies retirement. The command prints the
-complete versioned plan and optionally writes the same JSON atomically. It performs
-no discovery, upload, catalog change, metadata application, or promotion.
+The maintained `plan-publication` command builds this checkpoint together with
+metadata and provider-specific plans from a prepared directory and a fresh
+inventory. See [the command and destination configuration](berdl-upload.md#build-the-maintained-staging-command-plan).
+Common tables default to `replace`; candidate-only tables default to `add`.
+Live-only tables receive an explicit `preserve` rule for staging. This staging
+policy does not authorize canonical replacement or retirement.
 
 The machine-readable input and output contracts are available without credentials:
 
@@ -200,39 +188,16 @@ Policy may override generated defaults, but incompatible dispositions are reject
 for example, `retire` cannot apply when a candidate replacement exists, and
 `replace` requires both candidate and destination evidence.
 
-Before any provider-specific staging, cross-check the independently reviewed
-snapshot, metadata bundle, destination inventory, and publication plan as one
-operation:
-
-<!-- unverified: no run of this procedure is recorded, and no tracking issue is
-     named here. -->
-```bash
-just publication-preflight ./completed-snapshot \
-  ./metadata/nmdc-metadata-bundle.json \
-  destination-inventory.json \
-  publication-plan.json
-```
-
-This offline command revalidates the snapshot and all three versioned JSON
-documents. It requires exact snapshot identity, destination observation,
-candidate and destination evidence, metadata coverage, and table-union
-agreement. Its JSON summary contains identities, counts, and dispositions, not
-paths, credentials, connection details, or records. A successful preflight is a
-required input to staging; it does not authorize or perform staging.
+Before provider-specific staging, the combined planner cross-checks snapshot
+identity, destination observation, candidate and destination evidence, metadata
+coverage, and the table union. It saves a credential-free preflight report. A
+successful preflight neither authorizes nor performs staging.
 
 ## Metadata application plan
 
-Map the approved bundle to the capabilities declared by the same fresh
-destination inventory before a provider adapter renders any commands:
-
-<!-- unverified: no run of this procedure is recorded, and no tracking issue is
-     named here. -->
-```bash
-just metadata-application-plan ./metadata/nmdc-metadata-bundle.json \
-  destination-inventory.json \
-  example_catalog.nmdc_metadata_staging \
-  --output metadata-application-plan.json
-```
+The same command maps the approved bundle to the capabilities declared by the
+same destination inventory. It saves `metadata-application-plan.json` beside the
+other evidence, without requiring an additional operator command.
 
 The staging namespace is explicit and may differ by destination. The plan
 preserves the snapshot, profile, bundle-generation, destination-observation,
@@ -260,7 +225,7 @@ report unsupported metadata levels rather than silently omitting them.
 
 The BERDL destination profile can bind the reviewed portable evidence to an
 exact external implementation before any live operation. The
-`berdl-upload-plan` command re-runs publication preflight, checks the metadata
+`plan-publication` command re-runs publication preflight, checks the metadata
 application plan against the same snapshot and destination observation, requires
 a successful target-schema validation report with exact table coverage, and
 selects the complete manifest-owned Parquet table set. It also requires a clean
@@ -343,7 +308,7 @@ the approved bundle and same destination inventory. The provider profile also
 states the promotion mechanism, validation queries, and rollback procedure.
 
 This is the first mandatory no-mutation checkpoint. Upload does not begin until a
-human has reviewed both plans and `publication-preflight` has confirmed that the
+human has reviewed both plans and the internal preflight has confirmed that the
 disposition plan, inventory, metadata bundle, and snapshot still agree. The later
 adapter independently rechecks the metadata plan's copied identities before use.
 

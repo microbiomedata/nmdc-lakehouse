@@ -56,7 +56,7 @@ symlinks, and nested files. Review the preview before deleting anything.
 
 **A selective run does not produce a publishable snapshot.** `create-snapshot-manifest`
 and `validate-snapshot` describe a complete, self-consistent output set, and
-`berdl-upload-plan` requires successful target-schema validation with exact
+`plan-publication` requires successful target-schema validation with exact
 snapshot and table coverage. Adding one freshly produced table to an already
 manifested snapshot directory invalidates it, because the manifest enumerates the
 artifacts and their digests.

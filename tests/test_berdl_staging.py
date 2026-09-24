@@ -784,53 +784,6 @@ def test_loaded_plan_reloads_every_parsed_model_after_assembly(tmp_path: Path, m
         )
 
 
-def test_cli_writes_the_same_plan_it_prints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    plan = _build(tmp_path)
-    output = tmp_path / "cli-plan.json"
-    monkeypatch.setattr("nmdc_lakehouse.berdl_staging.plan_berdl_staging", lambda *_args, **_kwargs: plan)
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "berdl-upload-plan",
-            "snapshot",
-            "--bundle",
-            "bundle.json",
-            "--inventory",
-            "inventory.json",
-            "--plan",
-            "publication.json",
-            "--metadata-plan",
-            "metadata.json",
-            "--target-validation",
-            "target-validation.json",
-            "--ingest-checkout",
-            "data-lakehouse-ingest",
-            "--ingest-revision",
-            REVISION,
-            "--tenant",
-            "nmdc",
-            "--dataset",
-            "nmdc_metadata_staging_20260819",
-            "--bucket",
-            "cdm-lake",
-            "--bronze-prefix",
-            "tenant-general-warehouse/nmdc/staging/20260819",
-            "--progress-key",
-            "tenant-general-warehouse/nmdc/staging/20260819/progress.jsonl",
-            "--config-key",
-            "tenant-general-warehouse/nmdc/staging/20260819/config.json",
-            "--output",
-            str(output),
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert json.loads(result.stdout) == plan.model_dump(mode="json")
-    assert json.loads(output.read_text(encoding="utf-8")) == plan.model_dump(mode="json")
-    assert f"plan={output.resolve()}" in result.stderr
-
-
 def test_plan_digest_identifies_the_same_bytes_that_are_validated(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

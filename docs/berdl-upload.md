@@ -34,7 +34,7 @@ catalog and provider, and classify every candidate and live table.
 `LAKEHOUSE_ROOT` (see the configuration table in `README.md`), and that output has
 been assembled into a completed snapshot with a manifest.
 
-From there, `berdl-upload-plan`, `berdl-upload`, `berdl-apply-metadata`, and the
+From there, `plan-publication`, `berdl-upload`, `berdl-apply-metadata`, and the
 destination-inventory script all run **inside a BERDL JupyterHub pod**, where MinIO
 and Spark are local. That path needs:
 
@@ -135,72 +135,59 @@ locally available interfaces; they do not certify live-ingest compatibility.
 The maintained staging plan instead verifies the selected official KBase ingest
 checkout and does not require a BERIL revision.
 
-After generating and reviewing the snapshot-bound metadata bundle, fresh live
-inventory, and disposition plan, generate the provider-neutral metadata
-application plan for the explicitly selected staging namespace:
-
-<!-- unverified: no run of this procedure is recorded, and no tracking issue is
-     named here. -->
-```bash
-just metadata-application-plan \
-  /absolute/path/to/metadata-bundle.json \
-  /absolute/path/to/destination-inventory.json \
-  nmdc.nmdc_metadata_staging_20260819 \
-  --output /absolute/path/to/metadata-application-plan.json
-```
-
-Use the exact `<tenant>.<dataset>` staging namespace that the later
-`berdl-upload-plan` invocation supplies; the example is not a permanent BERDL
-default. Review supported operations, unsupported operations, and missing
-descriptions. This offline command emits JSON data, not Spark SQL, and does not
-contact or change BERDL. The existing staging executor rechecks the bundle and
-inventory identities before applying table metadata. Namespace support remains
-tracked in [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114).
-
-Then run the destination-neutral artifact gate from the `nmdc-lakehouse`
-checkout:
-
-<!-- unverified: no run of this procedure is recorded, and no tracking issue is
-     named here. -->
-```bash
-just publication-preflight /absolute/path/to/completed-snapshot \
-  /absolute/path/to/metadata-bundle.json \
-  /absolute/path/to/destination-inventory.json \
-  /absolute/path/to/publication-plan.json
-```
-
-This command is offline and non-mutating. It proves that the independently
-reviewed artifacts still identify the same snapshot and destination observation
-and that their table evidence and coverage agree. It neither contacts BERDL nor
-authorizes the historical upload steps below.
-
 ## Build the maintained staging command plan
 
-After reviewing the successful preflight and metadata-application plan, bind
-them to a clean checkout of the official
-[`kbase/data-lakehouse-ingest`](https://github.com/kbase/data-lakehouse-ingest)
-package at the exact revision selected for staging:
+Transfer the complete prepared directory from
+[workstation preparation](berdl-staging-runbook.md#prepare-on-the-workstation)
+to the pod. Obtain a fresh [destination inventory](#capture-a-fresh-destination-inventory-without-mutation)
+and a clean official [`kbase/data-lakehouse-ingest`](https://github.com/kbase/data-lakehouse-ingest)
+checkout. Use the source pair selected during preparation in the pod environment.
+The planner does not install packages or contact the catalog.
 
-<!-- unverified: no run of this procedure is recorded, and no tracking issue is
-     named here. -->
-```bash
-just berdl-upload-plan \
-  /path/to/completed-snapshot \
-  /path/to/metadata-bundle.json \
-  /path/to/destination-inventory.json \
-  /path/to/publication-plan.json \
-  /path/to/metadata-application-plan.json \
-  /path/to/target-validation-report.json \
-  /path/to/data-lakehouse-ingest \
-  a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3 \
-  nmdc \
-  nmdc_metadata_staging_20260819 \
-  cdm-lake \
-  tenant-general-warehouse/nmdc/staging/20260819 \
-  tenant-general-warehouse/nmdc/staging/20260819/progress.jsonl \
-  tenant-general-warehouse/nmdc/staging/20260819/config.json \
-  /path/to/berdl-staging-plan.json
+Write a destination JSON file, for example `destination.json`. Paths are relative
+to this file and must refer to pod-local files. Replace the namespace and object
+prefix with the intended unique staging destination:
+
+```json
+{
+  "inventory": "destination-inventory.json",
+  "ingest_checkout": "runtime/data-lakehouse-ingest",
+  "ingest_revision": "a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3",
+  "staging_namespace": "nmdc.nmdc_metadata_staging_20260923_example",
+  "bucket": "cdm-lake",
+  "bronze_prefix": "tenant-general-warehouse/nmdc/staging/20260923_example"
+}
 ```
+
+From the NMDC checkout in that environment:
+
+<!-- unverified: combined planning awaits pod acceptance in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
+```bash
+just plan-publication /absolute/path/to/prepared-publication /absolute/path/to/destination.json
+```
+
+This replaces the separate `publication-plan`, `publication-preflight`,
+`metadata-application-plan`, and `berdl-upload-plan` commands. It checks the
+preparation receipt, copies the inventory, and creates the disposition policy,
+publication plan, preflight report, metadata application plan and final staging
+plan under the prepared directory's `evidence/`. The final file is
+`berdl-staging-plan.json`; the command prints its exact SHA-256 digest.
+
+All manifested tables are selected. Other canonical tables receive `preserve`
+for this staging attempt; that decision does not approve their later promotion
+or retirement. The metadata plan explicitly reports unsupported operations and
+missing descriptions. Namespace application remains
+[#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114).
+Review both the staging plan and `metadata-application-plan.json` before execution.
+
+Rerunning the command rebuilds and checks every plan and permits only identical
+existing evidence. A changed inventory, destination or prepared input requires a
+new prepared directory. A runtime-check failure can be repaired and retried
+without a new dump or full validation. An existing final plan binds its runtime;
+never replace its checkout or interpreter silently. Inventory acquisition,
+transport and pod setup remain separate steps tracked in
+[#353](https://github.com/microbiomedata/nmdc-lakehouse/issues/353).
 
 The planner re-runs the portable preflight; verifies the metadata plan's
 snapshot, destination observation, capabilities, namespace, and table coverage;
@@ -248,7 +235,7 @@ for 117 minutes and failed. See
 
 ## Move the snapshot and evidence into the pod
 
-`berdl-upload-plan` binds absolute paths and `berdl-upload` runs in the pod, so the
+`plan-publication` binds absolute paths and `berdl-upload` runs in the pod, so the
 completed snapshot and every reviewed evidence file have to be in the pod
 filesystem first. Transfer happens over the JupyterHub contents API, either through
 the notebook file browser or through a client that speaks to it. The SOCKS tunnels
@@ -829,7 +816,7 @@ checked against local byte counts, with no pod involved and no tunnels beyond
 what `labctl up berdl` already provides.
 
 **This does not replace the maintained transfer above, and swapping it in would
-break the run.** `berdl-upload-plan` binds `--data-dir` to a resolved local
+break the run.** `plan-publication` binds `--data-dir` to a resolved local
 snapshot path (`berdl_staging.py:598-604`) and execution reads those Parquet
 files from the pod filesystem, so the snapshot still has to be in the pod for
 that command. Reading directly from object storage would require changes to the
@@ -982,7 +969,7 @@ reviewed provider and format labels, metadata capabilities, table names, row
 counts, and metadata-free physical-schema fingerprints. It omits credentials,
 connection details, locations, owners, comments, and data rows. Copy the JSON
 back to the local candidate workspace, validate it through
-`publication-plan`, and retain it with that plan as time-specific evidence. Do
+`plan-publication`, and retain it with that plan as time-specific evidence. Do
 not treat a previous inventory as the current live state.
 
 ---

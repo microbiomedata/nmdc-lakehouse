@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 from pydantic import BaseModel, ConfigDict
 
-from nmdc_lakehouse.metadata_bundle import MetadataBundle, load_metadata_bundle
+from nmdc_lakehouse.metadata_bundle import MetadataBundle
 from nmdc_lakehouse.publication_plan import (
     DestinationInventory,
     DestinationTable,
@@ -15,10 +12,8 @@ from nmdc_lakehouse.publication_plan import (
     PlanEntry,
     PublicationPlan,
     disposition_is_compatible,
-    load_destination_inventory,
-    load_publication_plan,
 )
-from nmdc_lakehouse.snapshot_manifest import ArtifactRecord, SnapshotManifest, validate_snapshot
+from nmdc_lakehouse.snapshot_manifest import ArtifactRecord, SnapshotManifest
 
 
 class PublicationPreflightError(ValueError):
@@ -184,23 +179,3 @@ def build_publication_preflight(
         metadata_tables=len(metadata),
         dispositions=counts,
     )
-
-
-def validate_publication_artifacts(
-    snapshot_root: Path,
-    bundle_path: Path,
-    inventory_path: Path,
-    plan_path: Path,
-) -> PublicationPreflightReport:
-    """Load, independently validate, and cross-check all pre-staging artifacts."""
-    return build_publication_preflight(
-        validate_snapshot(snapshot_root),
-        load_metadata_bundle(bundle_path),
-        load_destination_inventory(inventory_path),
-        load_publication_plan(plan_path),
-    )
-
-
-def render_publication_preflight(report: PublicationPreflightReport) -> str:
-    """Render a stable credential-free readiness summary."""
-    return json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True)

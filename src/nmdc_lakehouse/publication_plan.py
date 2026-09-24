@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import re
-import tempfile
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from nmdc_lakehouse.snapshot_manifest import SnapshotManifest, validate_snapshot
+from nmdc_lakehouse.snapshot_manifest import SnapshotManifest
 
 # Raised from 1 when DestinationTable gained observed_table_format. Every model here forbids
 # extra fields, so any added key is a format change whether or not it has a default.
@@ -203,15 +201,6 @@ def load_destination_inventory(path: Path) -> DestinationInventory:
     return inventory
 
 
-def load_publication_policy(path: Path) -> PublicationPolicy:
-    """Load a versioned reviewed publication policy."""
-    policy = _load_document(path, PublicationPolicy, "publication policy")
-    table_names = [rule.table for rule in policy.rules]
-    if len(table_names) != len(set(table_names)):
-        raise PublicationPlanError("Publication policy contains duplicate table rules.")
-    return policy
-
-
 def load_publication_plan(path: Path) -> PublicationPlan:
     """Load a versioned approved publication plan without contacting its destination."""
     plan = _load_document(path, PublicationPlan, "publication plan")
@@ -324,18 +313,6 @@ def build_publication_plan(
     )
 
 
-def plan_snapshot_publication(
-    snapshot_root: Path,
-    inventory_path: Path,
-    policy_path: Path,
-) -> PublicationPlan:
-    """Validate all offline inputs and generate a destination-neutral plan."""
-    manifest = validate_snapshot(snapshot_root)
-    inventory = load_destination_inventory(inventory_path)
-    policy = load_publication_policy(policy_path)
-    return build_publication_plan(manifest, inventory, policy)
-
-
 def publication_json_schema(document: Literal["inventory", "policy", "plan"]) -> dict[str, Any]:
     """Return the selected publication document's versioned JSON Schema."""
     models: dict[str, tuple[type[BaseModel], int]] = {
@@ -347,31 +324,3 @@ def publication_json_schema(document: Literal["inventory", "policy", "plan"]) ->
     schema = model.model_json_schema()
     schema["x-format-version"] = format_version
     return schema
-
-
-def write_publication_plan(path: Path, plan: PublicationPlan) -> Path:
-    """Atomically write a generated plan to an ordinary local path."""
-    destination = path.expanduser()
-    if destination.is_symlink():
-        raise PublicationPlanError("Publication plan output must be an ordinary file path.")
-    destination = destination.resolve()
-    if destination.exists() and (destination.is_symlink() or not destination.is_file()):
-        raise PublicationPlanError("Publication plan output must be an ordinary file path.")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent)
-    temporary = Path(temporary_name)
-    try:
-        with open(fd, "w", encoding="utf-8", closefd=True) as stream:
-            stream.write(render_publication_plan(plan))
-            stream.write("\n")
-        temporary.replace(destination)
-    except OSError as error:
-        raise PublicationPlanError("Cannot write the publication plan.") from error
-    finally:
-        temporary.unlink(missing_ok=True)
-    return destination
-
-
-def render_publication_plan(plan: PublicationPlan) -> str:
-    """Render stable, reviewable JSON for stdout or a file."""
-    return json.dumps(plan.model_dump(mode="json"), indent=2, sort_keys=True)

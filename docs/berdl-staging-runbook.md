@@ -19,12 +19,12 @@ A saved full validation report avoids another row-validation run.
 | Prepare | Workstation | `just prepare-publication CONFIGURATION OUTPUT`, described below | Snapshot, full validation, metadata profile and bundle in one directory |
 | Transfer | Workstation to BERDL pod | Transfer the snapshot and evidence; verify hashes in the pod | The same manifest and file hashes; no row validation rerun |
 | Observe destination | BERDL pod | `scripts/python/audit_database_metadata.py` with `--publication-inventory` | Fresh inventory of the explicitly selected catalog and namespace |
-| Plan | BERDL pod | [Publication dispositions](publication-contract.md#table-disposition-plan), [metadata operations](publication-contract.md#metadata-application-plan), and the [staging command plan](berdl-upload.md#build-the-maintained-staging-command-plan) | Consistent evidence, dispositions, metadata operations, pinned execution environment |
+| Plan | BERDL pod | `just plan-publication ROOT CONFIGURATION`, using [destination settings](berdl-upload.md#build-the-maintained-staging-command-plan) | Dispositions, preflight, metadata plan and final staging plan in `evidence/` |
 | Preview | Same pod and environment | `berdl-upload` without `--execute-staging` | Exact command and metadata coverage, with no destination writes |
 | Stage and verify | Same pod and environment | `berdl-upload --execute-staging` with the reviewed snapshot and plan digests | Data outcome, metadata outcome, and combined coverage report |
 
 The unprefixed names above are `nmdc-lakehouse` subcommands. Several also have
-`just` wrappers. Workstation preparation resumes completed work. Pod setup, transfer, and planning
+`just` wrappers. Workstation preparation resumes completed work. Pod setup, transfer, and inventory acquisition
 still use the documented steps below; their consolidation remains issue 353.
 
 Full target validation checks generated-table conformance. It does not prove
@@ -123,7 +123,7 @@ staging namespace and object prefix. Keep credentials in the established
 environment; never put them in the run configuration or evidence files.
 
 Use a clean official `kbase/data-lakehouse-ingest` checkout at the revision
-accepted by `berdl-upload-plan`. The September run used v0.1.5 at
+accepted by `plan-publication`. The September run used v0.1.5 at
 `a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3`. BERIL source code is not a runtime
 dependency of this maintained path.
 

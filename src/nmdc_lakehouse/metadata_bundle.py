@@ -226,7 +226,7 @@ class MetadataBundle(BaseModel):
     target_schema_ids: list[str]
     # The flat schema versions the snapshot's artifacts declare. Empty for a version 1 bundle.
     # More than one means the snapshot spans a flattener change, and a table cannot then be
-    # labelled with a single version, which plan_metadata_application refuses.
+    # labelled with a single version, which build_metadata_application_plan refuses.
     target_schema_versions: list[str] = Field(default_factory=list)
     mapping_ids: list[str]
     namespace: NamespaceProfile

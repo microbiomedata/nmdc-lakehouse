@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
-from click.testing import CliRunner
 
-from nmdc_lakehouse.cli import cli
 from nmdc_lakehouse.metadata_bundle import (
     ColumnMetadata,
     DescriptionRecord,
@@ -27,7 +23,6 @@ from nmdc_lakehouse.publication_plan import (
 )
 from nmdc_lakehouse.publication_preflight import (
     PublicationPreflightError,
-    PublicationPreflightReport,
     build_publication_preflight,
 )
 from nmdc_lakehouse.snapshot_manifest import (
@@ -217,37 +212,3 @@ def test_preflight_rejects_unsafe_edited_disposition() -> None:
 
     with pytest.raises(PublicationPreflightError, match="disposition is unsafe"):
         build_publication_preflight(manifest, bundle, inventory, plan)
-
-
-def test_cli_prints_preflight_report_without_service_access(monkeypatch: pytest.MonkeyPatch) -> None:
-    report = PublicationPreflightReport(
-        status="ready",
-        snapshot_id=SNAPSHOT_ID,
-        destination_id="nmdc-production",
-        destination_observed_at="2026-08-18T17:00:00+00:00",
-        candidate_tables=52,
-        destination_tables=49,
-        metadata_tables=52,
-        dispositions={"replace": 46, "add": 6, "preserve": 1, "rebuild": 2, "retire": 0},
-    )
-    monkeypatch.setattr(
-        "nmdc_lakehouse.publication_preflight.validate_publication_artifacts",
-        lambda *_args: report,
-    )
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "publication-preflight",
-            "snapshot",
-            "--bundle",
-            "bundle.json",
-            "--inventory",
-            "inventory.json",
-            "--plan",
-            "plan.json",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert json.loads(result.output) == report.model_dump(mode="json")

@@ -226,47 +226,6 @@ def snapshot_manifest_schema_command() -> None:
     click.echo(json.dumps(manifest_json_schema(), indent=2, sort_keys=True))
 
 
-@cli.command("publication-plan")
-@click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
-@click.option(
-    "--inventory",
-    "inventory_path",
-    type=click.Path(path_type=Path, dir_okay=False),
-    required=True,
-    help="Credential-free destination inventory JSON.",
-)
-@click.option(
-    "--policy",
-    "policy_path",
-    type=click.Path(path_type=Path, dir_okay=False),
-    required=True,
-    help="Reviewed publication policy JSON.",
-)
-@click.option("--output", type=click.Path(path_type=Path, dir_okay=False), help="Also write the generated plan here.")
-def publication_plan_command(
-    snapshot_root: Path,
-    inventory_path: Path,
-    policy_path: Path,
-    output: Path | None,
-) -> None:
-    """Generate a complete destination-neutral table disposition plan offline."""
-    from nmdc_lakehouse.publication_plan import (
-        PublicationPlanError,
-        plan_snapshot_publication,
-        render_publication_plan,
-        write_publication_plan,
-    )
-    from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError
-
-    try:
-        plan = plan_snapshot_publication(snapshot_root, inventory_path, policy_path)
-        if output is not None:
-            write_publication_plan(output, plan)
-    except (PublicationPlanError, SnapshotManifestError) as error:
-        raise click.ClickException(str(error)) from error
-    click.echo(render_publication_plan(plan))
-
-
 @cli.command("publication-plan-schema")
 @click.argument("document", type=click.Choice(["inventory", "policy", "plan"]))
 def publication_plan_schema_command(document: str) -> None:
@@ -280,92 +239,6 @@ def publication_plan_schema_command(document: str) -> None:
     click.echo(json.dumps(publication_json_schema(selected), indent=2, sort_keys=True))
 
 
-@cli.command("publication-preflight")
-@click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
-@click.option(
-    "--bundle",
-    "bundle_path",
-    type=click.Path(path_type=Path, dir_okay=False),
-    required=True,
-    help="Approved snapshot-bound metadata bundle JSON.",
-)
-@click.option(
-    "--inventory",
-    "inventory_path",
-    type=click.Path(path_type=Path, dir_okay=False),
-    required=True,
-    help="Credential-free destination inventory JSON.",
-)
-@click.option(
-    "--plan",
-    "plan_path",
-    type=click.Path(path_type=Path, dir_okay=False),
-    required=True,
-    help="Approved publication disposition plan JSON.",
-)
-def publication_preflight_command(
-    snapshot_root: Path,
-    bundle_path: Path,
-    inventory_path: Path,
-    plan_path: Path,
-) -> None:
-    """Validate all reviewed publication artifacts before staging."""
-    from nmdc_lakehouse.metadata_bundle import MetadataBundleError
-    from nmdc_lakehouse.publication_plan import PublicationPlanError
-    from nmdc_lakehouse.publication_preflight import (
-        PublicationPreflightError,
-        render_publication_preflight,
-        validate_publication_artifacts,
-    )
-    from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError
-
-    try:
-        report = validate_publication_artifacts(snapshot_root, bundle_path, inventory_path, plan_path)
-    except (MetadataBundleError, PublicationPlanError, PublicationPreflightError, SnapshotManifestError) as error:
-        raise click.ClickException(str(error)) from error
-    click.echo(render_publication_preflight(report))
-
-
-@cli.command("metadata-application-plan")
-@click.argument("bundle", type=click.Path(path_type=Path, dir_okay=False))
-@click.option(
-    "--inventory",
-    "inventory_path",
-    type=click.Path(path_type=Path, dir_okay=False),
-    required=True,
-    help="Credential-free destination inventory JSON.",
-)
-@click.option(
-    "--staging-namespace",
-    required=True,
-    help="Explicit provider-qualified namespace that will receive staged tables.",
-)
-@click.option("--output", type=click.Path(path_type=Path, dir_okay=False), help="Also write the generated plan here.")
-def metadata_application_plan_command(
-    bundle: Path,
-    inventory_path: Path,
-    staging_namespace: str,
-    output: Path | None,
-) -> None:
-    """Plan provider-neutral metadata operations without mutation."""
-    from nmdc_lakehouse.metadata_application import (
-        MetadataApplicationError,
-        plan_metadata_application,
-        render_metadata_application_plan,
-        write_metadata_application_plan,
-    )
-    from nmdc_lakehouse.metadata_bundle import MetadataBundleError
-    from nmdc_lakehouse.publication_plan import PublicationPlanError
-
-    try:
-        plan = plan_metadata_application(bundle, inventory_path, staging_namespace)
-        if output is not None:
-            write_metadata_application_plan(output, plan)
-    except (MetadataApplicationError, MetadataBundleError, PublicationPlanError) as error:
-        raise click.ClickException(str(error)) from error
-    click.echo(render_metadata_application_plan(plan))
-
-
 @cli.command("metadata-application-plan-schema")
 def metadata_application_plan_schema_command() -> None:
     """Print the metadata application plan JSON Schema."""
@@ -376,93 +249,26 @@ def metadata_application_plan_schema_command() -> None:
     click.echo(json.dumps(metadata_application_json_schema(), indent=2, sort_keys=True))
 
 
-@cli.command("berdl-upload-plan")
-@click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
-@click.option("--bundle", "bundle_path", type=click.Path(path_type=Path, dir_okay=False), required=True)
-@click.option("--inventory", "inventory_path", type=click.Path(path_type=Path, dir_okay=False), required=True)
-@click.option("--plan", "publication_plan_path", type=click.Path(path_type=Path, dir_okay=False), required=True)
-@click.option(
-    "--metadata-plan",
-    "metadata_plan_path",
-    type=click.Path(path_type=Path, dir_okay=False),
-    required=True,
-)
-@click.option(
-    "--target-validation",
-    "target_validation_path",
-    type=click.Path(path_type=Path, dir_okay=False),
-    required=True,
-)
-@click.option("--ingest-checkout", type=click.Path(path_type=Path, file_okay=False), required=True)
-@click.option("--ingest-revision", required=True, help="Exact KBase ingest Git commit selected for staging.")
-@click.option("--tenant", required=True)
-@click.option("--dataset", required=True, help="Unique dataset name containing _staging_<suffix>.")
-@click.option("--bucket", required=True, help="Explicit S3 bucket selected for staging.")
-@click.option("--bronze-prefix", required=True)
-@click.option("--progress-key", required=True)
-@click.option("--config-key", required=True)
-@click.option("--output", type=click.Path(path_type=Path, dir_okay=False), required=True)
-def berdl_upload_plan_command(
-    snapshot_root: Path,
-    bundle_path: Path,
-    inventory_path: Path,
-    publication_plan_path: Path,
-    metadata_plan_path: Path,
-    target_validation_path: Path,
-    ingest_checkout: Path,
-    ingest_revision: str,
-    tenant: str,
-    dataset: str,
-    bucket: str,
-    bronze_prefix: str,
-    progress_key: str,
-    config_key: str,
-    output: Path,
-) -> None:
-    """Build an immutable, non-mutating BERDL staging command plan."""
-    from nmdc_lakehouse.berdl_staging import (
-        BerdlStagingPlanError,
-        plan_berdl_staging,
-        render_berdl_staging_plan,
-        write_berdl_staging_plan,
-    )
-    from nmdc_lakehouse.metadata_application import MetadataApplicationError
-    from nmdc_lakehouse.metadata_bundle import MetadataBundleError
-    from nmdc_lakehouse.publication_plan import PublicationPlanError
-    from nmdc_lakehouse.publication_preflight import PublicationPreflightError
-    from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError
-    from nmdc_lakehouse.target_validation import TargetValidationError
+@cli.command("plan-publication")
+@click.argument("root", type=click.Path(path_type=Path, file_okay=False))
+@click.argument("configuration", type=click.Path(path_type=Path, dir_okay=False))
+def plan_publication_command(root: Path, configuration: Path) -> None:
+    """Build disposition, metadata and staging plans from a prepared directory."""
+    from pydantic import ValidationError
+
+    from nmdc_lakehouse.berdl_staging import render_berdl_staging_plan
+    from nmdc_lakehouse.publication_planning import plan_publication
+    from nmdc_lakehouse.publication_prepare import file_digest
 
     try:
-        plan = plan_berdl_staging(
-            snapshot_root,
-            bundle_path=bundle_path,
-            inventory_path=inventory_path,
-            publication_plan_path=publication_plan_path,
-            metadata_plan_path=metadata_plan_path,
-            target_validation_path=target_validation_path,
-            ingest_checkout=ingest_checkout,
-            ingest_revision=ingest_revision,
-            tenant=tenant,
-            dataset=dataset,
-            bucket=bucket,
-            bronze_prefix=bronze_prefix,
-            progress_key=progress_key,
-            config_key=config_key,
-        )
-        destination = write_berdl_staging_plan(output, plan)
-    except (
-        BerdlStagingPlanError,
-        MetadataApplicationError,
-        MetadataBundleError,
-        PublicationPlanError,
-        PublicationPreflightError,
-        SnapshotManifestError,
-        TargetValidationError,
-    ) as error:
+        plan = plan_publication(root, configuration)
+    except ValidationError as error:
+        raise click.ClickException("Invalid planning configuration or publication evidence.") from error
+    except (ValueError, OSError) as error:
         raise click.ClickException(str(error)) from error
+    output = root.expanduser().resolve() / "evidence/berdl-staging-plan.json"
     click.echo(render_berdl_staging_plan(plan))
-    click.echo(f"plan={destination}", err=True)
+    click.echo(f"plan={output}\nplan_sha256={file_digest(output)}", err=True)
 
 
 @cli.command("berdl-upload")

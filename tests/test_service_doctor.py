@@ -357,7 +357,7 @@ def test_the_cli_and_berdl_commands_import_without_the_mongodb_driver() -> None:
         from nmdc_lakehouse.cli import cli
         from nmdc_lakehouse.service_doctor import SERVICE_CHECKS
         assert SERVICE_CHECKS
-        for cmd in ("berdl-upload", "berdl-upload-plan", "berdl-apply-metadata", "berdl-doctor"):
+        for cmd in ("berdl-upload", "plan-publication", "berdl-apply-metadata", "berdl-doctor"):
             result = CliRunner().invoke(cli, [cmd, "--help"])
             assert result.exit_code == 0, (cmd, result.output)
         print("ok")

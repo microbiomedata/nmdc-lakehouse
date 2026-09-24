@@ -47,17 +47,9 @@ validate-target-rows SNAPSHOT_ROOT REPORT *ARGS:
 prepare-publication CONFIGURATION OUTPUT:
     python3 scripts/python/prepare_publication.py "{{ CONFIGURATION }}" "{{ OUTPUT }}"
 
-# Cross-check all reviewed publication artifacts before provider-specific staging.
-publication-preflight SNAPSHOT_ROOT BUNDLE INVENTORY PLAN:
-    {{ uv_run }} --no-sync nmdc-lakehouse publication-preflight "{{ SNAPSHOT_ROOT }}" --bundle "{{ BUNDLE }}" --inventory "{{ INVENTORY }}" --plan "{{ PLAN }}"
-
-# Map approved metadata to one explicit staging namespace without mutation.
-metadata-application-plan BUNDLE INVENTORY STAGING_NAMESPACE *ARGS:
-    {{ uv_run }} --no-sync nmdc-lakehouse metadata-application-plan "{{ BUNDLE }}" --inventory "{{ INVENTORY }}" --staging-namespace "{{ STAGING_NAMESPACE }}" {{ ARGS }}
-
-# Bind reviewed evidence to an exact plan-only BERIL staging command.
-berdl-upload-plan SNAPSHOT_ROOT BUNDLE INVENTORY PLAN METADATA_PLAN TARGET_VALIDATION INGEST_CHECKOUT INGEST_REVISION TENANT DATASET BUCKET BRONZE_PREFIX PROGRESS_KEY CONFIG_KEY OUTPUT *ARGS:
-    {{ uv_run }} --no-sync nmdc-lakehouse berdl-upload-plan "{{ SNAPSHOT_ROOT }}" --bundle "{{ BUNDLE }}" --inventory "{{ INVENTORY }}" --plan "{{ PLAN }}" --metadata-plan "{{ METADATA_PLAN }}" --target-validation "{{ TARGET_VALIDATION }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" --ingest-revision "{{ INGEST_REVISION }}" --tenant "{{ TENANT }}" --dataset "{{ DATASET }}" --bucket "{{ BUCKET }}" --bronze-prefix "{{ BRONZE_PREFIX }}" --progress-key "{{ PROGRESS_KEY }}" --config-key "{{ CONFIG_KEY }}" --output "{{ OUTPUT }}" {{ ARGS }}
+# Build the disposition, metadata and exact staging plans together in the pod.
+plan-publication ROOT CONFIGURATION:
+    {{ uv_run }} --no-sync nmdc-lakehouse plan-publication "{{ ROOT }}" "{{ CONFIGURATION }}"
 
 # Preview or execute a reviewed BERDL plan, verifying data and approved table metadata.
 berdl-upload PLAN UPSTREAM_OUTCOME OUTCOME *ARGS:
