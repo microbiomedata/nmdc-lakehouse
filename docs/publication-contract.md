@@ -95,74 +95,38 @@ intentional differences.
 
 ## Metadata bundle
 
-Generate the review artifact from a validated snapshot and a version-controlled
-profile. The profile is bound to the immutable snapshot identity and supplies
-namespace content plus only the human overrides that reviewers have approved:
+Use [`just prepare-publication`](berdl-staging-runbook.md#prepare-on-the-workstation)
+to prepare the snapshot, full target validation, reviewed profile, and bundle
+together. It replaces the separate `metadata-profile` and `metadata-bundle`
+commands. The profile and bundle formats remain unchanged.
 
-Start the review from a strict draft whose snapshot identity is read from the
-validated manifest rather than copied by hand:
+The configuration supplies reviewed namespace content and optional description
+overrides. Alternatively, name an existing reviewed profile bound to that
+snapshot. The command reads the snapshot identity from its manifest and keeps
+source/target versions, table and column descriptions, physical types, and
+schema lineage from the manifested Parquet footers. It does not invent missing
+descriptions. Every description records whether it came from a footer, a
+reviewed override, or no available source. Duplicate or unknown overrides fail.
 
-<!-- unverified: no run of this procedure is recorded, and no tracking issue is
-     named here. -->
-```bash
-just metadata-profile ./completed-snapshot \
-  nmdc-metadata-2026-08-18 nmdc_metadata \
-  "NMDC metadata" "Flattened NMDC metadata tables." \
-  --documentation-url https://github.com/microbiomedata/nmdc-lakehouse \
-  --property collection=nmdc --property role=metadata \
-  --output ./metadata/nmdc-metadata-profile.json
-```
-
-The command validates the snapshot offline, fills the exact `snapshot_id`, and
-emits an empty `overrides` list. The namespace title, description, URL, and
-properties are operator-supplied review content, not generated facts. Review
-them and add only evidence-backed table or column overrides before producing the
-bundle. The command does not invent descriptions, contact a destination, or
-orchestrate later publication steps.
+An override identifies the table, optional column, replacement description,
+rationale, and evidence source. For example, this entry belongs in the
+configuration's `overrides` list when supplying namespace content:
 
 ```json
 {
-  "profile_format_version": 1,
-  "profile_id": "nmdc-metadata-2026-08-18",
-  "snapshot_id": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-  "namespace": {
-    "name": "nmdc_metadata",
-    "title": "NMDC metadata",
-    "description": "Flattened NMDC metadata tables.",
-    "documentation_url": "https://github.com/microbiomedata/nmdc-lakehouse",
-    "properties": {
-      "collection": "nmdc",
-      "role": "metadata"
-    }
-  },
-  "overrides": [
-    {
-      "table": "biosample_set",
-      "column": null,
-      "description": "Reviewed description for the published biosample table.",
-      "rationale": "Clarify the table's publication role.",
-      "source": "NMDC metadata review 2026-08-18"
-    }
-  ]
+  "table": "biosample_set",
+  "column": null,
+  "description": "Reviewed description for the published biosample table.",
+  "rationale": "Clarify the table's publication role.",
+  "source": "NMDC metadata review"
 }
 ```
 
-The command operates entirely offline:
-
-<!-- unverified: no run of this procedure is recorded, and no tracking issue is
-     named here. -->
-```bash
-uv run nmdc-lakehouse metadata-bundle ./completed-snapshot \
-  --profile ./metadata/nmdc-metadata-profile.json \
-  --output ./metadata/nmdc-metadata-bundle.json
-```
-
-It validates the snapshot before reading manifested Parquet footers. Every table
-and column records its physical type, schema lineage, final description, and
-whether that description came from the exact footer baseline, an approved
-profile override, or no available description. Duplicate or unknown overrides
-fail rather than being silently ignored. The output is canonical JSON; stdout
-and `--output` contain the same document.
+Review namespace content and overrides before preparation. The generated
+`evidence/metadata-profile.json` and `evidence/metadata-bundle.json` are immutable
+within that preparation directory. Changing reviewed content requires a new
+directory; reuse the existing full validation report to avoid repeating its work.
+Preparation with an existing snapshot and validation report is entirely local.
 
 The profile and bundle contracts are available without a snapshot or service:
 

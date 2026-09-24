@@ -163,6 +163,7 @@ operational-command inventory.
 | `just doctor`       | Diagnose local readiness without changing it      |
 | `just berdl-doctor SNAPSHOT_ROOT` | Diagnose BERDL publication readiness without mutation |
 | `just validate-target-rows SNAPSHOT_ROOT REPORT` | Validate manifested rows against the packaged target LinkML schema |
+| `just prepare-publication CONFIGURATION OUTPUT` | Select the source pair and prepare a snapshot, full validation, and metadata together |
 | `just publication-preflight SNAPSHOT_ROOT BUNDLE INVENTORY PLAN` | Cross-check reviewed publication artifacts before staging |
 | `just metadata-application-plan BUNDLE INVENTORY STAGING_NAMESPACE` | Plan metadata operations for an explicit staging namespace |
 | `just berdl-upload-plan ...` | Bind reviewed artifacts to the NMDC adapter and exact KBase ingest revision |
