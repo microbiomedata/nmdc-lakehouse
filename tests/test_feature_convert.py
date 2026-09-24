@@ -396,6 +396,22 @@ def test_unselected_keeps_a_same_call_row_that_differs(run_files: dict[str, Path
     assert sorted((r["start"], r["score"]) for r in unselected) == [(2, 99.9), (5, 1.0)]
 
 
+@pytest.mark.parametrize("feature_type", ["rRNA", "misc_feature"])
+def test_hit_on_a_unique_non_cds_keeps_accessions_without_a_protein_hit(
+    run_files: dict[str, Path], tmp_path: Path, feature_type: str
+) -> None:
+    rows = [r.replace("\tCDS\t", f"\t{feature_type}\t") if f"ID={G2};" in r else r for r in FUNCTIONAL_ROWS]
+    run_files[ft.FUNCTIONAL] = _write(tmp_path, "functional_non_cds.gff", rows)
+    assert ft.check_run(run_files)["hits_match_functional:cog"]["passed"] is True
+    result = fc.convert_run(RUN, run_files, {}, tmp_path / "out")
+    written = pq.read_table(result.outputs[0]).to_pylist()
+    hit_type = "Clusters of Orthologous Groups (COG) Annotation GFF"
+    assert result.ambiguous_parent_hits[hit_type] == 1
+    assert not any(row["source_data_object_type"] == hit_type for row in written)
+    original = next(row for row in written if row["feature_id"] == G2)
+    assert {"key": "cog", "value": "COG0001"} in original["attributes"]
+
+
 def test_hits_on_a_repeated_id_with_no_cds_are_counted_not_written(run_files: dict[str, Path], tmp_path: Path) -> None:
     # G2's ID is carried by two RNA rows and no CDS, so a hit on G2 has no gene to name.
     rows = [r for r in FUNCTIONAL_ROWS if f"ID={G2};" not in r] + [

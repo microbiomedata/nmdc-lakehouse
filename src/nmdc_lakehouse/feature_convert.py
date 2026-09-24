@@ -265,9 +265,9 @@ def convert_run(
                     for k, v in pairs
                     if (k != "ID" or feature_id != source_id)
                     and k not in ("Parent", "product", "product_source")
-                    # Hits on an ID two CDS rows share are not written, so those rows keep their
-                    # accession keys rather than lose the evidence both ways.
-                    and (k not in drop or (id_counts[source_id] > 1 and cds_counts[source_id] != 1))
+                    # Without exactly one CDS parent no protein hit is written, so retain the
+                    # accession evidence even when a hit file otherwise matches this source ID.
+                    and (k not in drop or cds_counts[source_id] != 1)
                 ],
                 "generated_by": run_id,
                 "source_files": [functional_url] if functional_url else [],
@@ -289,9 +289,8 @@ def convert_run(
                 # gene the Functional Annotation GFF lacks has neither, so it is counted, not written.
                 result.orphan_hits[hit_type] += 1
                 continue
-            if id_counts[r[0]] > 1 and cds_counts[r[0]] != 1:
-                # The ID was renamed on every row that carries it, and either two CDS rows share it
-                # or none is a CDS, so there is no single gene the hit can name as its parent.
+            if cds_counts[r[0]] != 1:
+                # A unique RNA is still not a protein's parent; require one CDS for every hit.
                 result.ambiguous_parent_hits[hit_type] += 1
                 continue
             pairs = parse_attributes(r[8]) if len(r) > 8 else []

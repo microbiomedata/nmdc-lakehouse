@@ -72,6 +72,9 @@ Genome features come from the Functional Annotation GFF with `coordinate_system`
 `is_selected` true. Hits come from the seven hit GFFs with `coordinate_system` `protein`, `parent`
 set to their gene, `seqid` set to that gene's contig, and `is_selected` null. A hit on a gene the
 Functional Annotation GFF lacks is counted in the run summary and not written.
+Every emitted hit requires exactly one CDS parent. Hits whose source ID names no
+CDS or multiple CDS rows are counted under `ambiguous_parent_hits` and not written;
+the Functional rows retain their accession attributes so that evidence is preserved.
 
 `contigs.parquet`: `contig_id`, `assembly_contig_id` (not in the model), `taxonomic_lineage`
 (list), `lineage_confidence`, `generated_by`, `source_files`. The model's `length_bp` and
