@@ -284,3 +284,29 @@ def test_unselected_keeps_a_same_call_row_that_differs(run_files: dict[str, Path
     unselected = [r for r in pq.read_table(result.outputs[0]).to_pylist() if r["is_selected"] is False]
     # The selected row's own Prodigal row is skipped; the rescored one is kept.
     assert sorted((r["start"], r["score"]) for r in unselected) == [(2, 99.9), (5, 1.0)]
+
+
+def test_hits_on_a_repeated_id_with_no_cds_are_counted_not_written(run_files: dict[str, Path], tmp_path: Path) -> None:
+    # G2's ID is carried by two RNA rows and no CDS, so a hit on G2 has no gene to name.
+    rows = [r for r in FUNCTIONAL_ROWS if f"ID={G2};" not in r] + [
+        f"{RUN}_0001\tINFERNAL 1.1.3\tmisc_feature\t838\t2616\t9.0\t+\t.\tID={G2};model=RF1",
+        f"{RUN}_0001\tINFERNAL 1.1.3\tmisc_feature\t838\t2616\t9.0\t-\t.\tID={G2};model=RF1",
+    ]
+    run_files[ft.FUNCTIONAL] = _write(tmp_path, "functional_rna_twins.gff", rows)
+    result = fc.convert_run(RUN, run_files, {}, tmp_path / "out")
+    assert result.ambiguous_parent_hits["Clusters of Orthologous Groups (COG) Annotation GFF"] == 1
+    written = pq.read_table(result.outputs[0]).to_pylist()
+    ids = {r["feature_id"] for r in written}
+    assert all(p in ids for r in written for p in r["parent"])
+
+
+def test_convert_run_refuses_a_symlinked_staging_directory(run_files: dict[str, Path], tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    (outside / f"{RUN.replace(':', '_')}").mkdir(parents=True)
+    (outside / f"{RUN.replace(':', '_')}" / "keep.txt").write_text("x")
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / ".partial").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="symlink"):
+        fc.convert_run(RUN, run_files, {}, out)
+    assert (outside / f"{RUN.replace(':', '_')}" / "keep.txt").exists()

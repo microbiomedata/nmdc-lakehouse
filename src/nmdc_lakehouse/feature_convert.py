@@ -151,8 +151,10 @@ def convert_run(
 
     `assembly_contig_id` and `source_data_object_type` are not slots of the model yet.
 
-    Rows are written in batches of `batch_rows` into `<out_dir>/.partial/<run dir>` and renamed into place
-    only when the run is complete, so memory stays bounded and no half-written run is published.
+    Rows are written in batches of `batch_rows` into `<out_dir>/.partial/<run dir>` and renamed into
+    place only when the run is complete, so no half-written run is published. Batching bounds the
+    write buffers only: `check_run` holds whole source tables, and the set of feature IDs, gene
+    contigs and contig IDs grows with the run, so peak memory still grows with run size.
 
     Raises DuplicateFeatureIdError if two rows would share a `feature_id`; nothing is published
     for that run.
@@ -167,7 +169,11 @@ def convert_run(
     run_dir = out_dir / _safe_run_dir_name(run_id)
     # Staged under `.partial/`, a name `_safe_run_dir_name` cannot produce, so staging never
     # touches another run's directory.
-    partial = out_dir / ".partial" / run_dir.name
+    staging = out_dir / ".partial"
+    # A symlinked staging root would let the cleanup below delete outside out_dir.
+    if staging.is_symlink() or out_dir.is_symlink():
+        raise ValueError(f"{staging} or {out_dir} is a symlink; refusing to stage or delete through it")
+    partial = staging / run_dir.name
     shutil.rmtree(partial, ignore_errors=True)
     partial.mkdir(parents=True)
     schema = _feature_schema()
@@ -249,7 +255,7 @@ def convert_run(
                     and k not in ("Parent", "product", "product_source")
                     # Hits on an ID two CDS rows share are not written, so those rows keep their
                     # accession keys rather than lose the evidence both ways.
-                    and (k not in drop or cds_counts[source_id] > 1)
+                    and (k not in drop or (id_counts[source_id] > 1 and cds_counts[source_id] != 1))
                 ],
                 "generated_by": run_id,
                 "source_files": [functional_url] if functional_url else [],
@@ -271,8 +277,9 @@ def convert_run(
                 # gene the Functional Annotation GFF lacks has neither, so it is counted, not written.
                 result.orphan_hits[hit_type] += 1
                 continue
-            if len(cds_renamed.get(r[0], [])) > 1:
-                # Two CDS rows share this ID (opposite strands), so the hit's gene is ambiguous.
+            if id_counts[r[0]] > 1 and cds_counts[r[0]] != 1:
+                # The ID was renamed on every row that carries it, and either two CDS rows share it
+                # or none is a CDS, so there is no single gene the hit can name as its parent.
                 result.ambiguous_parent_hits[hit_type] += 1
                 continue
             pairs = parse_attributes(r[8]) if len(r) > 8 else []
