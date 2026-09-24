@@ -151,7 +151,7 @@ def convert_run(
 
     `assembly_contig_id` and `source_data_object_type` are not slots of the model yet.
 
-    Rows are written in batches of `batch_rows` into `<run dir>.partial` and renamed into place
+    Rows are written in batches of `batch_rows` into `<out_dir>/.partial/<run dir>` and renamed into place
     only when the run is complete, so memory stays bounded and no half-written run is published.
 
     Raises DuplicateFeatureIdError if two rows would share a `feature_id`; nothing is published
@@ -165,7 +165,9 @@ def convert_run(
     checks = checks if checks is not None else check_run(files)
     result = ConversionResult(run_id=run_id)
     run_dir = out_dir / _safe_run_dir_name(run_id)
-    partial = run_dir.with_name(run_dir.name + ".partial")
+    # Staged under `.partial/`, a name `_safe_run_dir_name` cannot produce, so staging never
+    # touches another run's directory.
+    partial = out_dir / ".partial" / run_dir.name
     shutil.rmtree(partial, ignore_errors=True)
     partial.mkdir(parents=True)
     schema = _feature_schema()
@@ -195,7 +197,9 @@ def convert_run(
     gene_seqid: dict[str, str] = {}
     # A call is its caller (column 2) and its location, so another caller's call at a selected
     # interval is kept as unselected rather than mistaken for the selected one.
-    selected_calls: set[tuple[str, ...]] = set()
+    # Each selected row's score, phase and attributes, so only the one caller row it repeats is
+    # skipped; kept only when unselected calls are wanted.
+    selected_calls: dict[tuple[str, ...], list[tuple[str, str, frozenset[tuple[str, str]]]]] = {}
     functional_url = urls.get(FUNCTIONAL)
     # Observed 2026-09-23 in v1.0.2 and v1.0.4 runs: an RFAM hit over one interval on both strands
     # gets one `ID` twice, because the ID encodes the interval but not the strand. Those rows get
@@ -226,7 +230,8 @@ def convert_run(
         if source_id:
             # Hits name their gene by the source ID, which a renamed row no longer carries.
             gene_seqid.setdefault(source_id, r[0])
-        selected_calls.add((r[0], r[1], r[2], r[3], r[4], r[6]))
+        if include_unselected:
+            selected_calls.setdefault((r[0], r[1], r[2], r[3], r[4], r[6]), []).append((r[5], r[7], frozenset(pairs)))
         emit(
             {
                 "feature_id": feature_id,
@@ -309,9 +314,21 @@ def convert_run(
             if caller_type not in files:
                 continue
             for r in read_table(files[caller_type]):
-                if (r[0], r[1], r[2], r[3], r[4], r[6]) in selected_calls:
-                    continue
                 pairs = parse_attributes(r[8]) if len(r) > 8 else []
+                # Skip the caller row only if an unclaimed selected row repeats it in full, the
+                # same test `check_run` applies; a same-call row that differs is unselected.
+                waiting = selected_calls.get((r[0], r[1], r[2], r[3], r[4], r[6]), [])
+                match = next(
+                    (
+                        i
+                        for i, (score, phase, kept) in enumerate(waiting)
+                        if (score, phase) == (r[5], r[7]) and set(pairs) <= kept
+                    ),
+                    None,
+                )
+                if match is not None:
+                    waiting.pop(match)
+                    continue
                 source_id = _first(pairs, "ID") or f"{r[0]}_{r[3]}_{r[4]}"
                 emit(
                     {

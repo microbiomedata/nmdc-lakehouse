@@ -160,7 +160,8 @@ def test_convert_run_refuses_to_write_a_repeated_feature_id(run_files: dict[str,
     out = tmp_path / "bad"
     with pytest.raises(fc.DuplicateFeatureIdError):
         fc.convert_run(RUN, run_files, {}, out)
-    assert list(out.iterdir()) == []
+    assert [p.name for p in out.iterdir()] == [".partial"]
+    assert list((out / ".partial").iterdir()) == []
 
 
 def test_contigs_carry_the_assembly_run(run_files: dict[str, Path], tmp_path: Path) -> None:
@@ -209,7 +210,7 @@ def test_small_batches_give_the_same_output(run_files: dict[str, Path], tmp_path
     assert pq.read_table(one.outputs[0]).to_pylist() == pq.read_table(many.outputs[0]).to_pylist()
     assert pq.read_table(one.outputs[1]).to_pylist() == pq.read_table(many.outputs[1]).to_pylist()
     assert many.contig_rows == one.contig_rows == 2
-    assert not any(p.name.endswith(".partial") for p in (tmp_path / "b").iterdir())
+    assert list((tmp_path / "b" / ".partial").iterdir()) == []
 
 
 def test_cli_convert_refuses_an_empty_run_list(run_files: dict[str, Path], tmp_path: Path) -> None:
@@ -256,4 +257,24 @@ def test_convert_run_does_not_replace_another_runs_output(run_files: dict[str, P
     assert (Path(first.outputs[0]).parent / fc.RUN_ID_FILE).read_text().strip() == "nmdc:wfmgan-x.1"
     # The same run converts again over its own output.
     fc.convert_run("nmdc:wfmgan-x.1", run_files, {}, out)
-    assert not any(p.name.endswith(".partial") for p in out.iterdir())
+    assert list((out / ".partial").iterdir()) == []
+
+
+def test_staging_does_not_touch_a_run_named_like_a_staging_directory(
+    run_files: dict[str, Path], tmp_path: Path
+) -> None:
+    out = tmp_path / "out"
+    other = fc.convert_run("nmdc:a.partial", run_files, {}, out)
+    fc.convert_run("nmdc:a", run_files, {}, out)
+    assert Path(other.outputs[0]).exists()
+
+
+def test_unselected_keeps_a_same_call_row_that_differs(run_files: dict[str, Path], tmp_path: Path) -> None:
+    # Prodigal reported G1's call twice: once as selected, once with another score.
+    rescored = f"{RUN}_0001\tProdigal v2.6.3\tCDS\t2\t730\t99.9\t+\t0\tID={G1}"
+    prodigal = run_files["Prodigal Annotation GFF"]
+    prodigal.write_text(prodigal.read_text() + rescored + "\n")
+    result = fc.convert_run(RUN, run_files, {}, tmp_path / "out", include_unselected=True)
+    unselected = [r for r in pq.read_table(result.outputs[0]).to_pylist() if r["is_selected"] is False]
+    # The selected row's own Prodigal row is skipped; the rescored one is kept.
+    assert sorted((r["start"], r["score"]) for r in unselected) == [(2, 99.9), (5, 1.0)]
