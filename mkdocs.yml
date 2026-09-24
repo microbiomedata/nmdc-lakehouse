@@ -24,6 +24,7 @@ nav:
       - Biosample to workflow run: biosample_to_workflow_run.md
       - Local provenance and query comparison: local-provenance.md
       - Pfam annotation GFF: pfam_annotation_gff.md
+      - NMDC feature tables: nmdc_feature_tables.md
       - Pfam terms: pfam_terms.md
       - Trino graph traversal: trino_recursive_graph_traversal.md
   - Notes:

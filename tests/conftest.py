@@ -18,3 +18,11 @@ def inputs_dir() -> Path:
 def db_tests_enabled() -> bool:
     """True when ENABLE_DB_TESTS=true in the environment."""
     return os.getenv("ENABLE_DB_TESTS", "false").lower() == "true"
+
+
+@pytest.fixture
+def run_files(tmp_path: Path) -> dict[str, Path]:
+    """Small made-up annotation files for one run, in NMDC's layout (tests/feature_files.py)."""
+    from tests.feature_files import make_run_files
+
+    return make_run_files(tmp_path)
