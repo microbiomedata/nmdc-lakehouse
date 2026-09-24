@@ -88,6 +88,11 @@ because one gene can carry the same coordinates in several systems. If any `feat
 repeats within a run, `feature-convert` stops before writing that run. A run whose Functional
 Annotation GFF is missing from the cache is listed under `missing_functional_gff` in
 `conversion_summary.json`, and the command exits non-zero.
+Any other planned non-empty check or conversion file missing from the cache also
+prevents that run's conversion. Missing file types are recorded per run under
+`missing_planned_files`, and the command exits non-zero after saving the summary.
+Files absent from the plan and zero-byte optional inputs omitted from the download manifest
+do not trigger this check. The completeness rule is shared with `feature-check`.
 If `--include-unselected` is refused for any run, the command also exits non-zero after
 writing the summary. Each affected run records its reason under `unselected_refused`;
 its selected features and hits remain available, but it has no unselected caller rows.
@@ -150,6 +155,14 @@ and 62,726,093 are hits, plus 16,757,384 contigs. No feature ID repeats within a
 renamed for the strand, no hit lacked its gene, every hit's `parent` is a genome feature in the
 same run, and every contig carries an assembly run. Every run's hit files matched, so every run
 dropped all eight accession keys.
+
+Later review fixes were checked on four cached runs spanning v1.0.2, v1.0.4,
+v1.0.5 and v1.1.0 with `--include-unselected`: 93,998 features and 24,724 contigs.
+Readback verified per-contig source-file membership, unique feature IDs, and each
+protein hit's parent and contig. Three runs included unselected calls; the v1.0.2
+run refused them and caused the expected non-zero exit with a saved summary.
+All cached file checksums matched. This smaller check supplements the earlier
+50-run measurement; it is not a repeat of that benchmark.
 
 ## Not done
 

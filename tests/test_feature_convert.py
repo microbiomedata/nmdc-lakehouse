@@ -165,7 +165,11 @@ def test_cli_convert_fails_when_a_run_has_no_functional_file(run_files: dict[str
     import json
 
     summary = json.loads((tmp_path / "out" / "conversion_summary.json").read_text())
-    assert summary == {"converted": [], "missing_functional_gff": [RUN]}
+    assert summary == {
+        "converted": [],
+        "missing_functional_gff": [RUN],
+        "missing_planned_files": {RUN: [ft.FUNCTIONAL]},
+    }
 
 
 def test_cli_convert_fails_when_requested_unselected_rows_are_refused(
@@ -203,6 +207,60 @@ def test_cli_convert_fails_when_requested_unselected_rows_are_refused(
     rows = pq.read_table(next(out.glob("*/features.parquet"))).to_pylist()
     assert rows
     assert not any(row["is_selected"] is False for row in rows)
+
+
+@pytest.mark.parametrize("kind", ["Pfam Annotation GFF", ft.CONTIG_MAPPING, ft.SCAFFOLD_LINEAGE])
+def test_cli_convert_refuses_missing_planned_inputs(run_files: dict[str, Path], tmp_path: Path, kind: str) -> None:
+    import json
+
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    plan_path, runs_path, cache = _cli_fixture(run_files, tmp_path)
+    (cache / "data" / run_files[kind].name).unlink()
+    out = tmp_path / "out"
+    result = CliRunner().invoke(
+        cli,
+        ["feature-convert", str(plan_path), "--runs", str(runs_path), "--cache-dir", str(cache), "--out-dir", str(out)],
+    )
+    assert result.exit_code != 0
+    summary = json.loads((out / "conversion_summary.json").read_text())
+    assert summary["missing_planned_files"] == {RUN: [kind]}
+    assert summary["converted"] == []
+    assert not list(out.rglob("*.parquet"))
+
+
+@pytest.mark.parametrize("kind", ["Pfam Annotation GFF", ft.CONTIG_MAPPING, ft.SCAFFOLD_LINEAGE])
+@pytest.mark.parametrize("absent", ["plan", "zero-byte"])
+def test_cli_convert_allows_absent_or_empty_optional_inputs(
+    run_files: dict[str, Path], tmp_path: Path, kind: str, absent: str
+) -> None:
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    if absent == "plan":
+        del run_files[kind]
+    else:
+        run_files[kind].write_text("")
+    plan_path, runs_path, cache = _cli_fixture(run_files, tmp_path)
+    if absent == "zero-byte":
+        (cache / "data" / run_files[kind].name).unlink()
+    result = CliRunner().invoke(
+        cli,
+        [
+            "feature-convert",
+            str(plan_path),
+            "--runs",
+            str(runs_path),
+            "--cache-dir",
+            str(cache),
+            "--out-dir",
+            str(tmp_path / "out"),
+        ],
+    )
+    assert result.exit_code == 0, result.output
 
 
 def test_convert_run_refuses_to_write_a_repeated_feature_id(run_files: dict[str, Path], tmp_path: Path) -> None:

@@ -1243,7 +1243,7 @@ def feature_check_command(plan_path: Path, runs_path: Path, cache_dir: Path, out
     import json
     from collections import Counter
 
-    from nmdc_lakehouse.feature_tables import CHECK_TYPES, cached_files, check_run, plan_from_json
+    from nmdc_lakehouse.feature_tables import cached_files, check_run, missing_planned_files, plan_from_json
 
     plan = plan_from_json(json.loads(plan_path.read_text()))
     run_ids = _read_run_ids(runs_path)
@@ -1278,11 +1278,7 @@ def feature_check_command(plan_path: Path, runs_path: Path, cache_dir: Path, out
         checks["md5_matches_nmdc"] = {"passed": not bad_md5, "mismatched": bad_md5, "files": len(files)}
         # A planned file absent from the cache would otherwise only mark its checks skipped.
         # Zero-byte files are left out of the download manifest, so they are not expected here.
-        missing = sorted(
-            t
-            for t, data_object in entry["files"].items()
-            if t in CHECK_TYPES and t not in files and int(data_object.get("file_size_bytes") or 0) > 0
-        )
+        missing = missing_planned_files(entry, files)
         checks["planned_files_present"] = {"passed": not missing, "missing": missing}
         for name, result in checks.items():
             if result.get("skipped"):
@@ -1317,7 +1313,7 @@ def feature_convert_command(
     import json
 
     from nmdc_lakehouse.feature_convert import convert_run
-    from nmdc_lakehouse.feature_tables import FUNCTIONAL, cached_files, plan_from_json
+    from nmdc_lakehouse.feature_tables import FUNCTIONAL, cached_files, missing_planned_files, plan_from_json
 
     plan = plan_from_json(json.loads(plan_path.read_text()))
     run_ids = _read_run_ids(runs_path)
@@ -1325,17 +1321,24 @@ def feature_convert_command(
         raise click.ClickException(f"{runs_path} lists no runs; nothing would be converted.")
     summary = []
     missing: list[str] = []
+    missing_inputs: dict[str, list[str]] = {}
     for run_id in run_ids:
+        entry = plan.selected[run_id]
         try:
-            files, urls = cached_files(plan.selected[run_id], cache_dir)
+            files, urls = cached_files(entry, cache_dir)
         except ValueError as error:
             raise click.ClickException(str(error)) from error
+        absent = missing_planned_files(entry, files)
+        if absent:
+            missing_inputs[run_id] = absent
+            click.echo(f"  missing {run_id}: planned cache files {absent}")
         if FUNCTIONAL not in files:
             # Required input missing: recorded and reported, and the command fails at the end.
             click.echo(f"  missing {run_id}: no Functional Annotation GFF in {cache_dir}")
             missing.append(run_id)
             continue
-        entry = plan.selected[run_id]
+        if absent:
+            continue
         try:
             result = convert_run(
                 run_id,
@@ -1364,11 +1367,16 @@ def feature_convert_command(
         click.echo(f"  {run_id}: {sum(result.feature_rows.values()):,} features, {result.contig_rows:,} contigs")
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "conversion_summary.json").write_text(
-        json.dumps({"converted": summary, "missing_functional_gff": missing}, indent=1)
+        json.dumps(
+            {"converted": summary, "missing_functional_gff": missing, "missing_planned_files": missing_inputs},
+            indent=1,
+        )
     )
     failures = []
     if missing:
         failures.append(f"{len(missing)} run(s) had no Functional Annotation GFF in the cache: {missing[:3]}")
+    if missing_inputs:
+        failures.append(f"{len(missing_inputs)} run(s) have missing planned cache files")
     refused = [item["run_id"] for item in summary if item["unselected_refused"]]
     if refused:
         failures.append(f"{len(refused)} run(s) refused --include-unselected: {refused[:3]}")

@@ -625,6 +625,15 @@ def check_run(files: Mapping[str, Path]) -> dict[str, dict[str, Any]]:
     return results
 
 
+def missing_planned_files(entry: Mapping[str, Any], files: Mapping[str, Path]) -> list[str]:
+    """Non-empty planned check/conversion inputs absent from the download cache."""
+    return sorted(
+        kind
+        for kind, data_object in entry["files"].items()
+        if kind in CHECK_TYPES and kind not in files and int(data_object.get("file_size_bytes") or 0) > 0
+    )
+
+
 def cached_files(entry: Mapping[str, Any], cache_dir: Path) -> tuple[dict[str, Path], dict[str, str]]:
     """Local paths and URLs of one planned run's files, where `download_to_cache.py` put them."""
     from urllib.parse import urlparse
