@@ -352,3 +352,32 @@ def test_wrong_snapshot_source_fails_before_copy(inputs, monkeypatch):
         preparation.prepare_publication(config, output)
     assert not (output / "snapshot").exists()
     assert not (output / "preparation.json").exists()
+
+
+def test_preparation_cli_reports_safe_locations_and_reasons(inputs):
+    config, _, _, output = inputs
+    secret = "secret-value-must-not-appear"
+    config.write_text(
+        json.dumps(
+            {
+                "source_version": secret,
+                "namespace": {
+                    "name": secret + "/",
+                    "title": "Example",
+                    "description": "Reviewed description",
+                    "properties": {secret: {"value": secret}},
+                },
+                "overrides": [{"table": "example", "description": "Example", "rationale": "Review"}],
+                secret: secret,
+            }
+        )
+    )
+    result = CliRunner().invoke(cli, ["prepare-publication", str(config), str(output)])
+    assert result.exit_code != 0
+    assert "source_version: string pattern mismatch" in result.output
+    assert "namespace.name: value error" in result.output
+    assert "namespace.properties.<item>: string type" in result.output
+    assert "overrides.0.source: missing" in result.output
+    assert "<item>: extra forbidden" in result.output
+    assert secret not in result.output
+    assert not output.exists()
