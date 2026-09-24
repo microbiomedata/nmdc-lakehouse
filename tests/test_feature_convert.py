@@ -82,6 +82,27 @@ def test_convert_run_adds_unselected_calls_only_on_request(run_files: dict[str, 
     assert [r["start"] for r in unselected] == [5]
 
 
+@pytest.mark.parametrize("strands", [("+", "-"), ("-", "+"), ("+", "+")])
+def test_unselected_caller_ids_are_qualified_by_strand_or_refused(
+    run_files: dict[str, Path], tmp_path: Path, strands: tuple[str, str]
+) -> None:
+    caller = run_files["RFAM Annotation GFF"]
+    extra = [f"{RUN}_0003\tINFERNAL 1.1.3\tmisc_feature\t5\t99\t1.0\t{s}\t.\tID=caller_dup;model=RF1" for s in strands]
+    caller.write_text(caller.read_text() + "\n".join(extra) + "\n")
+    assert ft.check_run(run_files)["selected_rows_in_callers"]["passed"] is True
+    out = tmp_path / "out"
+    if strands[0] == strands[1]:
+        with pytest.raises(fc.DuplicateFeatureIdError):
+            fc.convert_run(RUN, run_files, {}, out, include_unselected=True)
+        assert not list(out.rglob("*.parquet"))
+        return
+    result = fc.convert_run(RUN, run_files, {}, out, include_unselected=True)
+    rows = [r for r in pq.read_table(result.outputs[0]).to_pylist() if r["feature_id"].startswith("caller_dup|")]
+    assert len(rows) == 2 and result.renamed_duplicate_ids == 2
+    assert {r["feature_id"] for r in rows} == {f"caller_dup|unselected|INFERNAL 1.1.3|{s}" for s in strands}
+    assert all(r["is_selected"] is False and {"key": "ID", "value": "caller_dup"} in r["attributes"] for r in rows)
+
+
 def test_convert_run_renames_ids_repeated_on_opposite_strands(run_files: dict[str, Path], tmp_path: Path) -> None:
     extra = f"{RUN}_0004\tINFERNAL 1.1.3\tmisc_feature\t328\t430\t%s\t%s\t.\tID=dup;model=RF02000"
     rows = [*FUNCTIONAL_ROWS, extra % ("41.5", "-"), extra % ("42.2", "+")]

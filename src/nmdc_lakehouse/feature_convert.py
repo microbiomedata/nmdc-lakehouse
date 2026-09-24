@@ -325,6 +325,12 @@ def convert_run(
         # selected" would mislabel the source of a selected feature as unselected.
         result.unselected_refused = "selected rows are not all found in the caller files"
     elif include_unselected:
+        caller_id_counts = Counter(
+            (_first(parse_attributes(r[8]) if len(r) > 8 else [], "ID") or f"{r[0]}_{r[3]}_{r[4]}", r[1])
+            for caller_type in CALLER_TYPES
+            if caller_type in files
+            for r in read_table(files[caller_type])
+        )
         for caller_type in CALLER_TYPES:
             if caller_type not in files:
                 continue
@@ -345,9 +351,13 @@ def convert_run(
                     waiting.pop(match)
                     continue
                 source_id = _first(pairs, "ID") or f"{r[0]}_{r[3]}_{r[4]}"
+                feature_id = f"{source_id}|unselected|{r[1]}"
+                if caller_id_counts[(source_id, r[1])] > 1:
+                    feature_id = f"{feature_id}|{r[6]}"
+                    result.renamed_duplicate_ids += 1
                 emit(
                     {
-                        "feature_id": f"{source_id}|unselected|{r[1]}",
+                        "feature_id": feature_id,
                         "seqid": r[0],
                         "source": r[1] or None,
                         "type": r[2],

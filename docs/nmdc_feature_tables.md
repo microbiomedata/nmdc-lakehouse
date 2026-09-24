@@ -51,6 +51,10 @@ matched it exactly; otherwise the key stays.
   `nmdc:wfmgan-12-2h43v434.1`). IDs are unique once strand is included. The converter appends the
   strand to those feature IDs, keeps the original `ID` in `attributes`, and points protein hits at
   the renamed CDS.
+  With `--include-unselected`, the same rule applies to repeated source IDs within
+  one caller: the generated caller feature ID gains the strand, and the original
+  ID remains in `attributes`. Qualification uses the caller's input rows, including
+  selected rows; duplicates that remain after qualification still refuse the run.
 - **Old pipeline versions pack KOs differently.** `KO:K02025_KO:K10118` (one underscore) rather
   than one KO per row; the parser splits both forms.
 - **Product Names labels RNA rows the Functional Annotation GFF does not.** For rRNA, tRNA,
@@ -104,6 +108,15 @@ Other runs continue to be processed, so inspect the summary before using partial
 Features carry the annotation run as `generated_by`. Contigs carry the assembly run, found by
 `feature-plan` as the run whose `has_output` includes the annotation run's input, and null when
 none does.
+
+The Arrow schemas are defined in `feature_convert.py`; they are not generated
+from or validated against the draft BER LinkML model. `Parent` values are split
+on commas, but percent-encoded values and other source attributes remain as
+returned by `parse_attributes`. Resolve the identity and product-source notes in
+[model issue 38](https://github.com/turbomam/feature-table-corpus/issues/38) and
+the attribute parsing contract in
+[model issue 39](https://github.com/turbomam/feature-table-corpus/issues/39)
+before claiming model conformance or loading these prototype tables at scale.
 
 ## Run it
 
@@ -166,6 +179,13 @@ protein hit's parent and contig. Three runs included unselected calls; the v1.0.
 run refused them and caused the expected non-zero exit with a saved summary.
 All cached file checksums matched. This smaller check supplements the earlier
 50-run measurement; it is not a repeat of that benchmark.
+
+The later caller-ID review expanded this check to one run from each of all six
+pipeline versions, including metatranscriptome annotation: 987,346 features and
+217,648 contigs. Every one of 539,840 protein hits had exactly one CDS parent on
+the same contig; feature IDs and per-contig source membership also verified.
+Five runs included 188,899 unselected calls in total; the v1.0.2 run refused them.
+All six runs passed source-file checksum and planned-file completeness checks.
 
 ## Not done
 
