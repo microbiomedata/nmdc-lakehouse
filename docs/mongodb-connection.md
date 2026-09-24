@@ -221,7 +221,7 @@ the production migration is verified, following the
 If this tunnel is already open, keep its existing session instead of starting
 another on port 27124.
 
-<!-- unverified: portable checkout example for the production run tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/347 -->
+<!-- verified: 2026-09-23 the operator opened this tunnel from the production-export checkout; substitute your own checkout path. -->
 ```bash
 cd /path/to/nmdc-lakehouse && just tunnel
 ```
@@ -230,7 +230,7 @@ cd /path/to/nmdc-lakehouse && just tunnel
 Replace the checkout path here too. The explicit exports override corresponding
 `.env` settings; credentials and `MONGO_AUTH_SOURCE` come from your local setup.
 
-<!-- unverified: complete production export and validation are tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/347 -->
+<!-- verified: 2026-09-23 equivalent source selection, preflight, and complete export produced the 46-artifact snapshot in runs/2026-09-23-production-staging.md. -->
 ```bash
 cd /path/to/nmdc-lakehouse || exit
 export NMDC_SCHEMA_VERSION=11.23.0
@@ -264,14 +264,17 @@ Keep both terminals open and the computer awake until extraction finishes.
 Schedule the dump outside database migrations. MongoDB reads are live and do
 not provide a point-in-time snapshot. The completed
 [2026-09-23 preflight](https://github.com/microbiomedata/nmdc-lakehouse/issues/347#issuecomment-5802913376)
-verified metadata compatibility only; the full production export and validation
-remain unverified until their results are recorded.
+verified metadata compatibility only. The subsequent
+[production run](runs/2026-09-23-production-staging.md) completed all 19 eligible
+collections and all 46 artifacts, then passed full target-row validation for
+53,217,239 rows with zero invalid rows. Target conformance does not prove that
+every populated source value was preserved; that audit remains in issue #347.
 
 **After success, validate every exported row in Terminal 2**, retaining its
 source and output-directory exports. This produces separate evidence outside
 the snapshot and can take substantially longer than sampled validation:
 
-<!-- unverified: full production target-row validation is tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/347 -->
+<!-- verified: 2026-09-23 full target validation passed for all 53,217,239 artifact rows with zero invalid rows; see runs/2026-09-23-production-staging.md. -->
 ```bash
 just validate-target-rows "$LAKEHOUSE_ROOT" "$PWD/local/target-validation-11.23.0-$(date +%Y%m%d_%H%M%S).json" --mode full
 ```

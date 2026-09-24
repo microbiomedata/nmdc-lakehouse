@@ -117,7 +117,7 @@ dated run evidence and outstanding operational work.
 With schema package 0.5.0 installed, configure the source selection in the
 shell or the local `.env`. With the read-only GCP tunnel open:
 
-<!-- unverified: the complete production export still awaits execution and validation, tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/347 -->
+<!-- verified: 2026-09-23 this source pair passed preflight, complete production export, and subsequent full row validation; see runs/2026-09-23-production-staging.md. -->
 ```bash
 export NMDC_SCHEMA_VERSION=11.23.0
 just install-all
