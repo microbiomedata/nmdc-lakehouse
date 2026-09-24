@@ -103,8 +103,10 @@ Automated transfer and pod setup remain
 
 Rerunning the same command checks and reuses completed work. A metadata failure
 does not require another full validation; an incomplete dump is retained and
-requires a new output directory for another dump. Changed inputs or corrupted
-outputs cause refusal. If interruption leaves a report without its completion
+requires a new output directory for another dump. Changed configuration or saved
+evidence, or corrupted prepared outputs, causes refusal. The prepared snapshot
+is verified against its saved manifest and is independent of later changes to
+the original Parquet files. If interruption leaves a report without its completion
 digest, retain it and supply it explicitly to a new preparation directory. For corrected configuration or descriptions, choose a new
 directory and refer to the previous successful full validation report. Never
 write preparation output inside the immutable source snapshot.

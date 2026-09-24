@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from importlib.metadata import version
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -236,6 +238,52 @@ def test_inputs_changing_during_preparation_prevent_completion(inputs, monkeypat
     with pytest.raises(preparation.PreparationError, match="inputs changed during the run"):
         preparation.prepare_publication(config, output)
     assert not (output / "preparation.json").exists()
+
+
+def test_later_source_artifact_change_does_not_invalidate_verified_copy(inputs, monkeypatch):
+    config, source, manifest, output = inputs
+    real_builder = preparation.build_metadata_bundle
+    before = {p.name: p.read_bytes() for p in source.iterdir()}
+
+    def change_original_after_copy(*args, **kwargs):
+        bundle = real_builder(*args, **kwargs)
+        (source / manifest.artifacts[0].path).write_bytes(b"later source replacement")
+        return bundle
+
+    monkeypatch.setattr(preparation, "build_metadata_bundle", change_original_after_copy)
+    receipt = preparation.prepare_publication(config, output)
+    assert receipt["snapshot_id"] == manifest.snapshot_id
+    assert preparation.validate_snapshot(output / "snapshot") == manifest
+    assert {p.name: p.read_bytes() for p in (output / "snapshot").iterdir()} == before
+
+
+def test_fresh_export_produces_full_evidence_and_resumes_without_export(inputs, monkeypatch):
+    config, source, manifest, output = inputs
+    data = json.loads(config.read_text())
+    del data["snapshot"]
+    config.write_text(json.dumps(data))
+    calls = []
+
+    def export(command, **kwargs):
+        calls.append(command[3:])
+        if command[3] == "run-job":
+            shutil.copytree(source, Path(kwargs["env"]["LAKEHOUSE_ROOT"]))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(preparation.subprocess, "run", export)
+    receipt = preparation.prepare_publication(config, output)
+    assert calls[0][:2] == ["run-job", "all-collections"]
+    assert calls[1][0] == "create-snapshot-manifest"
+    assert calls[1][-2:] == ["--source-label", "nmdc-production"]
+    assert receipt["snapshot_id"] == manifest.snapshot_id and receipt["status"] == "prepared"
+    report = validation.load_target_validation_report(output / "evidence/target-validation.json")
+    assert report.requested_mode == "full" and report.invalid_rows == 0
+    bundle = load_metadata_bundle(output / "evidence/metadata-bundle.json")
+    assert {table.name for table in bundle.tables} == {a.table for a in manifest.artifacts}
+    assert (output / "evidence/target-validation-digest.json").is_file()
+    monkeypatch.setattr(validation, "validate_target_snapshot", no_revalidation)
+    assert preparation.prepare_publication(config, output) == receipt
+    assert len(calls) == 2
 
 
 def test_invalid_metadata_can_resume_without_revalidating_rows(inputs, monkeypatch):
