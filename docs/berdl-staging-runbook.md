@@ -24,7 +24,7 @@ A saved full validation report avoids another row-validation run.
 | Stage and verify | Same pod and environment | `berdl-upload --execute-staging` with the reviewed snapshot and plan digests | Data outcome, metadata outcome, and combined coverage report |
 
 The unprefixed names above are `nmdc-lakehouse` subcommands. Several also have
-`just` wrappers. Workstation preparation resumes completed work. Pod setup, transfer, and planning
+`just` wrappers. Workstation preparation reuses explicitly supplied snapshots and full reports. Pod setup, transfer, and planning
 still use the documented steps below; their consolidation remains issue 353.
 
 Full target validation checks generated-table conformance. It does not prove
@@ -93,30 +93,18 @@ report must describe the supplied snapshot; mismatched evidence is rejected.
 The output directory contains `snapshot/`, `evidence/target-validation.json`,
 `evidence/metadata-profile.json`, `evidence/metadata-bundle.json`, and a
 `preparation.json` receipt with snapshot identity, counts, and evidence hashes.
-`preparation-inputs.json` records the resolved local inputs for resuming the run.
-A separate validation digest binds the saved report even if metadata preparation
-fails before the final receipt. Existing output directories must be private
-(mode `0700`); symlinked input files and snapshot directories are refused.
-Transfer the snapshot and evidence using the next steps in this runbook.
-Automated transfer and pod setup remain
-[issue 353](https://github.com/microbiomedata/nmdc-lakehouse/issues/353).
+The output directory must be new or empty and private (mode `0700`). Symlinked
+input files and snapshot directories are refused. Send the snapshot and evidence
+using the existing pod staging procedure below.
 
-For configurations naming an existing `snapshot`, rerunning the same command
-checks and reuses completed work; a metadata failure does not require another
-full validation. Fresh-export runs never resume an existing output snapshot.
-A completed fresh preparation is already ready to send. If a fresh run was
-interrupted, retain its files: when its manifest validates, name that `snapshot`
-and any successful full report explicitly in a new configuration/output directory.
-That reuses the dump without exporting again. A dump without a valid completion
-manifest needs a new export directory.
-
-Changed configuration or saved evidence, or corrupted prepared outputs, causes
-refusal. The prepared snapshot is verified against its saved manifest and is
-independent of later changes to the original Parquet files. If interruption leaves
-a report without its completion digest, retain it and supply it explicitly to a
-new preparation directory. For corrected descriptions, use a new directory and
-refer to the previous successful full report. Never write preparation output
-inside the immutable source snapshot.
+Preparation never resumes a non-empty output directory, including one containing
+only a lock left after interruption. Keep interrupted output: when its snapshot
+manifest validates, name that snapshot and any successful full report explicitly
+in a new configuration/output directory. This reuses the dump and validation
+without repeating them. A dump without a valid completion manifest needs a new
+export directory. For corrected descriptions, also use a new directory and the
+previous successful full report. Never write preparation output inside the
+immutable source snapshot.
 
 ## Access and runtime
 

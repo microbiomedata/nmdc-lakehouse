@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -24,7 +23,6 @@ from nmdc_lakehouse.metadata_bundle import (
     MetadataProfile,
     NamespaceProfile,
     build_metadata_bundle,
-    load_metadata_bundle,
     load_metadata_profile,
 )
 from nmdc_lakehouse.snapshot_manifest import validate_snapshot
@@ -105,10 +103,6 @@ def progress(label: str):
 
 def _copy(source: Path, destination: Path) -> None:
     checksum = file_digest(source)
-    if destination.exists() or destination.is_symlink():
-        if file_digest(destination) != checksum:
-            raise PreparationError(f"Prepared input differs: {destination.name}")
-        return
     fd, name = tempfile.mkstemp(prefix=f".{destination.name}.", dir=destination.parent)
     os.close(fd)
     try:
@@ -184,18 +178,18 @@ def prepare_publication(config_path: Path, root: Path) -> dict[str, Any]:
         raise PreparationError("The input snapshot and preparation directory must be disjoint.")
     if root.exists() and root.stat().st_mode & 0o077:
         raise PreparationError("The existing preparation directory must be private (mode 0700).")
-    if root.exists() and not (root / "preparation-inputs.json").exists():
-        if any(p.name != ".prepare.lock" for p in root.iterdir()):
-            raise PreparationError("Use a new directory, or resume one created by prepare-publication.")
+    if root.exists() and any(root.iterdir()):
+        raise PreparationError(
+            "The preparation directory is not empty; use a new directory with completed snapshot/report inputs. "
+            "An existing .prepare.lock also prevents reuse after interruption."
+        )
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     lock = root / ".prepare.lock"
-    if lock.is_symlink():
-        raise PreparationError("The preparation lock cannot be a symlink.")
-    with lock.open("a") as stream:
-        try:
-            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
-            raise PreparationError("Another preparation is already using this directory.") from error
+    try:
+        stream = lock.open("x")
+    except FileExistsError as error:
+        raise PreparationError("Another preparation has claimed this directory; use a new one.") from error
+    with stream:
         input_paths = {
             name: path
             for name, path in (
@@ -209,7 +203,6 @@ def prepare_publication(config_path: Path, root: Path) -> dict[str, Any]:
             "config": config.model_dump(mode="json"),
             "input_hashes": {n: file_digest(p) for n, p in input_paths.items()},
         }
-        save_json(root / "preparation-inputs.json", inputs)
         evidence = root / "evidence"
         evidence.mkdir(exist_ok=True)
         snapshot = root / "snapshot"
@@ -231,33 +224,18 @@ def prepare_publication(config_path: Path, root: Path) -> dict[str, Any]:
         if manifest.software.nmdc_schema_version != config.source_version:
             raise PreparationError("The snapshot does not describe the configured source version.")
         report_path = evidence / "target-validation.json"
-        report_digest_path = evidence / "target-validation-digest.json"
-        if not report_path.exists():
-            if config.target_validation is not None:
-                report = load_target_validation_report(config.target_validation)
-            else:
-                with progress("full target row validation"):
-                    report = validate_target_snapshot(snapshot, requested_mode="full")
-            _require_target_validation(manifest, report)
-            if report.requested_mode != "full":
-                raise PreparationError("Publication preparation requires a full target validation report.")
-            if config.target_validation is not None:
-                _copy(config.target_validation, report_path)
-            else:
-                write_target_validation_report(report_path, report, snapshot_root=snapshot)
-            save_json(report_digest_path, {"sha256": file_digest(report_path)})
-        if not report_digest_path.is_file():
-            raise PreparationError(
-                "The saved validation report lacks its completion digest; "
-                "use a new preparation directory with that report as an explicit input."
-            )
-        save_json(report_digest_path, {"sha256": file_digest(report_path)})
-        if config.target_validation is not None and file_digest(report_path) != inputs["input_hashes"]["validation"]:
-            raise PreparationError("The saved validation report differs from the supplied report.")
-        report = load_target_validation_report(report_path)
+        if config.target_validation is not None:
+            report = load_target_validation_report(config.target_validation)
+        else:
+            with progress("full target row validation"):
+                report = validate_target_snapshot(snapshot, requested_mode="full")
         _require_target_validation(manifest, report)
         if report.requested_mode != "full":
             raise PreparationError("Publication preparation requires a full target validation report.")
+        if config.target_validation is not None:
+            _copy(config.target_validation, report_path)
+        else:
+            write_target_validation_report(report_path, report, snapshot_root=snapshot)
         if config.profile is not None:
             profile = load_metadata_profile(config.profile)
         else:
@@ -271,12 +249,11 @@ def prepare_publication(config_path: Path, root: Path) -> dict[str, Any]:
             )
         save_json(evidence / "metadata-profile.json", profile.model_dump(mode="json"))
         bundle_path = evidence / "metadata-bundle.json"
-        existing = load_metadata_bundle(bundle_path) if bundle_path.exists() else None
         bundle = build_metadata_bundle(
             snapshot,
             manifest,
             profile,
-            generated_at=existing.generated_at if existing else datetime.now(UTC).isoformat(),
+            generated_at=datetime.now(UTC).isoformat(),
         )
         save_json(bundle_path, bundle.model_dump(mode="json"))
         if validate_snapshot(snapshot) != manifest:
