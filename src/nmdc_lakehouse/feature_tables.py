@@ -529,14 +529,48 @@ def check_run(files: Mapping[str, Path]) -> dict[str, dict[str, Any]]:
             passed = passed and ec_equal == len(ec_genes)
         results[name] = _check(passed, **detail)
 
+    # Whole rows, not only (gene, accession): a TSV row is repeated only if a KO_EC GFF row for the
+    # same gene and accession carries all ten of its other fields. Observed 2026-09-24: TSV columns
+    # are gene, subject gene, accession, identity, query start and end, subject start and end,
+    # e-value, bit score and alignment length; the GFF has the query coordinates in columns 4-5,
+    # the bit score in column 6, and the rest in column 9.
+    gff_hits: dict[tuple[str, str], list[tuple[set[str], tuple[str | None, ...]]]] = defaultdict(list)
+    if KO_EC in files:
+        for r in read_table(files[KO_EC]):
+            hit_attributes = dict(parse_attributes(r[8])) if len(r) > 8 else {}
+            fields = (
+                hit_attributes.get("percent_identity"),
+                r[3],
+                r[4],
+                hit_attributes.get("subject_start"),
+                hit_attributes.get("subject_end"),
+                hit_attributes.get("evalue"),
+                r[5],
+                hit_attributes.get("alignment_length"),
+            )
+            subjects = set(hit_attributes.get("subject_gene_ids", "").split(","))
+            kos, ecs = split_ko_ec(r[2])
+            for accession in kos | ecs:
+                gff_hits[(r[0], accession)].append((subjects, fields))
     for tsv_type, label, pick in ((KO_TSV, "ko_tsv_in_ko_ec_gff", 0), (EC_TSV, "ec_tsv_in_ko_ec_gff", 1)):
         if tsv_type not in files or KO_EC not in files:
             results[label] = {"passed": False, "skipped": "missing"}
             continue
-        tsv_pairs = {(r[0], r[2]) for r in read_table(files[tsv_type])}
-        gff_pairs = {(r[0], a) for r in read_table(files[KO_EC]) for a in split_ko_ec(r[2])[pick]}
+        tsv_rows = list(read_table(files[tsv_type]))
+        tsv_pairs = {(r[0], r[2]) for r in tsv_rows}
+        gff_pairs = {key for key in gff_hits if key[1].startswith(("KO:", "EC:")[pick])}
+        full = sum(
+            1
+            for r in tsv_rows
+            if len(r) >= 11
+            and any(
+                r[1] in subjects and tuple(r[3:11]) == fields for subjects, fields in gff_hits.get((r[0], r[2]), [])
+            )
+        )
         results[label] = _check(
-            tsv_pairs == gff_pairs,
+            tsv_pairs == gff_pairs and full == len(tsv_rows),
+            tsv_rows=len(tsv_rows),
+            tsv_rows_fully_in_gff=full,
             tsv_pairs=len(tsv_pairs),
             gff_pairs=len(gff_pairs),
             tsv_only=len(tsv_pairs - gff_pairs),
@@ -599,7 +633,8 @@ def cached_files(entry: Mapping[str, Any], cache_dir: Path) -> tuple[dict[str, P
     urls: dict[str, str] = {}
     root = cache_dir.resolve()
     for data_object_type, data_object in entry["files"].items():
-        url = data_object.get("url")
+        # Stripped as `data_object_manifest.build_manifest` does, since the downloader cached that.
+        url = str(data_object.get("url") or "").strip()
         if not url:
             continue
         path = (cache_dir / urlparse(url).path.lstrip("/")).resolve()
