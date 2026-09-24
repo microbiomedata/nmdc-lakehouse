@@ -48,7 +48,14 @@ class FakeFrame:
                 SimpleNamespace(
                     name=n,
                     metadata={"preserved": "value", "comment": "old"},
-                    dataType=SimpleNamespace(simpleString=lambda name=n: spark.column_types.get(name, "string")),
+                    dataType=SimpleNamespace(
+                        simpleString=lambda name=n: spark.column_types.get(name, "string"),
+                        jsonValue=lambda name=n: (
+                            {"type": "array", "elementType": "string", "containsNull": True}
+                            if spark.column_types.get(name) == "array<string>"
+                            else spark.column_types.get(name, "string")
+                        ),
+                    ),
                 )
                 for n in value.columns
             ]
@@ -182,7 +189,6 @@ def candidate(tmp_path, monkeypatch):
         pa.field(table.removeprefix("biosample_set_"), pa.list_(pa.string()))
         for table in sorted(promotion.OBSOLETE_TEXTVALUE_TABLES)
     ]
-    pq.write_table(pa.Table.from_pylist([], schema=pa.schema(fields)), roots[0] / "snapshot/biosample_set.parquet")
     sources = [
         promotion.PromotionSource(
             root=str(root),
@@ -200,13 +206,26 @@ def candidate(tmp_path, monkeypatch):
         )
         for index, root in enumerate(roots)
     ]
+    for source in sources:
+        for table in source.tables:
+            schema = pa.schema(
+                [pa.field("id", pa.string()), pa.field("optional", pa.string())]
+                + (fields if table == "biosample_set" else [])
+            )
+            pq.write_table(pa.Table.from_pylist([], schema=schema), Path(source.root) / "snapshot" / f"{table}.parquet")
     descriptions = {name: SimpleNamespace(value="Reviewed table description") for s in sources for name in s.tables}
     columns = {name: [("id", "Stable identifier")] for name in descriptions}
     metadata = SimpleNamespace(target_schema_version="test", snapshot_id=PARENT)
     monkeypatch.setattr(
         promotion,
         "_load_source",
-        lambda root: (next(s.model_copy(deep=True) for s in sources if s.root == str(root)), metadata, None),
+        lambda root: (
+            next(s.model_copy(deep=True) for s in sources if s.root == str(root)),
+            metadata,
+            SimpleNamespace(
+                artifacts=[SimpleNamespace(table=p.stem, path=p.name) for p in (root / "snapshot").glob("*.parquet")]
+            ),
+        ),
     )
     monkeypatch.setattr(berdl_metadata, "_description_operations", lambda model: (descriptions, columns, []))
     tables = {
@@ -611,3 +630,30 @@ def test_empty_source_populated_after_refresh_stops_before_its_write(candidate):
     assert c.spark.writes == [("replace", f"{CANONICAL}.biosample_set")]
     failure = json.loads((c.path.with_suffix(".execution") / "failure.json").read_text())
     assert failure["attempted"] == "empty_set" and failure["verified"] == ["biosample_set"]
+
+
+@pytest.mark.parametrize("change", ["type", "column", "namespace"])
+def test_staged_schema_and_namespace_cannot_substitute_for_the_validated_source(candidate, change):
+    c = candidate
+    if change == "type":
+        c.spark.column_types["id"] = "long"
+    elif change == "column":
+        c.spark.tables[f"{c.sources[1].staging_namespace}.graph_edges"].columns.pop("optional")
+    else:
+        c.sources[1].staging_namespace = c.sources[0].staging_namespace
+    with pytest.raises(promotion.PromotionPlanError, match="Staged physical schema|exact verified table set"):
+        promotion.build_promotion_plan(*c.roots, ingest_checkout=c.checkout, recovery="manual", spark=c.spark)
+    assert c.spark.writes == []
+
+
+def test_new_canonical_table_after_copies_prevents_helper_removal(candidate):
+    c = candidate
+
+    def add_table(_target):
+        c.spark.tables[f"{CANONICAL}.concurrent_table"] = state()
+
+    c.spark.after_write = add_table
+    with pytest.raises(promotion.PromotionPlanError, match="Promotion stopped"):
+        run(c)
+    assert len(c.spark.writes) == 4
+    assert not any(action == "drop" for action, _ in c.spark.writes)

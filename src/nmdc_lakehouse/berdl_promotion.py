@@ -28,6 +28,7 @@ from nmdc_lakehouse.berdl_promotion_probe import _scalar
 from nmdc_lakehouse.metadata_application import MetadataApplicationPlan
 from nmdc_lakehouse.publication_prepare import file_digest, progress, save_json
 from nmdc_lakehouse.publication_staging import verified_staging_metadata
+from nmdc_lakehouse.sinks.parquet_sink import _spark_type
 from nmdc_lakehouse.snapshot_manifest import SnapshotManifest, validate_snapshot
 
 # The one-time September cleanup from issue 234, never a wildcard or user-defined drop list.
@@ -299,13 +300,21 @@ def build_promotion_plan(
     _check_textvalue_replacements(metadata_root, drops, spark, sources[0].staging_namespace)
     before = {name: _catalog_table(spark, "nmdc.metadata", name) for name in sorted(before_names)}
     operations = []
-    for source, metadata, _ in inputs:
+    for source, metadata, manifest in inputs:
+        paths = {artifact.table: Path(source.root) / "snapshot" / artifact.path for artifact in manifest.artifacts}
         if _table_names(spark, source.staging_namespace) != set(source.tables):
             raise PromotionPlanError("Staging namespace no longer contains the exact verified table set.")
         for table, count in sorted(source.tables.items()):
             state = _catalog_table(spark, source.staging_namespace, table)
             if state.rows != count:
                 raise PromotionPlanError(f"Staged row count changed: {table}.")
+            expected_schema = [(field.name, _spark_type(field.type)) for field in pq.read_schema(paths[table])]
+            staged_schema = [
+                (field.name, field.dataType.jsonValue())
+                for field in spark.table(f"{source.staging_namespace}.{table}").schema.fields
+            ]
+            if staged_schema != expected_schema:
+                raise PromotionPlanError(f"Staged physical schema differs from the validated Parquet: {table}.")
             _require_planned_metadata(table, state, metadata)
             operations.append(
                 PromotionOperation(
@@ -489,6 +498,8 @@ def execute_promotion(
                 checked_before_drops = False
                 for index, op in enumerate(plan.operations):
                     if op.action == "drop" and not checked_before_drops:
+                        if _table_names(spark, plan.canonical_namespace) != set(plan.before) | set(copies):
+                            raise PromotionPlanError("Canonical table set changed before obsolete helper removal.")
                         _verify_copies(spark, plan, copies)
                         checked_before_drops = True
                     attempted = op.table

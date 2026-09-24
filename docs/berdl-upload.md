@@ -627,7 +627,13 @@ the source snapshot ID. The checks compare counts, column names/types, table and
 column comments, and every copied NMDC identity property. They do not compute a
 row-content hash of the catalog table.
 
-All replacements/additions must verify before obsolete helpers are dropped.
+Planning compares every staged table's column names and types with the validated
+Parquet using the writer's existing Arrow-to-Spark mapping. It ignores top-level
+field nullability because catalog loading can relax it; it does not compare
+incompatible Arrow and Spark schema digests.
+
+All replacements/additions and the complete canonical table set must verify
+before obsolete helpers are dropped.
 Removals use `DROP TABLE` without `PURGE`. Final verification checks the exact
 canonical table set and rereads every copied table's data/metadata summary.
 A successful result is `promotion-verified`. Namespace and registry metadata
