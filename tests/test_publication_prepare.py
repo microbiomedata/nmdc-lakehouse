@@ -354,3 +354,15 @@ def test_source_selector_reads_configuration_before_loading_package(tmp_path, mo
     assert command[-2] == str(config)
     assert command[-1] == str(tmp_path / "output")
     assert (options["cwd"] / "scripts/uv_with_source.sh").is_file()
+
+
+def test_wrong_snapshot_source_fails_before_copy(inputs, monkeypatch):
+    config, source, manifest, output = inputs
+    other = manifest.model_copy(deep=True)
+    other.software.nmdc_schema_version = "0.0.0"
+    monkeypatch.setattr(preparation, "validate_snapshot", lambda root: other)
+    monkeypatch.setattr(preparation, "_copy", lambda *a: pytest.fail("Mismatched snapshot must not be copied"))
+    with pytest.raises(preparation.PreparationError, match="configured source version"):
+        preparation.prepare_publication(config, output)
+    assert not (output / "snapshot").exists()
+    assert not (output / "preparation.json").exists()
