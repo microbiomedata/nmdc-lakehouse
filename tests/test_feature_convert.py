@@ -50,6 +50,21 @@ def test_convert_run_loads_each_observation_once(run_files: dict[str, Path], tmp
     first = next(c for c in contigs if c["contig_id"] == f"{RUN}_0001")
     assert first["assembly_contig_id"] == "nmdc:wfmgas-99-a_scf_1"
     assert first["taxonomic_lineage"] == ["Bacteria", "Pseudomonadota"]
+    assert first["source_files"] == [urls[ft.CONTIG_MAPPING], urls[ft.SCAFFOLD_LINEAGE]]
+    second = next(c for c in contigs if c["contig_id"] == f"{RUN}_0002")
+    assert second["source_files"] == [urls[ft.CONTIG_MAPPING]]
+
+
+def test_contig_sources_require_a_record_in_each_sidecar(run_files: dict[str, Path], tmp_path: Path) -> None:
+    run_files[ft.CONTIG_MAPPING] = _write(tmp_path, "partial_mapping.tsv", [f"assembly_2\t{RUN}_0002"])
+    # Even a record with no lineage value is evidence from this file.
+    run_files[ft.SCAFFOLD_LINEAGE] = _write(tmp_path, "empty_lineage.tsv", [f"{RUN}_0001\t\t"])
+    urls = {t: f"https://example.org/{p.name}" for t, p in run_files.items()}
+    result = fc.convert_run(RUN, run_files, urls, tmp_path / "out")
+    contigs = {c["contig_id"]: c for c in pq.read_table(result.outputs[1]).to_pylist()}
+    assert contigs[f"{RUN}_0001"]["source_files"] == [urls[ft.SCAFFOLD_LINEAGE]]
+    assert contigs[f"{RUN}_0001"]["taxonomic_lineage"] == []
+    assert contigs[f"{RUN}_0002"]["source_files"] == [urls[ft.CONTIG_MAPPING]]
 
 
 def test_convert_run_keeps_accessions_when_the_hit_file_is_missing(run_files: dict[str, Path], tmp_path: Path) -> None:
@@ -151,6 +166,43 @@ def test_cli_convert_fails_when_a_run_has_no_functional_file(run_files: dict[str
 
     summary = json.loads((tmp_path / "out" / "conversion_summary.json").read_text())
     assert summary == {"converted": [], "missing_functional_gff": [RUN]}
+
+
+def test_cli_convert_fails_when_requested_unselected_rows_are_refused(
+    run_files: dict[str, Path], tmp_path: Path
+) -> None:
+    import json
+
+    from click.testing import CliRunner
+
+    from nmdc_lakehouse.cli import cli
+
+    del run_files["Genemark Annotation GFF"]
+    plan_path, runs_path, cache = _cli_fixture(run_files, tmp_path)
+    out = tmp_path / "parquet"
+    result = CliRunner().invoke(
+        cli,
+        [
+            "feature-convert",
+            str(plan_path),
+            "--runs",
+            str(runs_path),
+            "--cache-dir",
+            str(cache),
+            "--out-dir",
+            str(out),
+            "--include-unselected",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "refused --include-unselected" in result.output
+    summary = json.loads((out / "conversion_summary.json").read_text())
+    assert summary["missing_functional_gff"] == []
+    assert summary["converted"][0]["run_id"] == RUN
+    assert summary["converted"][0]["unselected_refused"]
+    rows = pq.read_table(next(out.glob("*/features.parquet"))).to_pylist()
+    assert rows
+    assert not any(row["is_selected"] is False for row in rows)
 
 
 def test_convert_run_refuses_to_write_a_repeated_feature_id(run_files: dict[str, Path], tmp_path: Path) -> None:

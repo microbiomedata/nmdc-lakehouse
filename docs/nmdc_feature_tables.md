@@ -77,6 +77,8 @@ Functional Annotation GFF lacks is counted in the run summary and not written.
 (list), `lineage_confidence`, `generated_by`, `source_files`. The model's `length_bp` and
 `topology` are not filled: length needs the assembly FASTA, and no NMDC annotation file states
 topology.
+Each contig's `source_files` cites only sidecar files with a record for that contig.
+A missing lineage record does not make the lineage file a source for that row.
 
 Each run directory also holds `run_id.txt`. `feature-convert` replaces a run directory only if that
 file names the same run, so two run IDs that map to one directory name cannot overwrite each other.
@@ -86,6 +88,10 @@ because one gene can carry the same coordinates in several systems. If any `feat
 repeats within a run, `feature-convert` stops before writing that run. A run whose Functional
 Annotation GFF is missing from the cache is listed under `missing_functional_gff` in
 `conversion_summary.json`, and the command exits non-zero.
+If `--include-unselected` is refused for any run, the command also exits non-zero after
+writing the summary. Each affected run records its reason under `unselected_refused`;
+its selected features and hits remain available, but it has no unselected caller rows.
+Other runs continue to be processed, so inspect the summary before using partial results.
 
 Features carry the annotation run as `generated_by`. Contigs carry the assembly run, found by
 `feature-plan` as the run whose `has_output` includes the annotation run's input, and null when

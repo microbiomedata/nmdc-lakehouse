@@ -394,7 +394,6 @@ def convert_run(
                 assembly[r[1]] = r[0]
     contig_schema = _contig_schema()
     contig_writer = pq.ParquetWriter(partial / "contigs.parquet", contig_schema, compression="zstd")
-    sources = [urls[t] for t in (CONTIG_MAPPING, SCAFFOLD_LINEAGE) if t in urls and t in files]
     contig_batch: list[dict[str, Any]] = []
     for contig_id in sorted(contig_ids):
         tax, confidence = lineage.get(contig_id, ([], None))
@@ -405,7 +404,11 @@ def convert_run(
                 "taxonomic_lineage": tax,
                 "lineage_confidence": confidence,
                 "generated_by": assembly_run,
-                "source_files": sources,
+                "source_files": [
+                    urls[kind]
+                    for kind, records in ((CONTIG_MAPPING, assembly), (SCAFFOLD_LINEAGE, lineage))
+                    if contig_id in records and kind in urls
+                ],
             }
         )
         result.contig_rows += 1

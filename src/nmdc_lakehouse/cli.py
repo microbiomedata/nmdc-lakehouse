@@ -1366,10 +1366,14 @@ def feature_convert_command(
     (out_dir / "conversion_summary.json").write_text(
         json.dumps({"converted": summary, "missing_functional_gff": missing}, indent=1)
     )
+    failures = []
     if missing:
-        raise click.ClickException(
-            f"{len(missing)} run(s) had no Functional Annotation GFF in the cache: {missing[:3]}"
-        )
+        failures.append(f"{len(missing)} run(s) had no Functional Annotation GFF in the cache: {missing[:3]}")
+    refused = [item["run_id"] for item in summary if item["unselected_refused"]]
+    if refused:
+        failures.append(f"{len(refused)} run(s) refused --include-unselected: {refused[:3]}")
+    if failures:
+        raise click.ClickException("; ".join(failures) + f". See {out_dir / 'conversion_summary.json'}.")
 
 
 if __name__ == "__main__":
