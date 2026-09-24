@@ -933,10 +933,10 @@ def prepare_publication_command(configuration: Path, output: Path) -> None:
         details = []
         for item in error.errors(include_input=False, include_context=False, include_url=False):
             parts = list(item["loc"])
-            if "properties" in parts:
-                parts[parts.index("properties") + 1 :] = ["<item>"]
             if item["type"] == "extra_forbidden" and parts:
                 parts[-1] = "<item>"
+            elif "properties" in parts[:-1]:
+                parts[parts.index("properties") + 1 :] = ["<item>"]
             location = ".".join(str(part) if isinstance(part, int) or part in fields else "<item>" for part in parts)
             # Free-form validator messages and dictionary keys can contain submitted values.
             details.append(f"{location or '<document>'}: {item['type'].replace('_', ' ')}")

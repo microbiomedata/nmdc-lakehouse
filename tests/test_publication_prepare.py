@@ -370,6 +370,7 @@ def test_preparation_cli_reports_safe_locations_and_reasons(inputs):
                 },
                 "overrides": [{"table": "example", "description": "Example", "rationale": "Review"}],
                 secret: secret,
+                "properties": secret,
             }
         )
     )
@@ -381,6 +382,7 @@ def test_preparation_cli_reports_safe_locations_and_reasons(inputs):
     assert "namespace.<item>: extra forbidden" in result.output
     assert "namespace.properties.source_version" not in result.output
     assert "namespace.source_version" not in result.output
+    assert "\nproperties" not in result.output
     assert "overrides.0.source: missing" in result.output
     assert "<item>: extra forbidden" in result.output
     assert secret not in result.output
