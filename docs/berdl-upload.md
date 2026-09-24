@@ -639,7 +639,9 @@ schema and metadata bundle. Staging tables and object-store artifacts remain.
 The command creates `combined-promotion.execution/` beside the reviewed plan.
 It retains `before.json`, a private runtime log, and separate attempted/verified
 records for every operation, including timestamps and the new catalog snapshot
-identities. Each operation's table name identifies its canonical before-state in
+identities. The before-state includes the ordered physical column names and types,
+comments and NMDC properties, rather than only a schema digest.
+Each operation's table name identifies its canonical before-state in
 `before.json` under `before`; an absent entry means an addition. The pre-write
 guard requires the live state to equal that recorded state. A verified drop has
 `after: null`, meaning the read-back confirmed absence. This avoids duplicating

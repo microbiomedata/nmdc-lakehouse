@@ -32,7 +32,7 @@ def state(rows=2, snapshot_id="101"):
     return promotion.CatalogTable(
         rows=rows,
         snapshot_id=snapshot_id,
-        schema_sha256="unused-fixture-hash",
+        physical_schema=[("id", "string"), ("optional", "string")],
         table_description="Reviewed table description",
         columns={"id": "Stable identifier", "optional": None},
         properties={"nmdc_lakehouse.snapshot_id": PARENT, "nmdc_lakehouse.target_schema_version": "test"},
@@ -275,6 +275,7 @@ def test_combined_plan_and_copy_preserve_metadata_and_verify_all(candidate):
         assert (previous is None) == (operation["action"] == "add")
         if operation["action"] == "drop":
             assert previous["snapshot_id"] == "99" and previous["rows"] == 7
+            assert previous["physical_schema"] == [["id", "string"], ["optional", "string"]]
             verified = json.loads(path.with_name(path.name.replace("-attempt", "-verified")).read_text())
             assert verified["after"] is None and verified["status"] == "verified"
     assert (journal / "outcome.json").is_file()
@@ -580,3 +581,33 @@ def test_historical_staging_requires_the_complete_unique_evidence_set(planned, c
     path.write_text(json.dumps(document))
     with pytest.raises(berdl_staging.BerdlStagingPlanError, match="complete and unique"):
         promotion._load_source(root)
+
+
+def test_changed_historical_evidence_path_invalidates_the_verified_outcome(planned):
+    root, authorization, _, _ = planned
+    staging.stage_publication(root, **authorization)
+    path = root / "evidence/berdl-staging-plan.json"
+    document = json.loads(path.read_text())
+    item = next(item for item in document["evidence"] if item["name"] == "destination-inventory.json")
+    other = root.parent / "another-inventory.json"
+    other.write_bytes(Path(item["path"]).read_bytes())
+    item["path"] = str(other)
+    path.write_text(json.dumps(document))
+    with pytest.raises(ValueError, match="data outcome differs"):
+        promotion._load_source(root)
+
+
+def test_empty_source_populated_after_refresh_stops_before_its_write(candidate):
+    c = candidate
+
+    def populate_empty_source(_target):
+        staged = c.spark.tables[f"{c.sources[0].staging_namespace}.empty_set"]
+        staged.rows = 1
+        staged.snapshot_id = "new-source-snapshot"
+
+    c.spark.after_write = populate_empty_source
+    with pytest.raises(promotion.PromotionPlanError, match="Promotion stopped"):
+        run(c)
+    assert c.spark.writes == [("replace", f"{CANONICAL}.biosample_set")]
+    failure = json.loads((c.path.with_suffix(".execution") / "failure.json").read_text())
+    assert failure["attempted"] == "empty_set" and failure["verified"] == ["biosample_set"]

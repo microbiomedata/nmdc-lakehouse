@@ -24,7 +24,7 @@ import pyarrow.parquet as pq
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from nmdc_lakehouse import berdl_metadata, berdl_staging
-from nmdc_lakehouse.berdl_promotion_probe import _scalar, _schema_fingerprint
+from nmdc_lakehouse.berdl_promotion_probe import _scalar
 from nmdc_lakehouse.metadata_application import MetadataApplicationPlan
 from nmdc_lakehouse.publication_prepare import file_digest, progress, save_json
 from nmdc_lakehouse.publication_staging import verified_staging_metadata
@@ -59,7 +59,7 @@ class CatalogTable(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     rows: int = Field(ge=0)
     snapshot_id: str | None
-    schema_sha256: str
+    physical_schema: list[tuple[str, str]]
     table_description: str | None
     columns: dict[str, str | None]
     properties: dict[str, str]
@@ -238,7 +238,7 @@ def _catalog_table(spark: Any, namespace: str, table: str) -> CatalogTable:
     state = CatalogTable(
         rows=rows,
         snapshot_id=str(current) if current is not None else None,
-        schema_sha256=_schema_fingerprint(spark, name),
+        physical_schema=[(c.name, str(c.dataType)) for c in spark.catalog.listColumns(name)],
         table_description=berdl_metadata._read_table_description(spark, name) or None,
         columns={k: v or None for k, v in berdl_metadata._read_column_descriptions(spark, name).items()},
         properties={k: v for k, v in properties.items() if k.startswith(berdl_metadata.SCHEMA_PROPERTY_PREFIX)},
@@ -376,7 +376,8 @@ def plan_promotion(
 
 def load_promotion_plan(path: Path) -> tuple[BerdlPromotionPlan, str]:
     """Read one ordinary plan and hash exactly the bytes that were parsed."""
-    file_digest(path)
+    if path.is_symlink() or not path.is_file():
+        raise PromotionPlanError("Use an ordinary promotion plan file.")
     raw = path.read_bytes()
     return BerdlPromotionPlan.model_validate_json(raw), hashlib.sha256(raw).hexdigest()
 
@@ -408,6 +409,8 @@ def _copy_table(spark: Any, plan: BerdlPromotionPlan, op: PromotionOperation) ->
     if state.snapshot_id is None:
         if state.rows:
             raise PromotionPlanError("A populated staged table must have an Iceberg snapshot ID.")
+        if _catalog_table(spark, op.source_namespace, op.table) != state:
+            raise PromotionPlanError("The reviewed empty source changed before copying.")
         frame = spark.table(source).limit(0)
     else:
         frame = spark.read.format("iceberg").option("snapshot-id", state.snapshot_id).load(source)
