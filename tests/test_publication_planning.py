@@ -182,3 +182,41 @@ def test_source_alignment_is_required_for_derived_planning(prepared, monkeypatch
         planning.plan_publication(root, config, runner=GitRunner())
     assert not (root / "evidence/planning-inputs.json").exists()
     assert not (root / "evidence/berdl-staging-plan.json").exists()
+
+
+@pytest.mark.parametrize("capabilities", [["table"], ["column"], []])
+def test_missing_mandatory_metadata_capability_refuses_planning(prepared, capabilities):
+    root, config = prepared
+    path = config.parent / "inventory.json"
+    value = json.loads(path.read_text())
+    value["metadata_capabilities"] = capabilities
+    path.write_text(json.dumps(value))
+    with pytest.raises(PreparationError, match="requires table and column"):
+        planning.plan_publication(root, config, runner=GitRunner())
+    assert not (root / "evidence/planning-inputs.json").exists()
+    assert not (root / "evidence/metadata-application-plan.json").exists()
+
+
+def test_failed_planning_status_retains_verified_preparation_and_correct_recovery(prepared, monkeypatch):
+    from functools import partial
+
+    from nmdc_lakehouse import berdl_staging
+    from nmdc_lakehouse.publication_staging import publication_status
+
+    root, config = prepared
+    receipt = (root / "preparation.json").read_bytes()
+    with pytest.raises(BerdlStagingPlanError):
+        planning.plan_publication(root, config, runner=GitRunner(dirty=" M core.py"))
+    status = publication_status(root)
+    assert status["status"] == "prepared"
+    assert "planning has not completed" in status["next_action"]
+    assert "run or repeat plan-publication" in status["next_action"]
+    assert "Send" not in status["next_action"]
+    planning.plan_publication(root, config, runner=GitRunner())
+    monkeypatch.setattr(
+        berdl_staging,
+        "revalidate_berdl_staging_plan",
+        partial(berdl_staging.revalidate_berdl_staging_plan, runner=GitRunner()),
+    )
+    assert publication_status(root)["status"] == "planned"
+    assert (root / "preparation.json").read_bytes() == receipt

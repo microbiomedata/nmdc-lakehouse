@@ -88,7 +88,7 @@ A **lakehouse table** carries the same fact in its properties, under the same na
 | `nmdc_lakehouse.target_schema_version` | which flat schema produced this table |
 | `nmdc_lakehouse.snapshot_id` | which snapshot the rows came from |
 
-`berdl-apply-metadata` sets them in one `ALTER` per table, alongside the descriptions, and reads
+`stage-publication` sets them in one `ALTER` per table, alongside the descriptions, and reads
 them back whether or not it wrote them. A plan that cannot name a version labels nothing rather
 than guessing, because a consumer cannot tell a guess from a fact.
 

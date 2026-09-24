@@ -293,7 +293,7 @@ the status indicates which phase has completed.
 
 | Status or observation | Next action |
 | --- | --- |
-| `prepared` | Send to the pod, complete runtime/inventory setup and plan |
+| `prepared` | Preparation is verified; planning has not completed. In the pod, run/repeat plan with the same configuration after correcting setup; retain the snapshot and full report |
 | Plan failed before completion | Correct setup and repeat plan with the same inputs; changed inputs require a new prepared directory |
 | `planned` | Preview, review, then execute the exact authorized staging command |
 | `partial-staging` | Retain all artifacts and inspect the private log; automatic data replay is refused |

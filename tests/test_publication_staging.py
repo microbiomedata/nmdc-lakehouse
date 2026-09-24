@@ -178,7 +178,7 @@ def test_status_rejects_unbound_or_incomplete_success_evidence(planned, change):
 def test_prepared_status_and_changed_receipt(prepared):
     root, _ = prepared
     assert staging.publication_status(root)["status"] == "prepared"
-    with pytest.raises(PreparationError, match="Send to the pod"):
+    with pytest.raises(PreparationError, match="planning has not completed"):
         staging.stage_publication(root)
     path = root / "preparation.json"
     value = json.loads(path.read_text())
