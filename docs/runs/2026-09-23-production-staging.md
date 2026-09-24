@@ -133,6 +133,15 @@ immutable outcomes and the original preview. That local check validates the
 returned evidence; the live catalog and object-store checks were performed by
 the pod execution path.
 
+The checked cross-file bindings are explicit: the data outcome's
+`staging_plan_sha256` equals the reviewed plan digest in the candidate table,
+and its `upstream_outcome_sha256` equals the upstream file digest below.
+The metadata outcome's `staging_outcome_sha256` equals the data file digest
+below. Its `metadata_plan_sha256` is
+`9d4bf2db954744c36629a541bb33495b5cd3c2ee0566fb8d74d475a14397dd5c`,
+matching both the retained `metadata-application-plan.json` and that file's
+binding inside the reviewed staging plan.
+
 | Retrieved evidence file | SHA-256 |
 | --- | --- |
 | `execution-preview-20260924T013152772832Z.json` | `fa894619c216887716d1bb83e7899639f218bf0cf66c302f26a478df3deaed88` |

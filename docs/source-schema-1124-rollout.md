@@ -10,6 +10,12 @@ generated artifact and recorded identity.
 | 11.24.0 (default) | `11.24.0+flat.1.3.0` | 61: 19 primary, 42 helpers |
 | 11.23.0 | `11.23.0+flat.1.3.0` | 60: 19 primary, 41 helpers |
 
+These counts describe schema declarations. The completed 11.23.0 production
+snapshot contains 46 artifacts: all 19 primary tables and 27 helper tables.
+The other 14 helper classes have no materialized artifact in that snapshot;
+the exporter creates a helper writer only when its projection yields a row.
+Schema coverage and materialized-table counts are therefore different measures.
+
 The consumer pins the published `nmdc-lakehouse-schema==0.5.0` package.
 Its [release](https://github.com/microbiomedata/nmdc-lakehouse-schema/releases/tag/v0.5.0)
 contains both artifacts, including the nested-substance preservation and
@@ -206,20 +212,22 @@ projection-loss shape or undeclared input key.
 
 The consumer adopted published schema package 0.5.0 in
 [PR #348](https://github.com/microbiomedata/nmdc-lakehouse/pull/348).
-The remaining production gates are:
+On September 23, production preflight accepted the 11.23.0 pair and the complete
+export passed snapshot integrity and full target-row validation. Its 46 tables
+subsequently passed BERDL staging and metadata verification on September 24; see
+the [run record](runs/2026-09-23-production-staging.md).
 
-1. Verify MongoDB's recorded migration compatibility and select its source/flat pair under
-   [#347](https://github.com/microbiomedata/nmdc-lakehouse/issues/347).
-2. Repeat the bounded source audit and validate a fresh complete export. The
-   observed older fields are expected while production remains on 11.23.0.
-
-Do not describe a current
-production export as complete until these gates are resolved and the preflight
-is repeated. General projection-loss detection remains in
+The focused source-to-output preservation audit remains in
+[#347](https://github.com/microbiomedata/nmdc-lakehouse/issues/347). Target-schema
+conformance alone does not prove that every populated source value survived
+projection. The observed older fields remain expected while production uses
+11.23.0, and the production migration to 11.24.0 has not been established by
+this export. General projection-loss detection remains in
 [#129](https://github.com/microbiomedata/nmdc-lakehouse/issues/129).
 
-Once the gates are resolved, use the maintained `just etl-collections` workflow
-and the [MongoDB connection guide](mongodb-connection.md), followed by snapshot
-and target-row validation. It reads MongoDB and writes a new local Parquet
-snapshot. The older `flatten-nmdc` recipe writes derived collections into MongoDB
-and is a separate pipeline. Publication to a destination is another step.
+For future exports, repeat preflight and the maintained `just etl-collections`
+workflow in the [MongoDB connection guide](mongodb-connection.md), followed by
+snapshot and target-row validation. It reads MongoDB and writes a new local
+Parquet snapshot. The older `flatten-nmdc` recipe writes derived collections
+into MongoDB and is a separate pipeline. Reuse the completed September snapshot
+when continuing its publication rather than repeating that export.
