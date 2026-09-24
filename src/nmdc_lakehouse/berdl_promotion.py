@@ -23,13 +23,13 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from nmdc_lakehouse import berdl_metadata, berdl_staging
+from nmdc_lakehouse import berdl_adapter, berdl_metadata, berdl_staging
 from nmdc_lakehouse.berdl_promotion_probe import _scalar
 from nmdc_lakehouse.metadata_application import MetadataApplicationPlan
 from nmdc_lakehouse.publication_prepare import file_digest, progress, save_json
 from nmdc_lakehouse.publication_staging import verified_staging_metadata
 from nmdc_lakehouse.sinks.parquet_sink import _spark_type
-from nmdc_lakehouse.snapshot_manifest import SnapshotManifest, validate_snapshot
+from nmdc_lakehouse.snapshot_manifest import ArtifactRecord, SnapshotManifest, validate_snapshot
 
 # The one-time September cleanup from issue 234, never a wildcard or user-defined drop list.
 OBSOLETE_TEXTVALUE_TABLES = frozenset(
@@ -158,7 +158,9 @@ class BerdlPromotionPlan(BaseModel):
         return self
 
 
-def _load_source(root: Path) -> tuple[PromotionSource, MetadataApplicationPlan, SnapshotManifest]:
+def _load_source(
+    root: Path,
+) -> tuple[PromotionSource, MetadataApplicationPlan, SnapshotManifest, berdl_staging.BerdlStagingPlan]:
     root = root.expanduser().absolute()
     if any(p.is_symlink() or not p.is_dir() for p in (root, root / "snapshot", root / "evidence")):
         raise PromotionPlanError("Use the original ordinary staging run directories.")
@@ -217,6 +219,7 @@ def _load_source(root: Path) -> tuple[PromotionSource, MetadataApplicationPlan, 
         ),
         metadata,
         manifest,
+        plan,
     )
 
 
@@ -291,8 +294,33 @@ def _implementation_digest() -> str:
     return digest.hexdigest()
 
 
+def _require_staged_content(
+    spark: Any, client: Any, plan: berdl_staging.BerdlStagingPlan, artifact: ArtifactRecord, state: CatalogTable
+) -> None:
+    """Compare a pinned Iceberg snapshot with the checksum-verified retained source."""
+    key = f"{plan.bronze_prefix}/{artifact.path}"
+    if berdl_adapter._remote_sha256(client, plan.bucket, key) != artifact.sha256:
+        raise PromotionPlanError(f"Retained source Parquet changed: {artifact.table}.")
+    source = spark.read.parquet(f"s3a://{plan.bucket}/{key}")
+    name = f"{plan.staging_namespace}.{artifact.table}"
+    staged = (
+        spark.table(name).limit(0)
+        if state.snapshot_id is None
+        else spark.read.format("iceberg").option("snapshot-id", state.snapshot_id).load(name)
+    )
+    # EXCEPT ALL compares by column position and preserves duplicate multiplicities.
+    # The caller has already checked the ordered physical schema against this Parquet.
+    if source.exceptAll(staged).limit(1).count() or staged.exceptAll(source).limit(1).count():
+        raise PromotionPlanError(f"Staged content differs from the validated source: {artifact.table}.")
+    if (
+        berdl_adapter._remote_sha256(client, plan.bucket, key) != artifact.sha256
+        or _catalog_table(spark, plan.staging_namespace, artifact.table) != state
+    ):
+        raise PromotionPlanError(f"Source or staged table changed during content verification: {artifact.table}.")
+
+
 def build_promotion_plan(
-    metadata_root: Path, derived_root: Path, *, ingest_checkout: Path, recovery: str, spark: Any
+    metadata_root: Path, derived_root: Path, *, ingest_checkout: Path, recovery: str, spark: Any, client: Any
 ) -> BerdlPromotionPlan:
     """Read both verified inputs and live state; perform no catalog mutation."""
     inputs = [_load_source(metadata_root), _load_source(derived_root)]
@@ -306,15 +334,16 @@ def build_promotion_plan(
     _check_textvalue_replacements(metadata_root, drops, spark, sources[0].staging_namespace)
     before = {name: _catalog_table(spark, "nmdc.metadata", name) for name in sorted(before_names)}
     operations = []
-    for source, metadata, manifest in inputs:
-        paths = {artifact.table: Path(source.root) / "snapshot" / artifact.path for artifact in manifest.artifacts}
+    for source, metadata, manifest, staging_plan in inputs:
+        artifacts = {artifact.table: artifact for artifact in manifest.artifacts}
         if _table_names(spark, source.staging_namespace) != set(source.tables):
             raise PromotionPlanError("Staging namespace no longer contains the exact verified table set.")
         for table, count in sorted(source.tables.items()):
             state = _catalog_table(spark, source.staging_namespace, table)
             if state.rows != count:
                 raise PromotionPlanError(f"Staged row count changed: {table}.")
-            expected_schema = [(field.name, _spark_type(field.type)) for field in pq.read_schema(paths[table])]
+            local_path = Path(source.root) / "snapshot" / artifacts[table].path
+            expected_schema = [(field.name, _spark_type(field.type)) for field in pq.read_schema(local_path)]
             staged_schema = [
                 (field.name, field.dataType.jsonValue())
                 for field in spark.table(f"{source.staging_namespace}.{table}").schema.fields
@@ -322,6 +351,7 @@ def build_promotion_plan(
             if staged_schema != expected_schema:
                 raise PromotionPlanError(f"Staged physical schema differs from the validated Parquet: {table}.")
             _require_planned_metadata(table, state, metadata)
+            _require_staged_content(spark, client, staging_plan, artifacts[table], state)
             operations.append(
                 PromotionOperation(
                     table=table,
@@ -344,10 +374,11 @@ def build_promotion_plan(
     )
 
 
-def _runtime(checkout: Path, revision: str) -> Any:
+def _runtime(checkout: Path, revision: str) -> tuple[Any, Any]:
     berdl_metadata._verify_ingest_checkout(checkout, revision)
     spark, _, _ = berdl_metadata._runtime(checkout)
-    return spark
+    _, client = berdl_adapter._runtime(checkout)
+    return spark, client
 
 
 def _require_output_location(output: Path, roots: list[Path], checkout: Path) -> None:
@@ -373,12 +404,14 @@ def plan_promotion(
                 revision = berdl_staging.load_berdl_staging_plan(
                     metadata_root / "evidence/berdl-staging-plan.json"
                 ).ingest.revision
+                spark, client = _runtime(ingest_checkout, revision)
                 plan = build_promotion_plan(
                     metadata_root,
                     derived_root,
                     ingest_checkout=ingest_checkout,
                     recovery=recovery,
-                    spark=_runtime(ingest_checkout, revision),
+                    spark=spark,
+                    client=client,
                 )
                 save_json(output, plan.model_dump(mode="json"))
             except Exception as error:
@@ -494,13 +527,14 @@ def execute_promotion(
     with progress("combined promotion"), os.fdopen(fd, "w") as log:
         with redirect_stdout(log), redirect_stderr(log):
             try:
-                spark = _runtime(Path(plan.ingest_checkout), plan.ingest_revision)
+                spark, client = _runtime(Path(plan.ingest_checkout), plan.ingest_revision)
                 refreshed = build_promotion_plan(
                     Path(plan.sources[0].root),
                     Path(plan.sources[1].root),
                     ingest_checkout=Path(plan.ingest_checkout),
                     recovery=plan.recovery,
                     spark=spark,
+                    client=client,
                 )
                 if refreshed != plan:
                     raise PromotionPlanError("Evidence, implementation or live state changed after review.")

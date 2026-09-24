@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,6 +18,7 @@ from nmdc_lakehouse import berdl_promotion as promotion
 from nmdc_lakehouse import publication_staging as staging
 from nmdc_lakehouse.cli import cli
 from nmdc_lakehouse.publication_prepare import file_digest, save_json
+from tests.test_berdl_adapter import _Client
 from tests.test_berdl_staging import REVISION
 from tests.test_publication_planning import prepared as prepared_fixture
 from tests.test_publication_staging import planned as planned_fixture
@@ -39,9 +42,10 @@ def state(rows=2, snapshot_id="101"):
 
 
 class FakeFrame:
-    def __init__(self, spark, value, source):
+    def __init__(self, spark, value, source, rows=None):
         self.source = source
         self.spark, self.value = spark, value.model_copy(deep=True)
+        self.rows = deepcopy(spark.table_rows.get(source, []) if rows is None else rows)
         self.schema = SimpleNamespace(
             fields=[
                 SimpleNamespace(
@@ -61,10 +65,28 @@ class FakeFrame:
         )
 
     def limit(self, n):
-        assert n == 0
-        self.value.rows = 0
-        self.spark.reads.append((self.source, None))
-        return self
+        if n == 0:
+            self.spark.reads.append((self.source, None))
+        value = self.value.model_copy(update={"rows": min(n, len(self.rows))})
+        return FakeFrame(self.spark, value, self.source, self.rows[:n])
+
+    def exceptAll(self, other):
+        def key(row):
+            return json.dumps([row.get(name) for name in self.value.columns])
+
+        remaining = Counter(key(row) for row in other.rows)
+        difference = []
+        for row in self.rows:
+            if remaining[key(row)]:
+                remaining[key(row)] -= 1
+            else:
+                difference.append(row)
+        return FakeFrame(self.spark, self.value, self.source, difference)
+
+    def count(self):
+        if self.spark.after_compare:
+            self.spark.after_compare()
+        return len(self.rows)
 
     def __getitem__(self, name):
         return SimpleNamespace(alias=lambda alias, metadata: (alias, metadata))
@@ -106,6 +128,7 @@ class FakeFrame:
             raise self.spark.failure
         self.value.snapshot_id = str(200 + len(self.spark.writes))
         self.spark.tables[self.target] = self.value.model_copy(deep=True)
+        self.spark.table_rows[self.target] = deepcopy(self.rows)
         if self.spark.after_write:
             self.spark.after_write(self.target)
 
@@ -129,6 +152,14 @@ class FakeReader:
         self.spark.reads.append((source, self.snapshot_id))
         return FakeFrame(self.spark, value, source)
 
+    def parquet(self, uri):
+        bucket, key = uri.removeprefix("s3a://").split("/", 1)
+        table = pq.read_table(pa.BufferReader(self.spark.objects[(bucket, key)]))
+        value = state(rows=table.num_rows)
+        value.columns = {name: None for name in table.column_names}
+        self.spark.parquet_reads.append(uri)
+        return FakeFrame(self.spark, value, uri, table.to_pylist())
+
 
 class FakeSpark:
     def __init__(self, tables):
@@ -137,7 +168,9 @@ class FakeSpark:
             table.removeprefix("biosample_set_"): "array<string>" for table in promotion.OBSOLETE_TEXTVALUE_TABLES
         }
         self.writes, self.reads, self.projections, self.queries = [], [], [], []
+        self.table_rows, self.objects, self.parquet_reads = {}, {}, []
         self.failure = self.after_write = None
+        self.after_compare = None
         self.read = FakeReader(self)
         self.catalog = SimpleNamespace(
             getTable=lambda name: SimpleNamespace(description=self.tables[name].table_description),
@@ -199,19 +232,32 @@ def candidate(tmp_path, monkeypatch):
             source_version="11.23.0",
             ingest_revision=REVISION,
             evidence={str(root / "evidence/complete.json"): "a" * 64},
-            tables={"biosample_set": 2, "empty_set": 0}
+            tables={"biosample_set": 3, "empty_set": 0}
             if index == 0
-            else {"graph_edges": 2, "biosample_to_workflow_run": 2},
+            else {"graph_edges": 3, "biosample_to_workflow_run": 3},
         )
         for index, root in enumerate(roots)
     ]
+    client = _Client()
+    rows_by_table = {}
+    staging_plans = {}
     for source in sources:
-        for table in source.tables:
+        staging_plans[source.root] = SimpleNamespace(
+            bucket="test-bucket", bronze_prefix=Path(source.root).name, staging_namespace=source.staging_namespace
+        )
+        for table, count in source.tables.items():
             schema = pa.schema(
                 [pa.field("id", pa.string()), pa.field("optional", pa.string())]
                 + (fields if table == "biosample_set" else [])
             )
-            pq.write_table(pa.Table.from_pylist([], schema=schema), Path(source.root) / "snapshot" / f"{table}.parquet")
+            rows = [
+                {"id": f"id-{i % 2}", "optional": None, **{f.name: ["first", "second"] for f in fields}}
+                for i in range(count)
+            ]
+            path = Path(source.root) / "snapshot" / f"{table}.parquet"
+            pq.write_table(pa.Table.from_pylist(rows, schema=schema), path)
+            rows_by_table[f"{source.staging_namespace}.{table}"] = pq.read_table(path).to_pylist()
+            client.fput_object("test-bucket", f"{Path(source.root).name}/{path.name}", path)
     descriptions = {name: SimpleNamespace(value="Reviewed table description") for s in sources for name in s.tables}
     columns = {name: [("id", "Stable identifier")] for name in descriptions}
     metadata = SimpleNamespace(target_schema_version="test", snapshot_id=PARENT)
@@ -222,8 +268,12 @@ def candidate(tmp_path, monkeypatch):
             next(s.model_copy(deep=True) for s in sources if s.root == str(root)),
             metadata,
             SimpleNamespace(
-                artifacts=[SimpleNamespace(table=p.stem, path=p.name) for p in (root / "snapshot").glob("*.parquet")]
+                artifacts=[
+                    SimpleNamespace(table=p.stem, path=p.name, sha256=file_digest(p))
+                    for p in (root / "snapshot").glob("*.parquet")
+                ]
             ),
+            staging_plans[str(root)],
         ),
     )
     monkeypatch.setattr(berdl_metadata, "_description_operations", lambda model: (descriptions, columns, []))
@@ -240,7 +290,9 @@ def candidate(tmp_path, monkeypatch):
     )
     tables[f"{sources[0].staging_namespace}.biosample_set"].columns.update({field.name: None for field in fields})
     spark = FakeSpark(tables)
-    monkeypatch.setattr(promotion, "_runtime", lambda *a: spark)
+    spark.table_rows = rows_by_table
+    spark.objects = client.objects
+    monkeypatch.setattr(promotion, "_runtime", lambda *a: (spark, client))
     checkout = tmp_path / "ingest"
     checkout.mkdir()
     plan = promotion.build_promotion_plan(
@@ -248,10 +300,20 @@ def candidate(tmp_path, monkeypatch):
         ingest_checkout=checkout,
         recovery="Stop writers, inspect saved before state and restore reviewed content manually.",
         spark=spark,
+        client=client,
     )
     path = tmp_path / "promotion.json"
     save_json(path, plan.model_dump(mode="json"))
-    return SimpleNamespace(roots=roots, sources=sources, spark=spark, checkout=checkout, plan=plan, path=path)
+    return SimpleNamespace(
+        roots=roots,
+        sources=sources,
+        spark=spark,
+        checkout=checkout,
+        plan=plan,
+        path=path,
+        client=client,
+        staging_plans=staging_plans,
+    )
 
 
 def run(candidate, **changes):
@@ -279,7 +341,11 @@ def test_combined_plan_and_copy_preserve_metadata_and_verify_all(candidate):
     assert [a for a, _ in c.spark.writes[:4]] == ["replace", "add", "add", "replace"]
     assert all(a == "drop" for a, _ in c.spark.writes[4:])
     assert len(c.spark.projections) == 4
-    assert len(c.spark.reads) == 4 and any(snapshot is None for _, snapshot in c.spark.reads)
+    assert set(c.spark.reads) == {
+        (f"{op.source_namespace}.{op.table}", op.expected.snapshot_id)
+        for op in c.plan.operations
+        if op.expected is not None
+    }
     for op in c.plan.operations:
         if op.expected is not None:
             observed = promotion._catalog_table(c.spark, CANONICAL, op.table)
@@ -418,8 +484,79 @@ def test_preview_refuses_changed_stage_or_missing_projection(candidate, change):
         field = [] if change == "missing-column" else [pa.field("agrochem_addition", pa.string())]
         pq.write_table(pa.Table.from_pylist([], schema=pa.schema(field)), c.roots[0] / "snapshot/biosample_set.parquet")
     with pytest.raises(promotion.PromotionPlanError):
-        promotion.build_promotion_plan(*c.roots, ingest_checkout=c.checkout, recovery="manual", spark=c.spark)
+        promotion.build_promotion_plan(
+            *c.roots, ingest_checkout=c.checkout, recovery="manual", spark=c.spark, client=c.client
+        )
     assert c.spark.writes == []
+
+
+@pytest.mark.parametrize("change", ["value", "duplicate-count", "array-order"])
+def test_same_count_rewrite_before_planning_is_refused(candidate, change):
+    c = candidate
+    name = f"{c.sources[0].staging_namespace}.biosample_set"
+    rows = c.spark.table_rows[name]
+    if change == "value":
+        rows[0]["id"] = "different-value"
+    elif change == "duplicate-count":
+        rows[2] = deepcopy(rows[1])  # Same distinct rows and count, different multiplicities.
+    else:
+        rows[0]["host_diet"].reverse()
+    c.spark.tables[name].snapshot_id = "rewritten-before-preview"
+    with pytest.raises(promotion.PromotionPlanError, match="content differs"):
+        promotion.build_promotion_plan(
+            *c.roots, ingest_checkout=c.checkout, recovery="manual", spark=c.spark, client=c.client
+        )
+    assert not c.spark.writes
+
+
+@pytest.mark.parametrize("change", ["before", "during", "catalog"])
+def test_content_verification_refuses_changed_inputs(candidate, change):
+    c = candidate
+    key = ("test-bucket", "metadata/biosample_set.parquet")
+    name = f"{c.sources[0].staging_namespace}.biosample_set"
+
+    def alter():
+        c.spark.after_compare = None
+        if change == "catalog":
+            c.spark.tables[name].snapshot_id = "changed-during-comparison"
+        else:
+            c.client.objects[key] += b"changed"
+
+    if change == "before":
+        alter()
+    else:
+        c.spark.after_compare = alter
+    with pytest.raises(promotion.PromotionPlanError, match="changed"):
+        promotion.build_promotion_plan(
+            *c.roots, ingest_checkout=c.checkout, recovery="manual", spark=c.spark, client=c.client
+        )
+    assert not c.spark.writes
+
+
+def test_equal_content_in_a_new_snapshot_is_independently_verified(candidate):
+    c = candidate
+    name = f"{c.sources[0].staging_namespace}.biosample_set"
+    c.spark.tables[name].snapshot_id = "equivalent-rewrite"
+    c.spark.table_rows[name].reverse()
+    plan = promotion.build_promotion_plan(
+        *c.roots, ingest_checkout=c.checkout, recovery="manual", spark=c.spark, client=c.client
+    )
+    operation = next(op for op in plan.operations if op.table == "biosample_set")
+    assert operation.expected.snapshot_id == "equivalent-rewrite"
+    assert set(c.spark.parquet_reads) == {
+        f"s3a://test-bucket/{Path(source.root).name}/{table}.parquet" for source in c.sources for table in source.tables
+    }
+    assert not c.spark.writes
+
+
+def test_changed_content_before_execution_refuses_all_writes(candidate):
+    c = candidate
+    name = f"{c.sources[0].staging_namespace}.biosample_set"
+    c.spark.table_rows[name][0]["id"] = "different-value"
+    with pytest.raises(promotion.PromotionPlanError, match="Promotion stopped"):
+        run(c)
+    assert not c.spark.writes
+    assert not (c.path.with_suffix(".execution") / "outcome.json").exists()
 
 
 @pytest.mark.parametrize("change", ["live", "evidence", "implementation"])
@@ -600,7 +737,8 @@ def test_real_completed_stage_evidence_loads_without_old_runtime_revalidation(pl
         "revalidate_berdl_staging_plan",
         lambda *a: pytest.fail("Historical staging must not require the new adapter"),
     )
-    source, metadata, manifest = promotion._load_source(root)
+    source, metadata, manifest, staging_plan = promotion._load_source(root)
+    assert staging_plan.snapshot_id == source.snapshot_id
     assert source.snapshot_id == manifest.snapshot_id == metadata.snapshot_id
     assert source.parent_snapshot_id == manifest.parent_snapshot_id
     assert set(source.tables) == {"graph_edges", "biosample_to_workflow_run"}
@@ -719,7 +857,9 @@ def test_staged_schema_and_namespace_cannot_substitute_for_the_validated_source(
     else:
         c.sources[1].staging_namespace = c.sources[0].staging_namespace
     with pytest.raises(promotion.PromotionPlanError, match="Staged physical schema|exact verified table set"):
-        promotion.build_promotion_plan(*c.roots, ingest_checkout=c.checkout, recovery="manual", spark=c.spark)
+        promotion.build_promotion_plan(
+            *c.roots, ingest_checkout=c.checkout, recovery="manual", spark=c.spark, client=c.client
+        )
     assert c.spark.writes == []
 
 

@@ -624,6 +624,21 @@ again before the first write, then checks each canonical target immediately
 before changing it. Manifest, JSON evidence and Parquet artifact digests are
 checked again at the end of source validation. Keep the original run directories
 unchanged throughout planning and execution.
+The retained Bronze Parquet objects must also remain available and unchanged.
+For each table, planning checks the object's SHA-256 against the validated
+manifest and compares its rows with the selected Iceberg snapshot using
+[Spark's `EXCEPT ALL`](https://spark.apache.org/docs/latest/api/python/reference/pyspark.sql/api/pyspark.sql.DataFrame.exceptAll.html)
+in both directions. This preserves duplicate counts and ignores row order.
+The object digest and live catalog state are checked again after comparison.
+This independently verifies the selected snapshot even when an older staging
+outcome did not record its Iceberg snapshot ID. A rewrite with different values
+cannot pass just by preserving the count, schema and descriptions.
+
+Preview and execution revalidation both perform full data comparisons, which
+require distributed reads and shuffles. They reuse the retained source objects;
+no new MongoDB export or transfer is needed. Missing or changed source objects
+stop promotion. The private log and heartbeat cover these checks too.
+
 Each copy reads the reviewed staging snapshot by its Iceberg
 snapshot ID. Empty tables with no snapshot reference are copied as empty schema.
 A single projection carries column descriptions and existing field metadata;
