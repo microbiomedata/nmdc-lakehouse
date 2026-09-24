@@ -218,6 +218,8 @@ def prepare_publication(config_path: Path, root: Path) -> dict[str, Any]:
         else:
             with progress("snapshot verification and copy"):
                 original = validate_snapshot(config.snapshot)
+                if original.software.nmdc_schema_version != config.source_version:
+                    raise PreparationError("The snapshot does not describe the configured source version.")
                 snapshot.mkdir(exist_ok=True)
                 for name in [
                     "snapshot-manifest.json",
