@@ -89,6 +89,30 @@ berdl-apply-metadata METADATA_PLAN STAGING_OUTCOME INGEST_CHECKOUT OUTCOME *ARGS
 data-object-manifest TYPE DATA_OBJECT_SET OUTPUT *ARGS:
     {{ uv_run }} --no-sync nmdc-lakehouse data-object-manifest --type "{{ TYPE }}" --data-object-set "{{ DATA_OBJECT_SET }}" --output "{{ OUTPUT }}" {{ ARGS }}
 
+# NMDC annotation feature files (docs/nmdc_feature_tables.md). All four stages write local files
+# only; none of them uploads to BERDL. FEATURE_DIR defaults to the gitignored local/feature-tables.
+feature_dir := env_var_or_default("FEATURE_DIR", "local/feature-tables")
+
+# Choose one annotation run per input from the public NMDC API.
+feature-plan:
+    {{ uv_run }} --no-sync nmdc-lakehouse feature-plan --output "{{ feature_dir }}/plan.json"
+
+# Pick COUNT runs spread across pipeline versions, and write their download manifest.
+feature-sample COUNT="50" MAX_RUN_GIB="3":
+    {{ uv_run }} --no-sync nmdc-lakehouse feature-sample "{{ feature_dir }}/plan.json" --count "{{ COUNT }}" --max-run-gib "{{ MAX_RUN_GIB }}" --runs "{{ feature_dir }}/sample-runs.txt" --manifest "{{ feature_dir }}/sample-manifest.csv"
+
+# Download the sampled runs' files into the cache. Resumable: files already present are skipped.
+feature-download WORKERS="8":
+    {{ uv_run }} --no-sync python scripts/download_to_cache.py --manifest "{{ feature_dir }}/sample-manifest.csv" --cache-dir "{{ feature_dir }}/cache" --workers "{{ WORKERS }}" --user-agent nmdc-lakehouse/feature_tables
+
+# Verify checksums and test which file types repeat others. Fails if any check fails.
+feature-check:
+    {{ uv_run }} --no-sync nmdc-lakehouse feature-check "{{ feature_dir }}/plan.json" --runs "{{ feature_dir }}/sample-runs.txt" --cache-dir "{{ feature_dir }}/cache" --output "{{ feature_dir }}/check-report.json"
+
+# Write features.parquet and contigs.parquet per sampled run.
+feature-convert *ARGS:
+    {{ uv_run }} --no-sync nmdc-lakehouse feature-convert "{{ feature_dir }}/plan.json" --runs "{{ feature_dir }}/sample-runs.txt" --cache-dir "{{ feature_dir }}/cache" --out-dir "{{ feature_dir }}/parquet" {{ ARGS }}
+
 # Preserve an existing configured Git hooks-path policy instead of replacing it.
 [private]
 _install-pre-commit-hook:

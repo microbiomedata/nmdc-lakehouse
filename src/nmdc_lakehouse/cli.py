@@ -1291,5 +1291,157 @@ def _downloader_path() -> str:
     return str(candidate) if candidate.is_file() else "PATH_TO_CHECKOUT/scripts/download_to_cache.py"
 
 
+def _read_run_ids(path: Path) -> list[str]:
+    return [line.strip() for line in path.read_text().splitlines() if line.strip()]
+
+
+@cli.command("feature-plan")
+@click.option("--output", type=click.Path(path_type=Path, dir_okay=False), required=True)
+def feature_plan_command(output: Path) -> None:
+    """Choose one annotation run per input from the public NMDC API and record its files.
+
+    Reads `workflow_execution_set` and `data_object_set`; writes nothing but OUTPUT.
+    """
+    import json
+
+    from nmdc_lakehouse.feature_tables import fetch_inventory, plan_runs, plan_to_json
+
+    inventory = fetch_inventory()
+    plan = plan_runs(inventory["runs"], inventory["data_objects"])
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps({"summary": plan.summary(), **plan_to_json(plan)}, indent=1))
+    click.echo(json.dumps(plan.summary(), indent=2))
+
+
+@cli.command("feature-sample")
+@click.argument("plan_path", type=click.Path(path_type=Path, dir_okay=False, exists=True))
+@click.option("--count", type=int, default=50, show_default=True)
+@click.option("--max-run-gib", type=float, default=None, help="Skip runs larger than this. Biases toward small runs.")
+@click.option("--seed", type=int, default=0, show_default=True)
+@click.option("--runs", "runs_path", type=click.Path(path_type=Path, dir_okay=False), required=True)
+@click.option("--manifest", type=click.Path(path_type=Path, dir_okay=False), required=True)
+def feature_sample_command(
+    plan_path: Path, count: int, max_run_gib: float | None, seed: int, runs_path: Path, manifest: Path
+) -> None:
+    """Pick runs spread across run type and pipeline version, and write their download manifest."""
+    import json
+
+    from nmdc_lakehouse.feature_tables import CHECK_TYPES, plan_from_json, sample_runs, write_download_manifest
+
+    plan = plan_from_json(json.loads(plan_path.read_text()))
+    limit = int(max_run_gib * 1024**3) if max_run_gib is not None else None
+    chosen = sample_runs(plan, count, max_run_bytes=limit, seed=seed)
+    if not chosen:
+        raise click.ClickException("No run qualifies; nothing written.")
+    runs_path.parent.mkdir(parents=True, exist_ok=True)
+    runs_path.write_text("\n".join(chosen) + "\n")
+    rows = write_download_manifest(plan, chosen, CHECK_TYPES, manifest)
+    size = sum(
+        int(plan.selected[r]["files"][t].get("file_size_bytes") or 0)
+        for r in chosen
+        for t in CHECK_TYPES
+        if t in plan.selected[r]["files"]
+    )
+    click.echo(f"{len(chosen)} runs, {rows} files, {size / 1024**3:,.2f} GiB -> {manifest}")
+    click.echo(f"download: uv run python {shlex.quote(_downloader_path())} --manifest {shlex.quote(str(manifest))} \\")
+    click.echo("    --cache-dir PATH_TO_CACHE --workers 8")
+
+
+@cli.command("feature-check")
+@click.argument("plan_path", type=click.Path(path_type=Path, dir_okay=False, exists=True))
+@click.option("--runs", "runs_path", type=click.Path(path_type=Path, dir_okay=False, exists=True), required=True)
+@click.option("--cache-dir", type=click.Path(path_type=Path, file_okay=False, exists=True), required=True)
+@click.option("--output", type=click.Path(path_type=Path, dir_okay=False), required=True)
+def feature_check_command(plan_path: Path, runs_path: Path, cache_dir: Path, output: Path) -> None:
+    """Verify checksums and test which file types repeat others, for each downloaded run.
+
+    Exits non-zero when any check fails or any file's MD5 differs from NMDC's record.
+    """
+    import hashlib
+    import json
+    from collections import Counter
+
+    from nmdc_lakehouse.feature_tables import cached_files, check_run, plan_from_json
+
+    plan = plan_from_json(json.loads(plan_path.read_text()))
+    report: dict[str, object] = {}
+    failures: Counter[str] = Counter()
+    passes: Counter[str] = Counter()
+    for run_id in _read_run_ids(runs_path):
+        entry = plan.selected[run_id]
+        files, _ = cached_files(entry, cache_dir)
+        bad_md5 = []
+        for data_object_type, path in files.items():
+            expected = entry["files"][data_object_type].get("md5_checksum")
+            digest = hashlib.md5(path.read_bytes(), usedforsecurity=False).hexdigest()
+            if expected and digest != expected:
+                bad_md5.append(data_object_type)
+        # A file that does not match NMDC's checksum is not the file the checks are about, and
+        # parsing a truncated or replaced file can raise rather than fail cleanly.
+        checks: dict[str, dict[str, object]] = {}
+        if not bad_md5:
+            try:
+                checks = dict(check_run(files))
+            except (IndexError, ValueError, UnicodeDecodeError) as error:
+                checks = {"parse": {"passed": False, "error": f"{type(error).__name__}: {error}"}}
+        checks["md5_matches_nmdc"] = {"passed": not bad_md5, "mismatched": bad_md5, "files": len(files)}
+        for name, result in checks.items():
+            if result.get("skipped"):
+                continue
+            (passes if result["passed"] else failures)[name] += 1
+        report[run_id] = {
+            "type": entry["run"].get("type"),
+            "version": entry["run"].get("version"),
+            "checks": checks,
+        }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps({"runs": report, "passed": passes, "failed": failures}, indent=1, default=list))
+    for name in sorted(set(passes) | set(failures)):
+        click.echo(f"  {passes[name]:>4} passed  {failures[name]:>4} failed  {name}")
+    if failures:
+        raise SystemExit(1)
+
+
+@cli.command("feature-convert")
+@click.argument("plan_path", type=click.Path(path_type=Path, dir_okay=False, exists=True))
+@click.option("--runs", "runs_path", type=click.Path(path_type=Path, dir_okay=False, exists=True), required=True)
+@click.option("--cache-dir", type=click.Path(path_type=Path, file_okay=False, exists=True), required=True)
+@click.option("--out-dir", type=click.Path(path_type=Path, file_okay=False), required=True)
+@click.option("--include-unselected", is_flag=True, help="Also write caller predictions the pipeline did not select.")
+def feature_convert_command(
+    plan_path: Path, runs_path: Path, cache_dir: Path, out_dir: Path, include_unselected: bool
+) -> None:
+    """Write features.parquet and contigs.parquet per run, in the BER feature model's shape.
+
+    Writes local files only. Nothing is uploaded to BERDL.
+    """
+    import json
+
+    from nmdc_lakehouse.feature_tables import FUNCTIONAL, cached_files, convert_run, plan_from_json
+
+    plan = plan_from_json(json.loads(plan_path.read_text()))
+    summary = []
+    for run_id in _read_run_ids(runs_path):
+        files, urls = cached_files(plan.selected[run_id], cache_dir)
+        if FUNCTIONAL not in files:
+            click.echo(f"  skip {run_id}: no Functional Annotation GFF in {cache_dir}")
+            continue
+        result = convert_run(run_id, files, urls, out_dir, include_unselected=include_unselected)
+        summary.append(
+            {
+                "run_id": run_id,
+                "feature_rows": dict(result.feature_rows),
+                "contig_rows": result.contig_rows,
+                "dropped_keys": result.dropped_keys,
+                "duplicate_feature_ids": result.duplicate_feature_ids,
+                "renamed_duplicate_ids": result.renamed_duplicate_ids,
+                "unselected_refused": result.unselected_refused,
+            }
+        )
+        click.echo(f"  {run_id}: {sum(result.feature_rows.values()):,} features, {result.contig_rows:,} contigs")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "conversion_summary.json").write_text(json.dumps(summary, indent=1))
+
+
 if __name__ == "__main__":
     cli()
