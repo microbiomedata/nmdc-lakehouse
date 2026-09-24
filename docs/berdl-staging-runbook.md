@@ -7,29 +7,16 @@ what has passed in production from what remains unverified.
 
 ## The operator sequence
 
-For a new production export, follow the
-[source-version selection procedure](source-schema-1124-rollout.md#select-production-now-and-switch-after-migration)
-and [complete production dump instructions](mongodb-connection.md#complete-production-dump-in-two-terminals).
-The September source was 11.23.0; the repository default is 11.24.0. In each
-shell that installs or runs the source-dependent commands, explicitly select
-the intended version. For the recorded production run:
-
-<!-- verified: 2026-09-23 the operator selected 11.23.0, installed that source pair, and passed production preflight. -->
-```bash
-export NMDC_SCHEMA_VERSION=11.23.0
-just install-all
-just source-preflight
-```
-
-Preflight validates the selected pair; it does not choose the source version.
-When continuing from an already validated snapshot, reuse it and its report and
-start with metadata preparation or transfer instead of repeating export.
+Start with the preparation command below. Its configuration selects the source
+package and determines whether to reuse an existing snapshot or export a new one.
+The September production source was 11.23.0; the repository default is 11.24.0.
+For source migration decisions, see
+[source-version selection](source-schema-1124-rollout.md#select-production-now-and-switch-after-migration).
+A saved full validation report avoids another row-validation run.
 
 | Phase | Where | Existing command or operation | Completion evidence |
 | --- | --- | --- | --- |
-| Export | Machine with MongoDB access | Explicit version selection and installation above; `just source-preflight`, then `just etl-collections` | Completed snapshot manifest, ETL metrics, Parquet files |
-| Validate rows | Same machine | `just validate-target-rows` with the snapshot, report path, and `--mode full` | Successful report bound to the snapshot and target schema |
-| Prepare metadata | Machine holding the snapshot | Follow the [profile and bundle commands](publication-contract.md#metadata-bundle): `metadata-profile`, `metadata-bundle` | Approved content, schema-derived descriptions, explicit coverage gaps |
+| Prepare | Workstation | `just prepare-publication CONFIGURATION OUTPUT`, described below | Snapshot, full validation, metadata profile and bundle in one directory |
 | Transfer | Workstation to BERDL pod | Transfer the snapshot and evidence; verify hashes in the pod | The same manifest and file hashes; no row validation rerun |
 | Observe destination | BERDL pod | `scripts/python/audit_database_metadata.py` with `--publication-inventory` | Fresh inventory of the explicitly selected catalog and namespace |
 | Plan | BERDL pod | [Publication dispositions](publication-contract.md#table-disposition-plan), [metadata operations](publication-contract.md#metadata-application-plan), and the [staging command plan](berdl-upload.md#build-the-maintained-staging-command-plan) | Consistent evidence, dispositions, metadata operations, pinned execution environment |
@@ -37,12 +24,87 @@ start with metadata preparation or transfer instead of repeating export.
 | Stage and verify | Same pod and environment | `berdl-upload --execute-staging` with the reviewed snapshot and plan digests | Data outcome, metadata outcome, and combined coverage report |
 
 The unprefixed names above are `nmdc-lakehouse` subcommands. Several also have
-`just` wrappers. This is the current multi-command workflow; a single setup or
-resume command does not exist yet.
+`just` wrappers. Workstation preparation reuses explicitly supplied snapshots and full reports. Pod setup, transfer, and planning
+still use the documented steps below; their consolidation remains issue 353.
 
 Full target validation checks generated-table conformance. It does not prove
 that every populated MongoDB source value was retained. Keep the focused source
 preservation audit separate from the staging outcome.
+
+## Prepare on the workstation
+
+Use a checkout with `just` and `uv` installed, as in
+[development setup](development-setup.md). Write a JSON configuration such as
+`local/publication.json`. Input paths are relative to that configuration file;
+replace these example paths with your existing snapshot and report:
+
+```json
+{
+  "source_version": "11.23.0",
+  "snapshot": "existing-metadata-snapshot",
+  "target_validation": "existing-full-validation.json",
+  "namespace": {
+    "name": "nmdc.metadata",
+    "title": "NMDC metadata",
+    "description": "Flattened NMDC production metadata.",
+    "documentation_url": "https://github.com/microbiomedata/nmdc-lakehouse",
+    "properties": {"collection": "nmdc", "role": "metadata"}
+  }
+}
+```
+
+The recipe selects and installs the locked source pair named by `source_version`
+through the existing source selector. It does not require another export of
+`NMDC_SCHEMA_VERSION`. Direct CLI use requires the matching pair to be installed
+already. Keep credentials in the existing environment or `.env`; the JSON is
+reviewed metadata, not a credential file.
+
+<!-- verified: 2026-09-23 reused the derived production snapshot and its full report;
+     fresh MongoDB export and pod transfer remain unverified, tracked in
+     https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
+```bash
+just prepare-publication local/publication.json local/prepared-publication
+```
+
+This validates and copies the existing snapshot, checks and retains the full
+report, and creates the profile and bundle. It never reruns row validation when
+a valid full report is supplied. The source snapshot remains unchanged. Table
+and column descriptions, schema identities, checksums, and the derived parent
+snapshot identity remain in the copied files and generated evidence. Missing
+descriptions remain explicit gaps. The command reports progress every 30 seconds
+during long phases. On 2026-09-23 this entry point prepared the existing derived
+production snapshot: two tables, 194,562 rows, and all 15 column descriptions. It
+retained the exact full-validation report and parent snapshot identity; no new
+dump, row validation, or catalog operation ran.
+
+For a **new MongoDB dump**, omit `snapshot` and `target_validation`, retain the
+namespace content, and establish the MongoDB credentials and tunnel documented
+in [MongoDB connection](mongodb-connection.md). The command exports every
+eligible collection, keeps empty columns, creates the completion manifest, and
+performs full row validation. `source_label` defaults to `nmdc-production` and
+can identify another source. Export diagnostics stay in `OUTPUT/export.log`.
+No BERDL credentials are needed during preparation.
+
+For an existing reviewed profile, use `"profile": "path/to/profile.json"`
+instead of `namespace` and `overrides`. Otherwise, optional `overrides` follow
+the [metadata contract](publication-contract.md#metadata-bundle). A profile or
+report must describe the supplied snapshot; mismatched evidence is rejected.
+
+The output directory contains `snapshot/`, `evidence/target-validation.json`,
+`evidence/metadata-profile.json`, `evidence/metadata-bundle.json`, and a
+`preparation.json` receipt with snapshot identity, counts, and evidence hashes.
+The output directory must be new or empty and private (mode `0700`). Symlinked
+input files and snapshot directories are refused. Send the snapshot and evidence
+using the existing pod staging procedure below.
+
+Preparation never resumes a non-empty output directory, including one containing
+only a lock left after interruption. Keep interrupted output: when its snapshot
+manifest validates, name that snapshot and any successful full report explicitly
+in a new configuration/output directory. This reuses the dump and validation
+without repeating them. A dump without a valid completion manifest needs a new
+export directory. For corrected descriptions, also use a new directory and the
+previous successful full report. Never write preparation output inside the
+immutable source snapshot.
 
 ## Access and runtime
 
@@ -63,6 +125,8 @@ accepted by `berdl-upload-plan`. The September run used v0.1.5 at
 dependency of this maintained path.
 
 The pod interpreter must supply Python 3.13 and the BERDL runtime packages.
+Select the same source version there before installing or running the remaining
+source-dependent commands; the preparation recipe selects it only on the workstation.
 An ordinary isolated Python environment may import the NMDC CLI but fail later
 when it needs Spark or the object-store client. The September run created its
 environment with `--system-site-packages`, installed the locked 11.23.0 source
