@@ -4,6 +4,13 @@ A survey of what descriptive metadata this pipeline can set at each level of the
 BERDL hierarchy, what's already done, and what's tracked but not yet built. Written
 because the work is scattered across seven issues ([#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114)-[#120](https://github.com/microbiomedata/nmdc-lakehouse/issues/120)) with no single map.
 
+For the maintained workflow as of 2026-09-23, use the
+[staging runbook](berdl-staging-runbook.md#what-success-means). `berdl-upload`
+now requires data and planned table/column metadata verification in one execution.
+Namespace operations remain deferred, and tenant/registry writes remain
+unimplemented. The dated pilot sections below preserve earlier observations;
+their bare namespace names and table counts are not current destination defaults.
+
 > **Column comments are no longer reached this way at scale.** Everything below
 > describes `apply_comments_from_table_schema()`, one
 > `ALTER TABLE ... ALTER COLUMN ... COMMENT` per column, and treats scaling it as
@@ -19,15 +26,17 @@ because the work is scattered across seven issues ([#114](https://github.com/mic
 > [#115](https://github.com/microbiomedata/nmdc-lakehouse/issues/115). That issue
 > closed on 2026-08-20, and `berdl-apply-metadata` now applies and verifies
 > planned table descriptions across the namespace
-> (`berdl_metadata.py:410-423`). The schema level is unaffected.
+> (`berdl_metadata.py:410-423`). Current versioned plans also apply and verify
+> table snapshot and target-schema properties. Namespace application remains
+> outside that executor.
 
 ## Summary table
 
 | Level | Settable today? | Mechanism | State |
 |---|---|---|---|
 | Tenant / org | Unconfirmed | `berdl_notebook_utils.governance`'s `list_tenants()` / `get_tenant_detail()` have readable `description`/`website`/`organization`/`display_name` fields per tenant; no known write path from NMDC-side code | Not investigated, see below |
-| Schema / database | Yes | `ALTER SCHEMA ... SET DBPROPERTIES (...)` | Piloted on `nmdc_ref_data` only ([#116](https://github.com/microbiomedata/nmdc-lakehouse/issues/116), closed). `nmdc_metadata`/`nmdc_results` not yet done ([#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114)) |
-| Dataset (Bronze/MinIO object path) | No known mechanism | S3 supports object metadata (`x-amz-meta-*`) via `mc`; nothing in this pipeline sets it | Open gap, not filed |
+| Schema / database | Piloted; deferred by the current staging executor | `ALTER SCHEMA ... SET DBPROPERTIES (...)` | Earlier pilot on `nmdc_ref_data` ([#116](https://github.com/microbiomedata/nmdc-lakehouse/issues/116)); current namespace application remains [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114) |
+| Dataset / Bronze objects | Checksum metadata on objects; no registry write adapter | The NMDC adapter sets `nmdc-sha256` on each uploaded object and verifies the object bytes | Richer descriptive content remains in the portable bundle; registry support is separate |
 | Table | Yes | `data_lakehouse_ingest.utils.delta_comments.apply_table_comment` | Done. Piloted on `nmdc_ref_data.pfam_terms` ([#117](https://github.com/microbiomedata/nmdc-lakehouse/pull/117)), then scaled: [#115](https://github.com/microbiomedata/nmdc-lakehouse/issues/115) closed 2026-08-20 and `berdl-apply-metadata` applies and verifies planned table descriptions |
 | Column | Yes | The Parquet footer key `org.apache.spark.sql.parquet.row.metadata`, applied by Spark at table creation | Done, by a different route than this page proposed. `apply_comments_from_table_schema` does not scale and survives only as the staging fallback; see the note at the top |
 
@@ -64,24 +73,30 @@ Known issue: `docs_url` displays as `*********(redacted)` in
 values. Tracked in [#118](https://github.com/microbiomedata/nmdc-lakehouse/issues/118), unresolved. Until that lands, prefer embedding doc links
 inside the `comment` field rather than a separate `docs_url` property.
 
-`nmdc_metadata` (49 tables) and `nmdc_results` (9 tables) don't have this yet.
-That's the remaining scope of [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114).
+The earlier pilot account listed `nmdc_metadata` with 49 tables and
+`nmdc_results` with nine. Those are historical names and counts. The
+[September inventory](runs/2026-09-23-production-staging.md) observed 54 tables
+in the catalog-qualified `nmdc.metadata`. It did not establish that namespace
+metadata had been applied; the current executor reports those operations as
+deferred under [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114).
 
-## Dataset (Bronze layer): no mechanism identified
+## Dataset and Bronze object metadata
 
 The Bronze layer is plain Parquet objects in MinIO under
 `cdm-lake/tenant-general-warehouse/nmdc/datasets/{metadata,results,ref_data,...}/`.
 This is a distinct concept from the managed Silver Iceberg tables above it: "dataset" in
 BERDL's own path convention refers to this raw-object layer, not a table.
 
-S3-compatible object stores support per-object user metadata
-(`x-amz-meta-*` headers), settable via `mc cp --attr` or `mc tag`. Nothing in
-this pipeline or in BERIL-research-observatory's ingest scripts currently sets
-any such metadata on the Bronze objects (checked `ingest_lib.py` and found no
-reference). This is a genuine gap, not yet filed as an issue. Lower priority than
-the Silver-layer work above, since Silver is what users actually query.
+S3-compatible stores support per-object user metadata (`x-amz-meta-*` headers).
+The current NMDC adapter passes `metadata={"nmdc-sha256": digest}` to the object
+upload and reads the stored bytes back to verify their digest. It does not expand
+the profile or schema bundle into descriptive object metadata. Those richer
+descriptions remain in the portable evidence and table/column catalog metadata.
+Object metadata is distinct from a dataset registry entry; there is no maintained
+registry write adapter here. This supersedes the earlier survey's claim that no
+object metadata was set.
 
-## Table and column: proposed, piloted, not yet scaled
+## Historical table and column pilots
 
 *Historical, and the two levels went different ways. Table descriptions were
 scaled through `apply_table_comment` and that is still how they are applied.
@@ -114,7 +129,10 @@ backfill (applying schema-level `DBPROPERTIES` and table/column comments
 retroactively to objects that predate this convention, not a historical-data
 reload) can be measured and re-run to completion.
 
-## Suggested order, if picking this up
+## Historical proposed order
+
+This list records the pilot-era plan. Use the current staging runbook above for
+execution; table/column application and verification are now mandatory phases.
 
 1. [#119](https://github.com/microbiomedata/nmdc-lakehouse/pull/119) is merged: run the audit script to see current coverage before scaling anything below.
 2. [#118](https://github.com/microbiomedata/nmdc-lakehouse/issues/118): resolve or work around the `docs_url` redaction before standardizing that property across more schemas.

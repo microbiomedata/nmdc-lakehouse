@@ -605,6 +605,64 @@ def berdl_apply_metadata_command(
     click.echo(f"outcome={destination.resolve()}", err=True)
 
 
+@cli.command("derive-provenance")
+@click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
+@click.argument("output_root", type=click.Path(path_type=Path, file_okay=False))
+@click.option("--max-depth", type=click.IntRange(min=1), default=15, show_default=True)
+def derive_provenance_command(snapshot_root: Path, output_root: Path, max_depth: int) -> None:
+    """Build described graph and biosample/workflow Parquet from a local snapshot."""
+    from nmdc_lakehouse.derived_tables import DerivedTableError
+    from nmdc_lakehouse.local_provenance import derive_provenance
+    from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError
+
+    try:
+        manifest = derive_provenance(
+            snapshot_root, output_root, max_depth=max_depth, progress=lambda message: click.echo(message, err=True)
+        )
+    except (DerivedTableError, SnapshotManifestError, OSError) as error:
+        raise click.ClickException(str(error)) from error
+    click.echo(f"snapshot_id={manifest.snapshot_id}")
+    click.echo(f"parent_snapshot_id={manifest.parent_snapshot_id}")
+    for artifact in manifest.artifacts:
+        click.echo(f"{artifact.table}={artifact.rows}")
+    click.echo(f"manifest={output_root.expanduser().resolve() / 'snapshot-manifest.json'}")
+
+
+@cli.command("compare-provenance-queries")
+@click.argument("snapshot_root", type=click.Path(path_type=Path, file_okay=False))
+@click.argument("derived_root", type=click.Path(path_type=Path, file_okay=False))
+@click.argument("output", type=click.Path(path_type=Path, dir_okay=False))
+@click.option("--repeats", type=click.IntRange(min=1), default=3, show_default=True)
+def compare_provenance_queries_command(snapshot_root: Path, derived_root: Path, output: Path, repeats: int) -> None:
+    """Check answer equality and time local queries with and without derived tables."""
+    import json
+
+    from nmdc_lakehouse.derived_tables import DerivedTableError
+    from nmdc_lakehouse.provenance_queries import compare_provenance_queries
+    from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError
+
+    output = output.expanduser()
+    if (
+        output.exists()
+        or output.is_symlink()
+        or any(output.resolve().is_relative_to(root.expanduser().resolve()) for root in (snapshot_root, derived_root))
+    ):
+        raise click.ClickException("Report must be a new file outside both snapshots.")
+    try:
+        report = compare_provenance_queries(snapshot_root.expanduser(), derived_root.expanduser(), repeats=repeats)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with output.open("x", encoding="utf-8") as stream:
+            json.dump(report, stream, indent=2)
+            stream.write("\n")
+    except (DerivedTableError, SnapshotManifestError, OSError) as error:
+        raise click.ClickException(str(error)) from error
+    click.echo(f"equivalent_pairs_and_hops={report['equivalent_pairs_and_hops']}")
+    click.echo(f"pairs_missed_by_direct_join={report['pairs_missed_by_direct_join']}")
+    for name, seconds in report["median_seconds"].items():
+        click.echo(f"{name}_median_seconds={seconds:.6f}")
+    click.echo(f"report={output.resolve()}")
+
+
 @cli.command("rebuild-derived-tables")
 @click.argument("namespace")
 @click.option("--ingest-checkout", type=click.Path(path_type=Path, file_okay=False), required=True)

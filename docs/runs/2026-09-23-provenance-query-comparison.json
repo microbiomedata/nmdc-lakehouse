@@ -1,0 +1,51 @@
+{
+  "status": "success",
+  "input_snapshot_id": "sha256:58277b412710e232a448e97cd208d277b1911a7578247891307807edb2c0c000",
+  "derived_snapshot_id": "sha256:1ebb0b5f67aae6f87d5703c350e8a28f9e169592bb60a0c68aef107815665098",
+  "engine": "DuckDB",
+  "engine_version": "1.5.5",
+  "memory_limit": "512MiB",
+  "threads": 2,
+  "measurement": "warm-cache query execution plus sorted result fetch; excludes validation and view setup",
+  "max_depth": 15,
+  "repeats": 6,
+  "equivalent_pairs_and_hops": 57786,
+  "direct_two_hop_pairs": 8431,
+  "pairs_missed_by_direct_join": 49355,
+  "queries": {
+    "four_source_tables": "WITH RECURSIVE edges AS (SELECT parent_id AS src, was_informed_by AS next_id FROM workflow_execution_set_was_informed_by UNION ALL SELECT parent_id AS src, has_input AS next_id FROM data_generation_set_has_input UNION ALL SELECT has_output AS src, parent_id AS next_id FROM material_processing_set_has_output UNION ALL SELECT parent_id AS src, has_input AS next_id FROM material_processing_set_has_input), walk(origin, id, depth) AS (\n    SELECT id, id, 0 FROM workflow_execution_set\n    UNION\n    SELECT w.origin, e.next_id, w.depth + 1\n    FROM walk w JOIN edges e ON e.src = w.id\n    WHERE w.depth < 15\n      AND NOT EXISTS (SELECT 1 FROM biosample_set b WHERE b.id = w.id)\n)\nSELECT w.origin AS workflow_run_id, w.id AS biosample_id, MIN(w.depth) AS n_hops\nFROM walk w JOIN biosample_set b ON b.id = w.id\nGROUP BY w.origin, w.id ORDER BY w.origin, w.id\n",
+    "graph_edges": "WITH RECURSIVE edges AS (SELECT src, next_id FROM graph_edges), walk(origin, id, depth) AS (\n    SELECT id, id, 0 FROM workflow_execution_set\n    UNION\n    SELECT w.origin, e.next_id, w.depth + 1\n    FROM walk w JOIN edges e ON e.src = w.id\n    WHERE w.depth < 15\n      AND NOT EXISTS (SELECT 1 FROM biosample_set b WHERE b.id = w.id)\n)\nSELECT w.origin AS workflow_run_id, w.id AS biosample_id, MIN(w.depth) AS n_hops\nFROM walk w JOIN biosample_set b ON b.id = w.id\nGROUP BY w.origin, w.id ORDER BY w.origin, w.id\n",
+    "saved_mapping": "SELECT workflow_run_id, biosample_id, n_hops FROM biosample_to_workflow_run\nORDER BY workflow_run_id, biosample_id\n"
+  },
+  "seconds": {
+    "four_source_tables": [
+      0.19025104100001045,
+      0.15543441698537208,
+      0.15593270800309256,
+      0.1655407079961151,
+      0.14912629200262018,
+      0.15688020800007507
+    ],
+    "graph_edges": [
+      0.17039041701355018,
+      0.1607543750142213,
+      0.14846820899401791,
+      0.14533620901056565,
+      0.15319224999984726,
+      0.14986387500539422
+    ],
+    "saved_mapping": [
+      0.01402833400061354,
+      0.014257041999371722,
+      0.01389299999573268,
+      0.013055666990112513,
+      0.013507583003956825,
+      0.012556792004033923
+    ]
+  },
+  "median_seconds": {
+    "four_source_tables": 0.15640645800158381,
+    "graph_edges": 0.15152806250262074,
+    "saved_mapping": 0.013700291499844752
+  }
+}

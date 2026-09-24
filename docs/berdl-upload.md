@@ -1,5 +1,10 @@
 # Uploading `lakehouse/` Parquet output to BERDL
 
+Start with the [staging runbook](berdl-staging-runbook.md) for the operator
+sequence, credentials, evidence layout, and recovery decisions. The
+[2026-09-23 run record](runs/2026-09-23-production-staging.md) records the latest
+production export, setup failure and fix, reviewed preview, and pending live work.
+
 This document contains two different things, and reading one for the other wastes
 time. The boundary is the "Historical off-cluster transport" heading:
 
@@ -54,10 +59,10 @@ Write access is exercised by the staging run itself, which writes to the bronze
 prefix from inside the pod where the object store is local, so a permissions problem
 surfaces as a failed run rather than as a preflight result.
 
-What the run verifies afterwards is a different thing. Its outcome check compares
-destination row counts against the source Parquet and the source digest against the
-snapshot manifest, which establishes that the reviewed bytes are what landed. It
-does not re-read the written objects and compare them byte for byte. Keep the
+The adapter reads each uploaded object back and compares its SHA-256 to the
+source Parquet digest. The outcome check then compares destination row counts
+against source Parquet counts and the verified source digest against the snapshot
+manifest. Keep the
 reviewed bronze prefix inside the tenant staging area, where the pod's session is
 expected to have write access, so the first write is not also the first surprise.
 
@@ -112,8 +117,9 @@ uv run --no-sync nmdc-lakehouse berdl-doctor \
   /absolute/path/to/completed-snapshot
 ```
 
-`BERIL_CHECKOUT` must be explicit; the command does not guess a user-specific
-checkout location. It validates the snapshot manifest offline, identifies the
+For the optional historical checks, `BERIL_CHECKOUT` must be explicit; the
+command does not guess a user-specific checkout location. It validates the
+snapshot manifest offline, identifies the
 checkout revision, checks for the required ingest resource paths, requires
 Python 3.13 in its `.venv-berdl`, checks the `data-lakehouse-ingest` and
 `berdl-remote` distributions, and checks `mc`. It also checks for
@@ -122,10 +128,10 @@ configured BERIL checkout's `.env`. No value is printed or tested. Refresh the
 short-lived token through the supported KBase workflow immediately before a
 publication attempt.
 
-These checks identify the selected external revision and its locally available
-interfaces; they do not certify live-ingest compatibility. Pin and test a BERIL
-revision containing the required source-verification and credential fixes
-before authorizing publication.
+Those optional checks identify the historical transport's selected revision and
+locally available interfaces; they do not certify live-ingest compatibility.
+The maintained staging plan instead verifies the selected official KBase ingest
+checkout and does not require a BERIL revision.
 
 After generating and reviewing the snapshot-bound metadata bundle, fresh live
 inventory, and disposition plan, generate the provider-neutral metadata
@@ -145,9 +151,9 @@ Use the exact `<tenant>.<dataset>` staging namespace that the later
 `berdl-upload-plan` invocation supplies; the example is not a permanent BERDL
 default. Review supported operations, unsupported operations, and missing
 descriptions. This offline command emits JSON data, not Spark SQL, and does not
-contact or change BERDL. The later adapter tracked in
-[#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114) must recheck
-the bundle and inventory identities before applying the plan.
+contact or change BERDL. The existing staging executor rechecks the bundle and
+inventory identities before applying table metadata. Namespace support remains
+tracked in [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114).
 
 Then run the destination-neutral artifact gate from the `nmdc-lakehouse`
 checkout:
@@ -479,7 +485,7 @@ The metadata coverage is deliberately explicit:
 | Level | Retained or verified by this workflow | Remaining limits |
 | --- | --- | --- |
 | Snapshot | Manifest, source/target schema identities, software provenance, artifact hashes, row counts, and validation evidence | Keep the reviewed evidence with the run; these are not tenant registry entries |
-| Parquet file | Exact uploaded bytes are read back and hashed, retaining footer and field metadata | Object-store user metadata is not populated separately |
+| Parquet file | Exact uploaded bytes are read back and hashed, retaining footer and field metadata; the object gets an `nmdc-sha256` user metadata field | The complete metadata bundle is not expanded into object-store user metadata |
 | Namespace/dataset | Approved title, description, documentation link, and properties remain in the bundle and application plan | Namespace operations are reported as deferred; dataset/tenant registry writes have no supported adapter here |
 | Table | Planned descriptions are applied and read back; versioned plans also set and verify snapshot and target-schema properties | Older plans without a target version cannot supply those identity properties |
 | Column | Every planned description is read back, including comments already retained during ingest | Missing source descriptions are reported, not invented; richer LinkML constraints remain in the portable bundle/schema |
@@ -643,7 +649,7 @@ The probe defaults to loopback port 8123. `BERDL_PROXY_HOST` and
 starts a proxy, opens a tunnel, refreshes a token, installs packages, changes
 the external checkout, uploads files, or changes a catalog.
 
-## Describe the promotion that staging authorizes
+## Plan separately authorized canonical promotion
 
 `berdl-promotion-plan` reads the three pieces of evidence produced above and
 writes a description of the promotion they authorize. It changes nothing, and
@@ -860,9 +866,11 @@ what `labctl up berdl` already provides.
 break the run.** `berdl-upload-plan` binds `--data-dir` to a resolved local
 snapshot path (`berdl_staging.py:598-604`) and execution reads those Parquet
 files from the pod filesystem, so the snapshot still has to be in the pod for
-that command. Making the maintained path read from object storage instead is
-real work on the plan and the adapter, tracked in
-[#294](https://github.com/microbiomedata/nmdc-lakehouse/issues/294).
+that command. Reading directly from object storage would require changes to the
+plan and adapter. [Issue #353](https://github.com/microbiomedata/nmdc-lakehouse/issues/353)
+keeps that transport change separate from its first orchestration slice;
+[issue #294](https://github.com/microbiomedata/nmdc-lakehouse/issues/294) owns
+documentation of the operational findings.
 
 Use `mc` for bulk data you are placing where the ingest reads from, or moving
 off the platform, and for anything large that would otherwise be chunked through
@@ -1213,9 +1221,10 @@ SELECT COUNT(*) FROM nmdc_nmdc_linkml_store.functional_annotation_agg;
 - `docs/publication-contract.md`: destination-neutral safety, metadata, staging, validation,
   promotion, and rollback requirements for a current replacement.
 - [#50](https://github.com/microbiomedata/nmdc-lakehouse/issues/50): consolidated ETL output to `LAKEHOUSE_ROOT`, which is why this doc's paths are stable. Closed 2026-08-17.
-- [#51](https://github.com/microbiomedata/nmdc-lakehouse/issues/51): the original automation issue; this doc is the runbook half of it. A
-  `just berdl-upload` recipe wrapping the tunnel/preflight/upload/ingest steps is
-  still open there.
+- [#51](https://github.com/microbiomedata/nmdc-lakehouse/issues/51): the publication automation umbrella.
+  The maintained `just berdl-upload` command now stages and verifies data and table
+  metadata in the pod; remaining operator simplification is tracked in
+  [#353](https://github.com/microbiomedata/nmdc-lakehouse/issues/353).
 - `README.md`: where `LAKEHOUSE_ROOT` and the other ETL configuration variables are documented.
 - `docs/mongodb-connection.md`: the upstream half (MongoDB to local Parquet).
 - `docs/berdl-metadata-shaping.md`: what you can set beyond the raw data once it's here.

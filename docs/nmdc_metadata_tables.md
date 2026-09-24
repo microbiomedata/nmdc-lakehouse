@@ -39,8 +39,8 @@ some populated paths are omitted. See the
 [architecture limits](architecture.md#nested-multivalued-slots-and-depth-limits).
 
 Example: `data_generation_set_has_input` has columns `parent_id` and `has_input`.
-Joining `parent_id = data_generation_set.id` gives you the biosample IDs for a
-sequencing run.
+Joining `parent_id = data_generation_set.id` gives you the input material IDs
+for a sequencing run. An input can be a biosample or a processed sample.
 
 **Do not use `LATERAL VIEW EXPLODE` on primary table array columns when a side
 table exists: the side table is the correct relational form and avoids the
@@ -52,7 +52,7 @@ Spark overhead of exploding a repeated field.**
 |---|---|
 | `biosample_set` | Environmental samples with `env_*`, `geo_loc_name`, `host_diet`, `depth_*` |
 | `data_generation_set` | Sequencing runs (`NucleotideSequencing`, `MassSpectrometry`, …) |
-| `data_generation_set_has_input` | `parent_id` → biosample ID |
+| `data_generation_set_has_input` | `parent_id` → biosample or processed-sample ID |
 | `data_generation_set_associated_studies` | `parent_id` → study ID |
 | `workflow_execution_set` | All workflow runs (`MetagenomeAnnotation`, `MAGsAnalysis`, …) |
 | `workflow_execution_set_was_informed_by` | `parent_id` → data generation ID |
@@ -67,8 +67,12 @@ Spark overhead of exploding a repeated field.**
 
 ## The annotation → biosample join chain
 
-This is the standard path from a row in `nmdc_results.annotation_kegg_orthology`
-(or `annotation_enzyme_commission`) to its originating biosample. These examples
+This short path connects a row in `nmdc_results.annotation_kegg_orthology`
+(or `annotation_enzyme_commission`) to a biosample only when DataGeneration
+consumed that biosample directly. It misses inputs reached through intermediate
+processing. Use the [provenance mapping](biosample_to_workflow_run.md) for the
+complete relationship, or traverse the four source side tables as described in
+the [measured comparison](local-provenance.md#measured-query-comparison). These examples
 use projection 1.3.0's `geo_loc_name` (introduced in 1.2.0); earlier snapshots may instead expose
 `geo_loc_name_has_raw_value`. Deployment of the new snapshot remains gated by
 the rollout work linked above.

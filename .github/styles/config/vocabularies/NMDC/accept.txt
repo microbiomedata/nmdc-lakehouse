@@ -167,3 +167,14 @@ Orthology
 KOs
 [Mm]etagenome
 [Mm]etatranscriptome
+IPython
+lockfile
+subcommands
+unprefixed
+validators
+virtualenv
+worktree
+worktrees
+schema's
+CLI's
+precomputation

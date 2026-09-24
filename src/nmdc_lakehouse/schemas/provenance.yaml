@@ -1,0 +1,86 @@
+id: https://w3id.org/nmdc/lakehouse/provenance
+name: nmdc_lakehouse_provenance
+version: 1.0.0
+description: >-
+  Derived provenance tables built from a manifested NMDC metadata snapshot.
+  These tables have their own schema, distinct from the flattened MongoDB schema.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  nmdc: https://w3id.org/nmdc/
+imports:
+  - linkml:types
+default_range: string
+classes:
+  GraphEdge:
+    description: >-
+      Upstream provenance edges from workflow informed-by, data-generation input,
+      reversed material-processing output, and material-processing input relationships.
+      Duplicate source edges are retained; traversal uses distinct neighbors.
+    attributes:
+      src:
+        range: uriorcurie
+        required: true
+        description: NMDC identifier from which this upstream edge is traversed.
+      next_id:
+        range: uriorcurie
+        required: true
+        description: NMDC identifier reached by traversing this edge upstream.
+      slot:
+        required: true
+        description: >-
+          Source relationship slot, one of was_informed_by, has_input, or has_output.
+          A has_output edge points from the output material back to its producing process.
+  BiosampleToWorkflowRun:
+    description: >-
+      One row per reachable biosample and workflow run. Hop count is the shortest
+      upstream path. Processing flags describe any upstream branch of the workflow,
+      not necessarily the path to the particular biosample on this row.
+    attributes:
+      biosample_id:
+        range: uriorcurie
+        required: true
+        description: NMDC biosample identifier reached by the upstream traversal.
+      workflow_run_id:
+        range: uriorcurie
+        required: true
+        description: NMDC workflow identifier from which the traversal starts.
+      workflow_type:
+        required: true
+        description: NMDC class recorded in the source workflow's type field.
+      n_hops:
+        range: integer
+        required: true
+        minimum_value: 1
+        description: Minimum number of upstream edges from the workflow to this biosample.
+      has_extraction:
+        range: boolean
+        required: true
+        description: Whether any upstream branch of the workflow contains nmdc:Extraction.
+      has_library_prep:
+        range: boolean
+        required: true
+        description: Whether any upstream branch of the workflow contains nmdc:LibraryPreparation.
+      has_subsampling:
+        range: boolean
+        required: true
+        description: Whether any upstream branch of the workflow contains nmdc:SubSamplingProcess.
+      has_pooling:
+        range: boolean
+        required: true
+        description: Whether any upstream branch of the workflow contains nmdc:Pooling.
+      has_chromatographic_separation:
+        range: boolean
+        required: true
+        description: Whether any upstream branch of the workflow contains nmdc:ChromatographicSeparationProcess.
+      has_dissolving:
+        range: boolean
+        required: true
+        description: Whether any upstream branch of the workflow contains nmdc:DissolvingProcess.
+      has_chemical_conversion:
+        range: boolean
+        required: true
+        description: Whether any upstream branch of the workflow contains nmdc:ChemicalConversionProcess.
+      has_filtration:
+        range: boolean
+        required: true
+        description: Whether any upstream branch of the workflow contains nmdc:FiltrationProcess.

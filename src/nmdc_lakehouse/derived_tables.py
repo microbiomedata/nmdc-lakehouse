@@ -32,7 +32,7 @@ from pathlib import Path
 # column, slot label). Direction is not a field; it is which column goes on which side. The
 # has_output row therefore reads backwards on purpose, because output flows from the process to
 # the material and the walk goes upstream from a workflow run.
-_EDGE_SOURCES = (
+EDGE_SOURCES = (
     ("workflow_execution_set_was_informed_by", "parent_id", "was_informed_by", "was_informed_by"),
     ("data_generation_set_has_input", "parent_id", "has_input", "has_input"),
     ("material_processing_set_has_output", "has_output", "parent_id", "has_output"),
@@ -104,7 +104,7 @@ def graph_edges_statement(namespace: str) -> str:
     check_namespace(namespace)
     unions = "\n    UNION ALL\n".join(
         f"    SELECT {src} AS src, {dst} AS next_id, '{slot}' AS slot\n    FROM {namespace}.{table}"
-        for table, src, dst, slot in _EDGE_SOURCES
+        for table, src, dst, slot in EDGE_SOURCES
     )
     return f"CREATE OR REPLACE TABLE {namespace}.graph_edges AS\n{unions}"
 
