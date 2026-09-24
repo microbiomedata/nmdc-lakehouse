@@ -94,28 +94,18 @@ report must describe the supplied snapshot; mismatched evidence is rejected.
 The output directory contains `snapshot/`, `evidence/target-validation.json`,
 `evidence/metadata-profile.json`, `evidence/metadata-bundle.json`, and a
 `preparation.json` receipt with snapshot identity, counts, and evidence hashes.
-`preparation-inputs.json` records the resolved local inputs for resuming the run.
-A separate validation digest binds the saved report even if metadata preparation
-fails before the final receipt. Existing output directories must be private
-(mode `0700`); symlinked input files and snapshot directories are refused.
-Send the snapshot and evidence using the next steps in this runbook.
+The output directory must be new or empty and private (mode `0700`). Symlinked
+input files and snapshot directories are refused. Send the snapshot and evidence
+using the next steps in this runbook.
 
-For configurations naming an existing `snapshot`, rerunning the same command
-checks and reuses completed work; a metadata failure does not require another
-full validation. Fresh-export runs never resume an existing output snapshot.
-A completed fresh preparation is already ready to send. If a fresh run was
-interrupted, retain its files: when its manifest validates, name that `snapshot`
-and any successful full report explicitly in a new configuration/output directory.
-That reuses the dump without exporting again. A dump without a valid completion
-manifest needs a new export directory.
-
-Changed configuration or saved evidence, or corrupted prepared outputs, causes
-refusal. The prepared snapshot is verified against its saved manifest and is
-independent of later changes to the original Parquet files. If interruption leaves
-a report without its completion digest, retain it and supply it explicitly to a
-new preparation directory. For corrected descriptions, use a new directory and
-refer to the previous successful full report. Never write preparation output
-inside the immutable source snapshot.
+Preparation never resumes a non-empty output directory, including one containing
+only a lock left after interruption. Keep interrupted output: when its snapshot
+manifest validates, name that snapshot and any successful full report explicitly
+in a new configuration/output directory. This reuses the dump and validation
+without repeating them. A dump without a valid completion manifest needs a new
+export directory. For corrected descriptions, also use a new directory and the
+previous successful full report. Never write preparation output inside the
+immutable source snapshot.
 
 ## Send to the pod
 
@@ -140,14 +130,17 @@ avoid the large contents-API upload failures observed in earlier runs.
 <!-- unverified: combined pod workflow awaits acceptance in
      https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
 ```bash
+(
+set -e
 PREPARED=/absolute/path/to/prepared-publication
-mkdir -p local/publication-transfer
+mkdir -m 700 local/publication-transfer
 cd local/publication-transfer
 COPYFILE_DISABLE=1 tar -czf publication.tar.gz -C "$PREPARED" snapshot evidence preparation.json
 shasum -a 256 publication.tar.gz > publication.sha256
 split -b 64m publication.tar.gz publication.part-
 labctl pod put publication.sha256 publication.sha256
-for part in publication.part-*; do labctl pod put "$part" "${part##*/}" || break; done
+for part in publication.part-*; do labctl pod put "$part" "${part##*/}"; done
+)
 ```
 
 Use an empty transfer directory for each run so old parts cannot join the new
@@ -159,13 +152,17 @@ home directory, reconstruct, verify and extract to a **new** private directory:
      https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
 ```bash
 export PUBLICATION_ROOT="$PWD/nmdc-publication-reviewed"
+(
+set -e
 cat publication.part-* > publication.tar.gz
 sha256sum -c publication.sha256
 mkdir -m 700 "$PUBLICATION_ROOT"
 python3 -m tarfile --filter data --extract publication.tar.gz "$PUBLICATION_ROOT"
+)
 ```
 
-Run these in order and stop on any failure. Keep the local original and verified
+Each subshell stops and returns a failure status when any step fails. Do not
+continue to the next block after a failure. Keep the local original and verified
 pod copy; retain the transfer parts until verification and planning succeed.
 The safe extraction filter requires Python 3.12 or newer; the runtime below uses
 3.13. Planning rechecks every manifested file and the prepared evidence hashes.

@@ -531,8 +531,8 @@ under [issue 114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114).
 
 `berdl-promotion-plan` reads the three pieces of evidence produced above and
 writes a description of the promotion they authorize. It changes nothing, and
-there is deliberately no flag that makes it promote. Unlike every command before
-it, this one is offline and does not need a pod: it reads three local JSON files.
+there is deliberately no flag that makes it promote. It is offline and reads
+three local JSON files.
 
 <!-- verified: 2026-08-27 ran this exact recipe against synthetic evidence built
 by tests/test_berdl_promotion.py, exit 0, and it wrote the plan and printed the
@@ -651,11 +651,11 @@ and contact nothing. The method is not obvious and `labctl status` is misleading
 about it: there is no programmatic exec, but the JupyterHub terminal in a
 browser is a real shell in the pod.
 
-Stage the file with `labctl pod put` rather than pasting it. **`labctl pod put`
-is for scripts and small files.** For bulk data see the section below: `mc`
-moves it to object storage directly, which is the right route for a one-off
-transfer, while the maintained `stage-publication` path still reads its snapshot
-from the pod filesystem.
+Stage the file with `labctl pod put` rather than pasting it. For snapshot data,
+use the bounded archive parts and checksum verification in the
+[staging runbook](berdl-staging-runbook.md#send-to-the-pod). The maintained
+`stage-publication` path reads a pod-local snapshot. The direct `mc` upload below
+is a separate manual route and does not satisfy that input contract.
 
 Use `python script.py` when the script builds its own session, which is what
 `get_spark_session()` does; the inventory capture below is run that way. Use

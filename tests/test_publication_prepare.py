@@ -46,7 +46,7 @@ def no_revalidation(*_args, **_kwargs):
     pytest.fail("Completed full row validation must not be repeated")
 
 
-def test_prepare_and_resume_retain_exact_inputs_and_metadata(inputs, monkeypatch):
+def test_prepare_retains_exact_inputs_and_metadata(inputs):
     config, source, manifest, output = inputs
     original = {p.name: p.read_bytes() for p in source.iterdir()}
     receipt = preparation.prepare_publication(config, output)
@@ -58,10 +58,6 @@ def test_prepare_and_resume_retain_exact_inputs_and_metadata(inputs, monkeypatch
     assert len(bundle.tables) == 2
     assert all(t.description.value and all(c.description.value for c in t.columns) for t in bundle.tables)
     assert {p.name: p.read_bytes() for p in source.iterdir()} == original
-    before = {p.name: p.read_bytes() for p in (output / "evidence").iterdir()}
-    monkeypatch.setattr(validation, "validate_target_snapshot", no_revalidation)
-    assert preparation.prepare_publication(config, output) == receipt
-    assert {p.name: p.read_bytes() for p in (output / "evidence").iterdir()} == before
 
 
 def test_reuse_full_report_and_reviewed_profile(inputs, monkeypatch):
@@ -103,7 +99,7 @@ def test_reuse_full_report_and_reviewed_profile(inputs, monkeypatch):
     assert (output / "evidence/target-validation.json").read_bytes() == report_path.read_bytes()
     assert next(t for t in bundle.tables if t.name == "graph_edges").description.value == "Approved edges."
     profile_path.write_text(profile_path.read_text().replace("Approved edges.", "Unreviewed edges."))
-    with pytest.raises(preparation.PreparationError, match="Existing preparation-inputs.json differs"):
+    with pytest.raises(preparation.PreparationError, match="directory is not empty"):
         preparation.prepare_publication(config, output)
 
 
@@ -125,7 +121,7 @@ def test_changed_config_refuses_without_replacing_evidence(inputs):
     preparation.prepare_publication(config, output)
     before = (output / "preparation.json").read_bytes()
     config.write_text(config.read_text().replace("Reviewed provenance.", "Changed meaning."))
-    with pytest.raises(preparation.PreparationError, match="use a new preparation directory"):
+    with pytest.raises(preparation.PreparationError, match="directory is not empty"):
         preparation.prepare_publication(config, output)
     assert (output / "preparation.json").read_bytes() == before
 
@@ -151,14 +147,6 @@ def test_output_symlinks_are_refused(inputs, tmp_path, component):
     with pytest.raises(preparation.PreparationError):
         preparation.prepare_publication(config, output)
     assert list(elsewhere.iterdir()) == []
-
-
-def test_corrupt_copied_artifact_refuses_resume(inputs):
-    config, _, _, output = inputs
-    preparation.prepare_publication(config, output)
-    (output / "snapshot/graph_edges.parquet").write_bytes(b"changed")
-    with pytest.raises(preparation.PreparationError, match="Prepared input differs"):
-        preparation.prepare_publication(config, output)
 
 
 @pytest.mark.parametrize("field", ["snapshot", "target_validation", "profile"])
@@ -204,23 +192,6 @@ def test_invalid_source_label_fails_before_a_dump(inputs):
     with pytest.raises(ValidationError):
         preparation.prepare_publication(config, output)
     assert not output.exists()
-
-
-def test_interrupted_preparation_rejects_changed_validation_report(inputs, monkeypatch):
-    config, _, _, output = inputs
-    real_builder = preparation.build_metadata_bundle
-    monkeypatch.setattr(
-        preparation, "build_metadata_bundle", lambda *_a, **_k: (_ for _ in ()).throw(ValueError("interrupted"))
-    )
-    with pytest.raises(ValueError, match="interrupted"):
-        preparation.prepare_publication(config, output)
-    report = output / "evidence/target-validation.json"
-    report.write_bytes(report.read_bytes() + b"\n")
-    monkeypatch.setattr(preparation, "build_metadata_bundle", real_builder)
-    monkeypatch.setattr(validation, "validate_target_snapshot", no_revalidation)
-    with pytest.raises(preparation.PreparationError, match="target-validation-digest.json differs"):
-        preparation.prepare_publication(config, output)
-    assert not (output / "preparation.json").exists()
 
 
 @pytest.mark.parametrize("name", ["configuration", "manifest"])
@@ -281,11 +252,10 @@ def test_fresh_export_and_explicit_reuse_after_refused_restart(inputs, monkeypat
     assert report.requested_mode == "full" and report.invalid_rows == 0
     bundle = load_metadata_bundle(output / "evidence/metadata-bundle.json")
     assert {table.name for table in bundle.tables} == {a.table for a in manifest.artifacts}
-    assert (output / "evidence/target-validation-digest.json").is_file()
     monkeypatch.setattr(validation, "validate_target_snapshot", no_revalidation)
     if not completed:
         (output / "preparation.json").unlink()
-    with pytest.raises(preparation.PreparationError, match="An export exists"):
+    with pytest.raises(preparation.PreparationError, match="directory is not empty"):
         preparation.prepare_publication(config, output)
     data["snapshot"] = str(output / "snapshot")
     data["target_validation"] = str(output / "evidence/target-validation.json")
@@ -298,19 +268,22 @@ def test_fresh_export_and_explicit_reuse_after_refused_restart(inputs, monkeypat
     assert len(calls) == 2
 
 
-def test_invalid_metadata_can_resume_without_revalidating_rows(inputs, monkeypatch):
+@pytest.mark.parametrize("entry", ["preparation.json", "evidence", ".prepare.lock", "unrelated.txt"])
+def test_nonempty_output_is_refused_before_export_or_copy(inputs, monkeypatch, entry):
     config, _, _, output = inputs
-    real_builder = preparation.build_metadata_bundle
-    monkeypatch.setattr(
-        preparation, "build_metadata_bundle", lambda *_a, **_k: (_ for _ in ()).throw(ValueError("interrupted"))
-    )
-    with pytest.raises(ValueError, match="interrupted"):
-        preparation.prepare_publication(config, output)
-    assert (output / "evidence/target-validation.json").is_file()
-    assert not (output / "preparation.json").exists()
-    monkeypatch.setattr(preparation, "build_metadata_bundle", real_builder)
-    monkeypatch.setattr(validation, "validate_target_snapshot", no_revalidation)
-    assert preparation.prepare_publication(config, output)["status"] == "prepared"
+    output.mkdir(mode=0o700)
+    (output / entry).write_text("existing evidence")
+    monkeypatch.setattr(preparation, "_export", no_revalidation)
+    monkeypatch.setattr(preparation, "_copy", no_revalidation)
+    for fresh in (False, True):
+        if fresh:
+            data = json.loads(config.read_text())
+            data.pop("snapshot")
+            config.write_text(json.dumps(data))
+        with pytest.raises(preparation.PreparationError, match="directory is not empty"):
+            preparation.prepare_publication(config, output)
+    assert (output / entry).read_text() == "existing evidence"
+    assert sorted(p.name for p in output.iterdir()) == [entry]
 
 
 def test_export_clears_skips_keeps_empty_columns_and_stops_on_failure(tmp_path, monkeypatch):
