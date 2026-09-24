@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from nmdc_lakehouse import berdl_adapter, berdl_metadata, berdl_staging
-from nmdc_lakehouse.metadata_application import load_metadata_application_plan
+from nmdc_lakehouse.metadata_application import MetadataApplicationPlan, load_metadata_application_plan
 from nmdc_lakehouse.publication_prepare import PreparationError, file_digest, progress, save_json
 from nmdc_lakehouse.snapshot_manifest import validate_snapshot
 
@@ -130,6 +130,27 @@ def publication_status(root: Path) -> dict[str, Any]:
                 ),
             )
         return result
+    if not metadata_path.exists():
+        _verified_data(evidence, plan)
+        result["status"] = "data-verified-metadata-pending"
+        return result
+    metadata_plan, metadata = verified_staging_metadata(evidence, plan)
+    result.update(
+        status="data-and-table-metadata-verified",
+        next_command=None,
+        columns_verified=sum(len(t.columns_verified) for t in metadata.targets),
+        missing_descriptions=len(metadata_plan.missing_descriptions),
+        deferred_namespace_operations=metadata.deferred_namespace_operations,
+    )
+    return result
+
+
+def verified_staging_metadata(
+    evidence: Path, plan: berdl_staging.BerdlStagingPlan
+) -> tuple[MetadataApplicationPlan, berdl_metadata.BerdlMetadataOutcome]:
+    """Verify data and metadata outcome bindings without requiring the old staging runtime."""
+    data_path = evidence / "nmdc-staging-outcome.json"
+    metadata_path = evidence / "nmdc-staging-metadata-outcome.json"
     data = _verified_data(evidence, plan)
     metadata_plan = load_metadata_application_plan(evidence / "metadata-application-plan.json")
     preview = berdl_metadata.build_berdl_metadata_preview(
@@ -138,9 +159,6 @@ def publication_status(root: Path) -> dict[str, Any]:
         metadata_plan_sha256=file_digest(evidence / "metadata-application-plan.json"),
         staging_outcome_sha256=file_digest(data_path),
     )
-    result["status"] = "data-verified-metadata-pending"
-    if not metadata_path.exists():
-        return result
     metadata, _ = berdl_metadata._read_model(metadata_path, berdl_metadata.BerdlMetadataOutcome, "metadata outcome")
     metadata = cast(berdl_metadata.BerdlMetadataOutcome, metadata)
     for field in (
@@ -164,14 +182,7 @@ def publication_status(root: Path) -> dict[str, Any]:
             != ("verified" if berdl_metadata._schema_properties(metadata_plan) else "not-planned")
         ):
             raise PreparationError(f"Metadata verification is incomplete for {target.table}.")
-    result.update(
-        status="data-and-table-metadata-verified",
-        next_command=None,
-        columns_verified=sum(len(t.columns_verified) for t in metadata.targets),
-        missing_descriptions=len(metadata_plan.missing_descriptions),
-        deferred_namespace_operations=metadata.deferred_namespace_operations,
-    )
-    return result
+    return metadata_plan, metadata
 
 
 def _fresh_destination(plan: berdl_staging.BerdlStagingPlan) -> object:

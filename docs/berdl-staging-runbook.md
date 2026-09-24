@@ -304,8 +304,11 @@ A lock refuses concurrent stage invocations on the same directory. Saved plans
 and outcomes are immutable. Metadata retry verifies every planned description
 and property; it skips values already correct. Failed uploads require inspection
 and a new unused destination, not deletion of evidence to bypass the guard.
-Canonical promotion remains separately reviewed under
-[issue 234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
+After both staging runs pass, use the [combined promotion procedure](berdl-upload.md#plan-separately-authorized-canonical-promotion)
+to review the parent snapshot and derived pair together. It carries table and
+column metadata into canonical tables and verifies the result; it requires Mark's
+approval of the exact plan and explicitly records the recovery limits.
+Live acceptance remains [issue 234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
 The September parent snapshot is already staged and must not be reloaded solely
 to test this new workflow. Its separately prepared derived pair is the next pod
 acceptance run, tracked in [issue 341](https://github.com/microbiomedata/nmdc-lakehouse/issues/341).
