@@ -1261,9 +1261,14 @@ def feature_sample_command(
     chosen = sample_runs(plan, count, max_run_bytes=limit, seed=seed)
     if not chosen:
         raise click.ClickException("No run qualifies; nothing written.")
+    # The manifest first: it can be refused (cache-path collisions), and a run list written before
+    # that would sit beside an older manifest describing a different sample.
+    try:
+        rows = write_download_manifest(plan, chosen, CHECK_TYPES, manifest)
+    except ValueError as error:
+        raise click.ClickException(f"Manifest refused, so neither file was written: {error}") from error
     runs_path.parent.mkdir(parents=True, exist_ok=True)
     runs_path.write_text("\n".join(chosen) + "\n")
-    rows = write_download_manifest(plan, chosen, CHECK_TYPES, manifest)
     size = sum(
         int(plan.selected[r]["files"][t].get("file_size_bytes") or 0)
         for r in chosen

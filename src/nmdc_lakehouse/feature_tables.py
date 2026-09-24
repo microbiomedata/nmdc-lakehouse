@@ -461,25 +461,37 @@ def check_run(files: Mapping[str, Path]) -> dict[str, dict[str, Any]]:
         for r in read_table(files[t]):
             caller_rows[call(r)].append(r)
     found = identical = 0
-    selected_calls = set()
+    # Caller rows that a selected row fully repeats, by (call, position in that call's list). Every
+    # other caller row is unselected, including a same-call row that differs in score or phase.
+    repeated: set[tuple[tuple[str, ...], int]] = set()
     for r, pairs in zip(functional, f_pairs, strict=True):
-        selected_calls.add(call(r))
         same_call_rows = caller_rows.get(call(r), [])
         found += bool(same_call_rows)
         # The selected row repeats the caller's row when score and phase match and every caller
         # attribute is in the selected row, which adds keys such as start_type and product.
-        identical += any(
-            c[5] == r[5] and c[7] == r[7] and set(parse_attributes(c[8]) if len(c) > 8 else []) <= set(pairs)
-            for c in same_call_rows
+        match = next(
+            (
+                index
+                for index, c in enumerate(same_call_rows)
+                if (call(r), index) not in repeated
+                and c[5] == r[5]
+                and c[7] == r[7]
+                and set(parse_attributes(c[8]) if len(c) > 8 else []) <= set(pairs)
+            ),
+            None,
         )
-    unselected = sum(len(rows) for key, rows in caller_rows.items() if key not in selected_calls)
+        if match is not None:
+            identical += 1
+            repeated.add((call(r), match))
+    caller_total = sum(len(rows) for rows in caller_rows.values())
+    unselected = caller_total - len(repeated)
     results["selected_rows_in_callers"] = _check(
         identical == len(functional),
         callers_present=len(present_callers),
         selected=len(functional),
         selected_found_in_callers=found,
         selected_identical_to_caller_row=identical,
-        caller_rows=sum(len(rows) for rows in caller_rows.values()),
+        caller_rows=caller_total,
         unselected_caller_rows=unselected,
     )
 

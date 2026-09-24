@@ -132,7 +132,7 @@ it downloads, under which one of these runs is 3.04 GiB and the same seed picks 
 
 The 13 failures are all 9 sampled v1.0.2 runs and 4 of the 9 v1.0.4 runs; see the exceptions
 above. The check matches a selected row to a row of the same caller, because the losing caller's
-call at the same interval is a separate observation with its own score. Across the 50 runs, 20,473,878
+call at the same interval is a separate observation with its own score. Across the 50 runs, 20,473,880
 of 43,518,479 caller rows (47%) are unselected. The KO_EC rows
 first failed in those same runs because of the parser, which now splits both packing forms.
 
