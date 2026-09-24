@@ -101,15 +101,22 @@ Transfer the snapshot and evidence using the next steps in this runbook.
 Automated transfer and pod setup remain
 [issue 353](https://github.com/microbiomedata/nmdc-lakehouse/issues/353).
 
-Rerunning the same command checks and reuses completed work. A metadata failure
-does not require another full validation; an incomplete dump is retained and
-requires a new output directory for another dump. Changed configuration or saved
-evidence, or corrupted prepared outputs, causes refusal. The prepared snapshot
-is verified against its saved manifest and is independent of later changes to
-the original Parquet files. If interruption leaves a report without its completion
-digest, retain it and supply it explicitly to a new preparation directory. For corrected configuration or descriptions, choose a new
-directory and refer to the previous successful full validation report. Never
-write preparation output inside the immutable source snapshot.
+For configurations naming an existing `snapshot`, rerunning the same command
+checks and reuses completed work; a metadata failure does not require another
+full validation. Fresh-export runs never resume an existing output snapshot.
+A completed fresh preparation is already ready to send. If a fresh run was
+interrupted, retain its files: when its manifest validates, name that `snapshot`
+and any successful full report explicitly in a new configuration/output directory.
+That reuses the dump without exporting again. A dump without a valid completion
+manifest needs a new export directory.
+
+Changed configuration or saved evidence, or corrupted prepared outputs, causes
+refusal. The prepared snapshot is verified against its saved manifest and is
+independent of later changes to the original Parquet files. If interruption leaves
+a report without its completion digest, retain it and supply it explicitly to a
+new preparation directory. For corrected descriptions, use a new directory and
+refer to the previous successful full report. Never write preparation output
+inside the immutable source snapshot.
 
 ## Access and runtime
 
