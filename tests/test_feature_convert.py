@@ -205,8 +205,10 @@ def test_hits_on_an_id_shared_by_two_cds_rows_are_counted_not_written(
 
 def test_small_batches_give_the_same_output(run_files: dict[str, Path], tmp_path: Path) -> None:
     one = fc.convert_run(RUN, run_files, {}, tmp_path / "a")
-    many = fc.convert_run(RUN, run_files, {}, tmp_path / "b", batch_rows=2)
+    many = fc.convert_run(RUN, run_files, {}, tmp_path / "b", batch_rows=1)
     assert pq.read_table(one.outputs[0]).to_pylist() == pq.read_table(many.outputs[0]).to_pylist()
+    assert pq.read_table(one.outputs[1]).to_pylist() == pq.read_table(many.outputs[1]).to_pylist()
+    assert many.contig_rows == one.contig_rows == 2
     assert not any(p.name.endswith(".partial") for p in (tmp_path / "b").iterdir())
 
 
@@ -221,3 +223,25 @@ def test_cli_convert_refuses_an_empty_run_list(run_files: dict[str, Path], tmp_p
     result = CliRunner().invoke(cli, ["feature-convert", *args])
     assert result.exit_code != 0
     assert "lists no runs" in result.output
+
+
+@pytest.mark.parametrize("run_id", ["../escape", "/abs/path", "a/b", "..", ""])
+def test_convert_run_refuses_run_ids_that_are_not_one_directory_name(
+    run_files: dict[str, Path], tmp_path: Path, run_id: str
+) -> None:
+    victim = tmp_path / "escape"
+    victim.mkdir()
+    (victim / "keep.txt").write_text("x")
+    with pytest.raises(ValueError, match="not a usable run ID"):
+        fc.convert_run(run_id, run_files, {}, tmp_path / "out")
+    assert (victim / "keep.txt").exists()
+
+
+def test_unselected_keeps_a_competing_call_at_a_selected_interval(run_files: dict[str, Path], tmp_path: Path) -> None:
+    competing = f"{RUN}_0001\tGeneMark.hmm-2\tCDS\t2\t730\t21.5\t+\t0\tID={G1};translation_table=11"
+    genemark = run_files["Genemark Annotation GFF"]
+    genemark.write_text(genemark.read_text() + competing + "\n")
+    result = fc.convert_run(RUN, run_files, {}, tmp_path / "out", include_unselected=True)
+    rows = pq.read_table(result.outputs[0]).to_pylist()
+    unselected = sorted((r["source"], r["start"]) for r in rows if r["is_selected"] is False)
+    assert unselected == [("GeneMark.hmm-2", 2), ("Prodigal v2.6.3", 5)]

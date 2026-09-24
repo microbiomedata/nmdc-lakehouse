@@ -1362,7 +1362,7 @@ def feature_convert_command(
     """
     import json
 
-    from nmdc_lakehouse.feature_convert import DuplicateFeatureIdError, convert_run
+    from nmdc_lakehouse.feature_convert import convert_run
     from nmdc_lakehouse.feature_tables import FUNCTIONAL, cached_files, plan_from_json
 
     plan = plan_from_json(json.loads(plan_path.read_text()))
@@ -1388,7 +1388,8 @@ def feature_convert_command(
                 include_unselected=include_unselected,
                 assembly_run=entry["run"].get("assembly_run"),
             )
-        except DuplicateFeatureIdError as error:
+        except ValueError as error:
+            # DuplicateFeatureIdError, or a run ID that cannot name an output directory.
             raise click.ClickException(str(error)) from error
         summary.append(
             {

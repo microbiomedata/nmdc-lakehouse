@@ -8,6 +8,7 @@ BERDL.
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -82,6 +83,21 @@ def _number(value: str, kind: type) -> Any:
     return kind(value)
 
 
+_RUN_DIR_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+def _safe_run_dir_name(run_id: str) -> str:
+    """The run's output directory name, refused unless it is one plain path component.
+
+    The run ID comes from a plan and runs file, and the converter deletes and replaces this
+    directory, so `/`, `..` or an absolute path must never reach it.
+    """
+    name = run_id.replace(":", "_")
+    if not _RUN_DIR_NAME.fullmatch(name) or name in {".", ".."}:
+        raise ValueError(f"{run_id!r} is not a usable run ID for an output directory name")
+    return name
+
+
 class DuplicateFeatureIdError(ValueError):
     """Two rows of one run would share a feature_id, which the model requires to be unique."""
 
@@ -145,7 +161,7 @@ def convert_run(
 
     checks = checks if checks is not None else check_run(files)
     result = ConversionResult(run_id=run_id)
-    run_dir = out_dir / run_id.replace(":", "_")
+    run_dir = out_dir / _safe_run_dir_name(run_id)
     partial = run_dir.with_name(run_dir.name + ".partial")
     shutil.rmtree(partial, ignore_errors=True)
     partial.mkdir(parents=True)
@@ -174,7 +190,9 @@ def convert_run(
     result.dropped_keys = sorted(drop)
 
     gene_seqid: dict[str, str] = {}
-    selected_loci: set[tuple[str, ...]] = set()
+    # A call is its caller (column 2) and its location, so another caller's call at a selected
+    # interval is kept as unselected rather than mistaken for the selected one.
+    selected_calls: set[tuple[str, ...]] = set()
     functional_url = urls.get(FUNCTIONAL)
     # Observed 2026-09-23 in v1.0.2 and v1.0.4 runs: an RFAM hit over one interval on both strands
     # gets one `ID` twice, because the ID encodes the interval but not the strand. Those rows get
@@ -205,7 +223,7 @@ def convert_run(
         if source_id:
             # Hits name their gene by the source ID, which a renamed row no longer carries.
             gene_seqid.setdefault(source_id, r[0])
-        selected_loci.add((r[0], r[2], r[3], r[4], r[6]))
+        selected_calls.add((r[0], r[1], r[2], r[3], r[4], r[6]))
         emit(
             {
                 "feature_id": feature_id,
@@ -288,7 +306,7 @@ def convert_run(
             if caller_type not in files:
                 continue
             for r in read_table(files[caller_type]):
-                if (r[0], r[2], r[3], r[4], r[6]) in selected_loci:
+                if (r[0], r[1], r[2], r[3], r[4], r[6]) in selected_calls:
                     continue
                 pairs = parse_attributes(r[8]) if len(r) > 8 else []
                 source_id = _first(pairs, "ID") or f"{r[0]}_{r[3]}_{r[4]}"
@@ -338,11 +356,13 @@ def convert_run(
         for r in read_table(files[CONTIG_MAPPING]):
             if len(r) > 1:
                 assembly[r[1]] = r[0]
-    contig_rows = []
+    contig_schema = _contig_schema()
+    contig_writer = pq.ParquetWriter(partial / "contigs.parquet", contig_schema, compression="zstd")
+    sources = [urls[t] for t in (CONTIG_MAPPING, SCAFFOLD_LINEAGE) if t in urls and t in files]
+    contig_batch: list[dict[str, Any]] = []
     for contig_id in sorted(contig_ids):
         tax, confidence = lineage.get(contig_id, ([], None))
-        sources = [urls[t] for t in (CONTIG_MAPPING, SCAFFOLD_LINEAGE) if t in urls and t in files]
-        contig_rows.append(
+        contig_batch.append(
             {
                 "contig_id": contig_id,
                 "assembly_contig_id": assembly.get(contig_id),
@@ -352,11 +372,13 @@ def convert_run(
                 "source_files": sources,
             }
         )
-    result.contig_rows = len(contig_rows)
-
-    pq.write_table(
-        pa.Table.from_pylist(contig_rows, schema=_contig_schema()), partial / "contigs.parquet", compression="zstd"
-    )
+        result.contig_rows += 1
+        if len(contig_batch) >= batch_rows:
+            contig_writer.write_table(pa.Table.from_pylist(contig_batch, schema=contig_schema))
+            contig_batch.clear()
+    # Written even when empty, so a run with no contigs still has a readable contigs.parquet.
+    contig_writer.write_table(pa.Table.from_pylist(contig_batch, schema=contig_schema))
+    contig_writer.close()
     shutil.rmtree(run_dir, ignore_errors=True)
     partial.rename(run_dir)
     result.outputs = [str(run_dir / "features.parquet"), str(run_dir / "contigs.parquet")]
