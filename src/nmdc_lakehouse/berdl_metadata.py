@@ -671,7 +671,7 @@ def execute_berdl_staging_with_metadata(
     except (BerdlMetadataError, OSError) as error:
         raise BerdlMetadataError(
             "Data staging passed, but metadata completion failed. Retain the data outcome and "
-            "use berdl-apply-metadata to preview and retry metadata without uploading again. " + str(error)
+            "use stage-publication to preview and retry metadata without uploading again. " + str(error)
         ) from error
     return {
         "status": "data-and-table-metadata-verified",

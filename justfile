@@ -51,9 +51,13 @@ prepare-publication CONFIGURATION OUTPUT:
 plan-publication ROOT CONFIGURATION:
     {{ uv_run }} --no-sync nmdc-lakehouse plan-publication "{{ ROOT }}" "{{ CONFIGURATION }}"
 
-# Preview or execute a reviewed BERDL plan, verifying data and approved table metadata.
-berdl-upload PLAN UPSTREAM_OUTCOME OUTCOME *ARGS:
-    {{ uv_run }} --no-sync nmdc-lakehouse berdl-upload "{{ PLAN }}" --upstream-outcome "{{ UPSTREAM_OUTCOME }}" --output "{{ OUTCOME }}" {{ ARGS }}
+# Preview, stage or retry metadata alone from the same reviewed publication directory.
+stage-publication ROOT *ARGS:
+    {{ uv_run }} --no-sync nmdc-lakehouse stage-publication "{{ ROOT }}" {{ ARGS }}
+
+# Check saved publication evidence and print the next action without service access.
+publication-status ROOT:
+    {{ uv_run }} --no-sync nmdc-lakehouse publication-status "{{ ROOT }}"
 
 # Build both derived provenance tables locally in a new, separate snapshot directory.
 derive-provenance SNAPSHOT_ROOT OUTPUT_ROOT *ARGS:
@@ -71,10 +75,6 @@ berdl-promotion-plan PUBLICATION_PLAN STAGING_OUTCOME METADATA_OUTCOME CANONICAL
 # options are passed through ARGS, so the destructive form is never the shorter command.
 berdl-promote PROMOTION_PLAN INGEST_CHECKOUT *ARGS:
     {{ uv_run }} --no-sync nmdc-lakehouse berdl-promote "{{ PROMOTION_PLAN }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" {{ ARGS }}
-
-# Retry approved table metadata; ARGS must include --staging-plan ORIGINAL_PLAN.
-berdl-apply-metadata METADATA_PLAN STAGING_OUTCOME INGEST_CHECKOUT OUTCOME *ARGS:
-    {{ uv_run }} --no-sync nmdc-lakehouse berdl-apply-metadata "{{ METADATA_PLAN }}" "{{ STAGING_OUTCOME }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" --output "{{ OUTCOME }}" {{ ARGS }}
 
 # Build the download manifest for one data object type from a snapshot. More `--type` values and
 # a `--host` restriction go through ARGS. A live catalog does not: this recipe always supplies

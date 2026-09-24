@@ -258,7 +258,7 @@ def is_staging_dataset(dataset: str) -> bool:
 
 
 def _run_staging_command(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, text=True, stdout=2, stderr=2, check=False, shell=False)  # noqa: S603
+    return subprocess.run(args, text=True, stdout=sys.stderr, stderr=sys.stderr, check=False, shell=False)  # noqa: S603
 
 
 def _sha256(path: Path, label: str) -> str:

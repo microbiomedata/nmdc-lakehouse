@@ -271,144 +271,52 @@ def plan_publication_command(root: Path, configuration: Path) -> None:
     click.echo(f"plan={output}\nplan_sha256={file_digest(output)}", err=True)
 
 
-@cli.command("berdl-upload")
-@click.argument("plan_path", type=click.Path(path_type=Path, dir_okay=False))
-@click.option(
-    "--upstream-outcome",
-    "upstream_outcome_path",
-    type=click.Path(path_type=Path, dir_okay=False),
-    required=True,
-)
-@click.option("--output", "output_path", type=click.Path(path_type=Path, dir_okay=False), required=True)
-@click.option(
-    "--metadata-output",
-    "metadata_output_path",
-    type=click.Path(path_type=Path, dir_okay=False),
-    help="Metadata verification outcome; defaults to <output stem>.metadata.json beside the data outcome.",
-)
+@cli.command("stage-publication")
+@click.argument("root", type=click.Path(path_type=Path, file_okay=False))
 @click.option("--authorize-snapshot", help="Exact snapshot ID approved for this invocation.")
-@click.option("--authorize-plan-sha256", help="Exact SHA-256 digest of the reviewed staging plan.")
-@click.option(
-    "--execute-staging",
-    is_flag=True,
-    help="Run the reviewed staging command; the default only previews it.",
-)
-def berdl_upload_command(
-    plan_path: Path,
-    upstream_outcome_path: Path,
-    output_path: Path,
-    metadata_output_path: Path | None,
-    authorize_snapshot: str | None,
-    authorize_plan_sha256: str | None,
-    execute_staging: bool,
+@click.option("--authorize-plan-sha256", help="Exact SHA-256 of the reviewed staging plan.")
+@click.option("--execute", is_flag=True, help="Stage or retry metadata; otherwise only preview.")
+def stage_publication_command(
+    root: Path, authorize_snapshot: str | None, authorize_plan_sha256: str | None, execute: bool
 ) -> None:
-    """Preview or stage and verify both data and approved table metadata."""
+    """Stage a prepared publication, resuming metadata alone when data is verified."""
     import json
 
-    from nmdc_lakehouse.berdl_metadata import (
-        BerdlMetadataError,
-        execute_berdl_staging_with_metadata,
-    )
-    from nmdc_lakehouse.berdl_staging import BerdlStagingPlanError
-    from nmdc_lakehouse.metadata_application import MetadataApplicationError
-    from nmdc_lakehouse.metadata_bundle import MetadataBundleError
-    from nmdc_lakehouse.publication_plan import PublicationPlanError
-    from nmdc_lakehouse.publication_preflight import PublicationPreflightError
-    from nmdc_lakehouse.snapshot_manifest import SnapshotManifestError
-    from nmdc_lakehouse.target_validation import TargetValidationError
+    from pydantic import ValidationError
 
-    metadata_output_path = metadata_output_path or output_path.with_name(f"{output_path.stem}.metadata.json")
+    from nmdc_lakehouse.publication_staging import stage_publication
+
     try:
-        result = execute_berdl_staging_with_metadata(
-            plan_path,
-            upstream_outcome_path=upstream_outcome_path,
-            output_path=output_path,
-            metadata_output_path=metadata_output_path,
+        result = stage_publication(
+            root,
             authorize_snapshot=authorize_snapshot,
-            execute_staging=execute_staging,
             authorize_plan_sha256=authorize_plan_sha256,
+            execute=execute,
         )
-    except (
-        BerdlMetadataError,
-        BerdlStagingPlanError,
-        MetadataApplicationError,
-        MetadataBundleError,
-        PublicationPlanError,
-        PublicationPreflightError,
-        SnapshotManifestError,
-        TargetValidationError,
-    ) as error:
+    except ValidationError as error:
+        raise click.ClickException("Invalid publication evidence.") from error
+    except (ValueError, OSError) as error:
         raise click.ClickException(str(error)) from error
     click.echo(json.dumps(result, indent=2, sort_keys=True))
-    if result["status"] != "preview-only":
-        click.echo(f"outcome={output_path.expanduser().resolve()}", err=True)
-        click.echo(f"metadata_outcome={metadata_output_path.expanduser().resolve()}", err=True)
 
 
-@cli.command("berdl-apply-metadata")
-@click.argument("metadata_plan_path", type=click.Path(path_type=Path, dir_okay=False))
-@click.argument("staging_outcome_path", type=click.Path(path_type=Path, dir_okay=False))
-@click.option(
-    "--staging-plan",
-    "staging_plan_path",
-    type=click.Path(path_type=Path, dir_okay=False),
-    required=True,
-    help="Original reviewed staging plan, whose digest is recorded by the data outcome.",
-)
-@click.option(
-    "--ingest-checkout",
-    type=click.Path(path_type=Path, file_okay=False),
-    required=True,
-    help="Clean checkout of the stock KBase ingest revision used for staging.",
-)
-@click.option("--output", type=click.Path(path_type=Path, dir_okay=False), required=True)
-@click.option("--authorize-plan-sha256", help="Exact SHA-256 of the reviewed metadata plan.")
-@click.option("--authorize-staging-outcome-sha256", help="Exact SHA-256 of the verified staging outcome.")
-@click.option(
-    "--execute-metadata",
-    is_flag=True,
-    help="Apply and read back table and column descriptions; the default only previews them.",
-)
-def berdl_apply_metadata_command(
-    metadata_plan_path: Path,
-    staging_outcome_path: Path,
-    staging_plan_path: Path,
-    ingest_checkout: Path,
-    output: Path,
-    authorize_plan_sha256: str | None,
-    authorize_staging_outcome_sha256: str | None,
-    execute_metadata: bool,
-) -> None:
-    """Preview or apply approved descriptions to verified staging tables."""
-    from nmdc_lakehouse.berdl_metadata import (
-        BerdlMetadataError,
-        apply_berdl_staging_metadata,
-        load_berdl_metadata_preview,
-        render_berdl_metadata,
-        write_berdl_metadata_outcome,
-    )
+@cli.command("publication-status")
+@click.argument("root", type=click.Path(path_type=Path, file_okay=False))
+def publication_status_command(root: Path) -> None:
+    """Verify local publication evidence and show the next action; no service access."""
+    import json
+
+    from pydantic import ValidationError
+
+    from nmdc_lakehouse.publication_staging import publication_status
 
     try:
-        plan, staging, preview = load_berdl_metadata_preview(
-            metadata_plan_path,
-            staging_outcome_path,
-            staging_plan_path=staging_plan_path,
-            output_path=output,
-            ingest_checkout=ingest_checkout,
-        )
-        if not execute_metadata:
-            click.echo(render_berdl_metadata(preview))
-            return
-        if authorize_plan_sha256 != preview.metadata_plan_sha256:
-            raise BerdlMetadataError("Execution requires the exact reviewed metadata plan SHA-256.")
-        if authorize_staging_outcome_sha256 != preview.staging_outcome_sha256:
-            raise BerdlMetadataError("Execution requires the exact verified staging outcome SHA-256.")
-        outcome = apply_berdl_staging_metadata(plan, staging, preview, ingest_checkout=ingest_checkout)
-        destination = write_berdl_metadata_outcome(output, outcome)
-    except (BerdlMetadataError, OSError) as error:
+        result = publication_status(root)
+    except ValidationError as error:
+        raise click.ClickException("Invalid publication evidence.") from error
+    except (ValueError, OSError) as error:
         raise click.ClickException(str(error)) from error
-    click.echo(render_berdl_metadata(outcome))
-    click.echo(f"outcome={destination.resolve()}", err=True)
+    click.echo(json.dumps(result, indent=2, sort_keys=True))
 
 
 @cli.command("derive-provenance")
@@ -476,14 +384,14 @@ def compare_provenance_queries_command(snapshot_root: Path, derived_root: Path, 
     "staging_outcome_path",
     type=click.Path(path_type=Path, dir_okay=False),
     required=True,
-    help="Credential-free data-verified outcome from berdl-upload.",
+    help="Credential-free data-verified outcome from stage-publication.",
 )
 @click.option(
     "--metadata-outcome",
     "metadata_outcome_path",
     type=click.Path(path_type=Path, dir_okay=False),
     required=True,
-    help="Credential-free metadata-verified outcome from berdl-apply-metadata.",
+    help="Credential-free metadata-verified outcome from stage-publication.",
 )
 @click.option("--canonical-namespace", required=True, help="Catalog-qualified promotion target, e.g. nmdc.metadata.")
 @click.option(
@@ -617,12 +525,12 @@ def berdl_promote_command(
 
 def _echo_metadata_warning(plan: "BerdlPromotionPlan") -> None:
     # A table comment and TBLPROPERTIES are not part of a query result, so the statements above
-    # cannot have carried them. There is no follow-up command that fixes this: berdl-apply-metadata
+    # cannot have carried them. There is no follow-up command that fixes this: stage-publication
     # refuses a canonical namespace on purpose, because applying descriptions one column at a time
     # stopped partway through biosample_set on 2026-08-20 and left it half described.
     click.echo("  METADATA NOT CARRIED: these statements build tables from a query. Table comments")
     click.echo("  and properties are not part of one, and no command applies them to a canonical")
-    click.echo("  namespace afterwards; berdl-apply-metadata refuses one by design. The verified")
+    click.echo("  namespace afterwards; stage-publication refuses one by design. The verified")
     click.echo(f"  metadata is on the staging tables, not on {plan.canonical_namespace}. See issue 320.")
 
 

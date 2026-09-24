@@ -87,12 +87,13 @@ def save_json(path: Path, value: Any) -> None:
 @contextmanager
 def progress(label: str):
     """Keep long validation or export phases visible without exposing runtime diagnostics."""
-    print(f"Starting {label}", file=sys.stderr, flush=True)
+    stream = sys.stderr
+    print(f"Starting {label}", file=stream, flush=True)
     done = threading.Event()
 
     def heartbeat():
         while not done.wait(30):
-            print(f"Still running: {label}", file=sys.stderr, flush=True)
+            print(f"Still running: {label}", file=stream, flush=True)
 
     worker = threading.Thread(target=heartbeat, daemon=True)
     worker.start()
