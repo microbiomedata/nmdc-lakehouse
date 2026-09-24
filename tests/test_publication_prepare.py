@@ -313,7 +313,8 @@ def test_preparation_cli_replaces_the_two_metadata_commands(inputs):
     runner = CliRunner()
     result = runner.invoke(cli, ["prepare-publication", str(config), str(output)])
     assert result.exit_code == 0, result.output
-    assert '"status": "prepared"' in result.output
+    assert json.loads(result.stdout)["status"] == "prepared"
+    assert f"prepared_directory={output.resolve()}" in result.stderr
     for old in ("metadata-profile", "metadata-bundle"):
         assert runner.invoke(cli, [old, "--help"]).exit_code != 0
 
