@@ -46,6 +46,17 @@ def publication_status(root: Path) -> dict[str, Any]:
     """Check recorded evidence locally; this is not a fresh live catalog audit."""
     evidence = _evidence(root)
     root = evidence.parent
+    paths = {
+        "evidence_paths": {
+            label: str(evidence / name)
+            for label, name in (
+                ("plan", "berdl-staging-plan.json"),
+                ("data_outcome", "nmdc-staging-outcome.json"),
+                ("metadata_outcome", "nmdc-staging-metadata-outcome.json"),
+            )
+        },
+        "log_paths": [str(p) for p in sorted(evidence.glob("staging-*.log")) if p.is_file() and not p.is_symlink()],
+    }
     plan_path = evidence / "berdl-staging-plan.json"
     for name in (
         "berdl-staging-plan.json",
@@ -70,6 +81,7 @@ def publication_status(root: Path) -> dict[str, Any]:
             if receipt.get("evidence", {}).get(name) != file_digest(evidence / name):
                 raise PreparationError("Prepared evidence changed.")
         return {
+            **paths,
             "status": "prepared",
             "snapshot_id": manifest.snapshot_id,
             "next_action": "Send to the pod and run plan-publication with the destination configuration.",
@@ -77,6 +89,7 @@ def publication_status(root: Path) -> dict[str, Any]:
     plan = berdl_staging.revalidate_berdl_staging_plan(berdl_staging.load_berdl_staging_plan(plan_path))
     digest = file_digest(plan_path)
     result: dict[str, Any] = {
+        **paths,
         "status": "planned",
         "snapshot_id": plan.snapshot_id,
         "namespace": plan.staging_namespace,
