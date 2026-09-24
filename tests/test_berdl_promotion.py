@@ -610,6 +610,37 @@ def test_real_completed_stage_evidence_loads_without_old_runtime_revalidation(pl
         promotion._load_source(root)
 
 
+@pytest.mark.parametrize(
+    "relative_path, validator, before_read",
+    [
+        ("snapshot/snapshot-manifest.json", "validate_snapshot", True),
+        ("evidence/nmdc-staging-metadata-outcome.json", "verified_staging_metadata", True),
+        ("evidence/metadata-application-plan.json", "verified_staging_metadata", False),
+        ("evidence/nmdc-staging-outcome.json", "verified_staging_metadata", False),
+        ("evidence/kbase-ingest-outcome.json", "verified_staging_metadata", False),
+        ("evidence/berdl-staging-plan.json", "verified_staging_metadata", False),
+    ],
+)
+def test_evidence_replaced_during_validation_is_refused(planned, monkeypatch, relative_path, validator, before_read):
+    root, authorization, _, _ = planned
+    staging.stage_publication(root, **authorization)
+    path = root / relative_path
+    raw = path.read_bytes()
+    original = getattr(promotion, validator)
+
+    def replace_during_validation(*args):
+        if before_read:
+            path.write_bytes(raw + b"\n")
+        result = original(*args)
+        if not before_read:
+            path.write_bytes(raw + b"\n")
+        return result
+
+    monkeypatch.setattr(promotion, validator, replace_during_validation)
+    with pytest.raises(promotion.PromotionPlanError, match="evidence changed during validation"):
+        promotion._load_source(root)
+
+
 @pytest.mark.parametrize("change", ["missing", "duplicate", "duplicate-path", "alias-path"])
 def test_historical_staging_requires_the_complete_unique_evidence_set(planned, change):
     root, authorization, _, _ = planned

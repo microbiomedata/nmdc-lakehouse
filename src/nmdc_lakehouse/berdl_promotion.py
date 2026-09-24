@@ -164,13 +164,20 @@ def _load_source(root: Path) -> tuple[PromotionSource, MetadataApplicationPlan, 
         raise PromotionPlanError("Use the original ordinary staging run directories.")
     root = root.resolve()
     evidence = root / "evidence"
+    bindings = {}
+    for name in (
+        "berdl-staging-plan.json",
+        "nmdc-staging-outcome.json",
+        "kbase-ingest-outcome.json",
+        "nmdc-staging-metadata-outcome.json",
+    ):
+        bindings[str(evidence / name)] = file_digest(evidence / name)
     plan_path = evidence / "berdl-staging-plan.json"
     plan = berdl_staging.load_berdl_staging_plan(plan_path)
     berdl_staging._evidence_paths(plan)
     coverage = plan.target_validation
     if coverage.requested_mode != "full" or coverage.selected_rows != coverage.eligible_rows:
         raise PromotionPlanError("Combined promotion requires full target-row validation for each input.")
-    bindings = {}
     for item in plan.evidence:
         if file_digest(Path(item.path)) != item.sha256:
             raise PromotionPlanError(f"Changed staging evidence: {item.name}.")
@@ -185,17 +192,12 @@ def _load_source(root: Path) -> tuple[PromotionSource, MetadataApplicationPlan, 
     if manifest.snapshot_id != plan.snapshot_id:
         raise PromotionPlanError("The staged snapshot identity differs from the manifest.")
     metadata, _ = verified_staging_metadata(evidence, plan)
-    for name in (
-        "berdl-staging-plan.json",
-        "nmdc-staging-outcome.json",
-        "kbase-ingest-outcome.json",
-        "nmdc-staging-metadata-outcome.json",
-    ):
-        bindings[str(evidence / name)] = file_digest(evidence / name)
     if {a.table: (a.rows, a.sha256) for a in plan.artifacts} != {
         a.table: (a.rows, a.sha256) for a in manifest.artifacts
     }:
         raise PromotionPlanError("Staging and manifest table coverage differs.")
+    if any(file_digest(Path(path)) != digest for path, digest in bindings.items()):
+        raise PromotionPlanError("Staging evidence changed during validation; no source was accepted.")
     return (
         PromotionSource(
             root=str(root),

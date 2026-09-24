@@ -621,7 +621,9 @@ just berdl-promote /absolute/path/to/evidence/combined-promotion.json \
 
 Execution checks the evidence, implementation and complete live before state
 again before the first write, then checks each canonical target immediately
-before changing it. Each copy reads the reviewed staging snapshot by its Iceberg
+before changing it. Evidence digests are checked before and after validation;
+keep the original run directories unchanged throughout planning and execution.
+Each copy reads the reviewed staging snapshot by its Iceberg
 snapshot ID. Empty tables with no snapshot reference are copied as empty schema.
 A single projection carries column descriptions and existing field metadata;
 Spark's table writer supplies the table comment and NMDC identity properties at
