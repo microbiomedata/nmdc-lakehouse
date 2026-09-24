@@ -47,9 +47,14 @@ PRIMARY_TABLES = (
 REQUIRED_TABLES = (*PRIMARY_TABLES, *(source[0] for source in EDGE_SOURCES))
 
 
+def provenance_schema_resource():
+    """Locate the independent derived-table schema shipped with this package."""
+    return files("nmdc_lakehouse").joinpath("schemas/provenance.yaml")
+
+
 def provenance_schema() -> tuple[SchemaDefinition, str]:
     """Read the packaged, versioned LinkML contract and its exact content digest."""
-    text = files("nmdc_lakehouse").joinpath("schemas/provenance.yaml").read_text(encoding="utf-8")
+    text = provenance_schema_resource().read_text(encoding="utf-8")
     return yaml_loader.loads(text, target_class=SchemaDefinition), hashlib.sha256(text.encode()).hexdigest()
 
 
