@@ -167,6 +167,8 @@ operational-command inventory.
 | `just plan-publication ROOT CONFIGURATION` | Build disposition, metadata and exact staging plans together from a prepared directory |
 | `just stage-publication ROOT ...` | Preview, stage, or resume metadata after verified data |
 | `just publication-status ROOT` | Check saved evidence and show the next action |
+| `just berdl-promotion-plan ...` | Review the parent metadata snapshot and staged provenance pair together |
+| `just berdl-promote PLAN ...` | Preview the combined plan; exact authorization enables canonical writes and verification |
 | `just install`      | Synchronize the locked development environment    |
 | `just install-all`  | Synchronize locked development and docs extras    |
 | `just lock`         | Refresh `uv.lock`                                |

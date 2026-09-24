@@ -67,14 +67,13 @@ derive-provenance SNAPSHOT_ROOT OUTPUT_ROOT *ARGS:
 compare-provenance-queries SNAPSHOT_ROOT DERIVED_ROOT OUTPUT *ARGS:
     {{ uv_run }} --no-sync nmdc-lakehouse compare-provenance-queries "{{ SNAPSHOT_ROOT }}" "{{ DERIVED_ROOT }}" "{{ OUTPUT }}" {{ ARGS }}
 
-# Describe the promotion that verified staging authorizes. Reads evidence, changes nothing.
-berdl-promotion-plan PUBLICATION_PLAN STAGING_OUTCOME METADATA_OUTCOME CANONICAL_NAMESPACE RECOVERY OUTPUT *ARGS:
-    {{ uv_run }} --no-sync nmdc-lakehouse berdl-promotion-plan --plan "{{ PUBLICATION_PLAN }}" --staging-outcome "{{ STAGING_OUTCOME }}" --metadata-outcome "{{ METADATA_OUTCOME }}" --canonical-namespace "{{ CANONICAL_NAMESPACE }}" --recovery "{{ RECOVERY }}" --output "{{ OUTPUT }}" {{ ARGS }}
+# Read both staged snapshots and the live canonical inventory into one reviewable plan.
+berdl-promotion-plan METADATA_ROOT DERIVED_ROOT OUTPUT INGEST_CHECKOUT RECOVERY:
+    {{ uv_run }} --no-sync nmdc-lakehouse berdl-promotion-plan "{{ METADATA_ROOT }}" "{{ DERIVED_ROOT }}" "{{ OUTPUT }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" --recovery "{{ RECOVERY }}"
 
-# Perform the promotion a reviewed plan describes. Previews by default; the three --authorize-
-# options are passed through ARGS, so the destructive form is never the shorter command.
-berdl-promote PROMOTION_PLAN INGEST_CHECKOUT *ARGS:
-    {{ uv_run }} --no-sync nmdc-lakehouse berdl-promote "{{ PROMOTION_PLAN }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" {{ ARGS }}
+# Preview by default. The exact plan, namespace and destination authorization enables writes.
+berdl-promote PROMOTION_PLAN *ARGS:
+    {{ uv_run }} --no-sync nmdc-lakehouse berdl-promote "{{ PROMOTION_PLAN }}" {{ ARGS }}
 
 # Build the download manifest for one data object type from a snapshot. More `--type` values and
 # a `--host` restriction go through ARGS. A live catalog does not: this recipe always supplies

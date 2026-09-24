@@ -12,16 +12,10 @@ import shlex
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import click
 
 from nmdc_lakehouse.service_doctor import SERVICE_CHECKS
-
-if TYPE_CHECKING:
-    # Import-time cost is why every command imports its own module inside the function body; this
-    # one is only for the annotation.
-    from nmdc_lakehouse.berdl_promotion import BerdlPromotionPlan
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -378,160 +372,65 @@ def compare_provenance_queries_command(snapshot_root: Path, derived_root: Path, 
 
 
 @cli.command("berdl-promotion-plan")
-@click.option("--plan", "publication_plan_path", type=click.Path(path_type=Path, dir_okay=False), required=True)
-@click.option(
-    "--staging-outcome",
-    "staging_outcome_path",
-    type=click.Path(path_type=Path, dir_okay=False),
-    required=True,
-    help="Credential-free data-verified outcome from stage-publication.",
-)
-@click.option(
-    "--metadata-outcome",
-    "metadata_outcome_path",
-    type=click.Path(path_type=Path, dir_okay=False),
-    required=True,
-    help="Credential-free metadata-verified outcome from stage-publication.",
-)
-@click.option("--canonical-namespace", required=True, help="Catalog-qualified promotion target, e.g. nmdc.metadata.")
-@click.option(
-    "--recovery",
-    required=True,
-    help=(
-        "The one recovery operation a human would perform if promotion fails part way. Recorded "
-        "for the operator to read and carry out; nothing attempts it automatically."
-    ),
-)
-@click.option("--output", type=click.Path(path_type=Path, dir_okay=False), required=True)
+@click.argument("metadata_root", type=click.Path(path_type=Path, file_okay=False))
+@click.argument("derived_root", type=click.Path(path_type=Path, file_okay=False))
+@click.argument("output", type=click.Path(path_type=Path, dir_okay=False))
+@click.option("--ingest-checkout", type=click.Path(path_type=Path, file_okay=False), required=True)
+@click.option("--recovery", required=True, help="Reviewed manual response to partial canonical changes.")
 def berdl_promotion_plan_command(
-    publication_plan_path: Path,
-    staging_outcome_path: Path,
-    metadata_outcome_path: Path,
-    canonical_namespace: str,
-    recovery: str,
-    output: Path,
+    metadata_root: Path, derived_root: Path, output: Path, ingest_checkout: Path, recovery: str
 ) -> None:
-    """Describe the promotion that verified staging authorizes, changing nothing.
-
-    This reads evidence and writes a description. It does not promote, and there is deliberately
-    no flag here that makes it promote: the authorization step is a separate reviewable artifact.
-    """
-    from nmdc_lakehouse.berdl_promotion import (
-        PromotionPlanError,
-        plan_berdl_promotion_from_files,
-        render_promotion_plan,
-        write_berdl_promotion_plan,
-    )
+    """Read both staged snapshots and current catalog state into one reviewable plan."""
+    from nmdc_lakehouse.berdl_promotion import plan_promotion, render_promotion_plan
+    from nmdc_lakehouse.publication_prepare import file_digest
 
     try:
-        plan = plan_berdl_promotion_from_files(
-            publication_plan_path=publication_plan_path,
-            staging_outcome_path=staging_outcome_path,
-            metadata_outcome_path=metadata_outcome_path,
-            canonical_namespace=canonical_namespace,
-            recovery=recovery,
-        )
-        destination = write_berdl_promotion_plan(output, plan)
-    except (PromotionPlanError, OSError) as error:
-        raise click.ClickException(str(error)) from error
+        plan = plan_promotion(metadata_root, derived_root, output, ingest_checkout=ingest_checkout, recovery=recovery)
+    except (ValueError, OSError) as error:
+        raise click.ClickException("Promotion preview failed; inspect the private log if one was created.") from error
     click.echo(render_promotion_plan(plan))
-    click.echo(f"plan={destination}", err=True)
+    click.echo(f"plan={output.resolve()}")
+    click.echo(f"plan_sha256={file_digest(output)}")
+    click.echo(f"destination_id={plan.sources[0].destination_id}")
 
 
 @cli.command("berdl-promote")
 @click.argument("plan_path", type=click.Path(path_type=Path, dir_okay=False))
-@click.option("--ingest-checkout", type=click.Path(path_type=Path, file_okay=False), required=True)
-@click.option("--authorize-plan-sha256", help="Exact SHA-256 of the plan being run.")
-@click.option("--authorize-canonical-namespace", help="Exact namespace the plan promotes into.")
-@click.option(
-    "--authorize-destination-id",
-    help="Exact destination the plan's dispositions were decided against.",
-)
+@click.option("--authorize-plan-sha256", help="Exact SHA-256 of the reviewed combined plan.")
+@click.option("--authorize-canonical-namespace", help="Exact canonical namespace from the reviewed plan.")
+@click.option("--authorize-destination-id", help="Exact destination identity from the reviewed plan.")
 def berdl_promote_command(
     plan_path: Path,
-    ingest_checkout: Path,
     authorize_plan_sha256: str | None,
     authorize_canonical_namespace: str | None,
     authorize_destination_id: str | None,
 ) -> None:
-    """Preview a promotion, or execute with explicit plan, namespace, and destination authorization.
+    """Preview the saved plan; all three authorizations enable execution and read-back."""
+    import json
 
-    Plans that require a Spark provenance rebuild are refused. Build and validate
-    derived Parquet locally before staging; combined promotion is tracked in issue 234.
-    """
-    from nmdc_lakehouse.berdl_promotion import (
-        PromotionPlanError,
-        execute_promotion,
-        load_promotion_plan,
-        promotion_statements,
-        render_promotion_plan,
-    )
-    from nmdc_lakehouse.derived_tables import DerivedTableError, spark_session
+    from nmdc_lakehouse.berdl_promotion import execute_promotion, load_promotion_plan, render_promotion_plan
 
     try:
-        plan, plan_sha256 = load_promotion_plan(plan_path)
-    except PromotionPlanError as error:
-        raise click.ClickException(str(error)) from error
-
-    click.echo(render_promotion_plan(plan))
-    click.echo("")
-    click.echo(f"  plan sha256    {plan_sha256}")
-    click.echo(f"  destination    {plan.destination_id}")
-    for step, _table, statement in promotion_statements(plan):
-        click.echo(f"    {step:8s} {statement}")
-
-    if authorize_plan_sha256 is None or authorize_canonical_namespace is None or authorize_destination_id is None:
-        click.echo("")
-        click.echo("  nothing has been changed; rerun with all three --authorize- options to execute")
-        return
-
-    try:
-        spark = spark_session(ingest_checkout)
-        performed = execute_promotion(
-            spark,
-            plan,
-            plan_sha256=plan_sha256,
+        plan, digest = load_promotion_plan(plan_path)
+        click.echo(render_promotion_plan(plan))
+        click.echo(f"plan_sha256={digest}")
+        click.echo(f"destination_id={plan.sources[0].destination_id}")
+        if not all((authorize_plan_sha256, authorize_canonical_namespace, authorize_destination_id)):
+            click.echo("Preview only. Supply all three --authorize- options after exact-plan review to execute.")
+            return
+        assert authorize_plan_sha256 and authorize_canonical_namespace and authorize_destination_id
+        result = execute_promotion(
+            plan_path,
             authorize_plan_sha256=authorize_plan_sha256,
             authorize_canonical_namespace=authorize_canonical_namespace,
             authorize_destination_id=authorize_destination_id,
-            progress=lambda message: click.echo(f"  {message}"),
         )
-    except (PromotionPlanError, DerivedTableError) as error:
-        # Saying that nothing was attempted, because the plan names a recovery operation and the
-        # option describing it used to promise it would be attempted. An operator reading a
-        # failure beside a recorded recovery can reasonably assume it was tried.
+    except (ValueError, OSError) as error:
         raise click.ClickException(
-            f"{error}\n\nNo recovery was attempted; nothing here implements one. The plan records "
-            f"what a human would do: {plan.recovery}"
+            "Promotion refused or incomplete; inspect the execution journal and private log if present. "
+            "No automatic recovery was attempted."
         ) from error
-
-    click.echo(f"  performed {len(performed)} statement(s)")
-    # A statement that succeeded is not a table that holds what it should, and the plan's last
-    # step is a read-back this command does not perform. Saying only how many statements ran
-    # would let the output stand in for the verification nobody has done yet.
-    # A preserve-only plan does not build tables.
-    if any(step in ("replace", "add") for step, _table, _statement in promotion_statements(plan)):
-        click.echo("")
-        _echo_metadata_warning(plan)
-
-    click.echo("")
-    # Neutral about whether anything ran, because a preserve-only plan issues no statement and
-    # telling that operator "this ran statements" describes work the command did not do. What is
-    # true either way is that nothing was read back.
-    click.echo("  NOT VERIFIED: no table has been read back. Whatever ran was issued, not checked.")
-    click.echo(f"  Verify all {len(plan.operations)} object(s) in {plan.canonical_namespace}")
-    click.echo("  before anyone is told the promotion is complete.")
-
-
-def _echo_metadata_warning(plan: "BerdlPromotionPlan") -> None:
-    # A table comment and TBLPROPERTIES are not part of a query result, so the statements above
-    # cannot have carried them. There is no follow-up command that fixes this: stage-publication
-    # refuses a canonical namespace on purpose, because applying descriptions one column at a time
-    # stopped partway through biosample_set on 2026-08-20 and left it half described.
-    click.echo("  METADATA NOT CARRIED: these statements build tables from a query. Table comments")
-    click.echo("  and properties are not part of one, and no command applies them to a canonical")
-    click.echo("  namespace afterwards; stage-publication refuses one by design. The verified")
-    click.echo(f"  metadata is on the staging tables, not on {plan.canonical_namespace}. See issue 320.")
+    click.echo(json.dumps(result, sort_keys=True, indent=2))
 
 
 @cli.command("berdl-promotion-probe")

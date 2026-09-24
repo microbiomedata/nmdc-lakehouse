@@ -1,709 +1,530 @@
-"""Plan a canonical promotion, and perform one that has been authorized.
+"""Review and promote the metadata snapshot together with its staged provenance pair.
 
-Two halves, and the separation between them is the point. `build_berdl_promotion_plan` and
-everything it uses read verified evidence and write an immutable description of what a promotion
-would do, touching nothing. `execute_promotion` is the destructive half: it replaces
-canonical tables, and it runs only against a plan whose digest, namespace and destination an
-operator named, with the staging row counts checked first.
-
-The split mirrors `berdl_staging`, which has now run end to end, and it exists for the same
-reason: the point where a human authorizes a destructive act should be a distinct, reviewable
-artifact rather than a flag on the command that performs it.
-
-Recovery from a partial promotion is not implemented. The plan carries a `recovery` string and
-nothing here applies it.
+Promotion is deliberately not resumable or atomic across tables. It records the
+before-state and each attempted operation, carries metadata in the table write,
+and refuses automatic replay after a partial attempt. Mark approves the exact
+combined plan before any canonical mutation.
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import re
+import sys
 import tempfile
-from collections import Counter
-from collections.abc import Sequence
+import traceback
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from typing import Literal, Protocol, TypeVar
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+import pyarrow as pa
+import pyarrow.parquet as pq
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from nmdc_lakehouse.metadata_application import catalog_of_namespace
-from nmdc_lakehouse.publication_plan import Disposition, PublicationPlan
+from nmdc_lakehouse import berdl_metadata, berdl_staging
+from nmdc_lakehouse.berdl_promotion_probe import _scalar, _schema_fingerprint
+from nmdc_lakehouse.metadata_application import MetadataApplicationPlan
+from nmdc_lakehouse.publication_prepare import file_digest, progress, save_json
+from nmdc_lakehouse.publication_staging import verified_staging_metadata
+from nmdc_lakehouse.snapshot_manifest import SnapshotManifest, validate_snapshot
 
-# 2 since destination_provider became a required field. A v1 plan does not carry it, so it cannot
-# be bound to the catalog it writes into, and loading one under the current rules would either
-# fail with a message about a missing field or, if the field were made optional, pass the binding
-# vacuously. Refusing it by version says which of those it is.
-PROMOTION_PLAN_FORMAT_VERSION: Literal[2] = 2
-
-# Dispositions this planner can express as a step. `retire` is absent on purpose: it removes
-# canonical tables, nothing here implements that, and a plan whose header counts a disposition its
-# sequence omits is a silent omission the operator authorizes without seeing.
-_PLANNED_DISPOSITIONS = frozenset({Disposition.REPLACE, Disposition.ADD, Disposition.PRESERVE})
-
-_QUALIFIED = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*\Z")
-# One unquoted table name. `\Z` and not `$`, because `$` matches before a trailing newline and a
-# name ending in one would pass while carrying a line break into the statement.
+# The one-time September cleanup from issue 234, never a wildcard or user-defined drop list.
+OBSOLETE_TEXTVALUE_TABLES = frozenset(
+    "biosample_set_" + slot
+    for slot in (
+        "agrochem_addition",
+        "air_temp_regm",
+        "fertilizer_regm",
+        "gaseous_environment",
+        "host_diet",
+        "humidity_regm",
+        "perturbation",
+        "phaeopigments",
+        "watering_regm",
+    )
+)
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 
 
-class StagedTableLike(Protocol):
-    """One staged table, as the staging outcome reports it."""
-
-    @property
-    def table(self) -> str:
-        """Canonical table name, matched against the publication plan."""
-        ...
-
-    @property
-    def destination_rows(self) -> int:
-        """Rows that actually landed in staging, checked against the planned count."""
-        ...
-
-
-class StagingOutcomeLike(Protocol):
-    """The fields promotion reads from a verified staging outcome.
-
-    A protocol rather than the concrete model, so this module does not import the staging
-    machinery to read four attributes, and so a test can supply a stand-in without constructing a
-    full outcome. Typed rather than `object`, because reaching into an untyped value is how the
-    caller finds out at runtime that the shape changed.
-    """
-
-    # Read-only properties, not plain attributes. A protocol attribute is mutable and so matched
-    # invariantly, which rejects a model whose status is Literal["data-verified"] against str, and
-    # rejects list[StagedTable] against list[StagedTableLike]. This module only reads these, so
-    # properties and a Sequence state the actual contract instead of an accidentally stricter one.
-    @property
-    def status(self) -> str:
-        """Verification status; promotion refuses anything but the verified value."""
-        ...
-
-    @property
-    def snapshot_id(self) -> str:
-        """Snapshot this evidence describes, cross-checked across all three inputs."""
-        ...
-
-    @property
-    def staging_namespace(self) -> str:
-        """Namespace the evidence describes, cross-checked across all three inputs."""
-        ...
-
-    @property
-    def destination_id(self) -> str:
-        """Destination the dispositions were decided against."""
-        ...
-
-    @property
-    def tables(self) -> Sequence[StagedTableLike]:
-        """Every table staging reported on, in the order the outcome recorded them."""
-        ...
-
-
-class MetadataOutcomeLike(Protocol):
-    """The fields promotion reads from a verified metadata outcome."""
-
-    @property
-    def destination_id(self) -> str:
-        """Destination the metadata was applied against."""
-        ...
-
-    @property
-    def status(self) -> str:
-        """Verification status; promotion refuses anything but the verified value."""
-        ...
-
-    @property
-    def snapshot_id(self) -> str:
-        """Snapshot this evidence describes, cross-checked across all three inputs."""
-        ...
-
-    @property
-    def staging_namespace(self) -> str:
-        """Namespace the evidence describes, cross-checked across all three inputs."""
-        ...
-
-
 class PromotionPlanError(ValueError):
-    """Raised when verified evidence does not authorize a promotion plan."""
+    """The evidence, live state or authorization cannot support this promotion."""
+
+
+class CatalogTable(BaseModel):
+    """Read-only state relevant to data, metadata and manual recovery."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    rows: int = Field(ge=0)
+    snapshot_id: str | None
+    schema_sha256: str
+    table_description: str | None
+    columns: dict[str, str | None]
+    properties: dict[str, str]
+
+
+class PromotionSource(BaseModel):
+    """The exact completed staging evidence retained for one input snapshot."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    root: str
+    snapshot_id: str
+    parent_snapshot_id: str | None
+    staging_namespace: str
+    destination_id: str
+    source_version: str
+    ingest_revision: str
+    evidence: dict[str, str]
+    tables: dict[str, int]
 
 
 class PromotionOperation(BaseModel):
-    """One canonical object and what promotion would do to it."""
+    """One explicit canonical replacement, addition or obsolete helper removal."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
-
     table: str
-    disposition: Disposition
-    expected_rows: int | None = Field(default=None, ge=0)
-    rationale: str = Field(min_length=1, max_length=1000)
+    action: Literal["replace", "add", "drop"]
+    source_namespace: str | None
+    expected: CatalogTable | None
 
 
 class BerdlPromotionPlan(BaseModel):
-    """Credential-free description of a promotion, produced without performing one."""
+    """One immutable review covering both inputs and every current canonical table."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
-
-    plan_format_version: Literal[2]
-    status: Literal["plan-only"]
-    snapshot_id: str
-    staging_namespace: str
-    canonical_namespace: str
-    destination_id: str
-    #: Catalog the destination evidence describes. Persisted rather than derived, so the file
-    #: carries the same fact the builder checked; `validate_namespaces` binds it to the namespace
-    #: this actually writes into, the way `BerdlStagingPlan` binds its own.
-    destination_provider: str
-    staging_outcome_sha256: str
-    metadata_outcome_sha256: str
-    publication_plan_sha256: str
+    plan_format_version: Literal[3] = 3
+    status: Literal["plan-only"] = "plan-only"
+    canonical_namespace: Literal["nmdc.metadata"] = "nmdc.metadata"
+    sources: list[PromotionSource] = Field(min_length=2, max_length=2)
+    ingest_checkout: str
+    ingest_revision: str
+    implementation_sha256: str
+    before: dict[str, CatalogTable]
     operations: list[PromotionOperation]
-    # Retained only to reject old plans explicitly before execution.
-    derived_rebuilds: list[str]
     recovery: str = Field(min_length=1)
+    recovery_limits: Literal[
+        "No automatic rollback or multi-table atomicity; saved snapshot IDs do not prove dropped-table recovery."
+    ] = "No automatic rollback or multi-table atomicity; saved snapshot IDs do not prove dropped-table recovery."
 
     @model_validator(mode="after")
-    def validate_table_names(self) -> "BerdlPromotionPlan":
-        """Refuse any table name that is not a plain identifier.
-
-        Every name here ends up interpolated into SQL.
-
-        The plan is JSON read from disk. Nothing about that file is authenticated beyond the
-        digest an operator types, and the digest is of the file as it is, not of a file anyone
-        vouched for. A name carrying a semicolon or a backtick would become extra statements
-        inside a DROP or a CREATE OR REPLACE, which is the one place in this repository where
-        that is unrecoverable.
-        """
-        for operation in self.operations:
-            if not _IDENTIFIER.fullmatch(operation.table):
-                raise ValueError(f"Operation table {operation.table!r} is not a plain table identifier.")
-        return self
-
-    @model_validator(mode="after")
-    def validate_namespaces(self) -> "BerdlPromotionPlan":
-        """Both namespaces must name a catalog, and promotion must not target the staging one."""
-        for value, label in ((self.staging_namespace, "staging"), (self.canonical_namespace, "canonical")):
-            if not _QUALIFIED.fullmatch(value):
-                raise ValueError(f"The {label} namespace must be catalog-qualified as <catalog>.<namespace>.")
-        if self.staging_namespace == self.canonical_namespace:
-            raise ValueError("Promotion cannot target the staging namespace it reads from.")
-        # The same binding `BerdlStagingPlan` makes. A provider is a label and nothing addresses a
-        # table with it, which is exactly why it drifts: without this a plan whose evidence
-        # describes provider `nmdc` can name, authorize and destroy `other.metadata`.
-        for namespace, label in (
-            (self.canonical_namespace, "writes into"),
-            (self.staging_namespace, "reads from"),
-        ):
-            if self.destination_provider != catalog_of_namespace(namespace, "namespace"):
-                raise ValueError(f"The destination provider must name the catalog the promotion {label}.")
-        return self
-
-    @model_validator(mode="after")
-    def validate_operations_and_rebuilds(self) -> "BerdlPromotionPlan":
-        """Validate saved plans, including refusal of the retired rebuild path."""
-        if not self.operations:
-            raise ValueError("A promotion plan must describe at least one operation.")
-        # A copied table must carry the count it was decided against. `expected_rows` is optional
-        # on the field because `preserve` has nothing to count, and leaving it
-        # optional for `add` and `replace` let an edited file switch off the only staging check
-        # there is, for exactly the tables that check protects.
-        uncounted = sorted(
-            operation.table
-            for operation in self.operations
-            if operation.disposition in (Disposition.REPLACE, Disposition.ADD) and operation.expected_rows is None
-        )
-        if uncounted:
-            raise ValueError(
-                "A table this promotion copies must record the row count it was decided against, "
-                "and these do not: " + ", ".join(uncounted) + "."
-            )
-        tables = [operation.table for operation in self.operations]
-        if len(tables) != len(set(tables)):
-            raise ValueError("A promotion plan must not name the same table twice.")
-        if any(op.disposition is Disposition.REBUILD for op in self.operations):
-            raise ValueError("Spark provenance rebuilds are retired; build and stage derived Parquet first.")
-        unsupported = sorted(
-            {operation.disposition.value for operation in self.operations} - {d.value for d in _PLANNED_DISPOSITIONS}
-        )
-        if unsupported:
-            raise ValueError("A promotion plan cannot express: " + ", ".join(unsupported) + ".")
-        if self.derived_rebuilds:
-            raise ValueError("Spark provenance rebuilds are retired; build and stage derived Parquet first.")
+    def consistent_operations(self) -> BerdlPromotionPlan:
+        """Require the parent pair and an exact, ordered canonical replacement plan."""
+        metadata, derived = self.sources
+        if metadata.parent_snapshot_id is not None or derived.parent_snapshot_id != metadata.snapshot_id:
+            raise ValueError("The derived snapshot must name the selected metadata snapshot as its parent.")
+        if metadata.source_version != derived.source_version or metadata.destination_id != derived.destination_id:
+            raise ValueError("Both sources must describe the same source version and destination.")
+        if set(derived.tables) != {"graph_edges", "biosample_to_workflow_run"}:
+            raise ValueError("The derived input must contain exactly the two provenance tables.")
+        if set(metadata.tables) & set(derived.tables):
+            raise ValueError("The input table sets overlap.")
+        for source in self.sources:
+            berdl_metadata._require_staging_target(source.staging_namespace)
+            if not source.staging_namespace.startswith("nmdc."):
+                raise ValueError("Both inputs must be staged in the nmdc catalog.")
+        if metadata.ingest_revision != derived.ingest_revision or self.ingest_revision != metadata.ingest_revision:
+            raise ValueError("Both staged sources and promotion must use the same official ingest revision.")
+        candidates = metadata.tables | derived.tables
+        actions = [op.action == "drop" for op in self.operations]
+        if actions != sorted(actions):
+            raise ValueError("All copies must precede obsolete helper removals.")
+        if set(self.before) - set(candidates) - OBSOLETE_TEXTVALUE_TABLES:
+            raise ValueError("Unexpected canonical-only tables require a separate explicit decision.")
+        if len(self.operations) != len({op.table for op in self.operations}):
+            raise ValueError("Duplicate promotion operations.")
+        if {op.table for op in self.operations} != set(self.before) | set(candidates):
+            raise ValueError("Promotion operations must cover the exact candidate and canonical union.")
+        for op in self.operations:
+            if not _IDENTIFIER.fullmatch(op.table):
+                raise ValueError("Promotion table names must be plain identifiers.")
+            if op.table not in candidates:
+                if op.action != "drop" or op.source_namespace is not None or op.expected is not None:
+                    raise ValueError("An obsolete helper must have an explicit drop operation.")
+                continue
+            source = next(s for s in self.sources if op.table in s.tables)
+            if (
+                op.action != ("replace" if op.table in self.before else "add")
+                or op.source_namespace != source.staging_namespace
+                or op.expected is None
+                or op.expected.rows != candidates[op.table]
+            ):
+                raise ValueError("Copy operation does not match the staged source and canonical inventory.")
         return self
 
 
-def _require(condition: bool, message: str) -> None:
-    if not condition:
-        raise PromotionPlanError(message)
-
-
-def _require_named_once(names: list[str], source: str) -> None:
-    """Refuse evidence that names one table twice, rather than keeping whichever entry came last.
-
-    Collapsing by name is the tempting fix and the wrong one. A duplicate is not a formatting
-    quirk, it means the file describes the same table twice and the two descriptions may disagree,
-    so the count that survives is decided by list order. This is an authorization artifact: the
-    operator has to be told the evidence is malformed, not handed the last row silently.
-    """
-    duplicated = sorted({name for name, count in Counter(names).items() if count > 1})
-    _require(
-        not duplicated,
-        f"{source} names the same table more than once: " + ", ".join(duplicated) + ".",
+def _load_source(root: Path) -> tuple[PromotionSource, MetadataApplicationPlan, SnapshotManifest]:
+    root = root.expanduser().absolute()
+    if any(p.is_symlink() or not p.is_dir() for p in (root, root / "snapshot", root / "evidence")):
+        raise PromotionPlanError("Use the original ordinary staging run directories.")
+    root = root.resolve()
+    evidence = root / "evidence"
+    plan_path = evidence / "berdl-staging-plan.json"
+    plan = berdl_staging.load_berdl_staging_plan(plan_path)
+    coverage = plan.target_validation
+    if coverage.requested_mode != "full" or coverage.selected_rows != coverage.eligible_rows:
+        raise PromotionPlanError("Combined promotion requires full target-row validation for each input.")
+    bindings = {}
+    for item in plan.evidence:
+        if file_digest(Path(item.path)) != item.sha256:
+            raise PromotionPlanError(f"Changed staging evidence: {item.name}.")
+        bindings[item.path] = item.sha256
+    metadata_path = evidence / "metadata-application-plan.json"
+    if bindings.get(str(metadata_path)) != file_digest(metadata_path):
+        raise PromotionPlanError("The staging plan must bind this metadata plan.")
+    manifest_path = root / "snapshot/snapshot-manifest.json"
+    if bindings.get(str(manifest_path)) != file_digest(manifest_path):
+        raise PromotionPlanError("The staging plan must bind this snapshot manifest.")
+    manifest = validate_snapshot(manifest_path.parent)
+    if manifest.snapshot_id != plan.snapshot_id:
+        raise PromotionPlanError("The staged snapshot identity differs from the manifest.")
+    metadata, _ = verified_staging_metadata(evidence, plan)
+    for name in (
+        "berdl-staging-plan.json",
+        "nmdc-staging-outcome.json",
+        "kbase-ingest-outcome.json",
+        "nmdc-staging-metadata-outcome.json",
+    ):
+        bindings[str(evidence / name)] = file_digest(evidence / name)
+    if {a.table: (a.rows, a.sha256) for a in plan.artifacts} != {
+        a.table: (a.rows, a.sha256) for a in manifest.artifacts
+    }:
+        raise PromotionPlanError("Staging and manifest table coverage differs.")
+    return (
+        PromotionSource(
+            root=str(root),
+            snapshot_id=manifest.snapshot_id,
+            parent_snapshot_id=manifest.parent_snapshot_id,
+            staging_namespace=plan.staging_namespace,
+            destination_id=plan.destination_id,
+            source_version=manifest.software.nmdc_schema_version,
+            ingest_revision=plan.ingest.revision,
+            evidence=bindings,
+            tables={a.table: a.rows for a in manifest.artifacts},
+        ),
+        metadata,
+        manifest,
     )
 
 
-def build_berdl_promotion_plan(
-    *,
-    publication_plan: PublicationPlan,
-    staging_outcome: StagingOutcomeLike,
-    metadata_outcome: MetadataOutcomeLike,
-    canonical_namespace: str,
-    staging_outcome_sha256: str,
-    metadata_outcome_sha256: str,
-    publication_plan_sha256: str,
-    recovery: str,
+def _table_names(spark: Any, namespace: str) -> set[str]:
+    rows = spark.sql(f"SHOW TABLES IN {namespace}").collect()
+    if any(row["isTemporary"] for row in rows):
+        raise PromotionPlanError("Temporary tables cannot be part of publication.")
+    names = [row["tableName"] for row in rows]
+    if len(names) != len(set(names)) or any(not _IDENTIFIER.fullmatch(n) for n in names):
+        raise PromotionPlanError("The catalog returned duplicate or unsafe table names.")
+    return set(names)
+
+
+def _catalog_table(spark: Any, namespace: str, table: str) -> CatalogTable:
+    name = f"{namespace}.{table}"
+    # refs.main names the current snapshot even after a rollback; the newest
+    # entry in snapshots may belong to a different branch or abandoned history.
+    query = f"SELECT snapshot_id FROM {name}.refs WHERE name = 'main'"
+    current = _scalar(spark, query)
+    rows = _scalar(spark, f"SELECT COUNT(*) FROM {name}")
+    if isinstance(rows, bool) or not isinstance(rows, int) or rows < 0:
+        raise PromotionPlanError(f"Unusable row count for {table}.")
+    if rows and current is None:
+        raise PromotionPlanError(f"A populated staged table must have an Iceberg snapshot ID: {table}.")
+    properties = berdl_metadata._read_table_properties(spark, name)
+    state = CatalogTable(
+        rows=rows,
+        snapshot_id=str(current) if current is not None else None,
+        schema_sha256=_schema_fingerprint(spark, name),
+        table_description=berdl_metadata._read_table_description(spark, name) or None,
+        columns={k: v or None for k, v in berdl_metadata._read_column_descriptions(spark, name).items()},
+        properties={k: v for k, v in properties.items() if k.startswith(berdl_metadata.SCHEMA_PROPERTY_PREFIX)},
+    )
+    if current != _scalar(spark, query):
+        raise PromotionPlanError(f"Table changed while reading its catalog state: {table}.")
+    return state
+
+
+def _require_planned_metadata(table: str, state: CatalogTable, metadata: MetadataApplicationPlan) -> None:
+    descriptions, columns, _ = berdl_metadata._description_operations(metadata)
+    if table in descriptions and state.table_description != descriptions[table].value:
+        raise PromotionPlanError(f"Staged table description changed: {table}.")
+    if any(state.columns.get(name) != value for name, value in columns[table]):
+        raise PromotionPlanError(f"Staged column descriptions changed: {table}.")
+    if any(state.properties.get(k) != v for k, v in berdl_metadata._schema_properties(metadata).items()):
+        raise PromotionPlanError(f"Staged schema identity properties changed: {table}.")
+
+
+def _check_textvalue_replacements(root: Path, drops: set[str]) -> None:
+    if not drops:
+        return
+    schema = pq.read_schema(root / "snapshot/biosample_set.parquet")
+    for table in drops:
+        slot = table.removeprefix("biosample_set_")
+        if slot not in schema.names:
+            raise PromotionPlanError(f"Missing replacement column for {table}.")
+        kind = schema.field(slot).type
+        if not (pa.types.is_list(kind) and pa.types.is_string(kind.value_type)):
+            raise PromotionPlanError(f"Expected a TextValue string-list projection for {table}.")
+
+
+def _implementation_digest() -> str:
+    digest = hashlib.sha256()
+    root = Path(__file__).parent
+    for path in sorted(root.rglob("*.py")):
+        digest.update(str(path.relative_to(root)).encode() + b"\0" + file_digest(path).encode())
+    return digest.hexdigest()
+
+
+def build_promotion_plan(
+    metadata_root: Path, derived_root: Path, *, ingest_checkout: Path, recovery: str, spark: Any
 ) -> BerdlPromotionPlan:
-    """Cross-check verified evidence and describe the promotion it authorizes.
-
-    Every check here refuses rather than warns. A promotion built from evidence that does not
-    agree with itself is the failure this whole chain exists to prevent, and by the time it is
-    running the canonical namespace is what is being changed.
-    """
-    _require(
-        staging_outcome.status == "data-verified",
-        "The staging outcome is not data-verified, so no candidate data is proven to have loaded.",
-    )
-    _require(
-        metadata_outcome.status == "metadata-verified",
-        "The metadata outcome is not metadata-verified, so the descriptions are not proven applied.",
-    )
-
-    snapshot_id = staging_outcome.snapshot_id
-    _require(
-        metadata_outcome.snapshot_id == snapshot_id,
-        "The staging and metadata outcomes describe different snapshots.",
-    )
-    _require(
-        publication_plan.candidate_snapshot_id == snapshot_id,
-        "The publication plan was built for a different snapshot than the staging outcome.",
-    )
-    _require(
-        metadata_outcome.staging_namespace == staging_outcome.staging_namespace,
-        "The metadata was applied to a different namespace than the one that was staged.",
-    )
-    # The dispositions were decided against one destination's contents. Promoting them into a
-    # different destination promotes decisions made about tables that are not the ones being
-    # replaced, and every other check here would still pass.
-    _require(
-        publication_plan.destination_id == staging_outcome.destination_id,
-        f"The publication plan describes destination '{publication_plan.destination_id}' but the "
-        f"staging outcome describes '{staging_outcome.destination_id}'.",
-    )
-    # All three inputs, not two. The check above was added for the plan and the staging outcome,
-    # and the metadata outcome carries a destination as well. Guarding two of three leaves the
-    # column descriptions to have been applied somewhere other than where the data landed.
-    _require(
-        publication_plan.destination_id == metadata_outcome.destination_id,
-        f"The publication plan describes destination '{publication_plan.destination_id}' but the "
-        f"metadata outcome describes '{metadata_outcome.destination_id}'.",
-    )
-
-    # A provider is optional on a publication plan and required here, because promotion is what
-    # binds it to a catalog. Defaulting it would put an unchecked label in the file and make the
-    # binding vacuous, which is the failure the binding is for.
-    _require(
-        publication_plan.destination_provider is not None,
-        "The publication plan does not name a destination provider, so nothing can bind the promotion to a catalog.",
-    )
-
-    # Row counts, table by table. The publication plan decided what to do on the strength of
-    # candidate row counts, and the staging outcome is what actually landed. Promoting on a plan
-    # whose numbers no longer match the data is promoting on a stale decision.
-    _require_named_once([table.table for table in staging_outcome.tables], "The staging outcome")
-    _require_named_once([entry.table for entry in publication_plan.tables], "The publication plan")
-    staged_rows = {table.table: table.destination_rows for table in staging_outcome.tables}
-    operations: list[PromotionOperation] = []
-    for entry in publication_plan.tables:
-        if entry.disposition in (Disposition.REPLACE, Disposition.ADD):
-            _require(
-                entry.table in staged_rows,
-                f"'{entry.table}' is planned as {entry.disposition.value} but was not staged.",
+    """Read both verified inputs and live state; perform no catalog mutation."""
+    inputs = [_load_source(metadata_root), _load_source(derived_root)]
+    sources = [item[0] for item in inputs]
+    source_tables = sources[0].tables | sources[1].tables
+    before_names = _table_names(spark, "nmdc.metadata")
+    unknown = before_names - set(source_tables) - OBSOLETE_TEXTVALUE_TABLES
+    if unknown:
+        raise PromotionPlanError("Unmatched canonical tables: " + ", ".join(sorted(unknown)))
+    drops = before_names - set(source_tables)
+    _check_textvalue_replacements(metadata_root, drops)
+    before = {name: _catalog_table(spark, "nmdc.metadata", name) for name in sorted(before_names)}
+    operations = []
+    for source, metadata, _ in inputs:
+        if _table_names(spark, source.staging_namespace) != set(source.tables):
+            raise PromotionPlanError("Staging namespace no longer contains the exact verified table set.")
+        for table, count in sorted(source.tables.items()):
+            state = _catalog_table(spark, source.staging_namespace, table)
+            if state.rows != count:
+                raise PromotionPlanError(f"Staged row count changed: {table}.")
+            _require_planned_metadata(table, state, metadata)
+            operations.append(
+                PromotionOperation(
+                    table=table,
+                    action="replace" if table in before else "add",
+                    source_namespace=source.staging_namespace,
+                    expected=state,
+                )
             )
-            # Absent, not zero. candidate_rows is optional on PlanEntry, and comparing None
-            # produced "planned with None rows but 27352 were staged", which reads as a count
-            # mismatch when the real problem is that the plan never recorded a count to decide on.
-            _require(
-                entry.candidate_rows is not None,
-                f"'{entry.table}' is planned as {entry.disposition.value} with no candidate row "
-                "count, so there is nothing to check the staged data against.",
-            )
-            _require(
-                entry.candidate_rows == staged_rows[entry.table],
-                f"'{entry.table}' was planned with {entry.candidate_rows} rows but "
-                f"{staged_rows[entry.table]} were staged.",
-            )
-        operations.append(
-            PromotionOperation(
-                table=entry.table,
-                disposition=entry.disposition,
-                expected_rows=entry.candidate_rows,
-                rationale=entry.rationale,
-            )
-        )
-
-    _require(bool(operations), "The publication plan describes no canonical objects.")
-
-    _require(
-        not any(op.disposition is Disposition.REBUILD for op in operations),
-        "Spark provenance rebuilds are retired; use derive-provenance and stage the validated Parquet first.",
+    operations.extend(
+        PromotionOperation(table=n, action="drop", source_namespace=None, expected=None) for n in sorted(drops)
     )
-    unsupported = sorted(
-        {operation.disposition.value for operation in operations if operation.disposition not in _PLANNED_DISPOSITIONS}
-    )
-    _require(
-        not unsupported,
-        "No promotion step exists for disposition(s): " + ", ".join(unsupported) + ".",
-    )
-
-    # Every staged table must have a disposition. A staged table nobody decided about would be
-    # silently left behind in staging, which reads afterwards as though it was never loaded.
-    planned = {operation.table for operation in operations}
-    undecided = sorted(set(staged_rows) - planned)
-    _require(
-        not undecided,
-        "Staged tables have no disposition in the publication plan: " + ", ".join(undecided) + ".",
-    )
-
     return BerdlPromotionPlan(
-        plan_format_version=PROMOTION_PLAN_FORMAT_VERSION,
-        status="plan-only",
-        snapshot_id=snapshot_id,
-        staging_namespace=staging_outcome.staging_namespace,
-        canonical_namespace=canonical_namespace,
-        destination_id=staging_outcome.destination_id,
-        # Narrowed by the `_require` above; mypy cannot see through it.
-        destination_provider=str(publication_plan.destination_provider),
-        staging_outcome_sha256=staging_outcome_sha256,
-        metadata_outcome_sha256=metadata_outcome_sha256,
-        publication_plan_sha256=publication_plan_sha256,
+        sources=sources,
+        ingest_checkout=str(ingest_checkout.expanduser().resolve()),
+        ingest_revision=sources[0].ingest_revision,
+        implementation_sha256=_implementation_digest(),
+        before=before,
         operations=operations,
-        derived_rebuilds=[],
         recovery=recovery,
     )
 
 
-def promotion_steps(plan: BerdlPromotionPlan) -> list[str]:
-    """Describe supported copy/preserve operations and the remaining verification work."""
-    counts: dict[str, int] = {}
-    for operation in plan.operations:
-        counts[operation.disposition.value] = counts.get(operation.disposition.value, 0) + 1
-    steps = []
-    if counts.get(Disposition.REPLACE.value):
-        steps.append(f"replace {counts[Disposition.REPLACE.value]} table(s) from staging")
-    if counts.get(Disposition.ADD.value):
-        steps.append(f"add {counts[Disposition.ADD.value]} table(s) absent from the destination")
-    if counts.get(Disposition.PRESERVE.value):
-        steps.append(f"leave {counts[Disposition.PRESERVE.value]} table(s) untouched")
-    # Named as a step because it is one, and because the plan consumes the metadata outcome as
-    # evidence. Consuming it says the staging tables were verified; it does not say the verified
-    # metadata arrives here. `CREATE OR REPLACE TABLE ... AS SELECT` builds a table from a query,
-    # and a table comment and TBLPROPERTIES are not part of a query result. An operator reading a
-    # plan that cites a metadata outcome will otherwise assume promotion carries it.
-    if counts.get(Disposition.REPLACE.value) or counts.get(Disposition.ADD.value):
-        steps.append("note that table comments and properties do not travel with these statements")
-    steps.append(f"verify all {len(plan.operations)} object(s) by read-back")
-    return steps
+def _runtime(checkout: Path, revision: str) -> Any:
+    berdl_metadata._verify_ingest_checkout(checkout, revision)
+    spark, _, _ = berdl_metadata._runtime(checkout)
+    return spark
 
 
-def render_promotion_plan(plan: BerdlPromotionPlan) -> str:
-    """Render the plan as the operator will read it before authorizing anything."""
-    counts: dict[str, int] = {}
-    for operation in plan.operations:
-        counts[operation.disposition.value] = counts.get(operation.disposition.value, 0) + 1
-    lines = [
-        f"promotion plan for {plan.canonical_namespace}",
-        f"  from staging   {plan.staging_namespace}",
-        f"  snapshot       {plan.snapshot_id}",
-        f"  objects        {len(plan.operations)}",
-    ]
-    lines.extend(f"    {name:10s} {count}" for name, count in sorted(counts.items()))
-    lines.append("")
-    lines.extend(f"  {index}. {step}" for index, step in enumerate(promotion_steps(plan), start=1))
-    lines.append("")
-    # Labelled manual, because nothing applies it. A bare "recovery" line beside a destructive
-    # plan reads as something the tool will do.
-    lines.append(f"  recovery       {plan.recovery} (manual; nothing performs this)")
-    lines.append("  nothing has been changed; this plan is a description")
-    return "\n".join(lines)
+def _require_output_location(output: Path, roots: list[Path], checkout: Path) -> None:
+    if output.is_symlink() or not output.parent.is_dir() or output.parent.is_symlink():
+        raise PromotionPlanError("Use an ordinary existing directory for promotion evidence.")
+    protected = [checkout.resolve(), *((root / "snapshot").resolve() for root in roots)]
+    if any(output.resolve().is_relative_to(path) for path in protected):
+        raise PromotionPlanError("Promotion evidence must remain outside snapshots and the ingest checkout.")
 
 
-# Generic, so the caller keeps the concrete model type. Returning a bare BaseModel would hand
-# build_berdl_promotion_plan something the type checker cannot match to its protocols.
-_Evidence = TypeVar("_Evidence", bound=BaseModel)
-
-
-def _read_evidence(path: Path, model: type[_Evidence], label: str) -> tuple[_Evidence, str]:
-    """Read one evidence file and hash the exact bytes that were parsed.
-
-    The digest comes from the same `contents` that pydantic validated, not from a second read.
-    Hashing the file again would let a file change between the two reads and produce a plan whose
-    recorded digest belongs to bytes nobody checked.
-    """
-    document = path.expanduser()
-    if not document.is_file() or document.is_symlink():
-        raise PromotionPlanError(f"The {label} must be an ordinary file.")
-    try:
-        contents = document.read_bytes()
-        parsed = model.model_validate_json(contents, strict=True)
-    except ValidationError as error:
-        # Naming the reason, not only the file. An operator holding a plan this refuses cannot act
-        # on "not valid": the whole point of refusing is that they go and look at what is wrong.
-        reasons = "; ".join(
-            f"{'.'.join(str(part) for part in problem['loc']) or '<plan>'}: {problem['msg']}"
-            for problem in error.errors()
-        )
-        raise PromotionPlanError(f"The {label} is not valid. {reasons}") from error
-    except (OSError, UnicodeDecodeError) as error:
-        raise PromotionPlanError(f"The {label} could not be read.") from error
-    return parsed, hashlib.sha256(contents).hexdigest()
-
-
-def plan_berdl_promotion_from_files(
-    *,
-    publication_plan_path: Path,
-    staging_outcome_path: Path,
-    metadata_outcome_path: Path,
-    canonical_namespace: str,
-    recovery: str,
+def plan_promotion(
+    metadata_root: Path, derived_root: Path, output: Path, *, ingest_checkout: Path, recovery: str
 ) -> BerdlPromotionPlan:
-    """Read the three pieces of evidence from disk and build the plan they authorize.
-
-    Each digest recorded in the plan is of the bytes this call actually parsed, so the plan names
-    the exact evidence it was built from rather than whatever those paths hold later.
-    """
-    from nmdc_lakehouse.berdl_metadata import BerdlMetadataOutcome
-    from nmdc_lakehouse.berdl_staging import BerdlStagingOutcome
-
-    publication_plan, publication_plan_sha256 = _read_evidence(
-        publication_plan_path, PublicationPlan, "publication plan"
-    )
-    staging_outcome, staging_outcome_sha256 = _read_evidence(
-        staging_outcome_path, BerdlStagingOutcome, "BERDL staging outcome"
-    )
-    metadata_outcome, metadata_outcome_sha256 = _read_evidence(
-        metadata_outcome_path, BerdlMetadataOutcome, "BERDL metadata outcome"
-    )
-    return build_berdl_promotion_plan(
-        publication_plan=publication_plan,
-        staging_outcome=staging_outcome,
-        metadata_outcome=metadata_outcome,
-        canonical_namespace=canonical_namespace,
-        staging_outcome_sha256=staging_outcome_sha256,
-        metadata_outcome_sha256=metadata_outcome_sha256,
-        publication_plan_sha256=publication_plan_sha256,
-        recovery=recovery,
-    )
-
-
-def render_berdl_promotion_plan_json(plan: BerdlPromotionPlan) -> str:
-    """Render the plan as stable, credential-free JSON."""
-    return json.dumps(plan.model_dump(mode="json"), indent=2, sort_keys=True)
-
-
-def write_berdl_promotion_plan(path: Path, plan: BerdlPromotionPlan) -> Path:
-    """Create the plan file without replacing an earlier one.
-
-    This follows the create-without-replacing contract used by the staging and metadata outcomes
-    rather than the overwrite contract used by regenerable plans. A promotion plan is the artifact
-    a human authorizes against, and silently replacing one would mean an operator can approve a
-    digest that no longer describes the file at that path.
-    """
-    destination = path.expanduser()
-    if destination.exists() or destination.is_symlink():
-        raise PromotionPlanError("Refusing to replace an existing BERDL promotion plan.")
-    parent = destination.parent
-    if not parent.is_dir() or parent.is_symlink():
-        raise PromotionPlanError("The BERDL promotion plan parent must be an ordinary directory.")
-    destination = parent.resolve() / destination.name
-    descriptor: int | None = None
-    temporary: Path | None = None
-    try:
-        descriptor, temporary_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=parent)
-        temporary = Path(temporary_name)
-        stream = os.fdopen(descriptor, "w", encoding="utf-8")
-        descriptor = None
-        with stream:
-            stream.write(render_berdl_promotion_plan_json(plan))
-            stream.write("\n")
-        try:
-            # os.link rather than replace: it fails if the destination appeared since the check
-            # above, so the refusal holds even when two runs race for the same path.
-            os.link(temporary, destination)
-        except FileExistsError as error:
-            raise PromotionPlanError("Refusing to replace an existing BERDL promotion plan.") from error
-        except OSError as error:
-            raise PromotionPlanError("Cannot publish the BERDL promotion plan atomically.") from error
-    except OSError as error:
-        raise PromotionPlanError("Cannot write the BERDL promotion plan.") from error
-    finally:
-        if descriptor is not None:
+    """Create the review artifact once, with private diagnostics and visible progress."""
+    _require_output_location(output, [metadata_root, derived_root], ingest_checkout)
+    if output.exists():
+        raise PromotionPlanError("Use a new plan path; reviewed plans are never overwritten.")
+    fd, log_name = tempfile.mkstemp(prefix="promotion-preview-", suffix=".log", dir=output.parent)
+    print(f"Private planning log: {log_name}", file=sys.stderr, flush=True)
+    with progress("combined promotion preview"), os.fdopen(fd, "w") as log:
+        with redirect_stdout(log), redirect_stderr(log):
             try:
-                os.close(descriptor)
-            except OSError:
-                pass
-        if temporary is not None:
-            try:
-                temporary.unlink(missing_ok=True)
-            except OSError:
-                pass
-    return destination
-
-
-class PromotionRefused(PromotionPlanError):
-    """Raised when a promotion is asked for and the evidence or authorization does not allow it."""
+                revision = berdl_staging.load_berdl_staging_plan(
+                    metadata_root / "evidence/berdl-staging-plan.json"
+                ).ingest.revision
+                plan = build_promotion_plan(
+                    metadata_root,
+                    derived_root,
+                    ingest_checkout=ingest_checkout,
+                    recovery=recovery,
+                    spark=_runtime(ingest_checkout, revision),
+                )
+                save_json(output, plan.model_dump(mode="json"))
+            except Exception as error:
+                traceback.print_exc(file=log)
+                raise PromotionPlanError(
+                    f"Preview failed; inspect {log_name}. No canonical writes were attempted."
+                ) from error
+    return plan
 
 
 def load_promotion_plan(path: Path) -> tuple[BerdlPromotionPlan, str]:
-    """Read a written plan and hash the exact bytes read, so authorization names this file."""
-    return _read_evidence(path, BerdlPromotionPlan, "BERDL promotion plan")
+    """Read one ordinary plan and hash exactly the bytes that were parsed."""
+    file_digest(path)
+    raw = path.read_bytes()
+    return BerdlPromotionPlan.model_validate_json(raw), hashlib.sha256(raw).hexdigest()
 
 
-def promotion_statements(plan: BerdlPromotionPlan) -> list[tuple[str, str, str]]:
-    """Return copy statements; preserving a table issues no SQL."""
-    statements: list[tuple[str, str, str]] = []
-    for operation in plan.operations:
-        if operation.disposition not in (Disposition.REPLACE, Disposition.ADD):
-            continue
-        # `add` is CREATE TABLE and `replace` is CREATE OR REPLACE TABLE. They were the same
-        # statement, on the reasoning that the difference is only whether the destination already
-        # held the table. That reasoning is about when the plan was built. The inventory proved the
-        # table was absent then; nothing proves it is absent now, and `CREATE OR REPLACE` would
-        # overwrite whatever appeared in between without saying so. A plain `CREATE TABLE` fails,
-        # which is the outcome an operator who authorized an `add` should get.
-        verb = "CREATE OR REPLACE TABLE" if operation.disposition is Disposition.REPLACE else "CREATE TABLE"
-        # `USING iceberg`, because that is the statement the promotion probe actually ran against
-        # BERDL. Without it these differ from the only form with evidence behind them, and the
-        # probe would be proving a statement the promotion does not issue.
-        statements.append(
-            (
-                operation.disposition.value,
-                operation.table,
-                f"{verb} {plan.canonical_namespace}.{operation.table} USING iceberg "
-                f"AS SELECT * FROM {plan.staging_namespace}.{operation.table}",
-            )
-        )
-    return statements
+def render_promotion_plan(plan: BerdlPromotionPlan) -> str:
+    """Show every input and operation, with explicit recovery limitations."""
+    lines = [f"Promotion into {plan.canonical_namespace}; no changes have been made."]
+    lines.extend(
+        f"Input {s.snapshot_id} from {s.staging_namespace}; parent={s.parent_snapshot_id}" for s in plan.sources
+    )
+    lines.extend(
+        f"{op.action}: {op.table}" + (f" from {op.source_namespace}; {op.expected.rows} rows" if op.expected else "")
+        for op in plan.operations
+    )
+    lines.extend(
+        [
+            f"Expected result: {sum(op.action != 'drop' for op in plan.operations)} tables; read-back required.",
+            f"Recovery (manual): {plan.recovery}",
+            plan.recovery_limits,
+        ]
+    )
+    return "\n".join(lines)
 
 
-def check_staging_matches_plan(spark: object, plan: BerdlPromotionPlan, progress: object = None) -> None:
-    """Refuse if a staging table no longer holds the rows the plan was decided against.
+def _copy_table(spark: Any, plan: BerdlPromotionPlan, op: PromotionOperation) -> None:
+    assert op.expected is not None and op.source_namespace is not None
+    source = f"{op.source_namespace}.{op.table}"
+    state = op.expected
+    if state.snapshot_id is None:
+        if state.rows:
+            raise PromotionPlanError("A populated staged table must have an Iceberg snapshot ID.")
+        frame = spark.table(source).limit(0)
+    else:
+        frame = spark.read.format("iceberg").option("snapshot-id", state.snapshot_id).load(source)
+    # Attach all descriptions to one projection before the table write, avoiding
+    # per-column catalog commits and the historical canonical backfill timeout.
+    columns = []
+    for field in frame.schema.fields:
+        metadata = dict(field.metadata)
+        comment = state.columns.get(field.name)
+        if comment is not None:
+            metadata["comment"] = comment
+        else:
+            metadata.pop("comment", None)
+        columns.append(frame[field.name].alias(field.name, metadata=metadata))
+    writer = frame.select(*columns).writeTo(f"{plan.canonical_namespace}.{op.table}").using("iceberg")
+    for key, value in {"comment": state.table_description or "", **state.properties}.items():
+        writer = writer.tableProperty(key, value)
+    if op.action == "add":
+        writer.create()
+    else:
+        writer.replace()
 
-    Only the tables that get copied, and only the ones the plan gave a count for. `preserve` reads
-    nothing and `expected_rows` is optional, so a plan that never recorded a count for a table
-    cannot be checked against one and says so by having none rather than by being skipped quietly.
-    """
-    say = progress if callable(progress) else (lambda _message: None)
-    for operation in plan.operations:
-        if operation.disposition not in (Disposition.REPLACE, Disposition.ADD):
-            continue
-        # Guaranteed by `validate_operations_and_rebuilds`, which refuses a copied table with no
-        # count. Asserted rather than re-checked: a second rule here is one more thing that has to
-        # agree with the first.
-        assert operation.expected_rows is not None
-        source = f"{plan.staging_namespace}.{operation.table}"
-        try:
-            rows = spark.sql(f"SELECT COUNT(*) AS n FROM {source}").collect()  # type: ignore[attr-defined]
-        except Exception as error:
-            raise PromotionRefused(f"Cannot count rows in '{source}' to check it against the plan.") from error
-        if len(rows) != 1:
-            raise PromotionRefused(f"Counting '{source}' returned {len(rows)} rows, expected 1.")
-        observed = rows[0][0]
-        if isinstance(observed, bool) or not isinstance(observed, int) or observed < 0:
-            raise PromotionRefused(f"Counting '{source}' returned an invalid count: {observed!r}")
-        if observed != operation.expected_rows:
-            raise PromotionRefused(
-                f"'{source}' holds {observed} row(s) and the plan was decided against "
-                f"{operation.expected_rows}. Staging changed after the plan was built, so the "
-                f"authorization does not describe this data. Nothing has been changed."
-            )
-        say(f"{operation.table}: {observed} row(s), as the plan recorded")
+
+def _same_content_and_metadata(observed: CatalogTable, expected: CatalogTable) -> bool:
+    return observed.model_dump(exclude={"snapshot_id"}) == expected.model_dump(exclude={"snapshot_id"})
+
+
+def _verify_copies(spark: Any, plan: BerdlPromotionPlan, copies: dict[str, CatalogTable]) -> None:
+    for table, expected in copies.items():
+        if _catalog_table(spark, plan.canonical_namespace, table) != expected:
+            raise PromotionPlanError(f"Promoted data or metadata changed after verification: {table}.")
 
 
 def execute_promotion(
-    spark: object,
-    plan: BerdlPromotionPlan,
+    plan_path: Path,
     *,
-    plan_sha256: str,
     authorize_plan_sha256: str,
     authorize_canonical_namespace: str,
     authorize_destination_id: str,
-    progress: object = None,
-) -> list[str]:
-    """Perform the promotion this plan describes, or refuse.
-
-    Three authorizations, because they fail differently. The digest binds this run to the exact plan
-    a human read: a plan regenerated after the evidence moved has a different digest and is
-    refused, even though it may describe the same tables. The namespace is typed again because a
-    digest is copied from a previous command and a namespace is not, so an operator promoting into
-    the wrong place gets caught by the argument they had to write themselves.
-
-    The destination is the third, and it is the weakest of them, deliberately. Nothing here can
-    verify which deployment a session actually reaches: the runtime comes from a checkout named at
-    execution time, and `spark_session` establishes only that the helper was imported from that
-    checkout, not what the checkout is configured to talk to. So the operator asserts it. That
-    turns an unchecked assumption into a stated one, which is all this can honestly do offline.
-
-    Refuses rather than warns on all three, and the read-back afterwards is the check, not the
-    counts this returns: a statement that succeeded is not a table that holds what it should.
-    """
-    say = progress if callable(progress) else (lambda _message: None)
-    if plan.status != "plan-only":
-        raise PromotionRefused(f"The plan status is {plan.status!r}, not 'plan-only'.")
-    if authorize_plan_sha256 != plan_sha256:
-        raise PromotionRefused("Execution requires --authorize-plan-sha256 with the digest of the plan being run.")
-    if authorize_canonical_namespace != plan.canonical_namespace:
-        raise PromotionRefused(
-            f"--authorize-canonical-namespace is {authorize_canonical_namespace!r} but the plan "
-            f"promotes into {plan.canonical_namespace!r}."
+) -> dict[str, Any]:
+    """Perform a reviewed combined plan, retaining an immutable per-operation journal."""
+    plan, digest = load_promotion_plan(plan_path)
+    if (
+        authorize_plan_sha256 != digest
+        or authorize_canonical_namespace != plan.canonical_namespace
+        or authorize_destination_id != plan.sources[0].destination_id
+    ):
+        raise PromotionPlanError("Supply the exact reviewed plan digest, canonical namespace and destination identity.")
+    _require_output_location(plan_path, [Path(s.root) for s in plan.sources], Path(plan.ingest_checkout))
+    journal = plan_path.with_suffix(".execution")
+    if journal.exists() or journal.is_symlink():
+        raise PromotionPlanError(
+            "A promotion attempt already exists; inspect its journal. Automatic replay is refused."
         )
-    if authorize_destination_id != plan.destination_id:
-        raise PromotionRefused(
-            f"--authorize-destination-id is {authorize_destination_id!r} but the dispositions were "
-            f"decided against {plan.destination_id!r}. The same namespace name exists in more than "
-            f"one deployment, and which one this session reaches is decided by the checkout, not "
-            f"by anything checked here."
-        )
-
-    # Before anything is dropped or replaced. The plan decided its dispositions against row counts
-    # the staging outcome recorded, and the statements copy whatever staging holds at execution.
-    # Staging is a live namespace: a reload between the plan and the run changes the data without
-    # changing the plan, and every authorization would still pass. This is the check that binds the
-    # authorized decision to the data it was decided against.
-    check_staging_matches_plan(spark, plan, progress=say)
-
-    performed: list[str] = []
-    for step, table, statement in promotion_statements(plan):
-        try:
-            # Inside the guard, with the bookkeeping, as one iteration. A progress line emitted
-            # outside it is a window where Ctrl-C escapes this handler, and so is the gap between
-            # `spark.sql` returning and the statement being recorded as performed.
-            say(f"{step}: {plan.canonical_namespace}.{table}")
-            spark.sql(statement)  # type: ignore[attr-defined]
-            performed.append(statement)
-        # KeyboardInterrupt as well as Exception, because it derives from BaseException and an
-        # operator hitting Ctrl-C got a generic abort with no record of what had already run. Not
-        # BaseException itself: that also catches SystemExit and GeneratorExit, which are the
-        # process going away rather than a promotion failing, and reporting them as a refusal
-        # describes something that did not happen.
-        except (Exception, KeyboardInterrupt) as error:
-            # Named, and with what already ran. A promotion that stops part way leaves the
-            # namespace in a state nobody planned, and the operator's first question is which
-            # objects moved.
-            stopped = "was interrupted during" if isinstance(error, KeyboardInterrupt) else "failed during"
-            raise PromotionRefused(
-                f"The promotion {stopped} {step}: {statement}. That statement may or may not have "
-                f"taken effect. {len(performed)} statement(s) had already run: "
-                f"{', '.join(performed) or 'none'}."
-            ) from error
-    return performed
+    journal.mkdir(mode=0o700)
+    fd, log_name = tempfile.mkstemp(prefix="runtime-", suffix=".log", dir=journal)
+    print(f"Private promotion log: {log_name}", file=sys.stderr, flush=True)
+    attempted = None
+    verified = []
+    with progress("combined promotion"), os.fdopen(fd, "w") as log:
+        with redirect_stdout(log), redirect_stderr(log):
+            try:
+                spark = _runtime(Path(plan.ingest_checkout), plan.ingest_revision)
+                refreshed = build_promotion_plan(
+                    Path(plan.sources[0].root),
+                    Path(plan.sources[1].root),
+                    ingest_checkout=Path(plan.ingest_checkout),
+                    recovery=plan.recovery,
+                    spark=spark,
+                )
+                if refreshed != plan:
+                    raise PromotionPlanError("Evidence, implementation or live state changed after review.")
+                save_json(journal / "before.json", plan.model_dump(mode="json"))
+                copies: dict[str, CatalogTable] = {}
+                checked_before_drops = False
+                for index, op in enumerate(plan.operations):
+                    if op.action == "drop" and not checked_before_drops:
+                        _verify_copies(spark, plan, copies)
+                        checked_before_drops = True
+                    attempted = op.table
+                    save_json(journal / f"{index:03d}-attempt.json", op.model_dump(mode="json"))
+                    # Recheck each canonical target immediately before its mutation.
+                    names = _table_names(spark, plan.canonical_namespace)
+                    before = _catalog_table(spark, plan.canonical_namespace, op.table) if op.table in names else None
+                    if before != plan.before.get(op.table):
+                        raise PromotionPlanError(f"Canonical state changed before {op.table}.")
+                    after = None
+                    if op.action == "drop":
+                        spark.sql(f"DROP TABLE {plan.canonical_namespace}.{op.table}")
+                        if op.table in _table_names(spark, plan.canonical_namespace):
+                            raise PromotionPlanError(f"Removal did not verify: {op.table}.")
+                    else:
+                        _copy_table(spark, plan, op)
+                        after = _catalog_table(spark, plan.canonical_namespace, op.table)
+                        assert op.expected is not None
+                        if not _same_content_and_metadata(after, op.expected):
+                            raise PromotionPlanError(f"Promoted data or metadata did not verify: {op.table}.")
+                        copies[op.table] = after
+                    verified.append(op.table)
+                    save_json(
+                        journal / f"{index:03d}-verified.json",
+                        {
+                            "table": op.table,
+                            "status": "verified",
+                            "after": after.model_dump(mode="json") if after else None,
+                        },
+                    )
+                expected_names = {op.table for op in plan.operations if op.action != "drop"}
+                if _table_names(spark, plan.canonical_namespace) != expected_names:
+                    raise PromotionPlanError("The final canonical table set differs from the plan.")
+                _verify_copies(spark, plan, copies)
+                result = {
+                    "status": "promotion-verified",
+                    "plan_sha256": digest,
+                    "canonical_namespace": plan.canonical_namespace,
+                    "tables": sorted(expected_names),
+                    "dropped": [op.table for op in plan.operations if op.action == "drop"],
+                }
+                save_json(journal / "outcome.json", result)
+                return result
+            except (Exception, KeyboardInterrupt) as error:
+                traceback.print_exc(file=log)
+                save_json(
+                    journal / "failure.json",
+                    {
+                        "status": "incomplete",
+                        "attempted": attempted,
+                        "verified": verified,
+                        "recovery_attempted": False,
+                    },
+                )
+                raise PromotionPlanError(f"Promotion stopped; inspect {journal}. No recovery was attempted.") from error
