@@ -47,6 +47,10 @@ validate-target-rows SNAPSHOT_ROOT REPORT *ARGS:
 prepare-publication CONFIGURATION OUTPUT:
     python3 scripts/python/prepare_publication.py "{{ CONFIGURATION }}" "{{ OUTPUT }}"
 
+# Pack, send or receive prepared files using Python's standard library and existing labctl.
+publication-transfer *ARGS:
+    python3 scripts/python/publication_transfer.py {{ ARGS }}
+
 # Build the disposition, metadata and exact staging plans together in the pod.
 plan-publication ROOT CONFIGURATION:
     {{ uv_run }} --no-sync nmdc-lakehouse plan-publication "{{ ROOT }}" "{{ CONFIGURATION }}"

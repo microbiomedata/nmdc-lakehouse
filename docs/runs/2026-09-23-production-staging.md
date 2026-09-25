@@ -197,7 +197,46 @@ remain separate. Namespace metadata operations are still deferred; the parent
 identity is retained in the manifest and evidence rather than claimed as a
 verified live namespace property.
 
-## What the plan includes
+## September 25 promotion acceptance
+
+The live pod acceptance for
+[PR #365](https://github.com/microbiomedata/nmdc-lakehouse/pull/365) used exact
+commit `35a54c82cd23e66d5e228b450a625bb8cfa34824` and Spark 4.0.1.
+It did not repeat the MongoDB dump or target-row validation, reload the parent
+staging namespace, or write canonical tables.
+
+The successful read-only run checked all 46 staged tables against the retained
+Parquet using the promotion functions for object checksums and duplicate-preserving
+`EXCEPT ALL` comparisons in both directions. All 53,217,239 artifact rows were
+covered, with zero differences and unchanged recorded catalog state. It took
+216.059 seconds. The per-table row totals were independently checked against
+the retained local snapshot manifest.
+
+A separate disposable run copied the 20-row `configuration_set` into the newly
+created `nmdc.pr365_acceptance_scratch` namespace. Both add and replace preserved
+row contents, the table description, all 23 column descriptions and NMDC schema
+properties. Changing the copied IDs retained the row count but correctly failed
+the source-content check, with 20 differences each way. The exact scratch table
+and namespace were removed and catalog cleanup verified. This 18.487-second
+test did not attempt or claim object-store purging.
+
+The first read-only attempt failed on `biosample_set` with an empty Spark
+Connect error after 5.592 seconds. Its cause remains unknown. A separate width
+diagnostic compared all 1,350 columns successfully; the original, unchanged
+runner then passed all 46 tables. Retain both the failure and success evidence.
+No automatic retry, weaker comparison, or production-code workaround was added.
+
+Evidence is retained on Mark's Mac under
+`local/pr365-live-acceptance/pod-results-20260925/`, including `readonly/`,
+`width/`, `readonly-2/` and `disposable/`. Pod originals are under the matching
+`/home/mamillerpa/pr365-acceptance-20260925-*` directories. The acceptance runner's
+SHA-256 is `4bbf8cdbbcc0ebfdd554d5dc538e3f09e6e6dafda1b2826207bca2d6430ca70d`.
+Raw diagnostics remain private; the checked-in record contains no row values or
+credentials. This establishes those promotion primitives on the live platform;
+it does not claim derived staging, the full combined promotion, or publication
+has occurred. Those still require their reviewed plans and authorization.
+
+## What the original staging plan includes
 
 The comparison to canonical data contains 44 shared table names, two added
 nested mobile-phase substance helper tables, and ten preserved canonical-only

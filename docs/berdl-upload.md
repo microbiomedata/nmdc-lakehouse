@@ -241,68 +241,28 @@ filesystem first. Transfer happens over the JupyterHub contents API, either thro
 the notebook file browser or through a client that speaks to it. The SOCKS tunnels
 play no part in this and do not need to be up.
 
-**Archive the snapshot on macOS with `COPYFILE_DISABLE=1`, or it will arrive
-corrupted:**
+Use the maintained [pack/send/receive procedure](berdl-staging-runbook.md#send-to-the-pod).
+It packages a prepared publication, sends bounded parts through the existing
+`labctl pod put`, verifies the helper before execution, and verifies every
+received file. It excludes unrelated files and machine-bound runtime plans.
+The received snapshot and evidence are then checked by `plan-publication`.
+Do not use the earlier manual tar/split/reassembly instructions for a new run.
+Existing verified historical transfers remain valid and need not be repeated.
 
-<!-- unverified: no run of this procedure is recorded, and no tracking issue is
-     named here. -->
-```bash
-COPYFILE_DISABLE=1 tar -czf snapshot.tar.gz -C /path/to/parent completed-snapshot
-```
+The reason for selecting files explicitly is recorded by the August 20 run:
+macOS tar added 54 AppleDouble `._*` siblings to a 52-artifact snapshot.
+Snapshot validation rejected the unexpected files even though the Parquet bytes
+had transferred correctly. The new helper does not archive macOS extended
+attributes or incidental files. If an old transfer has unexpected files, retain
+it for diagnosis and review those exact files before removing anything; never
+apply a broad deletion command to a manifested snapshot.
 
-Plain `tar -czf` on macOS stores extended attributes. Extracting on Linux
-materializes them as AppleDouble `._*` siblings, one per file. A plain `ls` hides
-them and the visible directory listing looks correct. On 2026-08-20 a 52-artifact
-snapshot arrived in the pod with 54 extra `._*` files and nothing looked wrong until
-validation ran.
-
-`validate-snapshot` catches it, fails closed, and names what it found. Verbatim,
-from a snapshot with two such siblings planted:
-
-```
-Error: Snapshot contents do not match the manifest: unexpected 2: '._instrument_set.parquet', '._study_set.parquet'; 2 of the unexpected files start with '._', which is what extracting a macOS tar archive on Linux produces; re-archive with COPYFILE_DISABLE=1 or delete them.
-```
-
-The message is a single line however many files are involved. Missing and
-unexpected are reported separately, because they have different causes: missing
-means an incomplete transfer, unexpected usually means the archiving step added
-something. At most ten names appear per category, followed by `and N more`, so
-the real 54-sibling case reads the same way with a longer list.
-
-To clear AppleDouble siblings that are already in place:
-
-<!-- unverified: no run of this procedure is recorded, and no tracking issue is
-     named here. -->
-```bash
-find /path/to/completed-snapshot -name '._*' -delete
-```
-
-After that deletion the same snapshot validated with an identical digest, which
-confirmed the Parquet bytes themselves had transferred correctly.
-
-**Validate in the pod, before planning:**
-
-<!-- unverified: no run of this procedure is recorded, and no tracking issue is
-     named here. -->
-```bash
-uv run --no-sync nmdc-lakehouse validate-snapshot /absolute/path/to/completed-snapshot
-```
-
-A clean run names the digest and the artifact count:
-
-```
-Validated sha256:5022cb...a316c: 53 Parquet artifact(s).
-```
-
-Compare that digest against the one recorded locally. They must match exactly. A
-digest that differs means the snapshot in the pod is not the snapshot that was
-reviewed, and everything bound to it downstream is bound to the wrong bytes.
-
-One observation about size, from the 2026-08-20 run and specific to the client used
-there rather than to the contents API itself: a 112 MB upload succeeded and a 352 MB
-upload failed with a broken pipe. If a large archive fails partway, split it, upload
-the parts, reassemble in the pod, and verify the digest of the reassembled archive
-before extracting.
+That run also observed one client upload succeeding at 112 MB and failing at
+352 MB. This was an observation about that client, not a universal API limit.
+The maintained helper now creates ordered parts of at most 64 MiB and verifies
+part, complete archive and extracted file digests. Manual splitting and
+reassembly are retired from the maintained path. The April off-cluster record
+below is historical, not a second supported publication procedure.
 
 ## Getting table data back out, and the trap that eats it (unverified)
 
@@ -544,21 +504,25 @@ The parent manifest must have `full-mongodb-metadata-snapshot` scope. The derive
 manifest must have `derived-provenance-snapshot` scope and contain exactly
 `graph_edges` and `biosample_to_workflow_run`.
 
-From the maintained NMDC checkout in the pod, with its environment active:
+From the maintained NMDC checkout in the pod, with the matching source pair
+already installed as described in the [runtime setup](berdl-staging-runbook.md#set-up-the-pod-runtime-once):
 
 <!-- unverified: combined promotion awaits pod acceptance and exact-plan approval,
      tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
 ```bash
-export NMDC_SCHEMA_VERSION=11.23.0
-just berdl-promotion-plan \
+.venv/bin/nmdc-lakehouse berdl-promotion-plan \
   /absolute/path/to/metadata-staging-run \
   /absolute/path/to/derived-staging-run \
   /absolute/path/to/evidence/combined-promotion.json \
-  /absolute/path/to/reviewed-data-lakehouse-ingest \
-  "Stop writers; inspect the saved before state and restore reviewed content manually. Dropped-table recovery is not proven."
+  --ingest-checkout /absolute/path/to/reviewed-data-lakehouse-ingest \
+  --recovery "Stop writers; inspect the saved before state and restore reviewed content manually. Dropped-table recovery is not proven."
 ```
 
-Replace the example paths and source version with the verified run's values.
+Replace the example paths with the verified run's values. The installed source
+pair must match the snapshots; setting an environment variable alone does not
+change an already installed CLI environment. These pod commands need neither
+Just nor another dependency installation. The workstation's equivalent Just
+recipes remain available.
 The planner checks both complete staging outcomes, rereads table counts and all
 planned descriptions/schema properties, and captures current Iceberg `main`
 snapshot references. It records current canonical schemas, counts, comments and
@@ -602,7 +566,7 @@ to regenerate the combined plan, without printing submitted values.
 <!-- unverified: combined promotion awaits pod acceptance and exact-plan approval,
      tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
 ```bash
-just berdl-promote /absolute/path/to/evidence/combined-promotion.json
+.venv/bin/nmdc-lakehouse berdl-promote /absolute/path/to/evidence/combined-promotion.json
 ```
 
 Have Mark review this exact plan, the before state and the recovery limits before
@@ -613,7 +577,7 @@ printed by the preview:
 <!-- unverified: canonical execution requires approval of the exact combined plan,
      tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
 ```bash
-just berdl-promote /absolute/path/to/evidence/combined-promotion.json \
+.venv/bin/nmdc-lakehouse berdl-promote /absolute/path/to/evidence/combined-promotion.json \
   --authorize-plan-sha256 DIGEST_FROM_REVIEWED_PREVIEW \
   --authorize-canonical-namespace nmdc.metadata \
   --authorize-destination-id DESTINATION_FROM_REVIEWED_PREVIEW
