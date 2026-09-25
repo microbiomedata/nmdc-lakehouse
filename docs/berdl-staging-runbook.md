@@ -148,6 +148,12 @@ the inventory or uploading anything. It checks the parts and helper, invokes the
 from the same unchanged transfer directory; this sends the same transfer
 files again, not lakehouse tables. No catalog or object-store operation runs here.
 
+A failed pack can leave a helper or parts without a completed inventory. Keep
+that directory for diagnosis and use a new pack output directory; send requires
+the completed inventory and its original checksum. Temporary archive files close
+automatically. After diagnosis, remove only the exact failed transfer directory,
+keeping the original prepared publication and any verified received copy.
+
 Send prints a command for the pod home directory. Its `sha256sum` gate checks
 the helper against the sender's printed digest **before executing Python**;
 this uses the pod's existing checksum utility. Copy that complete command,
