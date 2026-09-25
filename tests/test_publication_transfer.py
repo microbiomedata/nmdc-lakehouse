@@ -182,6 +182,19 @@ def test_send_refuses_redirect_without_forwarding_credentials(prepared, tmp_path
     assert len(calls) == 1 and not any("redirect-must" in c[0] for c in calls)
 
 
+@pytest.mark.parametrize("status", [404, 413, 500])
+def test_send_http_failure_is_not_reported_as_redirect(prepared, tmp_path, jupyter, capsys, status):
+    inventory = transfer.pack(prepared, tmp_path / "transfer")
+    server, calls = jupyter
+    server.reply_status = status
+    assert transfer.main(["send", str(inventory), "--sha256", transfer.digest(inventory)]) == 1
+    captured = capsys.readouterr()
+    assert f"Jupyter upload failed (HTTP {status})." in captured.err
+    assert "redirect" not in captured.err
+    assert "test-token-never-print" not in captured.err + captured.out
+    assert len(calls) == 1 and "NEW_PUBLICATION_DIRECTORY" not in captured.out
+
+
 def test_send_refuses_html_success_response(prepared, tmp_path, jupyter):
     inventory = transfer.pack(prepared, tmp_path / "transfer")
     server, calls = jupyter

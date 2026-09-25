@@ -207,7 +207,9 @@ def upload(file: Path, contents_url: str, token: str) -> None:
                 "token permissions and selected user's server. Replace JUPYTERHUB_API_TOKEN only if needed, "
                 "then retry the same transfer."
             ) from None
-        raise ValueError(f"Jupyter upload failed (HTTP {error.code}); redirects are refused.") from None
+        if 300 <= error.code < 400:
+            raise ValueError(f"Jupyter upload failed (HTTP {error.code}); redirects are refused.") from None
+        raise ValueError(f"Jupyter upload failed (HTTP {error.code}).") from None
     except (urllib.error.URLError, OSError):
         raise ValueError("Jupyter upload could not connect; check the Hub URL, network and server status.") from None
 
