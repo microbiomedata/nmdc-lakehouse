@@ -707,6 +707,17 @@ def test_output_locations_and_legacy_plan_refused(candidate):
         promotion.load_promotion_plan(c.path)
 
 
+def test_unversioned_complete_plan_refused_before_execution(candidate, monkeypatch):
+    payload = json.loads(candidate.path.read_text())
+    assert payload.pop("plan_format_version") == 3
+    candidate.path.write_text(json.dumps(payload))
+    monkeypatch.setattr(promotion, "_runtime", lambda *a: pytest.fail("Must not connect"))
+    result = CliRunner().invoke(cli, ["berdl-promote", str(candidate.path)])
+    assert result.exit_code == 1
+    assert "Invalid combined promotion plan" in result.output and "missing" in result.output
+    assert not candidate.path.with_suffix(".execution").exists() and not candidate.spark.writes
+
+
 @pytest.mark.parametrize(
     "raw, reason",
     [('{"plan_format_version":2,"private-input":"secret-value"}', "literal_error"), ("secret-value", "json_invalid")],

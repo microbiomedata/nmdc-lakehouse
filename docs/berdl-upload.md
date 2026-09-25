@@ -697,8 +697,10 @@ it did not prove changed-schema, dropped-table or multi-table recovery. See the
 [probe record](berdl-promotion-probe.md) for those limits. Keep immutable Parquet,
 staging tables and the before state. After failure, stop further publication,
 inspect the journal and live catalog, and obtain a reviewed repair plan. Never
-delete the journal to bypass the replay refusal. The metadata-copy path still
-needs pod acceptance before production execution; tracked in
+delete the journal to bypass the replay refusal. The metadata-copy path passed
+a disposable 20-row add/replace and data/metadata readback check on 2026-09-25 at
+`35a54c82`, including refusal of altered rows with the same count. Exact combined-plan
+approval and canonical execution remain pending, tracked in
 [issue 234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
 
 ## Running a script in the pod

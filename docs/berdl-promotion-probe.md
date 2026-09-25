@@ -32,8 +32,13 @@ an insert. That is not a test of undoing replacement. It also reads the newest
 retained snapshot rather than the current reference; correction remains
 [issue 331](https://github.com/microbiomedata/nmdc-lakehouse/issues/331).
 The combined promotion planner reads the current Iceberg `main` reference and
-makes no automatic recovery claim. Its new table-writer metadata path still
-requires a disposable pod check before canonical execution.
+makes no automatic recovery claim. On 2026-09-25, at commit `35a54c82`, the
+table-writer metadata path passed a disposable 20-row add/replace check with
+data and table/column metadata readback; altered rows with the same count were
+rejected. The exact scratch table and namespace were then dropped without an
+object purge. This validates that component, not canonical publication: a fresh
+combined plan still needs exact-plan approval and canonical execution, tracked
+in [issue 234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
 
 ## Preview the plan
 

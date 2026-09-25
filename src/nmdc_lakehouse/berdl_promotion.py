@@ -96,7 +96,7 @@ class BerdlPromotionPlan(BaseModel):
     """One immutable review covering both inputs and every current canonical table."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
-    plan_format_version: Literal[3] = 3
+    plan_format_version: Literal[3]
     status: Literal["plan-only"] = "plan-only"
     canonical_namespace: Literal["nmdc.metadata"] = "nmdc.metadata"
     sources: list[PromotionSource] = Field(min_length=2, max_length=2)
@@ -370,6 +370,7 @@ def build_promotion_plan(
         PromotionOperation(table=n, action="drop", source_namespace=None, expected=None) for n in sorted(drops)
     )
     return BerdlPromotionPlan(
+        plan_format_version=3,
         sources=sources,
         ingest_checkout=str(ingest_checkout.expanduser().resolve()),
         ingest_revision=sources[0].ingest_revision,
