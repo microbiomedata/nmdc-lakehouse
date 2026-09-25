@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import json
-import os
 import re
-import tempfile
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -13,11 +10,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from nmdc_lakehouse.metadata_bundle import DescriptionRecord, MetadataBundle, load_metadata_bundle
+from nmdc_lakehouse.metadata_bundle import DescriptionRecord, MetadataBundle
 from nmdc_lakehouse.publication_plan import (
     DestinationInventory,
     MetadataCapability,
-    load_destination_inventory,
 )
 
 # Bumped from 1 when target_schema_version was added, so the applied metadata can say which flat
@@ -419,11 +415,6 @@ def build_metadata_application_plan(
         raise MetadataApplicationError("Cannot build a valid metadata application plan.") from error
 
 
-def render_metadata_application_plan(plan: MetadataApplicationPlan) -> str:
-    """Render stable reviewable JSON without destination commands or credentials."""
-    return json.dumps(plan.model_dump(mode="json"), indent=2, sort_keys=True)
-
-
 def load_metadata_application_plan(path: Path) -> MetadataApplicationPlan:
     """Load a strict reviewed operation plan without contacting a destination."""
     document = path.expanduser()
@@ -452,51 +443,8 @@ def _single_schema_version(bundle: MetadataBundle) -> str:
     return versions[0] if versions else ""
 
 
-def plan_metadata_application(
-    bundle_path: Path,
-    inventory_path: Path,
-    staging_namespace: str,
-) -> MetadataApplicationPlan:
-    """Load reviewed offline inputs and map their metadata capabilities."""
-    bundle = load_metadata_bundle(bundle_path)
-    inventory = load_destination_inventory(inventory_path)
-    return build_metadata_application_plan(bundle, inventory, staging_namespace)
-
-
 def metadata_application_json_schema() -> dict[str, Any]:
     """Return the versioned metadata application plan JSON Schema."""
     schema = MetadataApplicationPlan.model_json_schema()
     schema["x-format-version"] = PLAN_FORMAT_VERSION
     return schema
-
-
-def write_metadata_application_plan(path: Path, plan: MetadataApplicationPlan) -> Path:
-    """Atomically write a generated plan to an ordinary local path."""
-    destination = path.expanduser()
-    if destination.is_symlink():
-        raise MetadataApplicationError("Metadata application plan output must be an ordinary file path.")
-    destination = destination.resolve()
-    if destination.exists() and (destination.is_symlink() or not destination.is_file()):
-        raise MetadataApplicationError("Metadata application plan output must be an ordinary file path.")
-    temporary: Path | None = None
-    descriptor: int | None = None
-    try:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        descriptor, temporary_name = tempfile.mkstemp(
-            prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
-        )
-        temporary = Path(temporary_name)
-        stream = os.fdopen(descriptor, "w", encoding="utf-8")
-        descriptor = None
-        with stream:
-            stream.write(render_metadata_application_plan(plan))
-            stream.write("\n")
-        temporary.replace(destination)
-    except OSError as error:
-        raise MetadataApplicationError("Cannot write the metadata application plan.") from error
-    finally:
-        if descriptor is not None:
-            os.close(descriptor)
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
-    return destination

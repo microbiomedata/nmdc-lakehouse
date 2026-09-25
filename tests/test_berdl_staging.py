@@ -10,7 +10,6 @@ from functools import partial
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
 from pydantic import ValidationError
 
 from nmdc_lakehouse import berdl_metadata, berdl_staging
@@ -27,7 +26,6 @@ from nmdc_lakehouse.berdl_staging import (
     write_berdl_staging_outcome,
     write_berdl_staging_plan,
 )
-from nmdc_lakehouse.cli import cli
 from nmdc_lakehouse.metadata_application import build_metadata_application_plan
 from nmdc_lakehouse.metadata_bundle import (
     ColumnMetadata,
@@ -784,53 +782,6 @@ def test_loaded_plan_reloads_every_parsed_model_after_assembly(tmp_path: Path, m
         )
 
 
-def test_cli_writes_the_same_plan_it_prints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    plan = _build(tmp_path)
-    output = tmp_path / "cli-plan.json"
-    monkeypatch.setattr("nmdc_lakehouse.berdl_staging.plan_berdl_staging", lambda *_args, **_kwargs: plan)
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "berdl-upload-plan",
-            "snapshot",
-            "--bundle",
-            "bundle.json",
-            "--inventory",
-            "inventory.json",
-            "--plan",
-            "publication.json",
-            "--metadata-plan",
-            "metadata.json",
-            "--target-validation",
-            "target-validation.json",
-            "--ingest-checkout",
-            "data-lakehouse-ingest",
-            "--ingest-revision",
-            REVISION,
-            "--tenant",
-            "nmdc",
-            "--dataset",
-            "nmdc_metadata_staging_20260819",
-            "--bucket",
-            "cdm-lake",
-            "--bronze-prefix",
-            "tenant-general-warehouse/nmdc/staging/20260819",
-            "--progress-key",
-            "tenant-general-warehouse/nmdc/staging/20260819/progress.jsonl",
-            "--config-key",
-            "tenant-general-warehouse/nmdc/staging/20260819/config.json",
-            "--output",
-            str(output),
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert json.loads(result.stdout) == plan.model_dump(mode="json")
-    assert json.loads(output.read_text(encoding="utf-8")) == plan.model_dump(mode="json")
-    assert f"plan={output.resolve()}" in result.stderr
-
-
 def test_plan_digest_identifies_the_same_bytes_that_are_validated(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1303,7 +1254,7 @@ def test_upstream_destination_provider_must_name_its_own_catalog(tmp_path: Path)
         UpstreamStagingOutcome.model_validate(document)
 
 
-def _staging_cli(tmp_path, monkeypatch, *, metadata_error=False):
+def _staging_api(tmp_path, monkeypatch, *, metadata_error=False):
     plan, plan_path, paths, checkout = _persisted_plan(tmp_path, monkeypatch)
     calls = []
 
@@ -1344,90 +1295,31 @@ def _staging_cli(tmp_path, monkeypatch, *, metadata_error=False):
         )
 
     monkeypatch.setattr(berdl_metadata, "apply_berdl_staging_metadata", apply)
-    args = [
-        "berdl-upload",
-        str(plan_path),
-        "--upstream-outcome",
-        str(tmp_path / "upstream.json"),
-        "--output",
-        str(tmp_path / "outcome.json"),
-    ]
-    authorization = [
-        "--execute-staging",
-        "--authorize-snapshot",
-        SNAPSHOT_ID,
-        "--authorize-plan-sha256",
-        _file_sha256(plan_path),
-    ]
-    return args, authorization, paths, calls
+    options = dict(
+        upstream_outcome_path=tmp_path / "upstream.json",
+        output_path=tmp_path / "outcome.json",
+        metadata_output_path=tmp_path / "outcome.metadata.json",
+        authorize_snapshot=SNAPSHOT_ID,
+        authorize_plan_sha256=_file_sha256(plan_path),
+        execute_staging=True,
+    )
+    return plan_path, options, paths, calls
 
 
-def test_cli_previews_staging_and_metadata_without_execution(tmp_path, monkeypatch):
-    args, _, _, calls = _staging_cli(tmp_path, monkeypatch)
-    result = CliRunner().invoke(cli, args)
-    assert result.exit_code == 0, result.output
-    document = json.loads(result.stdout)
-    assert document["status"] == "preview-only"
-    assert document["metadata_coverage"]["column_descriptions_planned"] == 1
-    assert document["metadata_coverage"]["deferred_namespace_operations"]
-    assert document["metadata_output"] == str(tmp_path / "outcome.metadata.json")
-    assert not calls
-    assert not (tmp_path / "outcome.json").exists()
-    assert not (tmp_path / "outcome.metadata.json").exists()
-
-
-def test_staging_command_routes_child_stdout_to_stderr(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured = {}
-
-    def run(args, **kwargs):
-        captured.update(kwargs)
-        return subprocess.CompletedProcess(args, 0, stdout="child output\n", stderr="child warning\n")
-
-    monkeypatch.setattr("nmdc_lakehouse.berdl_staging.subprocess.run", run)
-
-    from nmdc_lakehouse.berdl_staging import _run_staging_command
-
-    _run_staging_command(["python", "ingest_dataset.py"])
-
-    assert captured["stdout"] == 2
-    assert captured["stderr"] == 2
-    assert captured["shell"] is False
-
-
-def test_cli_execution_verifies_data_then_metadata_and_keeps_json_stdout(tmp_path, monkeypatch):
-    args, authorization, paths, calls = _staging_cli(tmp_path, monkeypatch)
-    metadata_output = tmp_path / "explicit-metadata.json"
-    result = CliRunner().invoke(cli, args + authorization + ["--metadata-output", str(metadata_output)])
-    assert result.exit_code == 0, result.output
-    document = json.loads(result.stdout)
-    assert document["status"] == "data-and-table-metadata-verified"
-    assert document["data"]["status"] == "data-verified"
-    assert document["metadata"]["status"] == "metadata-verified"
-    assert document["metadata"]["metadata_plan_sha256"] == _file_sha256(paths["metadata"])
-    assert document["metadata"]["staging_outcome_sha256"] == _file_sha256(tmp_path / "outcome.json")
-    assert json.loads(metadata_output.read_text()) == document["metadata"]
-    assert document["metadata_coverage"]["deferred_namespace_operations"]
+def test_metadata_failure_retains_data_for_retry(tmp_path, monkeypatch):
+    plan, options, _, calls = _staging_api(tmp_path, monkeypatch, metadata_error=True)
+    with pytest.raises(berdl_metadata.BerdlMetadataError, match="use stage-publication"):
+        berdl_metadata.execute_berdl_staging_with_metadata(plan, **options)
     assert calls == ["data", "metadata"]
-    assert f"outcome={tmp_path / 'outcome.json'}" in result.stderr
-    assert f"metadata_outcome={metadata_output}" in result.stderr
-
-
-def test_metadata_failure_fails_upload_but_retains_data_for_retry(tmp_path, monkeypatch):
-    args, authorization, _, calls = _staging_cli(tmp_path, monkeypatch, metadata_error=True)
-    result = CliRunner().invoke(cli, args + authorization)
-    assert result.exit_code != 0
-    assert "use berdl-apply-metadata" in result.output
-    assert result.stdout == ""
-    assert calls == ["data", "metadata"]
-    assert json.loads((tmp_path / "outcome.json").read_text())["status"] == "data-verified"
-    assert not (tmp_path / "outcome.metadata.json").exists()
+    assert json.loads(options["output_path"].read_text())["status"] == "data-verified"
+    assert not options["metadata_output_path"].exists()
 
 
 @pytest.mark.parametrize(
     "invalid", ["existing", "symlink", "missing-parent", "snapshot", "checkout", "data", "upstream"]
 )
 def test_metadata_output_is_checked_before_data_writes(tmp_path, monkeypatch, invalid):
-    args, authorization, paths, calls = _staging_cli(tmp_path, monkeypatch)
+    plan, options, paths, calls = _staging_api(tmp_path, monkeypatch)
     destination = tmp_path / "metadata-outcome.json"
     if invalid == "existing":
         destination.write_text("previous evidence")
@@ -1438,223 +1330,45 @@ def test_metadata_output_is_checked_before_data_writes(tmp_path, monkeypatch, in
     elif invalid == "snapshot":
         destination = paths["manifest"].parent / "new-metadata.json"
     elif invalid == "checkout":
-        plan = berdl_staging.load_berdl_staging_plan(Path(args[1]))
-        destination = Path(plan.ingest.checkout) / "new-metadata.json"
+        destination = Path(berdl_staging.load_berdl_staging_plan(plan).ingest.checkout) / "new-metadata.json"
     elif invalid == "data":
-        destination = tmp_path / "outcome.json"
-    elif invalid == "upstream":
-        destination = tmp_path / "upstream.json"
-    result = CliRunner().invoke(cli, args + authorization + ["--metadata-output", str(destination)])
-    assert result.exit_code != 0, result.output
+        destination = options["output_path"]
+    else:
+        destination = options["upstream_outcome_path"]
+    options["metadata_output_path"] = destination
+    with pytest.raises(berdl_metadata.BerdlMetadataError):
+        berdl_metadata.execute_berdl_staging_with_metadata(plan, **options)
     assert not calls
 
 
-def test_changed_metadata_is_rejected_before_staging(tmp_path, monkeypatch):
-    args, authorization, paths, calls = _staging_cli(tmp_path, monkeypatch)
-    with paths["metadata"].open("a") as stream:
-        stream.write("\n")
-    result = CliRunner().invoke(cli, args + authorization)
-    assert result.exit_code != 0
-    assert "metadata plan no longer matches" in result.output
-    assert not calls
-
-
-def test_upload_reports_missing_descriptions_and_unsupported_levels(tmp_path, monkeypatch):
-    original_inputs = _inputs
-
-    def inputs_with_gaps(path):
-        manifest, bundle, inventory, publication, metadata, target, checkout = original_inputs(path)
-        bundle.tables[0].columns[0].description = DescriptionRecord(value=None, origin="none")
-        inventory.metadata_capabilities.remove(MetadataCapability.NAMESPACE)
-        publication = build_publication_plan(manifest, inventory, PublicationPolicy(policy_format_version=1, rules=[]))
-        metadata = build_metadata_application_plan(bundle, inventory, metadata.staging_namespace)
-        return manifest, bundle, inventory, publication, metadata, target, checkout
-
-    monkeypatch.setattr(f"{__name__}._inputs", inputs_with_gaps)
-    args, _, _, calls = _staging_cli(tmp_path, monkeypatch)
-    result = CliRunner().invoke(cli, args)
-    assert result.exit_code == 0, result.output
-    coverage = json.loads(result.stdout)["metadata_coverage"]
-    assert coverage["column_descriptions_planned"] == 0
-    assert coverage["missing_descriptions"] == [{"table": "biosample_set", "column": "id"}]
-    assert {op["kind"] for op in coverage["unsupported_operations"]} == {"namespace-description", "namespace-title"}
-    assert coverage["deferred_namespace_operations"] == []
-    assert not calls
-
-
-def test_data_failure_does_not_apply_metadata(tmp_path, monkeypatch):
-    args, authorization, _, calls = _staging_cli(tmp_path, monkeypatch)
-    # The real data executor rejects the wrong authorization before running the adapter.
-    authorization[-1] = "0" * 64
-    result = CliRunner().invoke(cli, args + authorization)
-    assert result.exit_code != 0
-    assert not calls
-    assert not (tmp_path / "outcome.metadata.json").exists()
-
-
-def test_metadata_change_between_phases_does_not_get_applied(tmp_path, monkeypatch):
-    args, authorization, paths, calls = _staging_cli(tmp_path, monkeypatch)
-    execute = berdl_metadata.execute_berdl_staging
-
-    def change_after_data(*a, **kw):
-        result = execute(*a, **kw)
+@pytest.mark.parametrize("changed", ["metadata-before", "metadata-after", "data-after"])
+def test_changed_evidence_is_rejected_between_phases(tmp_path, monkeypatch, changed):
+    plan, options, paths, calls = _staging_api(tmp_path, monkeypatch)
+    if changed == "metadata-before":
         with paths["metadata"].open("a") as stream:
             stream.write("\n")
-        return result
-
-    monkeypatch.setattr(berdl_metadata, "execute_berdl_staging", change_after_data)
-    result = CliRunner().invoke(cli, args + authorization)
-    assert result.exit_code != 0
-    assert "metadata plan digest differs" in result.output
-    assert calls == ["data"]
-    assert not (tmp_path / "outcome.metadata.json").exists()
-
-
-def test_whitespace_change_to_data_outcome_is_rejected(tmp_path, monkeypatch):
-    args, authorization, _, calls = _staging_cli(tmp_path, monkeypatch)
-    execute = berdl_metadata.execute_berdl_staging
-
-    def change_after_data(*a, **kw):
-        result = execute(*a, **kw)
-        with (tmp_path / "outcome.json").open("a") as stream:
-            stream.write("\n")
-        return result
-
-    monkeypatch.setattr(berdl_metadata, "execute_berdl_staging", change_after_data)
-    result = CliRunner().invoke(cli, args + authorization)
-    assert result.exit_code != 0
-    assert "changed between staging phases" in result.output
-    assert calls == ["data"]
-    assert not (tmp_path / "outcome.metadata.json").exists()
-
-
-def _metadata_retry_cli(tmp_path, monkeypatch):
-    args, authorization, paths, calls = _staging_cli(tmp_path, monkeypatch)
-    staging_plan_path = Path(args[1])
-    staging_plan = berdl_staging.load_berdl_staging_plan(staging_plan_path)
-    berdl_metadata.execute_berdl_staging(
-        staging_plan_path,
-        upstream_outcome_path=tmp_path / "upstream.json",
-        output_path=tmp_path / "outcome.json",
-        authorize_snapshot=SNAPSHOT_ID,
-        authorize_plan_sha256=authorization[-1],
-        execute_staging=True,
-    )
-    calls.clear()
-    return (
-        [
-            "berdl-apply-metadata",
-            str(paths["metadata"]),
-            str(tmp_path / "outcome.json"),
-            "--staging-plan",
-            str(staging_plan_path),
-            "--ingest-checkout",
-            staging_plan.ingest.checkout,
-            "--output",
-            str(tmp_path / "retry-metadata.json"),
-        ],
-        paths,
-        calls,
-    )
-
-
-def test_cli_metadata_retry_preview_is_offline_and_reports_hashes(tmp_path, monkeypatch):
-    args, paths, calls = _metadata_retry_cli(tmp_path, monkeypatch)
-    result = CliRunner().invoke(cli, args)
-    assert result.exit_code == 0, result.output
-    document = json.loads(result.stdout)
-    assert document["status"] == "preview-only"
-    assert document["metadata_plan_sha256"] == _file_sha256(paths["metadata"])
-    assert document["staging_outcome_sha256"] == _file_sha256(tmp_path / "outcome.json")
-    assert not calls
-    assert not (tmp_path / "retry-metadata.json").exists()
-
-
-def test_cli_metadata_retry_requires_hashes_and_writes_verified_outcome(tmp_path, monkeypatch):
-    args, paths, calls = _metadata_retry_cli(tmp_path, monkeypatch)
-    result = CliRunner().invoke(cli, args + ["--execute-metadata"])
-    assert result.exit_code != 0
-    assert not calls
-    result = CliRunner().invoke(
-        cli,
-        args
-        + [
-            "--execute-metadata",
-            "--authorize-plan-sha256",
-            _file_sha256(paths["metadata"]),
-            "--authorize-staging-outcome-sha256",
-            _file_sha256(tmp_path / "outcome.json"),
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    assert calls == ["metadata"]
-    assert json.loads((tmp_path / "retry-metadata.json").read_text())["status"] == "metadata-verified"
-
-
-@pytest.mark.parametrize("changed", ["metadata", "staging-plan", "malformed-staging-plan"])
-def test_retry_rejects_changed_reviewed_evidence_even_with_new_authorization(tmp_path, monkeypatch, changed):
-    args, paths, calls = _metadata_retry_cli(tmp_path, monkeypatch)
-    staging_plan_path = Path(args[args.index("--staging-plan") + 1])
-    if changed == "metadata":
-        document = json.loads(paths["metadata"].read_text())
-        document["supported_operations"][0]["value"] = "Changed description not in the original staging plan"
-        paths["metadata"].write_text(json.dumps(document))
-    elif changed == "staging-plan":
-        with staging_plan_path.open("a") as stream:
-            stream.write("\n")
     else:
-        staging_plan_path.write_text("not JSON")
-    result = CliRunner().invoke(
-        cli,
-        args
-        + [
-            "--execute-metadata",
-            "--authorize-plan-sha256",
-            _file_sha256(paths["metadata"]),
-            "--authorize-staging-outcome-sha256",
-            _file_sha256(tmp_path / "outcome.json"),
-        ],
-    )
-    assert result.exit_code != 0
-    assert "Error:" in result.output
-    assert not calls
-    assert not (tmp_path / "retry-metadata.json").exists()
+        original = berdl_metadata.execute_berdl_staging
+
+        def change_after_data(*a, **kw):
+            result = original(*a, **kw)
+            path = paths["metadata"] if changed == "metadata-after" else options["output_path"]
+            with path.open("a") as stream:
+                stream.write("\n")
+            return result
+
+        monkeypatch.setattr(berdl_metadata, "execute_berdl_staging", change_after_data)
+    with pytest.raises(berdl_metadata.BerdlMetadataError):
+        berdl_metadata.execute_berdl_staging_with_metadata(plan, **options)
+    assert calls == ([] if changed == "metadata-before" else ["data"])
+    assert not options["metadata_output_path"].exists()
 
 
-@pytest.mark.parametrize("protected", ["snapshot", "checkout", "retry-checkout", "snapshot-alias", "existing"])
-def test_metadata_retry_refuses_protected_output_before_catalog_writes(tmp_path, monkeypatch, protected):
-    args, paths, calls = _metadata_retry_cli(tmp_path, monkeypatch)
-    if protected == "snapshot":
-        output = paths["manifest"].parent / "metadata-outcome.json"
-    elif protected == "checkout":
-        output = Path(args[args.index("--ingest-checkout") + 1]) / "metadata-outcome.json"
-    elif protected == "retry-checkout":
-        checkout = tmp_path / "relocated-ingest"
-        checkout.mkdir()
-        args[args.index("--ingest-checkout") + 1] = str(checkout)
-        output = checkout / "metadata-outcome.json"
-    elif protected == "snapshot-alias":
-        alias = tmp_path / "snapshot-alias"
-        alias.symlink_to(paths["manifest"].parent, target_is_directory=True)
-        output = alias / "metadata-outcome.json"
-    else:
-        output = tmp_path / "previous-metadata.json"
-        output.write_text("previous evidence")
-    args[args.index("--output") + 1] = str(output)
-    result = CliRunner().invoke(
-        cli,
-        args
-        + [
-            "--execute-metadata",
-            "--authorize-plan-sha256",
-            _file_sha256(paths["metadata"]),
-            "--authorize-staging-outcome-sha256",
-            _file_sha256(tmp_path / "outcome.json"),
-        ],
-    )
-    assert result.exit_code != 0
-    assert not calls
-    if protected == "existing":
-        assert output.read_text() == "previous evidence"
-    else:
-        assert not output.exists()
+def test_child_diagnostics_follow_private_log(tmp_path):
+    import sys
+    from contextlib import redirect_stderr
+
+    with (tmp_path / "diagnostics.log").open("w") as stream, redirect_stderr(stream):
+        result = berdl_staging._run_staging_command([sys.executable, "-c", "print('child diagnostic')"])
+    assert result.returncode == 0
+    assert (tmp_path / "diagnostics.log").read_text() == "child diagnostic\n"

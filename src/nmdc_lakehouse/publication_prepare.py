@@ -85,12 +85,13 @@ def save_json(path: Path, value: Any) -> None:
 @contextmanager
 def progress(label: str):
     """Keep long validation or export phases visible without exposing runtime diagnostics."""
-    print(f"Starting {label}", file=sys.stderr, flush=True)
+    stream = sys.stderr
+    print(f"Starting {label}", file=stream, flush=True)
     done = threading.Event()
 
     def heartbeat():
         while not done.wait(30):
-            print(f"Still running: {label}", file=sys.stderr, flush=True)
+            print(f"Still running: {label}", file=stream, flush=True)
 
     worker = threading.Thread(target=heartbeat, daemon=True)
     worker.start()
@@ -103,6 +104,10 @@ def progress(label: str):
 
 def _copy(source: Path, destination: Path) -> None:
     checksum = file_digest(source)
+    if destination.exists() or destination.is_symlink():
+        if file_digest(destination) != checksum:
+            raise PreparationError(f"Prepared input differs: {destination.name}")
+        return
     fd, name = tempfile.mkstemp(prefix=f".{destination.name}.", dir=destination.parent)
     os.close(fd)
     try:

@@ -150,7 +150,8 @@ def _remote_sha256(client: Any, bucket: str, key: str) -> str:
     return digest.hexdigest()
 
 
-def _runtime(checkout: Path) -> tuple[Callable[..., dict[str, Any]], Any]:
+def _runtime_imports(checkout: Path) -> tuple[Callable[..., dict[str, Any]], Callable[..., Any]]:
+    """Check the selected ingest and platform imports without creating a client."""
     source_root = (checkout / "src").resolve()
     package_root = source_root / "data_lakehouse_ingest"
     source = str(source_root)
@@ -169,6 +170,13 @@ def _runtime(checkout: Path) -> tuple[Callable[..., dict[str, Any]], Any]:
     ingest = getattr(package, "ingest", None)
     if not callable(ingest):
         raise AdapterExecutionError("the selected KBase ingest runtime does not expose ingest")
+    if not callable(get_s3_client):
+        raise AdapterExecutionError("the BERDL object-store runtime does not expose a client factory")
+    return ingest, get_s3_client
+
+
+def _runtime(checkout: Path) -> tuple[Callable[..., dict[str, Any]], Any]:
+    ingest, get_s3_client = _runtime_imports(checkout)
     try:
         client = get_s3_client()
     except Exception as error:

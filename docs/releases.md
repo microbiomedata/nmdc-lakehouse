@@ -88,14 +88,17 @@ A **lakehouse table** carries the same fact in its properties, under the same na
 | `nmdc_lakehouse.target_schema_version` | which flat schema produced this table |
 | `nmdc_lakehouse.snapshot_id` | which snapshot the rows came from |
 
-`berdl-apply-metadata` sets them in one `ALTER` per table, alongside the descriptions, and reads
+`stage-publication` sets them in one `ALTER` per table, alongside the descriptions, and reads
 them back whether or not it wrote them. A plan that cannot name a version labels nothing rather
 than guessing, because a consumer cannot tell a guess from a fact.
 
 They are set on the **staging** namespace, which is where the metadata step runs. They reach
-`nmdc.metadata` when a staging namespace is promoted, which is
-https://github.com/microbiomedata/nmdc-lakehouse/issues/234 and is not yet implemented. So today
-a consumer can ask a staged table which schema produced it, and cannot yet ask the canonical one.
+`nmdc.metadata` through the implemented combined promotion path in
+[the promotion guide](berdl-upload.md#plan-separately-authorized-canonical-promotion).
+That path still requires live acceptance under
+https://github.com/microbiomedata/nmdc-lakehouse/issues/234 and approval of the exact
+plan. The September candidate is staged; no claim is made that its schema
+properties have already reached the canonical tables.
 
 More than one entry in `target_schema_versions` means a snapshot was assembled across a flattener
 change and is not internally consistent. Nothing could previously detect that.

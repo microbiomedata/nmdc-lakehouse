@@ -16,10 +16,6 @@ from nmdc_lakehouse.metadata_application import (
     MetadataOperationKind,
     build_metadata_application_plan,
     load_metadata_application_plan,
-    metadata_application_json_schema,
-    plan_metadata_application,
-    render_metadata_application_plan,
-    write_metadata_application_plan,
 )
 from nmdc_lakehouse.metadata_bundle import (
     ColumnMetadata,
@@ -122,7 +118,7 @@ def test_plan_separates_supported_and_unsupported_operations() -> None:
     assert plan.source_namespace == "nmdc_metadata"
     assert plan.bundle_generated_at == bundle.generated_at
     assert plan.destination_metadata_capabilities == [MetadataCapability.NAMESPACE, MetadataCapability.TABLE]
-    assert "COMMENT ON" not in render_metadata_application_plan(plan)
+    assert "COMMENT ON" not in plan.model_dump_json()
 
 
 def test_missing_descriptions_are_explicit_and_not_operations() -> None:
@@ -151,7 +147,7 @@ def test_rendering_is_deterministic_by_table_name() -> None:
         "nmdc.nmdc_metadata_staging",
     )
 
-    assert json.loads(render_metadata_application_plan(first)) == json.loads(render_metadata_application_plan(second))
+    assert json.loads(first.model_dump_json()) == json.loads(second.model_dump_json())
 
 
 def test_escaping_sensitive_content_remains_inert_data() -> None:
@@ -164,7 +160,7 @@ def test_escaping_sensitive_content_remains_inert_data() -> None:
 
     operation = next(item for item in plan.supported_operations if item.kind == MetadataOperationKind.TABLE_DESCRIPTION)
     assert operation.value == value
-    assert json.loads(render_metadata_application_plan(plan))["supported_operations"][-1]["value"] == value
+    assert json.loads(plan.model_dump_json())["supported_operations"][-1]["value"] == value
 
 
 def test_duplicate_inputs_are_rejected() -> None:
@@ -199,100 +195,6 @@ def test_plan_loader_rejects_incomplete_table_coverage(tmp_path: Path) -> None:
 
     with pytest.raises(MetadataApplicationError, match="valid metadata application plan"):
         load_metadata_application_plan(path)
-
-
-def test_schema_and_atomic_output_are_versioned(tmp_path: Path) -> None:
-    plan = build_metadata_application_plan(_bundle(), _inventory(), "nmdc.nmdc_metadata_staging")
-    output = tmp_path / "output" / "metadata-application-plan.json"
-
-    assert metadata_application_json_schema()["x-format-version"] == PLAN_FORMAT_VERSION
-    assert write_metadata_application_plan(output, plan) == output.resolve()
-    assert output.read_text(encoding="utf-8") == render_metadata_application_plan(plan) + "\n"
-    assert load_metadata_application_plan(output) == plan
-
-    linked = tmp_path / "linked.json"
-    linked.symlink_to(output)
-    with pytest.raises(MetadataApplicationError, match="ordinary file path"):
-        write_metadata_application_plan(linked, plan)
-
-
-def test_offline_command_prints_and_writes_the_same_plan(tmp_path: Path) -> None:
-    bundle = _bundle(_table("biosample_set", "Sample.", "Identifier."))
-    inventory = _inventory(MetadataCapability.TABLE, MetadataCapability.COLUMN)
-    bundle_path = tmp_path / "bundle.json"
-    inventory_path = tmp_path / "inventory.json"
-    output = tmp_path / "plan.json"
-    bundle_path.write_text(bundle.model_dump_json(), encoding="utf-8")
-    inventory_path.write_text(inventory.model_dump_json(), encoding="utf-8")
-
-    expected = plan_metadata_application(bundle_path, inventory_path, "nmdc.nmdc_metadata_staging")
-    result = CliRunner().invoke(
-        cli,
-        [
-            "metadata-application-plan",
-            str(bundle_path),
-            "--inventory",
-            str(inventory_path),
-            "--staging-namespace",
-            "nmdc.nmdc_metadata_staging",
-            "--output",
-            str(output),
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert json.loads(result.output) == expected.model_dump(mode="json")
-    assert output.read_text(encoding="utf-8") == result.output
-
-
-def test_command_sanitizes_invalid_input(tmp_path: Path) -> None:
-    bundle_path = tmp_path / "bundle.json"
-    bundle_path.write_bytes(b"\xff\xfe")
-    inventory_path = tmp_path / "inventory.json"
-    inventory_path.write_text(_inventory().model_dump_json(), encoding="utf-8")
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "metadata-application-plan",
-            str(bundle_path),
-            "--inventory",
-            str(inventory_path),
-            "--staging-namespace",
-            "nmdc.nmdc_metadata_staging",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "Cannot read a valid metadata bundle" in result.output
-    assert "UnicodeDecodeError" not in result.output
-
-
-def test_command_sanitizes_output_directory_failure(tmp_path: Path) -> None:
-    bundle_path = tmp_path / "bundle.json"
-    inventory_path = tmp_path / "inventory.json"
-    bundle_path.write_text(_bundle().model_dump_json(), encoding="utf-8")
-    inventory_path.write_text(_inventory().model_dump_json(), encoding="utf-8")
-    blocked_parent = tmp_path / "not-a-directory"
-    blocked_parent.write_text("ordinary file", encoding="utf-8")
-
-    result = CliRunner().invoke(
-        cli,
-        [
-            "metadata-application-plan",
-            str(bundle_path),
-            "--inventory",
-            str(inventory_path),
-            "--staging-namespace",
-            "nmdc.nmdc_metadata_staging",
-            "--output",
-            str(blocked_parent / "plan.json"),
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "Cannot write the metadata application plan" in result.output
-    assert "FileExistsError" not in result.output
 
 
 def test_schema_command_emits_plan_contract() -> None:

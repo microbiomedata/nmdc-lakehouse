@@ -47,21 +47,21 @@ validate-target-rows SNAPSHOT_ROOT REPORT *ARGS:
 prepare-publication CONFIGURATION OUTPUT:
     python3 scripts/python/prepare_publication.py "{{ CONFIGURATION }}" "{{ OUTPUT }}"
 
-# Cross-check all reviewed publication artifacts before provider-specific staging.
-publication-preflight SNAPSHOT_ROOT BUNDLE INVENTORY PLAN:
-    {{ uv_run }} --no-sync nmdc-lakehouse publication-preflight "{{ SNAPSHOT_ROOT }}" --bundle "{{ BUNDLE }}" --inventory "{{ INVENTORY }}" --plan "{{ PLAN }}"
+# Pack, send or receive prepared files through the Jupyter Contents API using Python's standard library.
+publication-transfer *ARGS:
+    python3 scripts/python/publication_transfer.py {{ ARGS }}
 
-# Map approved metadata to one explicit staging namespace without mutation.
-metadata-application-plan BUNDLE INVENTORY STAGING_NAMESPACE *ARGS:
-    {{ uv_run }} --no-sync nmdc-lakehouse metadata-application-plan "{{ BUNDLE }}" --inventory "{{ INVENTORY }}" --staging-namespace "{{ STAGING_NAMESPACE }}" {{ ARGS }}
+# Build the disposition, metadata and exact staging plans together in the pod.
+plan-publication ROOT CONFIGURATION:
+    {{ uv_run }} --no-sync nmdc-lakehouse plan-publication "{{ ROOT }}" "{{ CONFIGURATION }}"
 
-# Bind reviewed evidence to an exact plan-only BERIL staging command.
-berdl-upload-plan SNAPSHOT_ROOT BUNDLE INVENTORY PLAN METADATA_PLAN TARGET_VALIDATION INGEST_CHECKOUT INGEST_REVISION TENANT DATASET BUCKET BRONZE_PREFIX PROGRESS_KEY CONFIG_KEY OUTPUT *ARGS:
-    {{ uv_run }} --no-sync nmdc-lakehouse berdl-upload-plan "{{ SNAPSHOT_ROOT }}" --bundle "{{ BUNDLE }}" --inventory "{{ INVENTORY }}" --plan "{{ PLAN }}" --metadata-plan "{{ METADATA_PLAN }}" --target-validation "{{ TARGET_VALIDATION }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" --ingest-revision "{{ INGEST_REVISION }}" --tenant "{{ TENANT }}" --dataset "{{ DATASET }}" --bucket "{{ BUCKET }}" --bronze-prefix "{{ BRONZE_PREFIX }}" --progress-key "{{ PROGRESS_KEY }}" --config-key "{{ CONFIG_KEY }}" --output "{{ OUTPUT }}" {{ ARGS }}
+# Preview, stage or retry metadata alone from the same reviewed publication directory.
+stage-publication ROOT *ARGS:
+    {{ uv_run }} --no-sync nmdc-lakehouse stage-publication "{{ ROOT }}" {{ ARGS }}
 
-# Preview or execute a reviewed BERDL plan, verifying data and approved table metadata.
-berdl-upload PLAN UPSTREAM_OUTCOME OUTCOME *ARGS:
-    {{ uv_run }} --no-sync nmdc-lakehouse berdl-upload "{{ PLAN }}" --upstream-outcome "{{ UPSTREAM_OUTCOME }}" --output "{{ OUTCOME }}" {{ ARGS }}
+# Check saved publication evidence and print the next action without service access.
+publication-status ROOT:
+    {{ uv_run }} --no-sync nmdc-lakehouse publication-status "{{ ROOT }}"
 
 # Build both derived provenance tables locally in a new, separate snapshot directory.
 derive-provenance SNAPSHOT_ROOT OUTPUT_ROOT *ARGS:
@@ -71,18 +71,13 @@ derive-provenance SNAPSHOT_ROOT OUTPUT_ROOT *ARGS:
 compare-provenance-queries SNAPSHOT_ROOT DERIVED_ROOT OUTPUT *ARGS:
     {{ uv_run }} --no-sync nmdc-lakehouse compare-provenance-queries "{{ SNAPSHOT_ROOT }}" "{{ DERIVED_ROOT }}" "{{ OUTPUT }}" {{ ARGS }}
 
-# Describe the promotion that verified staging authorizes. Reads evidence, changes nothing.
-berdl-promotion-plan PUBLICATION_PLAN STAGING_OUTCOME METADATA_OUTCOME CANONICAL_NAMESPACE RECOVERY OUTPUT *ARGS:
-    {{ uv_run }} --no-sync nmdc-lakehouse berdl-promotion-plan --plan "{{ PUBLICATION_PLAN }}" --staging-outcome "{{ STAGING_OUTCOME }}" --metadata-outcome "{{ METADATA_OUTCOME }}" --canonical-namespace "{{ CANONICAL_NAMESPACE }}" --recovery "{{ RECOVERY }}" --output "{{ OUTPUT }}" {{ ARGS }}
+# Read both staged snapshots and the live canonical inventory into one reviewable plan.
+berdl-promotion-plan METADATA_ROOT DERIVED_ROOT OUTPUT INGEST_CHECKOUT RECOVERY:
+    {{ uv_run }} --no-sync nmdc-lakehouse berdl-promotion-plan "{{ METADATA_ROOT }}" "{{ DERIVED_ROOT }}" "{{ OUTPUT }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" --recovery "{{ RECOVERY }}"
 
-# Perform the promotion a reviewed plan describes. Previews by default; the three --authorize-
-# options are passed through ARGS, so the destructive form is never the shorter command.
-berdl-promote PROMOTION_PLAN INGEST_CHECKOUT *ARGS:
-    {{ uv_run }} --no-sync nmdc-lakehouse berdl-promote "{{ PROMOTION_PLAN }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" {{ ARGS }}
-
-# Retry approved table metadata; ARGS must include --staging-plan ORIGINAL_PLAN.
-berdl-apply-metadata METADATA_PLAN STAGING_OUTCOME INGEST_CHECKOUT OUTCOME *ARGS:
-    {{ uv_run }} --no-sync nmdc-lakehouse berdl-apply-metadata "{{ METADATA_PLAN }}" "{{ STAGING_OUTCOME }}" --ingest-checkout "{{ INGEST_CHECKOUT }}" --output "{{ OUTCOME }}" {{ ARGS }}
+# Preview by default. The exact plan, namespace and destination authorization enables writes.
+berdl-promote PROMOTION_PLAN *ARGS:
+    {{ uv_run }} --no-sync nmdc-lakehouse berdl-promote "{{ PROMOTION_PLAN }}" {{ ARGS }}
 
 # Build the download manifest for one data object type from a snapshot. More `--type` values and
 # a `--host` restriction go through ARGS. A live catalog does not: this recipe always supplies

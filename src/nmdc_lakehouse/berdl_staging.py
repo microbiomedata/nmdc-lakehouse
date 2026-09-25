@@ -258,7 +258,7 @@ def is_staging_dataset(dataset: str) -> bool:
 
 
 def _run_staging_command(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, text=True, stdout=2, stderr=2, check=False, shell=False)  # noqa: S603
+    return subprocess.run(args, text=True, stdout=sys.stderr, stderr=sys.stderr, check=False, shell=False)  # noqa: S603
 
 
 def _sha256(path: Path, label: str) -> str:
@@ -800,7 +800,11 @@ def _evidence_paths(plan: BerdlStagingPlan) -> dict[str, Path]:
         "target-validation-report.json",
     }
     paths = {item.name: Path(item.path) for item in plan.evidence}
-    if set(paths) != expected or len(paths) != len(plan.evidence):
+    if (
+        set(paths) != expected
+        or len(paths) != len(plan.evidence)
+        or len({path.resolve() for path in paths.values()}) != len(paths)
+    ):
         raise BerdlStagingPlanError("The staging plan evidence set is not complete and unique.")
     return paths
 

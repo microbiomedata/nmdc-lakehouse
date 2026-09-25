@@ -56,7 +56,7 @@ symlinks, and nested files. Review the preview before deleting anything.
 
 **A selective run does not produce a publishable snapshot.** `create-snapshot-manifest`
 and `validate-snapshot` describe a complete, self-consistent output set, and
-`berdl-upload-plan` requires successful target-schema validation with exact
+`plan-publication` requires successful target-schema validation with exact
 snapshot and table coverage. Adding one freshly produced table to an already
 manifested snapshot directory invalidates it, because the manifest enumerates the
 artifacts and their digests.
@@ -74,14 +74,14 @@ namespace is loaded in full before anything canonical is touched.
 Two properties follow, and both are enforced rather than conventional:
 
 - A table that exists at the destination but not in the candidate snapshot is a
-  live-only table, and plan generation **fails closed** until it is given an
-  explicit reviewed disposition. Nothing can be dropped by omission.
+  live-only table. The staging planner assigns it `preserve`; canonical promotion
+  still requires a separate reviewed decision. Nothing is dropped by omission.
 - Staging is a separate namespace. A load proves the candidate tables before any
   canonical object is considered.
 
-This is why holding a collection back from a snapshot is safe. `functional_annotation_agg`
-is absent from a standard snapshot, so it appears as a live-only table and forces
-a `preserve` decision rather than disappearing.
+For example, when `functional_annotation_agg` is excluded by an explicit export
+configuration, it is preserved during planning. An all-collections export includes
+it. Staging never removes the existing canonical table.
 
 ## Short-term strategy
 

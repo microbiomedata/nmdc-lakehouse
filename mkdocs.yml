@@ -10,6 +10,7 @@ nav:
   - Architecture: architecture.md
   - Original design conformance: original-design-conformance.md
   - Operations:
+      - Complete publication lifecycle: publication-lifecycle.md
       - MongoDB connection: mongodb-connection.md
       - Source schema 11.24.0 rollout: source-schema-1124-rollout.md
       - BERDL staging runbook: berdl-staging-runbook.md

@@ -11,6 +11,11 @@ Parquet artifacts for downstream lakehouse publication.
 
 ## Implementation status
 
+Start with the [complete publication lifecycle](docs/publication-lifecycle.md)
+for schema releases, local Parquet and provenance, metadata, pod staging,
+promotion, credentials and cleanup. The guide identifies completed run evidence
+and operations that still need live acceptance.
+
 “Implemented” means exercised by package code and tests. “Prototype/manual”
 means operational work exists, but not as a supported package job. “Planned”
 means an interface or dependency may exist without executable support.
@@ -28,7 +33,7 @@ means an interface or dependency may exist without executable support.
 | Workflow results | Fetch/cache/parse NERSC result files | **Prototype/manual** | File-type-specific notebooks and scripts produce Parquet; migration into registered package jobs is tracked in [#130](https://github.com/microbiomedata/nmdc-lakehouse/issues/130). |
 | Publication | Generate a reviewable metadata bundle | **Implemented** | An offline command joins exact snapshot footer descriptions with a snapshot-bound, reviewed profile; it does not apply metadata to a destination. |
 | Publication | Draft a snapshot-bound metadata profile | **Implemented** | An offline command reads the validated snapshot identity and combines it with explicit operator-supplied namespace content for review. |
-| Publication | Stage snapshots and register destination assets | **Manual/external** | Maintained ETL stops at schema-directed local Parquet. The portable publication contract is destination-neutral; BERDL is one documented profile. |
+| Publication | Stage snapshots and verify destination tables | **Implemented; combined path awaits live acceptance** | Maintained commands plan, stage and verify data and table metadata through the reviewed BERDL ingest adapter. Namespace and registry metadata writes remain deferred under [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114) and [#52](https://github.com/microbiomedata/nmdc-lakehouse/issues/52). Canonical promotion requires separate exact-plan approval. |
 | Upstream mutation | Write flattened data back to MongoDB | **Legacy only** | Maintained jobs never write to production MongoDB. A copied EMA script does write `flattened_*` collections and is tracked for retirement in [#27](https://github.com/microbiomedata/nmdc-lakehouse/issues/27). |
 | JGI/GOLD integration | Read or publish JGI/GOLD data | **Not implemented** | There is no JGI adapter or job. A copied, unregistered CSV utility retains “GOLD” in its filename and defaults, but is only a generic MongoDB collection exporter. |
 
@@ -164,10 +169,12 @@ operational-command inventory.
 | `just berdl-doctor SNAPSHOT_ROOT` | Diagnose BERDL publication readiness without mutation |
 | `just validate-target-rows SNAPSHOT_ROOT REPORT` | Validate manifested rows against the packaged target LinkML schema |
 | `just prepare-publication CONFIGURATION OUTPUT` | Select the source pair and prepare a snapshot, full validation, and metadata together |
-| `just publication-preflight SNAPSHOT_ROOT BUNDLE INVENTORY PLAN` | Cross-check reviewed publication artifacts before staging |
-| `just metadata-application-plan BUNDLE INVENTORY STAGING_NAMESPACE` | Plan metadata operations for an explicit staging namespace |
-| `just berdl-upload-plan ...` | Bind reviewed artifacts to the NMDC adapter and exact KBase ingest revision |
-| `just berdl-upload ...` | Preview or stage and verify data plus approved table and column metadata |
+| `just publication-transfer pack\|send\|receive ...` | Transfer prepared files with verified parts and the reviewed helper |
+| `just plan-publication ROOT CONFIGURATION` | Build disposition, metadata and exact staging plans together from a prepared directory |
+| `just stage-publication ROOT ...` | Preview, stage, or resume metadata after verified data |
+| `just publication-status ROOT` | Check saved evidence and show the next action |
+| `just berdl-promotion-plan ...` | Review the parent metadata snapshot and staged provenance pair together |
+| `just berdl-promote PLAN ...` | Preview the combined plan; exact authorization enables canonical writes and verification |
 | `just install`      | Synchronize the locked development environment    |
 | `just install-all`  | Synchronize locked development and docs extras    |
 | `just lock`         | Refresh `uv.lock`                                |

@@ -21,10 +21,7 @@ from nmdc_lakehouse.publication_plan import (
     build_publication_plan,
     load_destination_inventory,
     load_publication_plan,
-    load_publication_policy,
     publication_json_schema,
-    render_publication_plan,
-    write_publication_plan,
 )
 from nmdc_lakehouse.snapshot_manifest import (
     ArtifactRecord,
@@ -162,19 +159,13 @@ def test_plan_rejects_unknown_policy_table() -> None:
         build_publication_plan(_manifest(), _inventory(), policy)
 
 
-def test_loaders_reject_duplicate_inventory_and_policy_entries(tmp_path: Path) -> None:
+def test_loader_rejects_duplicate_inventory_entries(tmp_path: Path) -> None:
     inventory_path = tmp_path / "inventory.json"
     inventory = _inventory()
     inventory.tables.append(inventory.tables[0].model_copy(deep=True))
     inventory_path.write_text(inventory.model_dump_json(), encoding="utf-8")
     with pytest.raises(PublicationPlanError, match="duplicate table"):
         load_destination_inventory(inventory_path)
-
-    policy_path = tmp_path / "policy.json"
-    rule = PolicyRule(table="biosample_set", disposition=Disposition.REPLACE, rationale="Reviewed.")
-    policy_path.write_text(_policy(rule, rule.model_copy(deep=True)).model_dump_json(), encoding="utf-8")
-    with pytest.raises(PublicationPlanError, match="duplicate table"):
-        load_publication_policy(policy_path)
 
 
 @pytest.mark.parametrize("source", ["manifest", "inventory", "policy"])
@@ -240,45 +231,10 @@ def test_publication_json_schemas_are_versioned() -> None:
 
 def test_cli_schema_and_invalid_candidate_are_offline(tmp_path: Path) -> None:
     schema = CliRunner().invoke(cli, ["publication-plan-schema", "inventory"])
-    invalid = CliRunner().invoke(
-        cli,
-        [
-            "publication-plan",
-            str(tmp_path / "missing-snapshot"),
-            "--inventory",
-            str(tmp_path / "missing-inventory.json"),
-            "--policy",
-            str(tmp_path / "missing-policy.json"),
-        ],
-    )
 
     assert schema.exit_code == 0
     # This asks for the inventory schema specifically, which is at version 2.
     assert json.loads(schema.output)["x-format-version"] == 2
-    assert invalid.exit_code != 0
-    assert "Snapshot root must be an existing ordinary directory" in invalid.output
-
-
-def test_write_plan_is_atomic_and_rejects_symlink_output(tmp_path: Path) -> None:
-    policy = _policy(
-        PolicyRule(
-            table="functional_annotation_agg",
-            disposition=Disposition.PRESERVE,
-            rationale="No verified replacement.",
-        )
-    )
-    plan = build_publication_plan(_manifest(), _inventory(), policy)
-    destination = tmp_path / "plan.json"
-
-    assert write_publication_plan(destination, plan) == destination
-    assert destination.read_text(encoding="utf-8") == render_publication_plan(plan) + "\n"
-    assert json.loads(destination.read_text(encoding="utf-8"))["candidate_snapshot_id"] == plan.candidate_snapshot_id
-    assert not list(tmp_path.glob(".plan.json.*.tmp"))
-
-    linked = tmp_path / "linked-plan.json"
-    linked.symlink_to(destination)
-    with pytest.raises(PublicationPlanError, match="ordinary file path"):
-        write_publication_plan(linked, plan)
 
 
 def test_plan_loader_sanitizes_encoding_failure_and_rejects_duplicate_capabilities(tmp_path: Path) -> None:

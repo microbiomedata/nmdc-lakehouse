@@ -5,7 +5,7 @@ BERDL hierarchy, what's already done, and what's tracked but not yet built. Writ
 because the work is scattered across seven issues ([#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114)-[#120](https://github.com/microbiomedata/nmdc-lakehouse/issues/120)) with no single map.
 
 For the maintained workflow as of 2026-09-23, use the
-[staging runbook](berdl-staging-runbook.md#what-success-means). `berdl-upload`
+[staging runbook](berdl-staging-runbook.md#what-success-means). `stage-publication`
 now requires data and planned table/column metadata verification in one execution.
 Namespace operations remain deferred, and tenant/registry writes remain
 unimplemented. The dated pilot sections below preserve earlier observations;
@@ -24,7 +24,7 @@ their bare namespace names and table counts are not current destination defaults
 > **The table level below is stale too.** It says scaling beyond the
 > `nmdc_ref_data.pfam_terms` pilot is future work in
 > [#115](https://github.com/microbiomedata/nmdc-lakehouse/issues/115). That issue
-> closed on 2026-08-20, and `berdl-apply-metadata` now applies and verifies
+> closed on 2026-08-20, and `stage-publication` now applies and verifies
 > planned table descriptions across the namespace
 > (`berdl_metadata.py:410-423`). Current versioned plans also apply and verify
 > table snapshot and target-schema properties. Namespace application remains
@@ -37,7 +37,7 @@ their bare namespace names and table counts are not current destination defaults
 | Tenant / org | Unconfirmed | `berdl_notebook_utils.governance`'s `list_tenants()` / `get_tenant_detail()` have readable `description`/`website`/`organization`/`display_name` fields per tenant; no known write path from NMDC-side code | Not investigated, see below |
 | Schema / database | Piloted; deferred by the current staging executor | `ALTER SCHEMA ... SET DBPROPERTIES (...)` | Earlier pilot on `nmdc_ref_data` ([#116](https://github.com/microbiomedata/nmdc-lakehouse/issues/116)); current namespace application remains [#114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114) |
 | Dataset / Bronze objects | Checksum metadata on objects; no registry write adapter | The NMDC adapter sets `nmdc-sha256` on each uploaded object and verifies the object bytes | Richer descriptive content remains in the portable bundle; registry support is separate |
-| Table | Yes | `data_lakehouse_ingest.utils.delta_comments.apply_table_comment` | Done. Piloted on `nmdc_ref_data.pfam_terms` ([#117](https://github.com/microbiomedata/nmdc-lakehouse/pull/117)), then scaled: [#115](https://github.com/microbiomedata/nmdc-lakehouse/issues/115) closed 2026-08-20 and `berdl-apply-metadata` applies and verifies planned table descriptions |
+| Table | Yes | `data_lakehouse_ingest.utils.delta_comments.apply_table_comment` | Done. Piloted on `nmdc_ref_data.pfam_terms` ([#117](https://github.com/microbiomedata/nmdc-lakehouse/pull/117)), then scaled: [#115](https://github.com/microbiomedata/nmdc-lakehouse/issues/115) closed 2026-08-20 and `stage-publication` applies and verifies planned table descriptions |
 | Column | Yes | The Parquet footer key `org.apache.spark.sql.parquet.row.metadata`, applied by Spark at table creation | Done, by a different route than this page proposed. `apply_comments_from_table_schema` does not scale and survives only as the staging fallback; see the note at the top |
 
 ## Tenant / org: the level nobody has written to yet

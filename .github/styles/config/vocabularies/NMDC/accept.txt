@@ -180,3 +180,12 @@ CLI's
 precomputation
 reachability
 readback
+
+# A shell command group executed in a child shell.
+subshell
+
+vendoring
+
+runtimes
+
+multiline
