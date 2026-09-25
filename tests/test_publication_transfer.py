@@ -116,7 +116,7 @@ def test_send_uses_existing_labctl_and_stops_on_failure(prepared, tmp_path, monk
         assert check and command[:3] == ["labctl", "pod", "put"]
 
     monkeypatch.setattr(transfer.subprocess, "run", run)
-    transfer.send(inventory.parent)
+    transfer.send(inventory.parent, transfer.digest(inventory))
     assert calls[-1][-1] == inventory.name
     assert all(Path(c[-2]).name == c[-1] for c in calls)
 
@@ -124,7 +124,7 @@ def test_send_uses_existing_labctl_and_stops_on_failure(prepared, tmp_path, monk
         raise subprocess.CalledProcessError(1, command)
 
     monkeypatch.setattr(transfer.subprocess, "run", fail)
-    assert transfer.main(["send", str(inventory)]) == 1
+    assert transfer.main(["send", str(inventory), "--sha256", transfer.digest(inventory)]) == 1
 
 
 def test_cli_pack_receive_and_no_extra_dependencies(prepared, tmp_path):
@@ -145,7 +145,7 @@ def test_inventory_checksum_and_incomplete_send_refused(prepared, tmp_path):
     assert not (tmp_path / "received").exists()
     inventory.unlink()
     with pytest.raises(ValueError, match="exactly one"):
-        transfer.send(inventory.parent)
+        transfer.send(inventory.parent, "0" * 64)
 
 
 def test_receive_rejects_changed_helper_before_creating_output(prepared, tmp_path):
@@ -159,9 +159,10 @@ def test_receive_rejects_changed_helper_before_creating_output(prepared, tmp_pat
 
 def test_printed_command_verifies_script_before_executing_it(prepared, tmp_path, monkeypatch, capsys):
     inventory = transfer.pack(prepared, tmp_path / "transfer")
+    send_command = capsys.readouterr().out.splitlines()[-1].removeprefix("Send: ")
     with monkeypatch.context() as patch:
         patch.setattr(transfer.subprocess, "run", lambda *a, **kw: None)
-        transfer.send(inventory)
+        assert transfer.main(shlex.split(send_command)[2:]) == 0
     command = (
         capsys.readouterr()
         .out.splitlines()[-1]
@@ -177,3 +178,50 @@ def test_printed_command_verifies_script_before_executing_it(prepared, tmp_path,
     result = subprocess.run(command, shell=True, cwd=inventory.parent, capture_output=True)
     assert result.returncode != 0
     assert not (inventory.parent / "unreviewed-helper-executed").exists()
+
+
+def test_send_rejects_consistently_changed_helper_and_inventory(prepared, tmp_path, monkeypatch):
+    inventory = transfer.pack(prepared, tmp_path / "transfer")
+    packed_checksum = transfer.digest(inventory)
+    data = json.loads(inventory.read_text())
+    helper = inventory.parent / data["script"]["name"]
+    helper.write_text("print('unreviewed code')\n")
+    data["script"]["sha256"] = transfer.digest(helper)
+    inventory.write_text(json.dumps(data))
+    calls = []
+    monkeypatch.setattr(transfer.subprocess, "run", lambda *a, **kw: calls.append(a))
+    with pytest.raises(ValueError, match="sender checksum"):
+        transfer.send(inventory, packed_checksum)
+    assert calls == []
+
+
+def test_send_refuses_inventory_changed_during_upload(prepared, tmp_path, monkeypatch, capsys):
+    inventory = transfer.pack(prepared, tmp_path / "transfer")
+    packed_checksum = transfer.digest(inventory)
+    calls = []
+
+    def change_inventory(command, *, check):
+        calls.append(command)
+        inventory.write_text("{}")
+
+    monkeypatch.setattr(transfer.subprocess, "run", change_inventory)
+    with pytest.raises(ValueError, match="changed during sending"):
+        transfer.send(inventory, packed_checksum)
+    assert inventory.name not in [c[-1] for c in calls]
+    assert "NEW_PUBLICATION_DIRECTORY" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("action", ["send", "receive"])
+def test_inventory_symlink_parent_refused_before_transfer_or_output(prepared, tmp_path, monkeypatch, action):
+    inventory = transfer.pack(prepared, tmp_path / "transfer")
+    checksum = transfer.digest(inventory)
+    alias = tmp_path / "linked-transfer"
+    alias.symlink_to(inventory.parent, target_is_directory=True)
+    calls = []
+    monkeypatch.setattr(transfer.subprocess, "run", lambda *a, **kw: calls.append(a))
+    with pytest.raises(ValueError, match="symlinks"):
+        if action == "send":
+            transfer.send(alias / inventory.name, checksum)
+        else:
+            transfer.receive(alias / inventory.name, tmp_path / "received", checksum)
+    assert not calls and not (tmp_path / "received").exists()

@@ -129,15 +129,18 @@ def pack(root: Path, output: Path, part_bytes: int = 64 * CHUNK) -> Path:
     }
     destination = output / f"{prefix}.json"
     destination.write_text(json.dumps(inventory, indent=2, sort_keys=True) + "\n")
-    print(f"transfer={destination}\nsha256={digest(destination)}", flush=True)
-    print("Send: " + shlex.join([sys.executable, __file__, "send", str(destination)]), flush=True)
+    checksum = digest(destination)
+    print(f"transfer={destination}\nsha256={checksum}", flush=True)
+    print("Send: " + shlex.join([sys.executable, __file__, "send", str(destination), "--sha256", checksum]), flush=True)
     return destination
 
 
-def load_inventory(path: Path) -> dict[str, Any]:
+def load_inventory(path: Path, expected_digest: str) -> dict[str, Any]:
     """Validate transport paths before reading any part or creating output."""
-    digest(path)
-    data = json.loads(path.read_bytes())
+    payload = ordinary(path.parent, path.name).read_bytes()
+    if hashlib.sha256(payload).hexdigest() != expected_digest:
+        raise ValueError("Transfer inventory differs from the reviewed sender checksum.")
+    data = json.loads(payload)
     if data["format_version"] != 1 or not data["parts"] or not data["files"]:
         raise ValueError("Unsupported or incomplete transfer inventory.")
     names = [path.name, *[part["name"] for part in data["parts"]], data["script"]["name"]]
@@ -159,7 +162,7 @@ def checked_parts(path: Path, data: dict[str, Any]):
         yield file
 
 
-def send(path: Path) -> None:
+def send(path: Path, expected_digest: str) -> None:
     """Send checked files through the operator's configured labctl session."""
     path = path.expanduser().absolute()
     if path.is_dir() and not path.is_symlink():
@@ -167,23 +170,25 @@ def send(path: Path) -> None:
         if len(matches) != 1:
             raise ValueError("The transfer directory must contain exactly one completed inventory.")
         path = matches[0]
-    data = load_inventory(path)
+    data = load_inventory(path, expected_digest)
     script = ordinary(path.parent, data["script"]["name"])
     if digest(script) != data["script"]["sha256"]:
         raise ValueError("Transfer script differs.")
     parts = list(checked_parts(path, data))
     for file in [script, *parts, path]:
+        if file == path and digest(path) != expected_digest:
+            raise ValueError("Transfer inventory changed during sending.")
         print(f"Sending {file.name}", flush=True)
         subprocess.run(["labctl", "pod", "put", str(file), file.name], check=True)
     print("In the pod home directory, choose a new output directory and run:", flush=True)
     print(
         "printf '%s  %s\\n' "
-        + shlex.quote(digest(script))
+        + shlex.quote(data["script"]["sha256"])
         + " "
         + shlex.quote(script.name)
         + " | sha256sum -c - && "
         + shlex.join(
-            ["python3", script.name, "receive", path.name, "NEW_PUBLICATION_DIRECTORY", "--sha256", digest(path)]
+            ["python3", script.name, "receive", path.name, "NEW_PUBLICATION_DIRECTORY", "--sha256", expected_digest]
         ),
         flush=True,
     )
@@ -192,9 +197,7 @@ def send(path: Path) -> None:
 def receive(path: Path, output: Path, expected_digest: str) -> None:
     """Reassemble and verify before extracting regular files into a new directory."""
     path, output = path.expanduser().absolute(), new_directory(output)
-    if digest(path) != expected_digest:
-        raise ValueError("Transfer inventory differs from the reviewed sender checksum.")
-    data = load_inventory(path)
+    data = load_inventory(path, expected_digest)
     if (
         digest(ordinary(path.parent, data["script"]["name"])) != data["script"]["sha256"]
         or digest(Path(__file__)) != data["script"]["sha256"]
@@ -238,6 +241,7 @@ def main(argv: list[str] | None = None) -> int:
     packing.add_argument("output", type=Path)
     sending = actions.add_parser("send", help="Upload verified parts with the existing labctl; no catalog writes.")
     sending.add_argument("inventory", type=Path)
+    sending.add_argument("--sha256", required=True, help="Inventory checksum printed by pack; retain that value.")
     receiving = actions.add_parser("receive", help="Verify and unpack into a new pod-local directory.")
     receiving.add_argument("inventory", type=Path)
     receiving.add_argument("output", type=Path)
@@ -248,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.action == "pack":
             pack(args.root, args.output)
         elif args.action == "send":
-            send(args.inventory)
+            send(args.inventory, args.sha256)
         else:
             receive(args.inventory, args.output, args.sha256)
     except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile, subprocess.CalledProcessError) as error:

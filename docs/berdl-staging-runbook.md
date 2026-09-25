@@ -135,11 +135,15 @@ filenames and ordered parts of at most 64 MiB.
 <!-- unverified: transport unit tests pass; actual labctl transfer and pod receipt await acceptance in https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
 ```bash
 just publication-transfer pack local/prepared-publication local/publication-transfer
-just publication-transfer send local/publication-transfer
+just publication-transfer send local/publication-transfer --sha256 SHA256_PRINTED_BY_PACK
 ```
 
 Pack verifies the prepared file hashes and archived contents before publishing
-the transfer inventory. Send checks the parts and helper, invokes the existing
+the transfer inventory. It prints the inventory checksum and a complete send
+command carrying that checksum. Use that printed command, or replace
+`SHA256_PRINTED_BY_PACK` above with the value printed by pack; do not recompute it
+from a changed inventory. Send verifies that original checksum before parsing
+the inventory or uploading anything. It checks the parts and helper, invokes the existing
 `labctl pod put`, and uploads the inventory last. A failed send can be retried
 from the same unchanged transfer directory; this sends the same transfer
 files again, not lakehouse tables. No catalog or object-store operation runs here.
@@ -162,7 +166,8 @@ Local pack/receive was exercised on the existing derived candidate on
 package validator accepted the received two-artifact snapshot. This did not
 contact the pod or repeat target-row validation.
 
-Receive also checks the adjacent and executing helper against the inventory's
+Send and receive refuse an inventory reached through a symlinked parent before
+reading it. Receive also checks the adjacent and executing helper against the inventory's
 script digest before creating output. It checks the sender's inventory digest, each part and the complete
 archive, requires the exact archive member set, and checks the extracted file
 hashes against both the transport inventory and preparation evidence. It writes
