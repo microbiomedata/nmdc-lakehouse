@@ -504,21 +504,25 @@ The parent manifest must have `full-mongodb-metadata-snapshot` scope. The derive
 manifest must have `derived-provenance-snapshot` scope and contain exactly
 `graph_edges` and `biosample_to_workflow_run`.
 
-From the maintained NMDC checkout in the pod, with its environment active:
+From the maintained NMDC checkout in the pod, with the matching source pair
+already installed as described in the [runtime setup](berdl-staging-runbook.md#set-up-the-pod-runtime-once):
 
 <!-- unverified: combined promotion awaits pod acceptance and exact-plan approval,
      tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
 ```bash
-export NMDC_SCHEMA_VERSION=11.23.0
-just berdl-promotion-plan \
+.venv/bin/nmdc-lakehouse berdl-promotion-plan \
   /absolute/path/to/metadata-staging-run \
   /absolute/path/to/derived-staging-run \
   /absolute/path/to/evidence/combined-promotion.json \
-  /absolute/path/to/reviewed-data-lakehouse-ingest \
-  "Stop writers; inspect the saved before state and restore reviewed content manually. Dropped-table recovery is not proven."
+  --ingest-checkout /absolute/path/to/reviewed-data-lakehouse-ingest \
+  --recovery "Stop writers; inspect the saved before state and restore reviewed content manually. Dropped-table recovery is not proven."
 ```
 
-Replace the example paths and source version with the verified run's values.
+Replace the example paths with the verified run's values. The installed source
+pair must match the snapshots; setting an environment variable alone does not
+change an already installed CLI environment. These pod commands need neither
+Just nor another dependency installation. The workstation's equivalent Just
+recipes remain available.
 The planner checks both complete staging outcomes, rereads table counts and all
 planned descriptions/schema properties, and captures current Iceberg `main`
 snapshot references. It records current canonical schemas, counts, comments and
@@ -562,7 +566,7 @@ to regenerate the combined plan, without printing submitted values.
 <!-- unverified: combined promotion awaits pod acceptance and exact-plan approval,
      tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
 ```bash
-just berdl-promote /absolute/path/to/evidence/combined-promotion.json
+.venv/bin/nmdc-lakehouse berdl-promote /absolute/path/to/evidence/combined-promotion.json
 ```
 
 Have Mark review this exact plan, the before state and the recovery limits before
@@ -573,7 +577,7 @@ printed by the preview:
 <!-- unverified: canonical execution requires approval of the exact combined plan,
      tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
 ```bash
-just berdl-promote /absolute/path/to/evidence/combined-promotion.json \
+.venv/bin/nmdc-lakehouse berdl-promote /absolute/path/to/evidence/combined-promotion.json \
   --authorize-plan-sha256 DIGEST_FROM_REVIEWED_PREVIEW \
   --authorize-canonical-namespace nmdc.metadata \
   --authorize-destination-id DESTINATION_FROM_REVIEWED_PREVIEW
