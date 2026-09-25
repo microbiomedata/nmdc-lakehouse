@@ -16,7 +16,7 @@ and most of them repeat one another. Measured on one run on 2026-09-23
   not select.
 
 `check_run` restates each of those as a check, so a sample of runs can confirm them before they
-are relied on. Conversion is https://github.com/microbiomedata/nmdc-lakehouse/issues/362 .
+are relied on. `nmdc_lakehouse.feature_convert` applies the result.
 
 Separately, some assemblies were annotated more than once (an older `.1` run and a newer `.2` run
 over the same input). `plan_runs` keeps one annotation run per input so the same genes are not
@@ -67,7 +67,9 @@ CALLER_TYPES: tuple[str, ...] = (
     "CRT Annotation GFF",
 )
 
-#: Types `check_run` reads.
+#: Types `check_run` reads. `convert_run` runs `check_run` first unless given its results, so it
+#: reads all of these; it writes rows only from FUNCTIONAL, HIT_TYPES, CONTIG_MAPPING and
+#: SCAFFOLD_LINEAGE, plus CALLER_TYPES when unselected calls are requested.
 CHECK_TYPES: tuple[str, ...] = (
     FUNCTIONAL,
     STRUCTURAL,
@@ -621,6 +623,20 @@ def check_run(files: Mapping[str, Path]) -> dict[str, dict[str, Any]]:
             True, crispr_terms_rows=terms, crt_rows=len(crt), crt_arrays=arrays, functional_crispr_rows=crispr_selected
         )
     return results
+
+
+def ambiguous_planned_files(plan: RunPlan, run_id: str) -> list[str]:
+    """Check/conversion types with multiple candidate inputs, excluded from the file map."""
+    return sorted({kind for run, kind in plan.ambiguous if run == run_id and kind in CHECK_TYPES})
+
+
+def missing_planned_files(entry: Mapping[str, Any], files: Mapping[str, Path]) -> list[str]:
+    """Non-empty planned check/conversion inputs absent from the download cache."""
+    return sorted(
+        kind
+        for kind, data_object in entry["files"].items()
+        if kind in CHECK_TYPES and kind not in files and int(data_object.get("file_size_bytes") or 0) > 0
+    )
 
 
 def cached_files(entry: Mapping[str, Any], cache_dir: Path) -> tuple[dict[str, Path], dict[str, str]]:
