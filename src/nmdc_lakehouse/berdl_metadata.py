@@ -310,7 +310,10 @@ def _default_progress(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
 
-def _runtime(checkout: Path) -> tuple[Any, Callable[..., dict[str, Any]], Callable[..., dict[str, Any]]]:
+def _runtime_imports(
+    checkout: Path,
+) -> tuple[Callable[..., Any], Callable[..., dict[str, Any]], Callable[..., dict[str, Any]]]:
+    """Check selected metadata and Spark imports without starting a session."""
     source_root = (checkout.expanduser() / "src").resolve()
     package_root = source_root / "data_lakehouse_ingest"
     sys.path.insert(0, str(source_root))
@@ -325,7 +328,16 @@ def _runtime(checkout: Path) -> tuple[Any, Callable[..., dict[str, Any]], Callab
     module_file = getattr(comments, "__file__", None)
     if module_file is None or not Path(module_file).resolve().is_relative_to(package_root):
         raise BerdlMetadataError("The metadata helpers were not imported from the selected checkout.")
-    return get_spark_session(), comments.apply_table_comment, comments.apply_comments_from_table_schema
+    table = getattr(comments, "apply_table_comment", None)
+    columns = getattr(comments, "apply_comments_from_table_schema", None)
+    if not callable(get_spark_session) or not callable(table) or not callable(columns):
+        raise BerdlMetadataError("The BERDL Spark/metadata runtime does not expose the required functions.")
+    return get_spark_session, table, columns
+
+
+def _runtime(checkout: Path) -> tuple[Any, Callable[..., dict[str, Any]], Callable[..., dict[str, Any]]]:
+    get_spark_session, table, columns = _runtime_imports(checkout)
+    return get_spark_session(), table, columns
 
 
 def _verify_ingest_checkout(checkout: Path, revision: str) -> None:

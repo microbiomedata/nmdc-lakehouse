@@ -1,7 +1,9 @@
 """Verify combined planning retains the established evidence and execution guards."""
 
 import json
+import sys
 from importlib.metadata import version
+from types import ModuleType
 
 import pytest
 from click.testing import CliRunner
@@ -16,9 +18,14 @@ from nmdc_lakehouse.publication_prepare import PreparationError, prepare_publica
 from tests.test_berdl_staging import REVISION, GitRunner, _checkout
 from tests.test_local_provenance import snapshot
 
+PREFLIGHT_RUNTIME = planning._preflight_runtime
+
 
 @pytest.fixture
-def prepared(tmp_path):
+def prepared(tmp_path, monkeypatch):
+    # Most cases exercise evidence composition; dedicated tests below load the
+    # real import preflight with inert platform modules instead of a live pod.
+    monkeypatch.setattr(planning, "_preflight_runtime", lambda checkout: None)
     source = tmp_path / "derived"
     derive_provenance(snapshot(tmp_path / "parent"), source)
     config = tmp_path / "prepare.json"
@@ -64,6 +71,70 @@ def prepared(tmp_path):
         )
     )
     return root, destination
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [None, "object-store", "spark", "ingest", "comments", "ingest-origin", "comments-origin", "client-factory"],
+)
+def test_planning_requires_runtime_imports_without_starting_services(prepared, monkeypatch, tmp_path, failure):
+    root, config = prepared
+    monkeypatch.setattr(planning, "_preflight_runtime", PREFLIGHT_RUNTIME)
+    checkout = config.parent / json.loads(config.read_text())["ingest_checkout"]
+    package_root = checkout / "src/data_lakehouse_ingest"
+    modules = {
+        name: ModuleType(name)
+        for name in (
+            "berdl_notebook_utils",
+            "berdl_notebook_utils.clients",
+            "berdl_notebook_utils.setup_spark_session",
+            "data_lakehouse_ingest",
+            "data_lakehouse_ingest.utils",
+            "data_lakehouse_ingest.utils.delta_comments",
+        )
+    }
+
+    def must_not_call(*args, **kwargs):
+        pytest.fail("Planning must not create clients/sessions or invoke ingest/metadata writes")
+
+    ingest = modules["data_lakehouse_ingest"]
+    comments = modules["data_lakehouse_ingest.utils.delta_comments"]
+    ingest.__file__ = str(package_root / "__init__.py")
+    comments.__file__ = str(package_root / "utils/delta_comments.py")
+    ingest.ingest = must_not_call
+    comments.apply_table_comment = comments.apply_comments_from_table_schema = must_not_call
+    modules["berdl_notebook_utils.clients"].get_s3_client = must_not_call
+    modules["berdl_notebook_utils.setup_spark_session"].get_spark_session = must_not_call
+    for name, module in modules.items():
+        monkeypatch.setitem(sys.modules, name, module)
+    missing = {
+        "object-store": "berdl_notebook_utils.clients",
+        "spark": "berdl_notebook_utils.setup_spark_session",
+        "ingest": "data_lakehouse_ingest",
+        "comments": "data_lakehouse_ingest.utils.delta_comments",
+    }
+    if failure in missing:
+        monkeypatch.setitem(sys.modules, missing[failure], None)
+    elif failure in {"ingest-origin", "comments-origin"}:
+        module = ingest if failure == "ingest-origin" else comments
+        module.__file__ = str(tmp_path / "other-checkout/__init__.py")
+    elif failure == "client-factory":
+        modules["berdl_notebook_utils.clients"].get_s3_client = None
+    before_path = sys.path.copy()
+    if failure is None:
+        assert planning.plan_publication(root, config, runner=GitRunner()).status == "plan-only"
+    else:
+        with pytest.raises(PreparationError, match="Pod runtime import preflight failed"):
+            planning.plan_publication(root, config, runner=GitRunner())
+        assert not (root / "evidence/berdl-staging-plan.json").exists()
+        # Repair only the environment; reuse the same preparation and evidence.
+        for name, module in modules.items():
+            monkeypatch.setitem(sys.modules, name, module)
+        ingest.__file__ = str(package_root / "__init__.py")
+        comments.__file__ = str(package_root / "utils/delta_comments.py")
+        modules["berdl_notebook_utils.clients"].get_s3_client = must_not_call
+        assert planning.plan_publication(root, config, runner=GitRunner()).status == "plan-only"
+    assert sys.path == before_path
 
 
 def test_all_plans_bind_same_prepared_evidence_and_resume(prepared):

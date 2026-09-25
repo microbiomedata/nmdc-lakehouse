@@ -142,7 +142,12 @@ Transfer the complete prepared directory from
 to the pod. Obtain a fresh [destination inventory](#capture-a-fresh-destination-inventory-without-mutation)
 and a clean official [`kbase/data-lakehouse-ingest`](https://github.com/kbase/data-lakehouse-ingest)
 checkout. Use the source pair selected during preparation in the pod environment.
-The planner does not install packages or contact the catalog.
+The planner does not install packages or contact the catalog. Before publishing
+the final staging plan, it verifies that the selected ingest/metadata helpers
+and inherited Spark/object-store helpers import successfully, resolve to the
+selected checkout where applicable, and expose the required functions. It does
+not create clients or sessions. A failed import requires environment repair and
+another planning attempt, not a new dump or full row-validation run.
 
 Write a destination JSON file, for example `destination.json`. Paths are relative
 to this file and must refer to pod-local files. Replace the namespace and object

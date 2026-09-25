@@ -290,6 +290,14 @@ with the inventory and ingest checkout paths above, plus an unused namespace and
 object prefix. All paths in that JSON are relative to the JSON file unless absolute.
 Then plan, preview and inspect status from this checkout:
 
+Planning verifies the approved checkout before importing its ingest and metadata
+helpers and the inherited Spark/object-store helpers. It checks import origins
+and required functions without calling ingest, creating a client, or starting a
+Spark session. Missing or conflicting runtime imports prevent publication of
+the final staging plan. Repair the environment and repeat planning with the same
+prepared files; no export or full row-validation rerun is needed. This checks
+imports, not live credentials, connectivity or destination permissions.
+
 <!-- unverified: combined pod workflow awaits acceptance in
      https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
 ```bash

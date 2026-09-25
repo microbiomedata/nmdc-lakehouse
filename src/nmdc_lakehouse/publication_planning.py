@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
+from nmdc_lakehouse import berdl_adapter, berdl_metadata
 from nmdc_lakehouse.berdl_staging import (
     BerdlStagingPlan,
     CommandRunner,
@@ -43,6 +44,17 @@ class PlanningConfig(BaseModel):
     staging_namespace: str
     bucket: str
     bronze_prefix: str
+
+
+def _preflight_runtime(checkout: Path) -> None:
+    """Reuse execution's import/origin checks without initializing services."""
+    try:
+        berdl_adapter._runtime_imports(checkout)
+        berdl_metadata._runtime_imports(checkout)
+    except (berdl_adapter.AdapterExecutionError, berdl_metadata.BerdlMetadataError) as error:
+        raise PreparationError(
+            f"Pod runtime import preflight failed ({error}); repair the environment and replan."
+        ) from error
 
 
 def plan_publication(root: Path, configuration: Path, *, runner: CommandRunner = _run_command) -> BerdlStagingPlan:
@@ -139,6 +151,7 @@ def plan_publication(root: Path, configuration: Path, *, runner: CommandRunner =
         config_key=f"{config.bronze_prefix}/config.json",
         runner=runner,
     )
+    _preflight_runtime(Path(plan.ingest.checkout))
     output = evidence / "berdl-staging-plan.json"
     if output.exists() or output.is_symlink():
         save_json(output, plan.model_dump(mode="json"))
