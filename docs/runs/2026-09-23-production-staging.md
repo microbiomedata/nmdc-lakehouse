@@ -180,13 +180,14 @@ additional files in the 46-table snapshot or its already reviewed staging plan.
 | Preparation code | PR #356 merge, `2ed4b7c30a1a250f1314d59b69962ed164b8235e` |
 | Proposed staging namespace | `nmdc.nmdc_provenance_staging_20260923_b79eb420` |
 
-The derived transfer archive contains the unchanged snapshot, full validation
-report, approved profile and metadata bundle, exact provenance schema, and
-historical local planning evidence. It is 3,101,393 bytes with SHA-256
+An earlier, unused derived transfer archive contained the unchanged snapshot,
+full validation report, approved profile and metadata bundle, exact provenance
+schema, and historical local planning evidence. It is 3,101,393 bytes with SHA-256
 `b483cc0f37aeb61a8fd7bcd272ecdd2a2e51df884ef85fcccbaaa6fa60e8937f`.
 A local extraction verified all 14 member hashes, snapshot integrity, and the
 existing validation report. No repeat MongoDB dump or full row validation is
-required to transfer those bytes.
+required. The maintained transfer below supersedes that archive and excludes
+machine-bound plans and historical observations.
 
 The archive's `evidence/local-preview` files are historical observations and
 plans. Before execution, collect a fresh destination inventory and construct a
@@ -196,6 +197,47 @@ object prefix are unused. The original run's pinned checkout and immutable plan
 remain separate. Namespace metadata operations are still deferred; the parent
 identity is retained in the manifest and evidence rather than claimed as a
 verified live namespace property.
+
+## September 25 maintained transfer
+
+The maintained standard-library helper sent the prepared derived publication
+through the Jupyter Contents API from reviewed commit
+`ce87b7a3014b3de1aee11ca89908d2cfb513febc`. All seven CI checks passed and the final
+Copilot review had no findings. PR #365 then merged as
+`f0cacb67188699545f6a67dfdfd74f1e029d7297`. The pack retained its earlier `5448101`
+label because the helper and prepared files were unchanged; their byte hashes
+were checked before reuse.
+
+| Transfer evidence | Recorded value |
+| --- | --- |
+| Inventory | `nmdc-transfer-746b7babc4d1.json` |
+| Inventory SHA-256 | `549da12f4032fc64651e49f8aaacc20399edfabbe937a5b9ca515f395e9a6248` |
+| Helper SHA-256 | `f1d181d1712b05e24c193d96d9541f2ce6f50eb4d573081e4d73f6cb715867ce` |
+| Single archive part | 3,131,299 bytes |
+| Part/archive SHA-256 | `b1e7c1c6bbb500d6f912ac339d6caab95501d894d5e3a079dfd7d6240c9bfc08` |
+| Selected files | Two Parquet files, manifest, derivation metrics, preparation receipt and three receipt-bound evidence files |
+| Received snapshot | The unchanged `b79eb420` derived snapshot identified above |
+
+The sender uploaded the helper, part and inventory successfully. The pod receive
+started at `2026-09-25T18:29:43Z` after checking that the output directory did not
+exist. The checksum gate verified the helper before Python executed it; receive
+verified the part and all eight extracted files. The `validate-snapshot` command
+in the existing pod runtime then accepted both Parquet artifacts and exited zero.
+
+An independent local check compared every returned file hash with both the
+frozen inventory and the retained prepared originals. It also checked the
+helper, part and snapshot identity. Credentials stayed in the sender's child
+environment; no credentials or row values are included in this record.
+No MongoDB dump, full target-row validation, lakehouse write or cleanup occurred.
+
+On Mark's Mac, logs and `independent-receipt-verification.json` are retained under
+`local/transfer-provenance-b79eb420-5448101-evidence/` in the data/evidence checkout.
+The verified pod publication is
+`/home/mamillerpa/nmdc-provenance-publication-b79eb420-5448101/`.
+The receive transcript is `~/pr365-derived-receive-20260925.term.log` on that pod.
+These locations belong to this run and account. The next step is a fresh inventory
+and staging preview with the merged commands in a separate pinned runtime.
+The existing parent runtime, plan and staging namespace remain intact.
 
 ## September 25 promotion acceptance
 
