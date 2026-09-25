@@ -9,6 +9,12 @@ schema, and count queries but no destination mutation. See
 [the BERDL upload guide](../docs/berdl-upload.md) for the required explicit
 destination labels and safety boundary.
 
+`python/setup_pod_runtime.py` builds the isolated pod runtime that plans and
+stages a prepared publication, using only the standard library. It runs under the
+pod's own Python from a clean clone at the reviewed commit and makes no BERDL
+changes. See
+[the staging runbook](../docs/berdl-staging-runbook.md#set-up-the-pod-runtime-once).
+
 The remaining scripts described below are legacy EMA pipeline copies.
 
 Direct copies of the NMDC flatten/export pipeline from
