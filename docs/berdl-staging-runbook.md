@@ -136,7 +136,7 @@ client process environment, never a token argument or `.env` file. It does not
 need a KBase token on the client. Enter the token at the hidden prompt in Bash or
 `zsh` rather than putting its value in shell history:
 
-<!-- unverified: token entry and direct API transfer await live acceptance in https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
+<!-- unverified: this interactive token-entry example was not used in the September 25 transfer, which reused an existing token through a child environment; tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
 ```bash
 export JUPYTERHUB_URL=https://hub.berdl.kbase.us
 export JUPYTERHUB_USER=YOUR_ACCOUNT
