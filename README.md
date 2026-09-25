@@ -11,6 +11,11 @@ Parquet artifacts for downstream lakehouse publication.
 
 ## Implementation status
 
+Start with the [complete publication lifecycle](docs/publication-lifecycle.md)
+for schema releases, local Parquet and provenance, metadata, pod staging,
+promotion, credentials and cleanup. The guide identifies completed run evidence
+and operations that still need live acceptance.
+
 “Implemented” means exercised by package code and tests. “Prototype/manual”
 means operational work exists, but not as a supported package job. “Planned”
 means an interface or dependency may exist without executable support.
@@ -28,7 +33,7 @@ means an interface or dependency may exist without executable support.
 | Workflow results | Fetch/cache/parse NERSC result files | **Prototype/manual** | File-type-specific notebooks and scripts produce Parquet; migration into registered package jobs is tracked in [#130](https://github.com/microbiomedata/nmdc-lakehouse/issues/130). |
 | Publication | Generate a reviewable metadata bundle | **Implemented** | An offline command joins exact snapshot footer descriptions with a snapshot-bound, reviewed profile; it does not apply metadata to a destination. |
 | Publication | Draft a snapshot-bound metadata profile | **Implemented** | An offline command reads the validated snapshot identity and combines it with explicit operator-supplied namespace content for review. |
-| Publication | Stage snapshots and register destination assets | **Manual/external** | Maintained ETL stops at schema-directed local Parquet. The portable publication contract is destination-neutral; BERDL is one documented profile. |
+| Publication | Stage snapshots and register destination assets | **Implemented; combined path awaits live acceptance** | Maintained commands plan, stage and verify data and table metadata through the reviewed BERDL ingest adapter. Canonical promotion requires separate exact-plan approval. |
 | Upstream mutation | Write flattened data back to MongoDB | **Legacy only** | Maintained jobs never write to production MongoDB. A copied EMA script does write `flattened_*` collections and is tracked for retirement in [#27](https://github.com/microbiomedata/nmdc-lakehouse/issues/27). |
 | JGI/GOLD integration | Read or publish JGI/GOLD data | **Not implemented** | There is no JGI adapter or job. A copied, unregistered CSV utility retains “GOLD” in its filename and defaults, but is only a generic MongoDB collection exporter. |
 

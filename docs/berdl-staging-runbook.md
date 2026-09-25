@@ -1,6 +1,8 @@
 # Stage a validated NMDC snapshot in BERDL
 
-Use this page to follow the current path and locate its evidence. The detailed
+Use this page to follow the current path and locate its evidence. Start with
+[the complete lifecycle](publication-lifecycle.md) for schema releases, derived
+tables, prerequisites, promotion and cleanup. The detailed
 command arguments and recovery procedures are in [BERDL upload](berdl-upload.md).
 The [2026-09-23 run record](runs/2026-09-23-production-staging.md) distinguishes
 what has passed in production from what remains unverified.
@@ -17,7 +19,7 @@ A saved full validation report avoids another row-validation run.
 | Phase | Where | Command or operation | Completion evidence |
 | --- | --- | --- | --- |
 | Prepare | Workstation | `just prepare-publication CONFIGURATION OUTPUT` | Immutable snapshot, full validation, descriptions and receipt |
-| Send | Workstation to pod | Archive and `labctl pod put`, below | Same archive hash and manifested files |
+| Send | Workstation to pod | `just publication-transfer pack ...`, then `send ...`; receive in pod | Inventory, part/archive hashes and exact prepared file set |
 | Plan | Pod | `plan-publication ROOT CONFIGURATION` | Dispositions, preflight, metadata plan and staging plan |
 | Stage | Same pod/runtime | `stage-publication ROOT`, then its authorized execution | Data and table metadata outcomes |
 | Status/resume | Same pod/runtime | `publication-status ROOT`; repeat stage for metadata-only retry | Checked saved evidence and next action |
@@ -122,57 +124,65 @@ BERDL execution additionally needs the pod's KBase session and permission to rea
 the catalog and write the selected staging namespace and object prefix. Keep all
 credentials in their established environment, outside configurations and evidence.
 
-On the workstation, from a durable transfer directory, set `PREPARED` to the
-absolute output of preparation. Only snapshot, reviewed evidence and the receipt
-are sent; export logs and workstation input paths are excluded. Bounded parts
-avoid the large contents-API upload failures observed in earlier runs.
+From the lakehouse checkout, package a prepared publication into a new durable
+transfer directory, then send it. This single standard-library Python helper
+runs on both the client and pod; no Python package installation is needed for
+transport. It includes only manifest-owned snapshot files, the preparation
+receipt, and the three receipt-bound evidence files. It excludes runtime logs,
+credentials, unrelated files and machine-bound plans. Each transfer has unique
+filenames and ordered parts of at most 64 MiB.
 
-<!-- unverified: combined pod workflow awaits acceptance in
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
+<!-- unverified: transport unit tests pass; actual labctl transfer and pod receipt await acceptance in https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
 ```bash
-(
-set -e
-PREPARED=/absolute/path/to/prepared-publication
-mkdir -m 700 publication-transfer
-cd publication-transfer
-COPYFILE_DISABLE=1 tar -czf publication.tar.gz -C "$PREPARED" snapshot evidence preparation.json
-shasum -a 256 publication.tar.gz > publication.sha256
-split -b 64m publication.tar.gz publication.part-
-labctl pod put publication.sha256 publication.sha256
-for part in publication.part-*; do labctl pod put "$part" "${part##*/}"; done
-)
+just publication-transfer pack local/prepared-publication local/publication-transfer
+just publication-transfer send local/publication-transfer
 ```
 
-Use an empty transfer directory for each run so old parts cannot join the new
-archive. Do not stage until every part has transferred. `COPYFILE_DISABLE=1`
-prevents macOS metadata files from entering the snapshot. On the pod, from its
-home directory, reconstruct, verify and extract to a **new** private directory:
+Pack verifies the prepared file hashes and archived contents before publishing
+the transfer inventory. Send checks the parts and helper, invokes the existing
+`labctl pod put`, and uploads the inventory last. A failed send can be retried
+from the same unchanged transfer directory; this sends the same transfer
+files again, not lakehouse tables. No catalog or object-store operation runs here.
 
-<!-- unverified: combined pod workflow awaits acceptance in
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
+Send prints a short command for the pod home directory. Copy that command,
+replace only `NEW_PUBLICATION_DIRECTORY` with a new durable path, and run it.
+The names and SHA-256 in this example are placeholders for the printed values:
+
+<!-- unverified: actual pod receipt awaits acceptance in https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
 ```bash
-export PUBLICATION_ROOT="$PWD/nmdc-publication-reviewed"
-(
-set -e
-cat publication.part-* > publication.tar.gz
-sha256sum -c publication.sha256
-mkdir -m 700 "$PUBLICATION_ROOT"
-python3 -m tarfile --filter data --extract publication.tar.gz "$PUBLICATION_ROOT"
-)
+cd "$HOME"
+python3 nmdc-transfer-UNIQUE.py receive nmdc-transfer-UNIQUE.json nmdc-publication-reviewed --sha256 PRINTED_INVENTORY_SHA256
+export PUBLICATION_ROOT="$HOME/nmdc-publication-reviewed"
 ```
 
-Each subshell stops and returns a failure status when any step fails. Do not
-continue to the next block after a failure. Keep the local original and verified
-pod copy; retain the transfer parts until verification and planning succeed.
-The safe extraction filter requires Python 3.12 or newer; the runtime below uses
-3.13. Planning rechecks every manifested file and the prepared evidence hashes.
-A matching archive hash is the transfer check, not a substitute for those checks.
+Local pack/receive was exercised on the existing derived candidate on
+2026-09-25: all eight selected files retained their hashes, and the existing
+package validator accepted the received two-artifact snapshot. This did not
+contact the pod or repeat target-row validation.
+
+Receive checks the sender's inventory digest, each part and the complete
+archive, requires the exact archive member set, and checks the extracted file
+hashes against both the transport inventory and preparation evidence. It writes
+regular files only beneath a new private directory and refuses path traversal,
+symlinked parents and existing output. A failed receive can leave partial files:
+keep them for diagnosis and use a new output directory. Never stage a partial
+receive. Package-level planning still verifies snapshot semantics, Parquet
+footers and full validation; a transport check does not replace those checks.
+
+Keep the local original and verified pod copy. Retain transfer parts until
+verification and planning succeed; later cleanup follows the
+[lifecycle retention boundaries](publication-lifecycle.md#8-routine-cleanup-and-optional-historical-retirement).
+This helper accepts prepared publications, not historical run-specific archives.
+Reuse the September parent transfer as recorded rather than packaging it again.
 
 ## Set up the pod runtime once
 
 Use a new durable runtime checkout for this publication. Existing reviewed plans
 bind their interpreter and adapter, so do not update a runtime serving an older
-plan. Clone merged NMDC code and the approved official ingest revision:
+plan. Clone merged NMDC code at the exact reviewed commit and the approved official
+ingest revision. Replace `REVIEWED_NMDC_COMMIT` below; do not use an unreviewed
+floating main for a previously approved plan. This one-time shell setup remains
+manual; a reusable bootstrap is still part of issue #353.
 
 <!-- unverified: combined pod workflow awaits acceptance in
      https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
@@ -181,6 +191,7 @@ mkdir -p "$HOME/nmdc-publication-runtime" &&
 cd "$HOME/nmdc-publication-runtime" &&
 git clone https://github.com/microbiomedata/nmdc-lakehouse.git &&
 cd nmdc-lakehouse &&
+git checkout --detach REVIEWED_NMDC_COMMIT &&
 git rev-parse HEAD &&
 git clone https://github.com/kbase/data-lakehouse-ingest.git ../data-lakehouse-ingest &&
 git -C ../data-lakehouse-ingest checkout --detach a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3 &&
