@@ -334,6 +334,7 @@ As recorded on **2026-09-25**, without refreshing the data:
 | Complete collection export and full validation | Complete: 46 artifacts, 53,217,239 artifact rows, zero invalid |
 | Parent data/table/column staging | Verified: `nmdc.nmdc_metadata_staging_20260923_58277b41` |
 | Derived schema, files, full validation and metadata | Complete locally: 136,776 edges, 57,786 pairs, all 15 column descriptions |
+| Derived transfer and pod receipt | Verified on September 25 at `ce87b7a`: eight file hashes matched; both Parquet artifacts validated |
 | Promotion content comparison and disposable writer | Passed on September 25 at `35a54c8`: all 46 staged tables; small-table add/replace and metadata readback |
 | Derived staging and new combined path acceptance | Pending live pod execution |
 | Canonical promotion | Not executed; needs live acceptance, fresh exact plan and approval |

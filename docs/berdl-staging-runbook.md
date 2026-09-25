@@ -136,7 +136,7 @@ client process environment, never a token argument or `.env` file. It does not
 need a KBase token on the client. Enter the token at the hidden prompt in Bash or
 `zsh` rather than putting its value in shell history:
 
-<!-- unverified: token entry and direct API transfer await live acceptance in https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
+<!-- unverified: this interactive token-entry example was not used in the September 25 transfer, which reused an existing token through a child environment; tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
 ```bash
 export JUPYTERHUB_URL=https://hub.berdl.kbase.us
 export JUPYTERHUB_USER=YOUR_ACCOUNT
@@ -161,7 +161,7 @@ receipt, and the three receipt-bound evidence files. It excludes runtime logs,
 credentials, unrelated files and machine-bound plans. Each transfer has unique
 filenames and ordered parts of at most 64 MiB.
 
-<!-- unverified: local HTTP tests pass; actual direct API transfer and pod receipt await acceptance in https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
+<!-- verified: 2026-09-25 the pack/send helper transferred the derived candidate through the Contents API; substitute the actual paths and printed checksum. -->
 ```bash
 just publication-transfer pack local/prepared-publication local/publication-transfer
 just publication-transfer send local/publication-transfer --sha256 SHA256_PRINTED_BY_PACK
@@ -201,17 +201,20 @@ this uses the pod's existing checksum utility. Copy that complete command,
 replace only `NEW_PUBLICATION_DIRECTORY` with a new durable path, and run it.
 The names and SHA-256 in this example are placeholders for the printed values:
 
-<!-- unverified: actual pod receipt awaits acceptance in https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
+<!-- verified: 2026-09-25 the checksum-first receive command verified all eight derived candidate files in the pod; substitute the printed names and hashes. -->
 ```bash
 cd "$HOME"
 printf '%s  %s\n' PRINTED_HELPER_SHA256 nmdc-transfer-UNIQUE.py | sha256sum -c - && python3 nmdc-transfer-UNIQUE.py receive nmdc-transfer-UNIQUE.json nmdc-publication-reviewed --sha256 PRINTED_INVENTORY_SHA256
 export PUBLICATION_ROOT="$HOME/nmdc-publication-reviewed"
 ```
 
-Local pack/receive was exercised on the existing derived candidate on
-2026-09-25: all eight selected files retained their hashes, and the existing
-package validator accepted the received two-artifact snapshot. This did not
-contact the pod or repeat target-row validation.
+The complete pack/send/receive path passed on the existing derived candidate on
+2026-09-25. The pod checked the helper before execution, verified all eight files,
+and accepted the two-artifact snapshot with `validate-snapshot`. An independent
+local comparison matched every returned file hash against the frozen inventory
+and prepared originals. This did not repeat target-row validation or write
+lakehouse tables. The [run record](runs/2026-09-23-production-staging.md#september-25-maintained-transfer)
+identifies the sender, pack and evidence; derived planning and staging remain separate steps.
 
 Send and receive refuse an inventory reached through a symlinked parent before
 reading it. Receive also checks the adjacent and executing helper against the inventory's
