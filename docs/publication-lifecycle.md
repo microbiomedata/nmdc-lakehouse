@@ -206,7 +206,8 @@ populated MongoDB value; the focused source-to-output audit remains separate.
 Use the [staging runbook](berdl-staging-runbook.md#send-to-the-pod) for the
 maintained transfer helper, pinned pod setup, destination JSON and exact staging
 commands. One standard-library Python script handles pack/send/receive; it needs
-no package installation. Send uses an already authenticated `labctl pod put`.
+no package installation. Send calls the Jupyter Contents API directly, using an
+environment-only JupyterHub API token and the configured Hub URL and username.
 The same transferred script verifies and extracts in the pod. It sends only
 manifest-owned snapshot files, the preparation receipt and its three evidence
 files, excluding logs, `.env`, credentials and machine-bound staging plans.
@@ -301,7 +302,9 @@ in [#367](https://github.com/microbiomedata/nmdc-lakehouse/issues/367).
 1. Mark signs into the intended KBase JupyterHub account in Chrome and opens its
    JupyterLab pod. The agent reports the intended read or staging operation before
    interacting with the pod. Browser access and API access are different routes.
-2. Transfer reviewed files through the existing authenticated upload mechanism.
+2. Transfer reviewed files through the documented Contents API sender, or the
+   authenticated file browser. A browser agent may be unable to operate the native
+   file picker; report that limitation rather than assuming it can upload files.
    In Chrome, open a JupyterLab Terminal and run a short command referring to the
    reviewed file. Avoid pasting a long multiline script into a browser terminal.
 3. Confirm the exact Git commit, source version, inventory and checksums before

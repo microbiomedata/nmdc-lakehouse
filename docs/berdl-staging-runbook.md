@@ -115,14 +115,43 @@ The dump needs MongoDB read credentials and the production route/tunnel. Once it
 is complete, preparation of saved files and BERDL staging do not need that tunnel.
 A later source preservation audit needs MongoDB access again.
 
-The send step needs an authenticated JupyterHub session. These commands use the
-operator's existing `labctl pod put LOCAL_FILE REMOTE_FILE`, whose remote paths
-are relative to that user's pod home. `labctl` is a separately installed operator
-tool, not a Python dependency of this repository. Configure it for your account;
-the authenticated Jupyter file browser can transfer the same files instead.
+The send step calls the [Jupyter Server Contents API](https://jupyter-server.readthedocs.io/en/latest/developers/rest-api.html)
+directly with Python's standard library. It needs the Hub base URL, your username
+and a JupyterHub API token authorized to access your running default server.
+The destination is that server's file-browser root, normally your pod home.
+Start the server through JupyterHub first; the helper does not start it or support
+named servers. The authenticated Jupyter file browser can transfer the same
+files instead, helper first, ordered parts next and inventory last.
 BERDL execution additionally needs the pod's KBase session and permission to read
 the catalog and write the selected staging namespace and object prefix. Keep all
 credentials in their established environment, outside configurations and evidence.
+
+Sign into your Hub and open its token page, for BERDL
+[hub.berdl.kbase.us/hub/token](https://hub.berdl.kbase.us/hub/token).
+Request a token with a recognizable purpose and suitable expiration. It needs
+access to your server; a token with the normal `inherit` scope uses your account's
+permissions. See [JupyterHub token permissions](https://jupyterhub.readthedocs.io/en/stable/howto/rest.html#assigning-permissions-to-a-token).
+Keep the value private. The sender reads only `JUPYTERHUB_API_TOKEN` from the
+client process environment, never a token argument or `.env` file. It does not
+need a KBase token on the client. Enter the token at the hidden prompt in Bash or
+`zsh` rather than putting its value in shell history:
+
+<!-- unverified: token entry and direct API transfer await live acceptance in https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
+```bash
+export JUPYTERHUB_URL=https://hub.berdl.kbase.us
+export JUPYTERHUB_USER=YOUR_ACCOUNT
+printf 'JupyterHub API token: '
+read -r -s JUPYTERHUB_API_TOKEN
+printf '\n'
+export JUPYTERHUB_API_TOKEN
+```
+
+Use the Hub base URL, without `/hub/token` or `/user/ACCOUNT`. Send also accepts
+`--hub-url` and `--username`, which override their environment values. HTTPS is
+required except for a loopback test server or local tunnel. Authorization is sent
+in a header; redirects are refused so it cannot follow a redirect to another
+destination. The helper reports status codes without printing tokens or response
+bodies. Clear the client token with `unset JUPYTERHUB_API_TOKEN` after transfer.
 
 From the lakehouse checkout, package a prepared publication into a new durable
 transfer directory, then send it. This single standard-library Python helper
@@ -132,7 +161,7 @@ receipt, and the three receipt-bound evidence files. It excludes runtime logs,
 credentials, unrelated files and machine-bound plans. Each transfer has unique
 filenames and ordered parts of at most 64 MiB.
 
-<!-- unverified: transport unit tests pass; actual labctl transfer and pod receipt await acceptance in https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
+<!-- unverified: local HTTP tests pass; actual direct API transfer and pod receipt await acceptance in https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
 ```bash
 just publication-transfer pack local/prepared-publication local/publication-transfer
 just publication-transfer send local/publication-transfer --sha256 SHA256_PRINTED_BY_PACK
@@ -143,10 +172,22 @@ the transfer inventory. It prints the inventory checksum and a complete send
 command carrying that checksum. Use that printed command, or replace
 `SHA256_PRINTED_BY_PACK` above with the value printed by pack; do not recompute it
 from a changed inventory. Send verifies that original checksum before parsing
-the inventory or uploading anything. It checks the parts and helper, invokes the existing
-`labctl pod put`, and uploads the inventory last. A failed send can be retried
+the inventory or uploading anything. It checks the parts and helper, uploads
+each through a JSON/base64 Contents API PUT, and uploads the inventory last.
+Encoding increases each part's request size by about one third. A failed send can be retried
 from the same unchanged transfer directory; this sends the same transfer
 files again, not lakehouse tables. No catalog or object-store operation runs here.
+
+An HTTP 401 or 403 stops transfer immediately; it does not prove token expiration.
+Check the token page for expiration, revocation and permissions, confirm the
+selected user's server is running, and retry the same unchanged pack when access
+is restored. If replacement is needed, request a new token, enter it through the
+same hidden prompt, and revoke the superseded token when appropriate. On
+2026-09-25 an existing token was refused for about 15 minutes and later worked
+unchanged through the operator's previous client; the cause remains unknown.
+That observation does not constitute acceptance of this new sender. Keep the
+failed transfer log; do not disable cross-site request forgery checks or print
+credentials to diagnose access. No new MongoDB dump or row validation is needed.
 
 A failed pack can leave a helper or parts without a completed inventory. Keep
 that directory for diagnosis and use a new pack output directory; send requires

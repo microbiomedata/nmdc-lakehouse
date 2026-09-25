@@ -242,8 +242,8 @@ the notebook file browser or through a client that speaks to it. The SOCKS tunne
 play no part in this and do not need to be up.
 
 Use the maintained [pack/send/receive procedure](berdl-staging-runbook.md#send-to-the-pod).
-It packages a prepared publication, sends bounded parts through the existing
-`labctl pod put`, verifies the helper before execution, and verifies every
+It packages a prepared publication, sends bounded parts directly through the
+Jupyter Contents API, verifies the helper before execution, and verifies every
 received file. It excludes unrelated files and machine-bound runtime plans.
 The received snapshot and evidence are then checked by `plan-publication`.
 Do not use the earlier manual tar/split/reassembly instructions for a new run.
@@ -672,11 +672,11 @@ approval and canonical execution remain pending, tracked in
 Anything that touches the live catalog needs a Spark session, and a Spark
 session means a pod. Preparation, `plan-publication` and previewing an existing
 promotion plan read local files. Creating a combined promotion plan rereads the
-live catalog and therefore needs the pod runtime. The method is not obvious and `labctl status` is misleading
-about it: there is no programmatic exec, but the JupyterHub terminal in a
-browser is a real shell in the pod.
+live catalog and therefore needs the pod runtime. The JupyterHub terminal in a
+browser is a real shell in the pod; the repository's transfer helper only moves
+files and does not execute commands there.
 
-Stage the file with `labctl pod put` rather than pasting it. For snapshot data,
+Upload a script through the JupyterLab file browser. For snapshot data,
 use the bounded archive parts and checksum verification in the
 [staging runbook](berdl-staging-runbook.md#send-to-the-pod). The maintained
 `stage-publication` path reads a pod-local snapshot. The direct `mc` upload below
@@ -721,15 +721,15 @@ through `ANSWER-4`, makes the result one line rather than a hunt.
 Two things that waste time if nobody says them. Click the prompt line before
 typing: an unfocused JupyterLab terminal accepts keystrokes and silently drops
 them, so a pasted command can simply not arrive. And avoid pasting multi-line
-input directly, because the terminal's handling of it is unreliable; that is
-what `labctl pod put` is for.
+input directly, because the terminal's handling of it is unreliable. Upload a
+reviewed script, verify its checksum, and invoke it with one command instead.
 
 ## Move bulk data with `mc`, for a one-off transfer
 
 `mc` reaches BERDL object storage directly from a workstation. Verified
 2026-08-24 by uploading a whole snapshot in one command: 55 objects, 448 MiB,
-checked against local byte counts, with no pod involved and no tunnels beyond
-what `labctl up berdl` already provides.
+checked against local byte counts. An operator-specific network route was
+already configured; this historical run did not establish portable client setup.
 
 **This does not replace the maintained transfer above, and swapping it in would
 break the run.** `plan-publication` binds `--data-dir` to a resolved local
@@ -773,7 +773,7 @@ mc cp --recursive /absolute/path/to/snapshot/ \
 ```
 
 **No proxy is set here, and that is what the 2026-08-24 run used**, from a
-workstation where `labctl up berdl` had already made the storage reachable. It is
+workstation where an operator-specific route had already made storage reachable. It is
 not what the off-cluster path below uses: that one prefixes every `mc` call with
 `https_proxy=http://127.0.0.1:8123` against the SOCKS tunnels, because
 `configure_mc.sh` is invoked with `bash` and a variable it exports cannot reach
@@ -783,13 +783,12 @@ is a default: check before assuming this line works in your shell.
 
 This is worth stating because the 2026-08-20 run did it the hard way: tarred the
 snapshot to 368 MB, split it into four 100 MB chunks, pushed each through the
-Jupyter contents API with `labctl pod put`, and reassembled in the pod. The
+Jupyter Contents API with an operator-specific client, and reassembled in the pod. The
 pieces were never deleted, so 736 MB of them sat in the pod home afterwards, and
 the reason for the workaround survived only as five cryptic filenames.
 
-The rule, with its boundary: **`labctl pod put` is for scripts and small files.
 For a one-off transfer, or for data you are placing where something already
-reads it from object storage, use `mc`.** It is not a substitute for the
+reads it from object storage, use `mc`. It is not a substitute for the
 maintained `stage-publication` inputs: that path binds `--data-dir` to a local
 snapshot and the adapter reads those Parquet files from the pod filesystem
 before uploading them itself (`berdl_staging.py:598-604`,

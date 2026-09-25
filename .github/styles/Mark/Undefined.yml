@@ -151,7 +151,7 @@ exceptions:
   - 'OFFSET'
   - 'TOTP'
   # Words the all-caps pattern cannot tell from an acronym: English words used
-  # for emphasis, SQL keywords, and the state labels labctl prints.
+  # for emphasis, SQL keywords, and operational state labels.
   - 'ALL'
   - 'AND'
   - 'ANY'

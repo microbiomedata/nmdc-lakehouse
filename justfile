@@ -47,7 +47,7 @@ validate-target-rows SNAPSHOT_ROOT REPORT *ARGS:
 prepare-publication CONFIGURATION OUTPUT:
     python3 scripts/python/prepare_publication.py "{{ CONFIGURATION }}" "{{ OUTPUT }}"
 
-# Pack, send or receive prepared files using Python's standard library and existing labctl.
+# Pack, send or receive prepared files through the Jupyter Contents API using Python's standard library.
 publication-transfer *ARGS:
     python3 scripts/python/publication_transfer.py {{ ARGS }}
 

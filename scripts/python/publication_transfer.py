@@ -1,4 +1,4 @@
-"""Transfer a prepared publication with Python's standard library and existing labctl.
+"""Transfer a prepared publication through the Jupyter Contents API using the standard library.
 
 This transports immutable files. It neither validates LinkML rows nor changes a catalog.
 """
@@ -6,14 +6,17 @@ This transports immutable files. It neither validates LinkML rows nor changes a 
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
 import shlex
 import shutil
-import subprocess
 import sys
 import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -162,8 +165,55 @@ def checked_parts(path: Path, data: dict[str, Any]):
         yield file
 
 
-def send(path: Path, expected_digest: str) -> None:
-    """Send checked files through the operator's configured labctl session."""
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Keep the authorization header at the explicitly configured destination."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        """Reject redirects instead of forwarding an authenticated request."""
+        return None
+
+
+def upload(file: Path, contents_url: str, token: str) -> None:
+    """Upload one bounded file without exposing credentials or server response bodies."""
+    body = json.dumps({"type": "file", "format": "base64", "content": base64.b64encode(file.read_bytes()).decode()})
+    request = urllib.request.Request(
+        contents_url + urllib.parse.quote(file.name, safe=""),
+        method="PUT",
+        data=body.encode(),
+        headers={
+            "Authorization": f"token {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "nmdc-lakehouse-publication-transfer/1",
+        },
+    )
+    try:
+        with urllib.request.build_opener(NoRedirect()).open(request, timeout=180) as response:
+            if response.status not in (200, 201):
+                raise ValueError(f"Jupyter upload failed (HTTP {response.status}).")
+            if response.headers.get_content_type() != "application/json":
+                raise ValueError("Jupyter upload returned unexpected content; check the Hub URL and authentication.")
+            try:
+                model = json.loads(response.read(65537))
+            except (ValueError, UnicodeError):
+                raise ValueError("Jupyter upload returned invalid file metadata.") from None
+            if not isinstance(model, dict) or any(
+                model.get(key) != value for key, value in {"type": "file", "name": file.name, "path": file.name}.items()
+            ):
+                raise ValueError("Jupyter upload did not confirm the expected file path.")
+    except urllib.error.HTTPError as error:
+        if error.code in (401, 403):
+            raise ValueError(
+                f"Jupyter upload refused (HTTP {error.code}); this can be temporary. Check the Hub token page, "
+                "token permissions and selected user's server. Replace JUPYTERHUB_API_TOKEN only if needed, "
+                "then retry the same transfer."
+            ) from None
+        raise ValueError(f"Jupyter upload failed (HTTP {error.code}); redirects are refused.") from None
+    except (urllib.error.URLError, OSError):
+        raise ValueError("Jupyter upload could not connect; check the Hub URL, network and server status.") from None
+
+
+def send(path: Path, expected_digest: str, hub_url: str | None = None, username: str | None = None) -> None:
+    """Send checked files to the user's server with an environment-only API token."""
     path = path.expanduser().absolute()
     if path.is_dir() and not path.is_symlink():
         matches = list(path.glob("nmdc-transfer-*.json"))
@@ -175,11 +225,34 @@ def send(path: Path, expected_digest: str) -> None:
     if digest(script) != data["script"]["sha256"]:
         raise ValueError("Transfer script differs.")
     parts = list(checked_parts(path, data))
+    hub_url = hub_url or os.environ.get("JUPYTERHUB_URL", "")
+    username = username or os.environ.get("JUPYTERHUB_USER", "")
+    parsed = urllib.parse.urlsplit(hub_url)
+    if (
+        not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or (
+            parsed.scheme != "https"
+            and not (parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "::1", "localhost"})
+        )
+    ):
+        raise ValueError(
+            "Set --hub-url or JUPYTERHUB_URL to the HTTPS Hub base URL without credentials/query/fragment."
+        )
+    if not username or username in {".", ".."} or any(c in username for c in "/\\\r\n"):
+        raise ValueError("Set --username or JUPYTERHUB_USER to the intended server account.")
+    token = os.environ.get("JUPYTERHUB_API_TOKEN", "")
+    if not token or any(ord(c) < 33 or ord(c) > 126 for c in token):
+        raise ValueError("Set JUPYTERHUB_API_TOKEN in the environment using a token from your Hub's /hub/token page.")
+    contents_url = hub_url.rstrip("/") + "/user/" + urllib.parse.quote(username, safe="") + "/api/contents/"
     for file in [script, *parts, path]:
         if file == path and digest(path) != expected_digest:
             raise ValueError("Transfer inventory changed during sending.")
         print(f"Sending {file.name}", flush=True)
-        subprocess.run(["labctl", "pod", "put", str(file), file.name], check=True)
+        upload(file, contents_url, token)
     print("In the pod home directory, choose a new output directory and run:", flush=True)
     print(
         "printf '%s  %s\\n' "
@@ -239,9 +312,13 @@ def main(argv: list[str] | None = None) -> int:
     packing = actions.add_parser("pack", help="Package one prepared publication; exclude logs and runtime evidence.")
     packing.add_argument("root", type=Path)
     packing.add_argument("output", type=Path)
-    sending = actions.add_parser("send", help="Upload verified parts with the existing labctl; no catalog writes.")
+    sending = actions.add_parser(
+        "send", help="Upload checked parts through the Jupyter Contents API; no catalog writes."
+    )
     sending.add_argument("inventory", type=Path)
     sending.add_argument("--sha256", required=True, help="Inventory checksum printed by pack; retain that value.")
+    sending.add_argument("--hub-url", help="HTTPS Hub base URL; defaults to JUPYTERHUB_URL.")
+    sending.add_argument("--username", help="Account; defaults to JUPYTERHUB_USER. Token: JUPYTERHUB_API_TOKEN only.")
     receiving = actions.add_parser("receive", help="Verify and unpack into a new pod-local directory.")
     receiving.add_argument("inventory", type=Path)
     receiving.add_argument("output", type=Path)
@@ -252,10 +329,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.action == "pack":
             pack(args.root, args.output)
         elif args.action == "send":
-            send(args.inventory, args.sha256)
+            send(args.inventory, args.sha256, args.hub_url, args.username)
         else:
             receive(args.inventory, args.output, args.sha256)
-    except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile, subprocess.CalledProcessError) as error:
+    except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile) as error:
         print(f"Transfer stopped ({type(error).__name__}): {error}", file=sys.stderr)
         return 1
     return 0
