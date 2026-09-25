@@ -863,7 +863,13 @@ def feature_check_command(plan_path: Path, runs_path: Path, cache_dir: Path, out
     import json
     from collections import Counter
 
-    from nmdc_lakehouse.feature_tables import CHECK_TYPES, cached_files, check_run, plan_from_json
+    from nmdc_lakehouse.feature_tables import (
+        ambiguous_planned_files,
+        cached_files,
+        check_run,
+        missing_planned_files,
+        plan_from_json,
+    )
 
     plan = plan_from_json(json.loads(plan_path.read_text()))
     run_ids = _read_run_ids(runs_path)
@@ -875,6 +881,15 @@ def feature_check_command(plan_path: Path, runs_path: Path, cache_dir: Path, out
     passes: Counter[str] = Counter()
     for run_id in run_ids:
         entry = plan.selected[run_id]
+        ambiguous = ambiguous_planned_files(plan, run_id)
+        if ambiguous:
+            report[run_id] = {
+                "type": entry["run"].get("type"),
+                "version": entry["run"].get("version"),
+                "checks": {"planned_files_unambiguous": {"passed": False, "ambiguous": ambiguous}},
+            }
+            failures["planned_files_unambiguous"] += 1
+            continue
         try:
             files, _ = cached_files(entry, cache_dir)
         except ValueError as error:
@@ -898,11 +913,7 @@ def feature_check_command(plan_path: Path, runs_path: Path, cache_dir: Path, out
         checks["md5_matches_nmdc"] = {"passed": not bad_md5, "mismatched": bad_md5, "files": len(files)}
         # A planned file absent from the cache would otherwise only mark its checks skipped.
         # Zero-byte files are left out of the download manifest, so they are not expected here.
-        missing = sorted(
-            t
-            for t, data_object in entry["files"].items()
-            if t in CHECK_TYPES and t not in files and int(data_object.get("file_size_bytes") or 0) > 0
-        )
+        missing = missing_planned_files(entry, files)
         checks["planned_files_present"] = {"passed": not missing, "missing": missing}
         for name, result in checks.items():
             if result.get("skipped"):
@@ -919,6 +930,112 @@ def feature_check_command(plan_path: Path, runs_path: Path, cache_dir: Path, out
         click.echo(f"  {passes[name]:>4} passed  {failures[name]:>4} failed  {name}")
     if failures:
         raise SystemExit(1)
+
+
+@cli.command("feature-convert")
+@click.argument("plan_path", type=click.Path(path_type=Path, dir_okay=False, exists=True))
+@click.option("--runs", "runs_path", type=click.Path(path_type=Path, dir_okay=False, exists=True), required=True)
+@click.option("--cache-dir", type=click.Path(path_type=Path, file_okay=False, exists=True), required=True)
+@click.option("--out-dir", type=click.Path(path_type=Path, file_okay=False), required=True)
+@click.option("--include-unselected", is_flag=True, help="Also write caller predictions the pipeline did not select.")
+def feature_convert_command(
+    plan_path: Path, runs_path: Path, cache_dir: Path, out_dir: Path, include_unselected: bool
+) -> None:
+    """Write features.parquet and contigs.parquet per run, in the BER feature model's shape.
+
+    Writes local files only. Nothing is uploaded to BERDL.
+    """
+    import json
+
+    from nmdc_lakehouse.feature_convert import convert_run
+    from nmdc_lakehouse.feature_tables import (
+        FUNCTIONAL,
+        ambiguous_planned_files,
+        cached_files,
+        missing_planned_files,
+        plan_from_json,
+    )
+
+    plan = plan_from_json(json.loads(plan_path.read_text()))
+    run_ids = _read_run_ids(runs_path)
+    if not run_ids:
+        raise click.ClickException(f"{runs_path} lists no runs; nothing would be converted.")
+    summary = []
+    missing: list[str] = []
+    missing_inputs: dict[str, list[str]] = {}
+    ambiguous_inputs: dict[str, list[str]] = {}
+    for run_id in run_ids:
+        entry = plan.selected[run_id]
+        ambiguous = ambiguous_planned_files(plan, run_id)
+        if ambiguous:
+            ambiguous_inputs[run_id] = ambiguous
+            click.echo(f"  ambiguous {run_id}: planned inputs {ambiguous}")
+            continue
+        try:
+            files, urls = cached_files(entry, cache_dir)
+        except ValueError as error:
+            raise click.ClickException(str(error)) from error
+        absent = missing_planned_files(entry, files)
+        if absent:
+            missing_inputs[run_id] = absent
+            click.echo(f"  missing {run_id}: planned cache files {absent}")
+        if FUNCTIONAL not in files:
+            # Required input missing: recorded and reported, and the command fails at the end.
+            click.echo(f"  missing {run_id}: no Functional Annotation GFF in {cache_dir}")
+            missing.append(run_id)
+            continue
+        if absent:
+            continue
+        try:
+            result = convert_run(
+                run_id,
+                files,
+                urls,
+                out_dir,
+                include_unselected=include_unselected,
+                assembly_run=entry["run"].get("assembly_run"),
+            )
+        except ValueError as error:
+            # DuplicateFeatureIdError, or a run ID that cannot name an output directory.
+            raise click.ClickException(str(error)) from error
+        summary.append(
+            {
+                "run_id": run_id,
+                "feature_rows": dict(result.feature_rows),
+                "contig_rows": result.contig_rows,
+                "dropped_keys": result.dropped_keys,
+                "duplicate_feature_ids": result.duplicate_feature_ids,
+                "renamed_duplicate_ids": result.renamed_duplicate_ids,
+                "unselected_refused": result.unselected_refused,
+                "orphan_hits": dict(result.orphan_hits),
+                "ambiguous_parent_hits": dict(result.ambiguous_parent_hits),
+            }
+        )
+        click.echo(f"  {run_id}: {sum(result.feature_rows.values()):,} features, {result.contig_rows:,} contigs")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "conversion_summary.json").write_text(
+        json.dumps(
+            {
+                "converted": summary,
+                "missing_functional_gff": missing,
+                "missing_planned_files": missing_inputs,
+                "ambiguous_planned_files": ambiguous_inputs,
+            },
+            indent=1,
+        )
+    )
+    failures = []
+    if missing:
+        failures.append(f"{len(missing)} run(s) had no Functional Annotation GFF in the cache: {missing[:3]}")
+    if missing_inputs:
+        failures.append(f"{len(missing_inputs)} run(s) have missing planned cache files")
+    if ambiguous_inputs:
+        failures.append(f"{len(ambiguous_inputs)} run(s) have ambiguous planned inputs")
+    refused = [item["run_id"] for item in summary if item["unselected_refused"]]
+    if refused:
+        failures.append(f"{len(refused)} run(s) refused --include-unselected: {refused[:3]}")
+    if failures:
+        raise click.ClickException("; ".join(failures) + f". See {out_dir / 'conversion_summary.json'}.")
 
 
 if __name__ == "__main__":
