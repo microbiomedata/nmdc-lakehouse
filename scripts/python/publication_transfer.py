@@ -177,7 +177,12 @@ def send(path: Path) -> None:
         subprocess.run(["labctl", "pod", "put", str(file), file.name], check=True)
     print("In the pod home directory, choose a new output directory and run:", flush=True)
     print(
-        shlex.join(
+        "printf '%s  %s\\n' "
+        + shlex.quote(digest(script))
+        + " "
+        + shlex.quote(script.name)
+        + " | sha256sum -c - && "
+        + shlex.join(
             ["python3", script.name, "receive", path.name, "NEW_PUBLICATION_DIRECTORY", "--sha256", digest(path)]
         ),
         flush=True,
@@ -190,6 +195,11 @@ def receive(path: Path, output: Path, expected_digest: str) -> None:
     if digest(path) != expected_digest:
         raise ValueError("Transfer inventory differs from the reviewed sender checksum.")
     data = load_inventory(path)
+    if (
+        digest(ordinary(path.parent, data["script"]["name"])) != data["script"]["sha256"]
+        or digest(Path(__file__)) != data["script"]["sha256"]
+    ):
+        raise ValueError("Transfer script differs from the reviewed helper.")
     with tempfile.TemporaryFile(dir=path.parent) as stream:
         archive_hash = hashlib.sha256()
         for part in checked_parts(path, data):

@@ -169,6 +169,7 @@ operational-command inventory.
 | `just berdl-doctor SNAPSHOT_ROOT` | Diagnose BERDL publication readiness without mutation |
 | `just validate-target-rows SNAPSHOT_ROOT REPORT` | Validate manifested rows against the packaged target LinkML schema |
 | `just prepare-publication CONFIGURATION OUTPUT` | Select the source pair and prepare a snapshot, full validation, and metadata together |
+| `just publication-transfer pack\|send\|receive ...` | Transfer prepared files with verified parts and the reviewed helper |
 | `just plan-publication ROOT CONFIGURATION` | Build disposition, metadata and exact staging plans together from a prepared directory |
 | `just stage-publication ROOT ...` | Preview, stage, or resume metadata after verified data |
 | `just publication-status ROOT` | Check saved evidence and show the next action |

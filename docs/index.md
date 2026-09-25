@@ -3,9 +3,11 @@
 This documentation covers the architecture and operational runbooks for the
 NMDC metadata-to-lakehouse work. Start with the repository
 [README](https://github.com/microbiomedata/nmdc-lakehouse#implementation-status)
-for the authoritative implementation-status matrix: local Parquet generation
-is implemented, while destination publication remains manual and external.
+for the authoritative implementation-status matrix. Local Parquet generation
+and publication commands are implemented. The combined pod workflow still needs
+live acceptance, and canonical promotion requires separate exact-plan approval.
 
+- [Complete publication lifecycle](publication-lifecycle.md)
 - [Architecture](architecture.md)
 - [Development setup](development-setup.md)
 - [Package versions and releases](releases.md)

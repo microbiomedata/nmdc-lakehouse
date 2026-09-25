@@ -2,6 +2,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import shlex
 import subprocess
 import zipfile
 from pathlib import Path
@@ -145,3 +146,34 @@ def test_inventory_checksum_and_incomplete_send_refused(prepared, tmp_path):
     inventory.unlink()
     with pytest.raises(ValueError, match="exactly one"):
         transfer.send(inventory.parent)
+
+
+def test_receive_rejects_changed_helper_before_creating_output(prepared, tmp_path):
+    inventory = transfer.pack(prepared, tmp_path / "transfer")
+    data = json.loads(inventory.read_text())
+    (inventory.parent / data["script"]["name"]).write_text("print('changed but valid Python')\n")
+    with pytest.raises(ValueError, match="reviewed helper"):
+        transfer.receive(inventory, tmp_path / "received", transfer.digest(inventory))
+    assert not (tmp_path / "received").exists()
+
+
+def test_printed_command_verifies_script_before_executing_it(prepared, tmp_path, monkeypatch, capsys):
+    inventory = transfer.pack(prepared, tmp_path / "transfer")
+    with monkeypatch.context() as patch:
+        patch.setattr(transfer.subprocess, "run", lambda *a, **kw: None)
+        transfer.send(inventory)
+    command = (
+        capsys.readouterr()
+        .out.splitlines()[-1]
+        .replace("NEW_PUBLICATION_DIRECTORY", shlex.quote(str(tmp_path / "received from printed command")))
+    )
+    completed = subprocess.run(command, shell=True, cwd=inventory.parent, capture_output=True, text=True)
+    assert completed.returncode == 0, completed.stderr
+    assert (tmp_path / "received from printed command/preparation.json").is_file()
+    data = json.loads(inventory.read_text())
+    (inventory.parent / data["script"]["name"]).write_text(
+        "from pathlib import Path\nPath('unreviewed-helper-executed').touch()\n"
+    )
+    result = subprocess.run(command, shell=True, cwd=inventory.parent, capture_output=True)
+    assert result.returncode != 0
+    assert not (inventory.parent / "unreviewed-helper-executed").exists()

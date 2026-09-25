@@ -144,14 +144,16 @@ the transfer inventory. Send checks the parts and helper, invokes the existing
 from the same unchanged transfer directory; this sends the same transfer
 files again, not lakehouse tables. No catalog or object-store operation runs here.
 
-Send prints a short command for the pod home directory. Copy that command,
+Send prints a command for the pod home directory. Its `sha256sum` gate checks
+the helper against the sender's printed digest **before executing Python**;
+this uses the pod's existing checksum utility. Copy that complete command,
 replace only `NEW_PUBLICATION_DIRECTORY` with a new durable path, and run it.
 The names and SHA-256 in this example are placeholders for the printed values:
 
 <!-- unverified: actual pod receipt awaits acceptance in https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
 ```bash
 cd "$HOME"
-python3 nmdc-transfer-UNIQUE.py receive nmdc-transfer-UNIQUE.json nmdc-publication-reviewed --sha256 PRINTED_INVENTORY_SHA256
+printf '%s  %s\n' PRINTED_HELPER_SHA256 nmdc-transfer-UNIQUE.py | sha256sum -c - && python3 nmdc-transfer-UNIQUE.py receive nmdc-transfer-UNIQUE.json nmdc-publication-reviewed --sha256 PRINTED_INVENTORY_SHA256
 export PUBLICATION_ROOT="$HOME/nmdc-publication-reviewed"
 ```
 
@@ -160,7 +162,8 @@ Local pack/receive was exercised on the existing derived candidate on
 package validator accepted the received two-artifact snapshot. This did not
 contact the pod or repeat target-row validation.
 
-Receive checks the sender's inventory digest, each part and the complete
+Receive also checks the adjacent and executing helper against the inventory's
+script digest before creating output. It checks the sender's inventory digest, each part and the complete
 archive, requires the exact archive member set, and checks the extracted file
 hashes against both the transport inventory and preparation evidence. It writes
 regular files only beneath a new private directory and refuses path traversal,
