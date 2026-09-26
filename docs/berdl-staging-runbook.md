@@ -235,41 +235,42 @@ Reuse the September parent transfer as recorded rather than packaging it again.
 
 ## Set up the pod runtime once
 
-Use a new durable runtime checkout for this publication. Existing reviewed plans
+Use a new durable runtime directory for this publication. Existing reviewed plans
 bind their interpreter and adapter, so do not update a runtime serving an older
-plan. Clone merged NMDC code at the exact reviewed commit and the approved official
-ingest revision. Replace `REVIEWED_NMDC_COMMIT` below; do not use an unreviewed
-floating main for a previously approved plan. This one-time shell setup remains
-manual; a reusable bootstrap is still part of issue #353.
+plan. Clone merged NMDC code, check out the exact reviewed commit, and run the
+setup script from that checkout with the pod's own `python3`. Replace
+`REVIEWED_NMDC_COMMIT` with the full 40-character commit; do not use an
+unreviewed floating main for a previously approved plan. Select the source
+version recorded in the prepared publication's `preparation.json`.
 
-<!-- unverified: combined pod workflow awaits acceptance in
+<!-- unverified: the setup script awaits live pod acceptance in
      https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
 ```bash
-mkdir -p "$HOME/nmdc-publication-runtime" &&
-cd "$HOME/nmdc-publication-runtime" &&
-git clone https://github.com/microbiomedata/nmdc-lakehouse.git &&
-cd nmdc-lakehouse &&
-git checkout --detach REVIEWED_NMDC_COMMIT &&
-git rev-parse HEAD &&
-git clone https://github.com/kbase/data-lakehouse-ingest.git ../data-lakehouse-ingest &&
-git -C ../data-lakehouse-ingest checkout --detach a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3 &&
-python3 -c 'import sys; assert sys.version_info[:2] == (3, 13), "Use the pod Python 3.13"' &&
-python3 -m venv .tools &&
-.tools/bin/python -m pip install --no-user uv==0.12.17 &&
-export PATH="$PWD/.tools/bin:$PATH" &&
-uv venv --system-site-packages --python "$(command -v python3)" .venv &&
-export NMDC_SCHEMA_VERSION=11.23.0 &&
-bash scripts/uv_with_source.sh sync --locked &&
-export PATH="$PWD/.venv/bin:$PATH" &&
-.venv/bin/python -c 'from berdl_notebook_utils.setup_spark_session import get_spark_session; from berdl_notebook_utils.clients import get_s3_client; import nmdc_lakehouse'
+RUNTIME="$HOME/nmdc-publication-runtime-REVIEWED_NMDC_COMMIT"
+git clone https://github.com/microbiomedata/nmdc-lakehouse.git "$RUNTIME/nmdc-lakehouse" &&
+git -C "$RUNTIME/nmdc-lakehouse" checkout --detach REVIEWED_NMDC_COMMIT &&
+python3 "$RUNTIME/nmdc-lakehouse/scripts/python/setup_pod_runtime.py" \
+  --commit REVIEWED_NMDC_COMMIT --source-version 11.23.0
 ```
 
-Select the version recorded in `preparation.json`; 11.23.0 above is the September
-production source, not a permanent default. `--system-site-packages` retains the
-pod's Spark/object-store libraries. These inherited packages are not completely
-pinned by the NMDC lockfile. `--no-user` avoids the pod's inherited pip user-install
-setting. The ingest revision above is the supported stock v0.1.5 revision; the
-planner refuses unreviewed revisions. BERIL is not a runtime dependency.
+`scripts/python/setup_pod_runtime.py` uses only the standard library. It refuses
+to start unless it runs under the pod's Python 3.13 outside any virtual
+environment, and unless the checkout is clean and at the given commit. It then
+clones the official ingest code beside the checkout at the supported stock
+v0.1.5 revision `a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3`, which is the only
+revision the planner accepts; creates `.tools` with uv 0.12.17 installed using
+`--no-user`, which avoids the pod's inherited pip user-install setting; creates
+`.venv` from the pod's own interpreter with `--system-site-packages`, which
+retains the pod's Spark and object-store libraries; installs the locked
+dependencies for the selected source version; and checks that those libraries
+and `nmdc_lakehouse` import. These inherited packages are not completely pinned
+by the NMDC lockfile. BERIL is not a runtime dependency.
+
+Each step prints its name, and a failing step stops the script with that name and
+its exit status. The script never reuses an existing `.tools`, `.venv` or ingest
+checkout, so after a failure start again with a new `RUNTIME` directory and keep
+the failed one for diagnosis. On success it prints the runtime path and the
+ingest checkout path to put in `destination.json`.
 
 Capture a fresh read-only inventory with the maintained audit script, with raw
 runtime diagnostics kept in a private log:
