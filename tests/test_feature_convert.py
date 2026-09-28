@@ -612,3 +612,28 @@ def test_attributes_split_only_the_multivalued_keys() -> None:
         {"key": "ec_number", "value": ""},
         {"key": "pfam", "value": "PF00003"},
     ]
+
+
+#: The keys the IMG functional and per-method dialects in feature-table-corpus declare as lists.
+LIST_KEYS = [
+    "Parent",
+    "pfam",
+    "cog",
+    "ko",
+    "ec_number",
+    "tigrfam",
+    "smart",
+    "superfamily",
+    "cath_funfam",
+    "transmembrane_helix_parts",
+    "subject_gene_ids",
+]
+
+
+def test_multivalued_keys_are_exactly_the_dialect_list_keys() -> None:
+    assert fc.MULTIVALUED_KEYS == frozenset(LIST_KEYS)
+
+
+@pytest.mark.parametrize("key", LIST_KEYS)
+def test_each_multivalued_key_splits(key: str) -> None:
+    assert fc._attributes([(key, "a,b")]) == [{"key": key, "value": "a"}, {"key": key, "value": "b"}]
