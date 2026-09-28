@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -901,3 +902,88 @@ def test_the_staging_rule_is_the_one_staging_itself_enforces() -> None:
         assert is_staging_dataset(dataset) is bool(_STAGING_DATASET.fullmatch(dataset))
     for dataset in ("metadata", "results", "staging", "nmdc_metadata"):
         assert is_staging_dataset(dataset) is False, dataset
+
+
+class _StatusCode:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
+class _RpcError(Exception):
+    """The two methods PySpark's retry loop reads from a gRPC error."""
+
+    def __init__(self, code: str, details: str) -> None:
+        super().__init__(details)
+        self._code, self._details = _StatusCode(code), details
+
+    def code(self) -> _StatusCode:
+        return self._code
+
+    def details(self) -> str:
+        return self._details
+
+
+class _RetryPolicy:
+    """The constructor and name of PySpark 4.0.1's RetryPolicy, which the pod supplies."""
+
+    def __init__(self, max_retries=None, initial_backoff=1000, max_backoff=None, backoff_multiplier=1.0):
+        self.max_retries, self.initial_backoff = max_retries, initial_backoff
+        self.max_backoff, self.backoff_multiplier = max_backoff, backoff_multiplier
+        self.name = type(self).__name__
+
+
+class _Client:
+    def __init__(self) -> None:
+        self.policies = [SimpleNamespace(name="DefaultPolicy")]
+
+    def get_retry_policies(self) -> list:
+        return list(self.policies)
+
+    def set_retry_policies(self, policies) -> None:
+        self.policies = list(policies)
+
+
+@pytest.fixture
+def pyspark_retries(monkeypatch):
+    module = SimpleNamespace(RetryPolicy=_RetryPolicy)
+    for name in ("pyspark", "pyspark.sql", "pyspark.sql.connect", "pyspark.sql.connect.client"):
+        monkeypatch.setitem(sys.modules, name, SimpleNamespace())
+    monkeypatch.setitem(sys.modules, "pyspark.sql.connect.client.retries", module)
+
+
+def test_only_the_token_check_failure_message_is_retried():
+    message = berdl_metadata.DROPPED_TOKEN_CHECK_MESSAGE
+    assert berdl_metadata._is_dropped_token_check(_RpcError("UNAUTHENTICATED", message))
+    assert not berdl_metadata._is_dropped_token_check(_RpcError("UNAUTHENTICATED", "Missing authentication token."))
+    assert not berdl_metadata._is_dropped_token_check(_RpcError("PERMISSION_DENIED", message))
+    assert not berdl_metadata._is_dropped_token_check(_RpcError("UNKNOWN", ""))
+    assert not berdl_metadata._is_dropped_token_check(RuntimeError(message))
+
+
+def test_retry_policy_is_added_once_after_the_default(pyspark_retries):
+    client = _Client()
+    spark = SimpleNamespace(client=client)
+    assert berdl_metadata._retry_dropped_token_checks(spark) is spark
+    berdl_metadata._retry_dropped_token_checks(spark)
+    assert [policy.name for policy in client.policies] == ["DefaultPolicy", "DroppedTokenCheck"]
+    retry = client.policies[1]
+    assert (retry.max_retries, retry.initial_backoff, retry.max_backoff, retry.backoff_multiplier) == (
+        berdl_metadata.DROPPED_TOKEN_CHECK_RETRIES,
+        5000,
+        10000,
+        2.0,
+    )
+    assert retry.can_retry(_RpcError("UNAUTHENTICATED", berdl_metadata.DROPPED_TOKEN_CHECK_MESSAGE))
+    assert not retry.can_retry(_RpcError("UNAUTHENTICATED", "Missing authentication token."))
+
+
+def test_session_without_retry_policies_is_refused(pyspark_retries):
+    with pytest.raises(BerdlMetadataError, match="not a Spark Connect session"):
+        berdl_metadata._retry_dropped_token_checks(SimpleNamespace())
+
+
+def test_runtime_session_retries_token_check_failures(monkeypatch, pyspark_retries):
+    spark = SimpleNamespace(client=_Client())
+    monkeypatch.setattr(berdl_metadata, "_runtime_imports", lambda _checkout: (lambda: spark, None, None))
+    assert berdl_metadata._runtime(Path("/unused"))[0] is spark
+    assert [policy.name for policy in spark.client.policies] == ["DefaultPolicy", "DroppedTokenCheck"]

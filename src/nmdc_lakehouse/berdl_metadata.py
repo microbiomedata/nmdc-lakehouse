@@ -335,9 +335,56 @@ def _runtime_imports(
     return get_spark_session, table, columns
 
 
+# The BERDL Spark Connect server checks the caller's KBase token with one HTTP request per call,
+# without a retry, and answers any failure of that request with this status and message. A dropped
+# connection to the KBase auth service therefore looks exactly like a bad token. See
+# https://github.com/microbiomedata/nmdc-lakehouse/issues/375.
+DROPPED_TOKEN_CHECK_MESSAGE = "Authentication failed. Please check your token."
+DROPPED_TOKEN_CHECK_RETRIES = 2
+
+
+def _is_dropped_token_check(error: BaseException) -> bool:
+    """Whether a Spark Connect gRPC error is the server's token-check failure message."""
+    code, details = getattr(error, "code", None), getattr(error, "details", None)
+    if not callable(code) or not callable(details):
+        return False
+    try:
+        return getattr(code(), "name", None) == "UNAUTHENTICATED" and details() == DROPPED_TOKEN_CHECK_MESSAGE
+    except Exception:
+        return False
+
+
+def _retry_dropped_token_checks(spark: Any) -> Any:
+    """Add a PySpark retry policy for token-check failures to this Spark Connect session.
+
+    PySpark retries each call itself, so a call the server refused before starting is sent again
+    and an interrupted result stream is reattached; neither runs a command twice. A token that is
+    really invalid still fails, after the retries.
+    """
+    client: Any = getattr(spark, "client", None)
+    if not callable(getattr(client, "get_retry_policies", None)) or not callable(
+        getattr(client, "set_retry_policies", None)
+    ):
+        raise BerdlMetadataError("The BERDL Spark session is not a Spark Connect session with retry policies.")
+    from pyspark.sql.connect.client.retries import RetryPolicy
+
+    class DroppedTokenCheck(RetryPolicy):
+        def can_retry(self, exception: BaseException) -> bool:
+            return _is_dropped_token_check(exception)
+
+    policies = client.get_retry_policies()
+    if not any(policy.name == DroppedTokenCheck.__name__ for policy in policies):
+        # Wait 5 seconds, then 10, before giving up.
+        retry = DroppedTokenCheck(
+            max_retries=DROPPED_TOKEN_CHECK_RETRIES, initial_backoff=5000, max_backoff=10000, backoff_multiplier=2.0
+        )
+        client.set_retry_policies([*policies, retry])
+    return spark
+
+
 def _runtime(checkout: Path) -> tuple[Any, Callable[..., dict[str, Any]], Callable[..., dict[str, Any]]]:
     get_spark_session, table, columns = _runtime_imports(checkout)
-    return get_spark_session(), table, columns
+    return _retry_dropped_token_checks(get_spark_session()), table, columns
 
 
 def _verify_ingest_checkout(checkout: Path, revision: str) -> None:
