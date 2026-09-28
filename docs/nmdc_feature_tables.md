@@ -71,6 +71,11 @@ matched it exactly; otherwise the key stays.
 `source_files` (list), `is_selected`, `product`, `product_source`, plus
 `source_data_object_type`, which the model does not have. `translated_sequence` and `location` are
 not filled.
+A key that NMDC writes as a comma-separated list (`pfam`, `cog`, `ko`, `ec_number` and the others in
+`MULTIVALUED_KEYS` in `src/nmdc_lakehouse/feature_convert.py`) gives one `attributes` entry per
+value, so `pfam=PF00001,PF00002` is two entries. Every other value is kept whole, since NMDC files
+leave literal commas in free text. The rule is
+https://github.com/turbomam/feature-table-corpus/issues/39.
 
 Genome features come from the Functional Annotation GFF with `coordinate_system` `contig` and
 `is_selected` true. Hits come from the seven hit GFFs with `coordinate_system` `protein`, `parent`
@@ -124,12 +129,12 @@ Features carry the annotation run as `generated_by`. Contigs carry the assembly 
 none does.
 
 The Arrow schemas are defined in `feature_convert.py`; they are not generated
-from or validated against the draft BER LinkML model. `Parent` values are split
-on commas, but percent-encoded values and other source attributes remain as
-returned by `parse_attributes`. Resolve the identity and product-source notes in
-[model issue 38](https://github.com/turbomam/feature-table-corpus/issues/38) and
-the attribute parsing contract in
-[model issue 39](https://github.com/turbomam/feature-table-corpus/issues/39)
+from or validated against the draft BER LinkML model. Values of the keys in
+`MULTIVALUED_KEYS`, `Parent` among them, are split on commas as described above,
+following [model issue 39](https://github.com/turbomam/feature-table-corpus/issues/39);
+other values stay as returned by `parse_attributes`, and nothing is percent-decoded,
+since NMDC files do not percent-encode. Resolve the identity and product-source notes in
+[model issue 38](https://github.com/turbomam/feature-table-corpus/issues/38)
 before claiming model conformance or loading these prototype tables at scale.
 
 ## Run it

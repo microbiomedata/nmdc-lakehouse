@@ -72,7 +72,7 @@ def test_convert_run_keeps_accessions_when_the_hit_file_is_missing(run_files: di
     result = fc.convert_run(RUN, run_files, {}, tmp_path / "out")
     assert "pfam" not in result.dropped_keys
     gene = next(r for r in pq.read_table(result.outputs[0]).to_pylist() if r["feature_id"] == G1)
-    assert ("pfam", "PF00001,PF00002") in {(a["key"], a["value"]) for a in gene["attributes"]}
+    assert [a["value"] for a in gene["attributes"] if a["key"] == "pfam"] == ["PF00001", "PF00002"]
 
 
 def test_convert_run_adds_unselected_calls_only_on_request(run_files: dict[str, Path], tmp_path: Path) -> None:
@@ -337,7 +337,7 @@ def test_hits_on_an_id_shared_by_two_cds_rows_are_counted_not_written(
     rows = pq.read_table(result.outputs[0]).to_pylist()
     twins = [r for r in rows if r["feature_id"].startswith(f"{G1}|")]
     # Their hits were not written, so both rows keep the Pfam accessions.
-    assert all(("pfam", "PF00001,PF00002") in {(a["key"], a["value"]) for a in r["attributes"]} for r in twins)
+    assert all([a["value"] for a in r["attributes"] if a["key"] == "pfam"] == ["PF00001", "PF00002"] for r in twins)
     ids = {r["feature_id"] for r in rows}
     assert all(p in ids for r in rows for p in r["parent"])
 
@@ -589,3 +589,51 @@ def test_cli_refuses_ambiguous_planned_inputs(
     else:
         report = json.loads(out.read_text())
         assert report["runs"][RUN]["checks"] == {"planned_files_unambiguous": {"passed": False, "ambiguous": [kind]}}
+
+
+def test_attributes_split_only_the_multivalued_keys() -> None:
+    """https://github.com/turbomam/feature-table-corpus/issues/39: one Attribute per value, in order."""
+    pairs = [
+        ("ID", "g"),
+        ("Parent", "a,b"),
+        ("pfam", "PF00001,PF00002"),
+        ("note", "glutamate-1-semialdehyde 2,1-aminomutase"),
+        ("ec_number", ""),
+        ("pfam", "PF00003"),
+    ]
+    assert fc._attributes(pairs) == [
+        {"key": "ID", "value": "g"},
+        {"key": "Parent", "value": "a"},
+        {"key": "Parent", "value": "b"},
+        {"key": "pfam", "value": "PF00001"},
+        {"key": "pfam", "value": "PF00002"},
+        # Free text keeps its literal comma, since NMDC writers do not percent-encode.
+        {"key": "note", "value": "glutamate-1-semialdehyde 2,1-aminomutase"},
+        {"key": "ec_number", "value": ""},
+        {"key": "pfam", "value": "PF00003"},
+    ]
+
+
+#: The keys the IMG functional and per-method dialects in feature-table-corpus declare as lists.
+LIST_KEYS = [
+    "Parent",
+    "pfam",
+    "cog",
+    "ko",
+    "ec_number",
+    "tigrfam",
+    "smart",
+    "superfamily",
+    "cath_funfam",
+    "transmembrane_helix_parts",
+    "subject_gene_ids",
+]
+
+
+def test_multivalued_keys_are_exactly_the_dialect_list_keys() -> None:
+    assert fc.MULTIVALUED_KEYS == frozenset(LIST_KEYS)
+
+
+@pytest.mark.parametrize("key", LIST_KEYS)
+def test_each_multivalued_key_splits(key: str) -> None:
+    assert fc._attributes([(key, "a,b")]) == [{"key": key, "value": "a"}, {"key": key, "value": "b"}]
