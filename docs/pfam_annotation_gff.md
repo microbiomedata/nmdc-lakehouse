@@ -86,10 +86,16 @@ recipe always supplies `--data-object-set` and the command refuses two sources:
      tracking issue is named here. -->
 ```bash
 uv run nmdc-lakehouse data-object-manifest --type "Pfam Annotation GFF" \
-    --ingest-checkout ~/gitrepos/BERIL-research-observatory \
+    --ingest-checkout /absolute/path/to/data-lakehouse-ingest \
     --namespace nmdc.metadata \
     --output local/pfam/manifest.csv
 ```
+
+`--ingest-checkout` is the reviewed `kbase/data-lakehouse-ingest` checkout, such
+as the one the [pod runtime setup](berdl-staging-runbook.md#set-up-the-pod-runtime-once)
+creates beside the NMDC checkout. The command requires `data_lakehouse_ingest` to be
+imported from that checkout's `src`. The research-observatory checkout this example
+named until 2026-09-28 has no `src` and is refused.
 
 Exactly one source must be named; neither is a default, because which one was
 read changes what the manifest describes.
