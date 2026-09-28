@@ -101,6 +101,40 @@ def _safe_run_dir_name(run_id: str) -> str:
     return name
 
 
+#: Keys whose value is a comma-separated list in NMDC annotation GFFs. Each value becomes its own
+#: Attribute, in source order; every other value is kept whole, since NMDC writers leave literal
+#: commas in free text such as `product`. The list follows the IMG functional and per-method
+#: dialects in https://github.com/turbomam/feature-table-corpus (model/dialects/), and the rule is
+#: https://github.com/turbomam/feature-table-corpus/issues/39.
+MULTIVALUED_KEYS: frozenset[str] = frozenset(
+    {
+        "Parent",
+        "pfam",
+        "cog",
+        "ko",
+        "ec_number",
+        "tigrfam",
+        "smart",
+        "superfamily",
+        "cath_funfam",
+        "transmembrane_helix_parts",
+        "subject_gene_ids",
+    }
+)
+
+
+def _attributes(pairs: list[tuple[str, str]]) -> list[dict[str, str]]:
+    """Model Attributes for `pairs`, one per value of a `MULTIVALUED_KEYS` key.
+
+    NMDC files do not percent-encode (see `parse_attributes`), so values are not decoded.
+    """
+    return [
+        {"key": key, "value": item}
+        for key, value in pairs
+        for item in (value.split(",") if key in MULTIVALUED_KEYS else [value])
+    ]
+
+
 def _parents(pairs: list[tuple[str, str]]) -> list[str]:
     """GFF3 `Parent` values in source order; one attribute can list several, comma-separated.
 
@@ -265,15 +299,17 @@ def convert_run(
                 "strand": r[6],
                 "phase": _number(r[7], int),
                 "parent": _parents(pairs),
-                "attributes": [
-                    {"key": k, "value": v}
-                    for k, v in pairs
-                    if (k != "ID" or feature_id != source_id)
-                    and k not in ("Parent", "product", "product_source")
-                    # Without exactly one CDS parent no protein hit is written, so retain the
-                    # accession evidence even when a hit file otherwise matches this source ID.
-                    and (k not in drop or cds_counts[source_id] != 1)
-                ],
+                "attributes": _attributes(
+                    [
+                        (k, v)
+                        for k, v in pairs
+                        if (k != "ID" or feature_id != source_id)
+                        and k not in ("Parent", "product", "product_source")
+                        # Without exactly one CDS parent no protein hit is written, so retain the
+                        # accession evidence even when a hit file otherwise matches this source ID.
+                        and (k not in drop or cds_counts[source_id] != 1)
+                    ]
+                ),
                 "generated_by": run_id,
                 "source_files": [functional_url] if functional_url else [],
                 "is_selected": True,
@@ -313,7 +349,7 @@ def convert_run(
                     "strand": r[6],
                     "phase": _number(r[7], int),
                     "parent": cds_renamed.get(r[0], [r[0]]),
-                    "attributes": [{"key": k, "value": v} for k, v in pairs],
+                    "attributes": _attributes(pairs),
                     "generated_by": run_id,
                     "source_files": [urls[hit_type]] if hit_type in urls else [],
                     "is_selected": None,
@@ -397,7 +433,7 @@ def convert_run(
                         "strand": r[6],
                         "phase": _number(r[7], int),
                         "parent": parents,
-                        "attributes": [{"key": k, "value": v} for k, v in pairs],
+                        "attributes": _attributes(pairs),
                         "generated_by": run_id,
                         "source_files": [urls[caller_type]] if caller_type in urls else [],
                         "is_selected": False,
