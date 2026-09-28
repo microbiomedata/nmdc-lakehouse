@@ -180,10 +180,12 @@ def convert_run(
     """Write `features.parquet` and `contigs.parquet` for one run under `out_dir/<run id>/`.
 
     Genome features come from the Functional Annotation GFF with `coordinate_system` `contig`.
-    Hits come from each per-system GFF with `coordinate_system` `protein`, `parent` set to the
-    gene they sit on, and `seqid` set to that gene's contig. That borrows the protein-relative
-    coordinate and parent mapping of the corpus profile `nmdc-pfam-protein/1.0.0`; it does not
-    implement that profile, which covers Pfam only and needs CDS translations and bindings.
+    Hits come from each per-system GFF with `coordinate_system` `protein` and both `seqid` and
+    `parent` set to the CDS they sit on, since their positions count residues along its
+    translation; the CDS's own `seqid` is the contig. That follows the model's rule for protein
+    coordinates (https://github.com/turbomam/feature-table-corpus/issues/40) and the mapping of
+    the corpus profile `nmdc-pfam-protein/3.0.0`; it does not implement that profile, which
+    covers Pfam only and needs CDS translations and bindings.
     A hit's `feature_id` joins its GFF `ID`, its file type key and its
     column 3, because one gene can carry the same coordinates in several systems; the original
     `ID` stays in `attributes`.
@@ -234,7 +236,9 @@ def convert_run(
         # Forward references are allowed. Protein hits usually name an already emitted CDS,
         # so they do not add another per-gene index to memory.
         pending_parent_ids.update(parent for parent in row["parent"] if parent not in seen_feature_ids)
-        contig_ids.add(row["seqid"])
+        if row["coordinate_system"] == "contig":
+            # A protein hit's seqid is its CDS, which names the contig itself.
+            contig_ids.add(row["seqid"])
         buffer.append(row)
         if len(buffer) >= batch_rows:
             writer.write_table(pa.Table.from_pylist(buffer, schema=schema))
@@ -278,8 +282,9 @@ def convert_run(
                 cds_renamed.setdefault(source_id, []).append(feature_id)
         gene_seqid[feature_id] = r[0]
         if source_id:
-            # Hits name their gene by the source ID, which a renamed row no longer carries.
-            # A CDS wins, since hits sit on proteins and must share their parent CDS's contig.
+            # Hits name their gene by the source ID, which a renamed row no longer carries. Only
+            # membership is read now (a hit's seqid is its CDS); a CDS still wins, so the map
+            # records the contig of the row a hit belongs to.
             if r[2] == "CDS":
                 gene_seqid[source_id] = r[0]
             else:
@@ -326,8 +331,8 @@ def convert_run(
         label = "ko_ec" if hit_type == KO_EC else key
         for r in read_table(files[hit_type]):
             if r[0] not in gene_seqid:
-                # The model needs a hit's parent to be a Feature and its seqid a Contig; a hit on a
-                # gene the Functional Annotation GFF lacks has neither, so it is counted, not written.
+                # The model needs a hit's seqid and parent to be its CDS; a hit on a gene the
+                # Functional Annotation GFF lacks has none, so it is counted, not written.
                 result.orphan_hits[hit_type] += 1
                 continue
             if cds_counts[r[0]] != 1:
@@ -336,10 +341,11 @@ def convert_run(
                 continue
             pairs = parse_attributes(r[8]) if len(r) > 8 else []
             source_id = _first(pairs, "ID") or f"{r[0]}_{r[3]}_{r[4]}"
+            cds = cds_renamed.get(r[0], [r[0]])
             emit(
                 {
                     "feature_id": f"{source_id}|{label}|{r[2]}",
-                    "seqid": gene_seqid[r[0]],
+                    "seqid": cds[0],
                     "source": r[1] or None,
                     "type": r[2],
                     "start": int(r[3]),
@@ -348,7 +354,7 @@ def convert_run(
                     "score": _number(r[5], float),
                     "strand": r[6],
                     "phase": _number(r[7], int),
-                    "parent": cds_renamed.get(r[0], [r[0]]),
+                    "parent": cds,
                     "attributes": _attributes(pairs),
                     "generated_by": run_id,
                     "source_files": [urls[hit_type]] if hit_type in urls else [],

@@ -42,7 +42,8 @@ def test_convert_run_loads_each_observation_once(run_files: dict[str, Path], tmp
     hit = by_type["Pfam Annotation GFF"][0]
     assert hit["coordinate_system"] == "protein"
     assert hit["parent"] == [G1]
-    assert hit["seqid"] == f"{RUN}_0001"
+    # The model's rule for protein coordinates: the hit's seqid is its CDS, not the contig.
+    assert hit["seqid"] == G1
     assert hit["strand"] == "."
     assert hit["phase"] is None
 
@@ -133,7 +134,8 @@ def test_hits_follow_a_renamed_cds(run_files: dict[str, Path], tmp_path: Path) -
     rows = pq.read_table(result.outputs[0]).to_pylist()
     hit = next(r for r in rows if r["source_data_object_type"] == "Pfam Annotation GFF")
     assert hit["parent"] == [f"{G1}|+"]
-    assert hit["seqid"] == f"{RUN}_0001"
+    assert hit["seqid"] == f"{G1}|+"
+    # CDS IDs a hit names as seqid are not contigs.
     contig_ids = {c["contig_id"] for c in pq.read_table(result.outputs[1]).to_pylist()}
     assert contig_ids == {f"{RUN}_0001", f"{RUN}_0002"}
     # The RNA row comes last and has no pfam key; the CDS's accessions must still count.
@@ -465,7 +467,7 @@ def test_parent_lists_are_split_on_commas() -> None:
     assert fc._parents([("ID", "x")]) == []
 
 
-def test_a_hit_takes_its_cds_contig_when_an_rna_row_comes_first(run_files: dict[str, Path], tmp_path: Path) -> None:
+def test_a_hit_names_its_cds_when_an_rna_row_comes_first(run_files: dict[str, Path], tmp_path: Path) -> None:
     # An RNA on another contig shares G1's ID and comes before the CDS.
     rna = f"{RUN}_0009\tINFERNAL 1.1.3\tmisc_feature\t2\t730\t9.0\t-\t.\tID={G1};model=RF1"
     run_files[ft.FUNCTIONAL] = _write(tmp_path, "functional_rna_first.gff", [rna, *FUNCTIONAL_ROWS])
@@ -473,8 +475,11 @@ def test_a_hit_takes_its_cds_contig_when_an_rna_row_comes_first(run_files: dict[
     hits = [
         r for r in pq.read_table(result.outputs[0]).to_pylist() if r["source_data_object_type"] == "Pfam Annotation GFF"
     ]
-    assert {h["seqid"] for h in hits} == {f"{RUN}_0001"}
+    assert {h["seqid"] for h in hits} == {f"{G1}|+"}
     assert {tuple(h["parent"]) for h in hits} == {(f"{G1}|+",)}
+    # The CDS each hit names, not the earlier RNA, is on the hit's contig.
+    rows = {r["feature_id"]: r for r in pq.read_table(result.outputs[0]).to_pylist()}
+    assert rows[f"{G1}|+"]["seqid"] == f"{RUN}_0001"
 
 
 @pytest.mark.parametrize("renamed", [False, True])
