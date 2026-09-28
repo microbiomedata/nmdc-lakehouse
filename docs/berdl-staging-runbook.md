@@ -243,8 +243,8 @@ setup script from that checkout with the pod's own `python3`. Replace
 unreviewed floating main for a previously approved plan. Select the source
 version recorded in the prepared publication's `preparation.json`.
 
-<!-- unverified: the setup script awaits live pod acceptance in
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
+<!-- verified: 2026-09-28 ran as written at 34a76a9 in the BERDL pod; every step
+     passed and .venv used the pod's /opt/conda/bin/python3 -->
 ```bash
 RUNTIME="$HOME/nmdc-publication-runtime-REVIEWED_NMDC_COMMIT-1"
 git clone https://github.com/microbiomedata/nmdc-lakehouse.git "$RUNTIME/nmdc-lakehouse" &&
