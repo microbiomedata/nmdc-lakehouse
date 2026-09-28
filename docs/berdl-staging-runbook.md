@@ -246,11 +246,12 @@ version recorded in the prepared publication's `preparation.json`.
 <!-- unverified: the setup script awaits live pod acceptance in
      https://github.com/microbiomedata/nmdc-lakehouse/issues/353 -->
 ```bash
-RUNTIME="$HOME/nmdc-publication-runtime-REVIEWED_NMDC_COMMIT"
+RUNTIME="$HOME/nmdc-publication-runtime-REVIEWED_NMDC_COMMIT-1"
 git clone https://github.com/microbiomedata/nmdc-lakehouse.git "$RUNTIME/nmdc-lakehouse" &&
 git -C "$RUNTIME/nmdc-lakehouse" checkout --detach REVIEWED_NMDC_COMMIT &&
 python3 "$RUNTIME/nmdc-lakehouse/scripts/python/setup_pod_runtime.py" \
-  --commit REVIEWED_NMDC_COMMIT --source-version 11.23.0
+  --commit REVIEWED_NMDC_COMMIT --source-version 11.23.0 &&
+cd "$RUNTIME/nmdc-lakehouse"
 ```
 
 `scripts/python/setup_pod_runtime.py` uses only the standard library. It refuses
@@ -268,9 +269,11 @@ by the NMDC lockfile. BERIL is not a runtime dependency.
 
 Each step prints its name, and a failing step stops the script with that name and
 its exit status. The script never reuses an existing `.tools`, `.venv` or ingest
-checkout, so after a failure start again with a new `RUNTIME` directory and keep
-the failed one for diagnosis. On success it prints the runtime path and the
-ingest checkout path to put in `destination.json`.
+checkout, so after a failure start again with a new `RUNTIME` directory, for
+example by changing the trailing `-1` to `-2`, and keep the failed one for
+diagnosis. On success it prints the runtime path and the ingest checkout path to
+put in `destination.json`, and the block leaves the shell in the checkout, where
+the following commands run.
 
 Capture a fresh read-only inventory with the maintained audit script, with raw
 runtime diagnostics kept in a private log:

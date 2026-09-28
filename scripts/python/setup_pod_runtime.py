@@ -135,8 +135,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(f"Runtime ready: {checkout}")
     print(f"Ingest checkout for destination.json: {ingest}")
-    cli = checkout / ".venv" / "bin" / "nmdc-lakehouse"
-    print(f"Plan with: {cli} plan-publication PUBLICATION_ROOT DESTINATION_JSON")
+    print("Next: capture a fresh inventory and write destination.json, as the staging runbook describes.")
     return 0
 
 

@@ -1,4 +1,5 @@
 import importlib.util
+import re
 from pathlib import Path
 
 import pytest
@@ -151,3 +152,53 @@ def test_main_reports_a_setup_error(monkeypatch, capsys):
     monkeypatch.setattr(setup_runtime, "setup", fail)
     assert setup_runtime.main(["--commit", COMMIT, "--source-version", "11.23.0"]) == 1
     assert "Setup stopped: example failure" in capsys.readouterr().err
+
+
+def test_clone_and_checkout_use_the_official_repository_and_detached_revision(pod):
+    checkout, commands, _ = pod
+    setup_runtime.setup(checkout, COMMIT, "11.23.0")
+    ingest = str(checkout.parent / "data-lakehouse-ingest")
+    assert commands[0][1] == ["git", "clone", "https://github.com/kbase/data-lakehouse-ingest.git", ingest]
+    assert commands[1][1] == ["git", "-C", ingest, "checkout", "--detach", setup_runtime.INGEST_REVISION]
+
+
+def test_project_environment_is_created_by_the_pinned_uv(pod):
+    checkout, commands, _ = pod
+    setup_runtime.setup(checkout, COMMIT, "11.23.0")
+    venv = [c for s, c, _ in commands if s.startswith("Create the project")][0]
+    assert venv[0] == str(checkout / ".tools" / "bin" / "uv")
+
+
+def test_import_check_covers_the_pod_libraries_and_the_package(pod):
+    checkout, commands, _ = pod
+    setup_runtime.setup(checkout, COMMIT, "11.23.0")
+    check = commands[-1][1]
+    assert check[0] == str(checkout / ".venv" / "bin" / "python")
+    for module in (
+        "berdl_notebook_utils.setup_spark_session",
+        "berdl_notebook_utils.clients",
+        "nmdc_lakehouse",
+    ):
+        assert module in check[2]
+
+
+def test_source_versions_match_the_uv_wrapper():
+    wrapper = (SCRIPT.parents[1] / "uv_with_source.sh").read_text()
+    accepted = set(re.findall(r"^\s*(\d+\.\d+\.\d+)\)", wrapper, flags=re.MULTILINE))
+    assert accepted == set(setup_runtime.SOURCE_VERSIONS)
+
+
+def test_main_success_reports_the_runtime_and_ingest_paths(monkeypatch, capsys):
+    seen = {}
+
+    def fake_setup(checkout, commit, source_version):
+        seen.update(checkout=checkout, commit=commit, source=source_version)
+        return checkout.parent / "data-lakehouse-ingest"
+
+    monkeypatch.setattr(setup_runtime, "setup", fake_setup)
+    assert setup_runtime.main(["--commit", COMMIT, "--source-version", "11.24.0"]) == 0
+    assert seen == {"checkout": SCRIPT.parents[2], "commit": COMMIT, "source": "11.24.0"}
+    out = capsys.readouterr().out
+    assert f"Runtime ready: {SCRIPT.parents[2]}" in out
+    assert f"Ingest checkout for destination.json: {SCRIPT.parents[3] / 'data-lakehouse-ingest'}" in out
+    assert "Next: capture a fresh inventory" in out
