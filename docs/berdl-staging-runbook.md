@@ -381,6 +381,15 @@ the status indicates which phase has completed.
 | `data-verified-metadata-pending` | Repeat stage with the same authorization; it retries only metadata |
 | `data-and-table-metadata-verified` | Retain the outcomes; repeated stage returns checked evidence without writes |
 
+Staging, promotion preview and promotion retry a Spark call twice, after 5 and
+then 10 seconds, when the server refuses it with `Authentication failed. Please
+check your token.` The BERDL Spark Connect server sends that message when its
+own request to KBase auth fails, including when that connection drops, so it
+does not always mean the token is invalid
+(see [Staged-content comparison fails on the first Spark Connect query, then passes on rerun](https://github.com/microbiomedata/nmdc-lakehouse/issues/375)).
+A failure that remains after the retries is reported like any other failure;
+use the table above.
+
 A lock refuses concurrent stage invocations on the same directory. Saved plans
 and outcomes are immutable. Metadata retry verifies every planned description
 and property; it skips values already correct. Failed uploads require inspection
