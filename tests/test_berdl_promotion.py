@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import shlex
 from collections import Counter
 from copy import deepcopy
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -755,6 +757,12 @@ def test_preview_wrapper_private_log_and_cli(candidate, monkeypatch, capsys):
     )
     assert result.exit_code == 0, result.output
     assert "plan_sha256=" in result.output and not c.spark.writes
+    printed = result.output.split("To promote after this exact plan is approved:\n", 1)[1].splitlines()[0]
+    args = shlex.split(printed)
+    assert args[1:3] == ["berdl-promote", str(output.resolve())]
+    assert args[args.index("--authorize-plan-sha256") + 1] == file_digest(output)
+    assert args[args.index("--authorize-canonical-namespace") + 1] == CANONICAL
+    assert args[args.index("--authorize-destination-id") + 1] == "nmdc-production"
     result = runner.invoke(cli, ["berdl-promote", str(output)])
     assert result.exit_code == 0 and "Preview only" in result.output and not c.spark.writes
     result = runner.invoke(
@@ -953,3 +961,45 @@ def test_source_metadata_change_without_new_snapshot_stops_before_copy(candidate
     assert not any(target == f"{CANONICAL}.graph_edges" or action == "drop" for action, target in c.spark.writes)
     failure = json.loads((c.path.with_suffix(".execution") / "failure.json").read_text())
     assert failure["attempted"] == "graph_edges"
+
+
+def test_preview_defaults_need_only_the_two_run_folders(candidate, monkeypatch, tmp_path):
+    c = candidate
+    monkeypatch.setattr(
+        berdl_staging, "load_berdl_staging_plan", lambda *a: SimpleNamespace(ingest=SimpleNamespace(revision=REVISION))
+    )
+    monkeypatch.setattr(promotion, "default_ingest_checkout", lambda: c.checkout)
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    result = CliRunner().invoke(cli, ["berdl-promotion-plan", *map(str, c.roots)])
+    assert result.exit_code == 0, result.output
+    (folder,) = home.glob("nmdc-promotion-*")
+    plan_path = folder / "combined-promotion.json"
+    assert oct(folder.stat().st_mode & 0o777) == "0o700"
+    assert f"plan={plan_path.resolve()}" in result.output
+    assert json.loads(plan_path.read_text())["recovery"] == promotion.DEFAULT_RECOVERY
+    assert not c.spark.writes
+
+
+def test_preview_without_an_ingest_checkout_names_the_missing_path(candidate, monkeypatch, tmp_path):
+    missing = tmp_path / "data-lakehouse-ingest"
+    monkeypatch.setattr(promotion, "default_ingest_checkout", lambda: missing)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    result = CliRunner().invoke(cli, ["berdl-promotion-plan", *map(str, candidate.roots)])
+    assert result.exit_code != 0
+    assert f"No ingest checkout at {missing}; pass --ingest-checkout." in result.output
+    assert not list(tmp_path.glob("nmdc-promotion-*"))
+
+
+def test_default_ingest_checkout_is_the_setup_script_sibling():
+    checkout = Path(promotion.__file__).resolve().parents[2]
+    assert promotion.default_ingest_checkout() == checkout.parent / "data-lakehouse-ingest"
+
+
+def test_new_preview_output_refuses_an_existing_folder(tmp_path):
+    now = datetime(2026, 9, 29, 12, 0, 0, tzinfo=UTC)
+    first = promotion.new_preview_output(tmp_path, now)
+    assert first == tmp_path / "nmdc-promotion-20260929T120000Z" / "combined-promotion.json"
+    with pytest.raises(FileExistsError):
+        promotion.new_preview_output(tmp_path, now)
