@@ -61,29 +61,52 @@ audit in [Match production exports to the deployed source schema version](https:
 
 ## Steps and evidence
 
-1. Three earlier previews from runtime `f0cacb6` failed with Spark Connect errors,
+1. The derived pair was staged first, from runtime `f0cacb6`, with the reviewed
+   `stage-publication` command and staging plan
+   `fcb3a149e3665d0217932f50a1cf26518e0492a86d2d285238c6dabf309fba7d`. The upstream
+   ingest ran from 18:49:13 to 18:49:32 UTC into
+   `nmdc.nmdc_provenance_staging_20260923_b79eb420` (Parquet under
+   `tenant-general-warehouse/nmdc/staging/20260923_b79eb420`). Its ingest outcome
+   reports `verified` (SHA-256 `474f50661110d387d6e5f32cd94e8a5fb0cbdb03149568626b24144e2ab209a7`),
+   the staging outcome `data-verified`
+   (`fd2744faaa96b6ec1ecc765bef11f6a827ec86c1d5158bbdcdd15034d0d9234f`) and the
+   metadata outcome `metadata-verified`
+   (`46c4ba73ce236883c5b2d32d64938c558b1fca3a3dd02677ca988f8b09e85331`), with 4
+   namespace operations deferred. The two tables read back as 136,776 `graph_edges`
+   and 57,786 `biosample_to_workflow_run` rows, the counts the preview later planned.
+2. Three earlier previews from runtime `f0cacb6` failed with Spark Connect errors,
    described in
    [Staged-content comparison fails on the first Spark Connect query, then passes on rerun](https://github.com/microbiomedata/nmdc-lakehouse/issues/375). Two
    causes were found in the server log: an intermittent `StackOverflowError` while
    comparing the 1,350-column `biosample_set`, and UNAUTHENTICATED rejections that
    coincided with dropped connections between the Spark server and KBase auth.
-2. [Retry Spark calls the BERDL token check refused after losing KBase auth](https://github.com/microbiomedata/nmdc-lakehouse/pull/376) added a
+3. [Retry Spark calls the BERDL token check refused after losing KBase auth](https://github.com/microbiomedata/nmdc-lakehouse/pull/376) added a
    client-side retry for the second cause. The pod runtime was rebuilt at its merge
    commit with the runbook's setup script.
-3. The preview succeeded. During it the server logged 8 token-check rejections at
+4. The preview succeeded. During it the server logged 8 token-check rejections at
    22:28:06 UTC; the client resumed the call 5 seconds later and the preview
    finished. No stack overflow occurred.
-4. Mark reviewed the printed plan, including the row changes above and the stated
+5. Mark reviewed the printed plan, including the row changes above and the stated
    recovery limits, and approved that exact plan.
-5. Mark ran `berdl-promote` in a pod terminal with the three authorization flags
+6. Mark ran `berdl-promote` in a pod terminal with the three authorization flags
    printed by the preview (see the
    [promotion procedure](../berdl-upload.md#plan-separately-authorized-canonical-promotion)).
    The server logged token-check rejections at 22:58:54 (8), 23:02:33 (7) and
    23:05:01 (2) UTC. The client resumed the first two; the promotion finished
    regardless and its read-back verified all 48 tables.
-6. Shortly after the cleanup below, a separate read-only check counted 48 tables in `nmdc.metadata`, matched the plan's counts for
+7. Shortly after the cleanup below, a separate read-only check counted 48 tables in `nmdc.metadata`, matched the plan's counts for
    `biosample_set`, `graph_edges`, `biosample_to_workflow_run` and
    `functional_annotation_agg`, and found 3 snapshots on `biosample_set`.
+
+The promotion's recovery files are retained in the pod at
+`/home/mamillerpa/nmdc-promotion-20260928-4/`: the approved plan
+`combined-promotion.json`, and under `combined-promotion.execution/` the saved before
+state `before.json` (identical to the plan, SHA-256 `e33368dade560835a4c7fe4481d785d28ccb9c704575f2d465a962a6bb62f2eb`),
+the journal of 57 numbered `attempt`/`verified` pairs (`000` to `056`) and
+`outcome.json` (SHA-256 `c2a39e68170c5c4e0dc18fa912b839302ad97c00fd88672553764126bbf3125d`).
+A checksum list of every file is `recovery-artifacts.txt` in the same folder. A copy
+of the folder was also taken off the pod to a workstation (archive SHA-256
+`b5b8c5533e9facc8c248b1e07724541dc5100def7e872df5e97ec20d0752f9ca`).
 
 Recovery is manual. The previous table versions remain as Iceberg snapshots: after
 the cleanup, `biosample_set` still had 3. When checked on 2026-09-02, no
