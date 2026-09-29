@@ -264,7 +264,10 @@ automatic rollback or demonstrated recovery of dropped tables.
 ## 8. Routine cleanup and optional historical retirement
 
 Cleanup is a distinct decision after verification and a chosen retention window.
-No remote cleanup was performed by the steps documented here.
+The steps documented here perform no remote cleanup. The one cleanup done so far,
+on 2026-09-28 after the first promotion, deleted superseded staging namespaces,
+orphaned folders and old upload Parquet; it is recorded in
+[the promotion record](runs/2026-09-28-production-promotion.md#cleanup-of-earlier-copies).
 
 | Material | Earliest reasonable action | Keep |
 | --- | --- | --- |

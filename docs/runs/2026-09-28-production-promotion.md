@@ -78,8 +78,13 @@ than the May load has not been investigated.
    `biosample_set`, `graph_edges`, `biosample_to_workflow_run` and
    `functional_annotation_agg`, and found 3 snapshots on `biosample_set`.
 
-Recovery is manual. The previous table versions remain as Iceberg snapshots, which
-nothing on BERDL expires. Only a same-schema staging replacement has been restored in
+Recovery is manual. The previous table versions remain as Iceberg snapshots: after
+the cleanup, `biosample_set` still had 3. When checked on 2026-09-02, no
+snapshot-retention property was set on any `nmdc.metadata` table (not rechecked
+after this promotion), and KBase staff said the same day (NMDC Slack, `#ber_lakehouse`)
+that no scheduled job on BERDL expires snapshots. That makes the rollback window
+open-ended in practice but not guaranteed; check that the needed snapshot exists
+before relying on it. Only a same-schema staging replacement has been restored in
 practice; multi-table and dropped-table recovery are unproven.
 
 ## Cleanup of earlier copies
