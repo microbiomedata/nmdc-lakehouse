@@ -2,15 +2,18 @@
 
 `berdl-promote` now reviews and copies the metadata snapshot plus its derived
 pair; see [the runbook](berdl-upload.md#performing-the-promotion). That combined
-path has not yet run against a live catalog. It retains before state and an
+path first ran against the live catalog on 2026-09-28; see
+[the promotion record](runs/2026-09-28-production-promotion.md). It retains before state and an
 execution journal, but recovery from partial promotion is not automated. The platform has to answer three
 questions that no BERDL runbook currently answers: whether a table
 can be renamed across two namespaces in the same tenant catalog, whether a
 supported recovery operation exists and is permitted, and how long a snapshot
 survives so a recovery promise can be bounded. This command establishes those
 answers with evidence rather than assumption, and writes a credential-free
-report for [#240](https://github.com/microbiomedata/nmdc-lakehouse/issues/240)
-and [#234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
+report. It was written for
+[Prove BERDL Iceberg promotion and recovery on disposable tables](https://github.com/microbiomedata/nmdc-lakehouse/issues/240)
+and [Promote a verified BERDL staging namespace with tested recovery](https://github.com/microbiomedata/nmdc-lakehouse/issues/234),
+both now closed.
 
 The probe never touches a canonical, shared, or production object. It refuses
 any namespace that names `nmdc_metadata`, `nmdc_results`, or `nmdc_ref_data`,
@@ -36,17 +39,16 @@ makes no automatic recovery claim. On 2026-09-25, at commit `35a54c82`, the
 table-writer metadata path passed a disposable 20-row add/replace check with
 data and table/column metadata readback; altered rows with the same count were
 rejected. The exact scratch table and namespace were then dropped without an
-object purge. This validates that component, not canonical publication: a fresh
-combined plan still needs exact-plan approval and canonical execution, tracked
-in [issue 234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
+object purge. This validates that component, not canonical publication: the first
+canonical execution is in [the 2026-09-28 promotion record](runs/2026-09-28-production-promotion.md).
 
 ## Preview the plan
 
 Preview is the default. It is offline: it contacts no service, starts no Spark
 session, and creates nothing.
 
-<!-- unverified: no run of this procedure is recorded. Running it is tracked in
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
+<!-- unverified: no run of this procedure is recorded; no tracking issue is named here,
+     since issues 234 and 240 are closed -->
 ```bash
 just berdl-promotion-probe \
   nmdc \
@@ -65,8 +67,8 @@ local. Start the Spark Connect sidecar with `get_spark_session()` in a notebook
 before using the pod terminal. Supply the exact plan digest from the preview as
 explicit authorization:
 
-<!-- unverified: no run of this procedure is recorded. Running it is tracked in
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
+<!-- unverified: no run of this procedure is recorded; no tracking issue is named here,
+     since issues 234 and 240 are closed -->
 ```bash
 just berdl-promotion-probe \
   nmdc \
@@ -194,11 +196,10 @@ the first would blame the platform for a permission problem.
 
 ## After the run
 
-Fetch the report to the local candidate workspace and attach its findings to
-[#240](https://github.com/microbiomedata/nmdc-lakehouse/issues/240). If no
-recovery operation is both available and permitted,
-[#234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234) stays
-blocked with a specific platform-owner question rather than proceeding on an
-assumed mechanism.
+Fetch the report to the local candidate workspace. No open issue is named here to
+receive it; open one for the promotion or recovery question the run was meant to
+answer, and attach the findings there. If no recovery operation is both available
+and permitted, raise that with the platform owners before relying on recovery in
+a promotion plan.
 
 Clean up the disposable namespaces once the report is retained.

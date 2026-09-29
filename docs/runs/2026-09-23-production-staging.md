@@ -1,6 +1,9 @@
 # Production export and BERDL staging record: 2026-09-23
 
-This records Mark's run and the evidence behind it. Use the
+This records Mark's run and the evidence behind it. Status statements below are as
+of the dates given; derived staging, the canonical promotion and the cleanup were
+completed on 2026-09-28 and are in
+[the promotion record](2026-09-28-production-promotion.md). Use the
 [staging runbook](../berdl-staging-runbook.md) for the workflow and
 [issue #136](https://github.com/microbiomedata/nmdc-lakehouse/issues/136) for live
 acceptance. The dated helper names below are run-specific files uploaded to
@@ -315,7 +318,8 @@ preserving its evidence. The uploaded helper files are in the pod home. No
 credential, production row, or private connection string belongs in the tracked
 documentation or issue comments.
 
-Still outstanding: separate derived-provenance staging; the source preservation
+Still outstanding as of 2026-09-23 (derived staging and the canonical promotion
+were completed on 2026-09-28): separate derived-provenance staging; the source preservation
 audit in issue #347; namespace metadata support in
 [issue #114](https://github.com/microbiomedata/nmdc-lakehouse/issues/114); and any
 separately authorized canonical promotion. The transport parts remain available

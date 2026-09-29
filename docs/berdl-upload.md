@@ -4,8 +4,9 @@ Start with the [staging runbook](berdl-staging-runbook.md) for the operator
 sequence, credentials, evidence layout, and recovery decisions. The
 [2026-09-23 run record](runs/2026-09-23-production-staging.md) records the latest
 production export, setup failure and fix, and verified data/metadata staging.
-Separate derived staging, namespace metadata, source-preservation auditing, and
-canonical promotion remain outstanding in that record.
+The [2026-09-28 promotion record](runs/2026-09-28-production-promotion.md) covers
+the derived staging, the first canonical promotion and the cleanup after it.
+Namespace metadata and source-preservation auditing remain outstanding.
 
 This document contains two different things, and reading one for the other wastes
 time. The boundary is the "Historical off-cluster transport" heading:
@@ -512,8 +513,8 @@ manifest must have `derived-provenance-snapshot` scope and contain exactly
 From the maintained NMDC checkout in the pod, with the matching source pair
 already installed as described in the [runtime setup](berdl-staging-runbook.md#set-up-the-pod-runtime-once):
 
-<!-- unverified: combined promotion awaits pod acceptance and exact-plan approval,
-     tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
+<!-- verified: 2026-09-28 wrote the combined plan for the September pair at 25871c2;
+     see docs/runs/2026-09-28-production-promotion.md -->
 ```bash
 .venv/bin/nmdc-lakehouse berdl-promotion-plan \
   /absolute/path/to/metadata-staging-run \
@@ -568,8 +569,8 @@ connection or execution journal is created.
 Malformed or legacy plans report validation categories and direct the operator
 to regenerate the combined plan, without printing submitted values.
 
-<!-- unverified: combined promotion awaits pod acceptance and exact-plan approval,
-     tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
+<!-- unverified: the 2026-09-28 promotion reviewed the plan printed by
+     berdl-promotion-plan and did not run this form; no tracking issue is named here -->
 ```bash
 .venv/bin/nmdc-lakehouse berdl-promote /absolute/path/to/evidence/combined-promotion.json
 ```
@@ -579,8 +580,8 @@ execution. Coordinate a window without other canonical writers: per-table guards
 cannot make a multi-table publication atomic. After approval, use the values
 printed by the preview:
 
-<!-- unverified: canonical execution requires approval of the exact combined plan,
-     tracked in https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
+<!-- verified: 2026-09-28 promoted the approved September plan into nmdc.metadata,
+     status promotion-verified; see docs/runs/2026-09-28-production-promotion.md -->
 ```bash
 .venv/bin/nmdc-lakehouse berdl-promote /absolute/path/to/evidence/combined-promotion.json \
   --authorize-plan-sha256 DIGEST_FROM_REVIEWED_PREVIEW \
@@ -668,9 +669,9 @@ staging tables and the before state. After failure, stop further publication,
 inspect the journal and live catalog, and obtain a reviewed repair plan. Never
 delete the journal to bypass the replay refusal. The metadata-copy path passed
 a disposable 20-row add/replace and data/metadata readback check on 2026-09-25 at
-`35a54c82`, including refusal of altered rows with the same count. Exact combined-plan
-approval and canonical execution remain pending, tracked in
-[issue 234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
+`35a54c82`, including refusal of altered rows with the same count. The first canonical
+execution, on 2026-09-28, is recorded in
+[the promotion record](runs/2026-09-28-production-promotion.md).
 
 ## Running a script in the pod
 
