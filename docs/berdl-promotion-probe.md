@@ -10,8 +10,10 @@ can be renamed across two namespaces in the same tenant catalog, whether a
 supported recovery operation exists and is permitted, and how long a snapshot
 survives so a recovery promise can be bounded. This command establishes those
 answers with evidence rather than assumption, and writes a credential-free
-report for [#240](https://github.com/microbiomedata/nmdc-lakehouse/issues/240)
-and [#234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
+report. It was written for
+[Prove BERDL Iceberg promotion and recovery on disposable tables](https://github.com/microbiomedata/nmdc-lakehouse/issues/240)
+and [Promote a verified BERDL staging namespace with tested recovery](https://github.com/microbiomedata/nmdc-lakehouse/issues/234),
+both now closed.
 
 The probe never touches a canonical, shared, or production object. It refuses
 any namespace that names `nmdc_metadata`, `nmdc_results`, or `nmdc_ref_data`,
@@ -194,11 +196,10 @@ the first would blame the platform for a permission problem.
 
 ## After the run
 
-Fetch the report to the local candidate workspace and attach its findings to
-[#240](https://github.com/microbiomedata/nmdc-lakehouse/issues/240). If no
-recovery operation is both available and permitted,
-[#234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234) stays
-blocked with a specific platform-owner question rather than proceeding on an
-assumed mechanism.
+Fetch the report to the local candidate workspace. No open issue is named here to
+receive it; open one for the promotion or recovery question the run was meant to
+answer, and attach the findings there. If no recovery operation is both available
+and permitted, raise that with the platform owners before relying on recovery in
+a promotion plan.
 
 Clean up the disposable namespaces once the report is retained.
