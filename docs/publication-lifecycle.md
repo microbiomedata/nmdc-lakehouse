@@ -240,8 +240,9 @@ archives. Reuse already verified old transfers; do not transfer them again for s
 
 ## 7. Promote the pair to canonical tables
 
-In the pod, `berdl-promotion-plan` takes both original staging roots, a new plan
-path, the reviewed ingest checkout and the recovery statement. It verifies the
+In the pod, `berdl-promotion-plan` takes both original staging roots; the plan
+path, ingest checkout and recovery statement have defaults and can be given
+explicitly. It verifies the
 parent relationship, full evidence, retained object hashes, staged row contents,
 metadata and current canonical state. `berdl-promote PLAN` previews that plan.
 The [promotion procedure](berdl-upload.md#plan-separately-authorized-canonical-promotion)
