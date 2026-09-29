@@ -123,8 +123,8 @@ Actual staging and catalog readback remain tracked in
 [issue 341](https://github.com/microbiomedata/nmdc-lakehouse/issues/341).
 The [combined promotion procedure](berdl-upload.md#plan-separately-authorized-canonical-promotion)
 checks that this derived snapshot names the selected metadata snapshot as parent,
-preserves table/column metadata and requires an exact reviewed plan. Its live
-acceptance remains [issue 234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
+preserves table/column metadata and requires an exact reviewed plan. It was first
+run live for the September pair; see [the 2026-09-28 promotion record](runs/2026-09-28-production-promotion.md).
 Planning alone does not modify the lakehouse or authorize canonical promotion.
 
 ## Measured query comparison

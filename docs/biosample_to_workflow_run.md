@@ -6,8 +6,8 @@ the resulting Parquet. The Spark rebuild that failed at production volume has
 been retired. Older promotion plans that drop these tables for a subsequent
 rebuild are refused before execution.
 
-Promotion of the metadata snapshot together with its derived snapshot remains
-[issue 234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
+The metadata snapshot and its derived snapshot are promoted together; the first
+such promotion is in [the 2026-09-28 promotion record](runs/2026-09-28-production-promotion.md).
 The snapshots must share the recorded parent identity; staging alone does not
 update the canonical tables.
 

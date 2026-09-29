@@ -36,17 +36,16 @@ makes no automatic recovery claim. On 2026-09-25, at commit `35a54c82`, the
 table-writer metadata path passed a disposable 20-row add/replace check with
 data and table/column metadata readback; altered rows with the same count were
 rejected. The exact scratch table and namespace were then dropped without an
-object purge. This validates that component, not canonical publication: a fresh
-combined plan still needs exact-plan approval and canonical execution, tracked
-in [issue 234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
+object purge. This validates that component, not canonical publication: the first
+canonical execution is in [the 2026-09-28 promotion record](runs/2026-09-28-production-promotion.md).
 
 ## Preview the plan
 
 Preview is the default. It is offline: it contacts no service, starts no Spark
 session, and creates nothing.
 
-<!-- unverified: no run of this procedure is recorded. Running it is tracked in
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
+<!-- unverified: no run of this procedure is recorded; no tracking issue is named here,
+     since issues 234 and 240 are closed -->
 ```bash
 just berdl-promotion-probe \
   nmdc \
@@ -65,8 +64,8 @@ local. Start the Spark Connect sidecar with `get_spark_session()` in a notebook
 before using the pod terminal. Supply the exact plan digest from the preview as
 explicit authorization:
 
-<!-- unverified: no run of this procedure is recorded. Running it is tracked in
-     https://github.com/microbiomedata/nmdc-lakehouse/issues/234 -->
+<!-- unverified: no run of this procedure is recorded; no tracking issue is named here,
+     since issues 234 and 240 are closed -->
 ```bash
 just berdl-promotion-probe \
   nmdc \

@@ -95,10 +95,9 @@ than guessing, because a consumer cannot tell a guess from a fact.
 They are set on the **staging** namespace, which is where the metadata step runs. They reach
 `nmdc.metadata` through the implemented combined promotion path in
 [the promotion guide](berdl-upload.md#plan-separately-authorized-canonical-promotion).
-That path still requires live acceptance under
-https://github.com/microbiomedata/nmdc-lakehouse/issues/234 and approval of the exact
-plan. The September candidate is staged; no claim is made that its schema
-properties have already reached the canonical tables.
+Each promotion requires approval of the exact plan. The September candidate was
+promoted on 2026-09-28 and the promotion's read-back checked the planned
+descriptions and properties; see [the 2026-09-28 promotion record](runs/2026-09-28-production-promotion.md).
 
 More than one entry in `target_schema_versions` means a snapshot was assembled across a flattener
 change and is not internally consistent. Nothing could previously detect that.

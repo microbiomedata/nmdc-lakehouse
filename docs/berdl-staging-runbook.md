@@ -399,7 +399,5 @@ After both staging runs pass, use the [combined promotion procedure](berdl-uploa
 to review the parent snapshot and derived pair together. It carries table and
 column metadata into canonical tables and verifies the result; it requires Mark's
 approval of the exact plan and explicitly records the recovery limits.
-Live acceptance remains [issue 234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
-The September parent snapshot is already staged and must not be reloaded solely
-to test this new workflow. Its separately prepared derived pair is the next pod
-acceptance run, tracked in [issue 341](https://github.com/microbiomedata/nmdc-lakehouse/issues/341).
+The September pair was promoted this way on 2026-09-28; see
+[the promotion record](runs/2026-09-28-production-promotion.md).
