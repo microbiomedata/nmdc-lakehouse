@@ -48,9 +48,14 @@ The table count went from 54 to 48: 45 tables replaced, 3 added and 9 dropped.
 | `data_generation_set_has_output` | 26,373 | 26,640 | +267 |
 | `functional_annotation_agg` | 53,182,890 | 51,744,347 | -1,438,543 |
 
-`functional_annotation_agg` is the only table that shrank. The new count is what the
-validated 2026-09-23 dump contains; why production MongoDB held fewer aggregate rows
-than the May load has not been investigated.
+`functional_annotation_agg` is the only table that shrank. A read-only comparison of
+its previous and current Iceberg snapshots on 2026-09-29 accounts for all of it: the
+1,438,543 missing rows belong to exactly 64 `nmdc:MetagenomeAnnotation` runs
+(`was_generated_by`), and the other 4,190 runs have identical row counts. All 64 were
+in the previous `workflow_execution_set` snapshot and are absent from the current one,
+and none has another version under the same base identifier. They were therefore
+removed from the production source between the 2026-09-09 load and the 2026-09-23
+dump, not lost in export or promotion. Why they were removed was not investigated.
 
 ## Steps and evidence
 
