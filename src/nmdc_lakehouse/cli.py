@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import shlex
+import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -374,24 +375,57 @@ def compare_provenance_queries_command(snapshot_root: Path, derived_root: Path, 
 @cli.command("berdl-promotion-plan")
 @click.argument("metadata_root", type=click.Path(path_type=Path, file_okay=False))
 @click.argument("derived_root", type=click.Path(path_type=Path, file_okay=False))
-@click.argument("output", type=click.Path(path_type=Path, dir_okay=False))
-@click.option("--ingest-checkout", type=click.Path(path_type=Path, file_okay=False), required=True)
-@click.option("--recovery", required=True, help="Reviewed manual response to partial canonical changes.")
+@click.argument("output", type=click.Path(path_type=Path, dir_okay=False), required=False)
+@click.option(
+    "--ingest-checkout",
+    type=click.Path(path_type=Path, file_okay=False),
+    help="Defaults to the data-lakehouse-ingest checkout that setup_pod_runtime.py puts next to this checkout.",
+)
+@click.option(
+    "--recovery",
+    help="Reviewed manual response to partial canonical changes. Defaults to the first promotion's reviewed text.",
+)
 def berdl_promotion_plan_command(
-    metadata_root: Path, derived_root: Path, output: Path, ingest_checkout: Path, recovery: str
+    metadata_root: Path, derived_root: Path, output: Path | None, ingest_checkout: Path | None, recovery: str | None
 ) -> None:
-    """Read both staged snapshots and current catalog state into one reviewable plan."""
-    from nmdc_lakehouse.berdl_promotion import plan_promotion, render_promotion_plan
+    """Read both staged snapshots and current catalog state into one reviewable plan.
+
+    With only the two run folders, the plan goes to a new private folder in the home directory.
+    """
+    from nmdc_lakehouse import berdl_promotion
     from nmdc_lakehouse.publication_prepare import file_digest
 
+    if ingest_checkout is None:
+        ingest_checkout = berdl_promotion.default_ingest_checkout()
+        if not ingest_checkout.is_dir():
+            raise click.ClickException(f"No ingest checkout at {ingest_checkout}; pass --ingest-checkout.")
+    if output is None:
+        try:
+            output = berdl_promotion.new_preview_output(Path.home(), datetime.now(UTC))
+        except OSError as error:
+            raise click.ClickException(f"Cannot create a new preview folder: {error}") from error
     try:
-        plan = plan_promotion(metadata_root, derived_root, output, ingest_checkout=ingest_checkout, recovery=recovery)
+        plan = berdl_promotion.plan_promotion(
+            metadata_root,
+            derived_root,
+            output,
+            ingest_checkout=ingest_checkout,
+            recovery=recovery or berdl_promotion.DEFAULT_RECOVERY,
+        )
     except (ValueError, OSError) as error:
         raise click.ClickException("Promotion preview failed; inspect the private log if one was created.") from error
-    click.echo(render_promotion_plan(plan))
+    digest = file_digest(output)
+    executable = Path(sys.executable).with_name("nmdc-lakehouse")
+    click.echo(berdl_promotion.render_promotion_plan(plan))
     click.echo(f"plan={output.resolve()}")
-    click.echo(f"plan_sha256={file_digest(output)}")
+    click.echo(f"plan_sha256={digest}")
     click.echo(f"destination_id={plan.sources[0].destination_id}")
+    click.echo("To promote after this exact plan is approved:")
+    click.echo(
+        berdl_promotion.promote_command(
+            str(executable) if executable.exists() else "nmdc-lakehouse", output, plan, digest
+        )
+    )
 
 
 @cli.command("berdl-promote")

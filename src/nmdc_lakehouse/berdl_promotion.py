@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shlex
 import sys
 import tempfile
 import traceback
@@ -386,6 +387,44 @@ def _runtime(checkout: Path, revision: str) -> tuple[Any, Any]:
     spark, _, _ = berdl_metadata._runtime(checkout)
     _, client = berdl_adapter._runtime(checkout)
     return spark, client
+
+
+# The reviewed recovery text used for the first promotion, 2026-09-28. The preview prints it and the
+# approved plan digest covers it, so a default does not bypass review.
+DEFAULT_RECOVERY = (
+    "Stop writers; inspect the saved before state and restore reviewed content manually. "
+    "Dropped-table recovery is not proven."
+)
+
+
+def default_ingest_checkout() -> Path:
+    """The ingest checkout that scripts/python/setup_pod_runtime.py clones next to this checkout."""
+    return Path(__file__).resolve().parents[2].parent / "data-lakehouse-ingest"
+
+
+def new_preview_output(home: Path, now: datetime) -> Path:
+    """Create a new private folder for one preview and return the plan path inside it."""
+    folder = home / f"nmdc-promotion-{now:%Y%m%dT%H%M%SZ}"
+    folder.mkdir(mode=0o700)
+    return folder / "combined-promotion.json"
+
+
+def promote_command(executable: str, plan_path: Path, plan: BerdlPromotionPlan, digest: str) -> str:
+    """The execution command for this exact plan, to run only after the plan is approved."""
+    return " ".join(
+        shlex.quote(part)
+        for part in (
+            executable,
+            "berdl-promote",
+            str(plan_path.resolve()),
+            "--authorize-plan-sha256",
+            digest,
+            "--authorize-canonical-namespace",
+            plan.canonical_namespace,
+            "--authorize-destination-id",
+            plan.sources[0].destination_id,
+        )
+    )
 
 
 def _require_output_location(output: Path, roots: list[Path], checkout: Path) -> None:

@@ -511,7 +511,27 @@ manifest must have `derived-provenance-snapshot` scope and contain exactly
 `graph_edges` and `biosample_to_workflow_run`.
 
 From the maintained NMDC checkout in the pod, with the matching source pair
-already installed as described in the [runtime setup](berdl-staging-runbook.md#set-up-the-pod-runtime-once):
+already installed as described in the [runtime setup](berdl-staging-runbook.md#set-up-the-pod-runtime-once),
+give the two staging run directories:
+
+<!-- unverified: this short form has not been run in the pod; the explicit form below
+     was run on 2026-09-28. No tracking issue is named here. -->
+```bash
+.venv/bin/nmdc-lakehouse berdl-promotion-plan \
+  /absolute/path/to/metadata-staging-run \
+  /absolute/path/to/derived-staging-run
+```
+
+The other inputs have defaults. The ingest checkout is the `data-lakehouse-ingest`
+checkout that `setup_pod_runtime.py` clones beside this checkout. The recovery
+statement is the one reviewed for the first promotion, "Stop writers; inspect the
+saved before state and restore reviewed content manually. Dropped-table recovery
+is not proven." The plan is written to a new private folder
+`~/nmdc-promotion-<UTC time>/combined-promotion.json`. The preview prints the
+plan, its digest and destination, and then the exact `berdl-promote` command for
+that plan with all three authorization values filled in.
+
+With every value given explicitly, as run for the September pair:
 
 <!-- verified: 2026-09-28 wrote the combined plan for the September pair at 25871c2;
      see docs/runs/2026-09-28-production-promotion.md -->
@@ -577,8 +597,8 @@ to regenerate the combined plan, without printing submitted values.
 
 Have Mark review this exact plan, the before state and the recovery limits before
 execution. Coordinate a window without other canonical writers: per-table guards
-cannot make a multi-table publication atomic. After approval, use the values
-printed by the preview:
+cannot make a multi-table publication atomic. After approval, run the
+`berdl-promote` command the preview printed; it has this form:
 
 <!-- verified: 2026-09-28 promoted the approved September plan into nmdc.metadata,
      status promotion-verified; see docs/runs/2026-09-28-production-promotion.md -->
