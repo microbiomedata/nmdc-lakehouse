@@ -27,8 +27,10 @@ A saved full validation report avoids another row-validation run.
 Pod commands above are subcommands of `.venv/bin/nmdc-lakehouse` from the NMDC
 checkout; each also has a `just` recipe. Runtime setup and the read-only inventory
 are explicit prerequisites below. There is no run-specific Python or shell script
-to edit. The new combined pod commands await live acceptance under
-[issue 353](https://github.com/microbiomedata/nmdc-lakehouse/issues/353).
+to edit. The combined pod commands ran live for the September pair on 2026-09-28
+([promotion record](runs/2026-09-28-production-promotion.md)); a run from a fresh
+export is still pending under
+[Simplify BERDL staging to a resumable run configuration](https://github.com/microbiomedata/nmdc-lakehouse/issues/353).
 
 Full target validation checks generated-table conformance. It does not prove
 that every populated MongoDB source value was retained. Keep the focused source

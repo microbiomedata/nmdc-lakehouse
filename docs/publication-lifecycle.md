@@ -247,7 +247,7 @@ metadata and current canonical state. `berdl-promote PLAN` previews that plan.
 The [promotion procedure](berdl-upload.md#plan-separately-authorized-canonical-promotion)
 gives the complete commands.
 
-After live acceptance passes, have Mark approve the exact plan digest,
+After reviewing the preview, have Mark approve the exact plan digest,
 `nmdc.metadata` namespace and destination identity. Execute with those printed
 authorization values during a window without competing writers. This is separate
 from merging code or authorizing staging. It copies reviewed Iceberg snapshots,
@@ -326,7 +326,7 @@ a local tooling failure, not evidence that the pod itself is unavailable.
 
 ## Current candidate: where to resume
 
-As recorded on **2026-09-25**, without refreshing the data:
+As recorded on **2026-09-28**, without refreshing the data:
 
 | Stage | State |
 | --- | --- |
@@ -336,11 +336,12 @@ As recorded on **2026-09-25**, without refreshing the data:
 | Derived schema, files, full validation and metadata | Complete locally: 136,776 edges, 57,786 pairs, all 15 column descriptions |
 | Derived transfer and pod receipt | Verified on September 25 at `ce87b7a`: eight file hashes matched; both Parquet artifacts validated |
 | Promotion content comparison and disposable writer | Passed on September 25 at `35a54c8`: all 46 staged tables; small-table add/replace and metadata readback |
-| Derived staging and new combined path acceptance | Pending live pod execution |
-| Canonical promotion | Not executed; needs live acceptance, fresh exact plan and approval |
-| Remote retirement or routine data cleanup | Not executed |
+| Derived staging and new combined path acceptance | Verified on September 28: `nmdc.nmdc_provenance_staging_20260923_b79eb420`, then a combined preview at `25871c2` |
+| Canonical promotion | Verified on September 28: plan `e33368dade560835a4c7fe4481d785d28ccb9c704575f2d465a962a6bb62f2eb`, 48 tables, status `promotion-verified` |
+| Remote retirement or routine data cleanup | September 28: superseded staging namespaces, orphaned folders and old upload Parquet deleted (24.839 GB); legacy `spark_catalog` Delta copies undecided |
 
-The [dated run record](runs/2026-09-23-production-staging.md) holds exact
+The [promotion record](runs/2026-09-28-production-promotion.md) covers the
+September 28 rows. The [dated run record](runs/2026-09-23-production-staging.md) holds exact
 identities and evidence locations. The parent ID begins `58277b41`; the derived
 ID begins `b79eb420` and binds that parent. The source preservation audit remains
 [#347](https://github.com/microbiomedata/nmdc-lakehouse/issues/347), and

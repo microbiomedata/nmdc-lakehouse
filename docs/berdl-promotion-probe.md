@@ -2,7 +2,8 @@
 
 `berdl-promote` now reviews and copies the metadata snapshot plus its derived
 pair; see [the runbook](berdl-upload.md#performing-the-promotion). That combined
-path has not yet run against a live catalog. It retains before state and an
+path first ran against the live catalog on 2026-09-28; see
+[the promotion record](runs/2026-09-28-production-promotion.md). It retains before state and an
 execution journal, but recovery from partial promotion is not automated. The platform has to answer three
 questions that no BERDL runbook currently answers: whether a table
 can be renamed across two namespaces in the same tenant catalog, whether a
