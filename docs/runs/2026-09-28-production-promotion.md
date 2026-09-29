@@ -53,9 +53,11 @@ its previous and current Iceberg snapshots on 2026-09-29 accounts for all of it:
 1,438,543 missing rows belong to exactly 64 `nmdc:MetagenomeAnnotation` runs
 (`was_generated_by`), and the other 4,190 runs have identical row counts. All 64 were
 in the previous `workflow_execution_set` snapshot and are absent from the current one,
-and none has another version under the same base identifier. They were therefore
-removed from the production source between the 2026-09-09 load and the 2026-09-23
-dump, not lost in export or promotion. Why they were removed was not investigated.
+and none has another version under the same base identifier. So the rows were not
+lost in promotion: both exported tables consistently lack these runs in the
+2026-09-23 dump. Whether production MongoDB removed them, or the export missed them,
+was not checked against MongoDB; that question belongs to the source-preservation
+audit in [Match production exports to the deployed source schema version](https://github.com/microbiomedata/nmdc-lakehouse/issues/347).
 
 ## Steps and evidence
 
