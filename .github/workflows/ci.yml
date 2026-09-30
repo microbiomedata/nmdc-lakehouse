@@ -136,16 +136,40 @@ jobs:
           uv run python scripts/flatten_nmdc_collections.py --help
           uv run python scripts/export_duckdb_to_parquet.py --help
 
-      - name: Test the complete production source pair
-        env:
-          NMDC_SCHEMA_VERSION: "11.23.0"
-        run: just test
-
       - name: Build and test distributions
         run: just test-dist
 
       - name: Build documentation
         run: just docs-build
+
+  # The production source pair gets its own job so it runs alongside `check` instead of after it.
+  # As a step at the end of `check` it added 512 to 607 seconds to the three main runs before this
+  # change (2026-09-29 and 2026-09-30).
+  source-11-23:
+    name: test with source 11.23.0
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          python-version: "3.13"
+
+      - name: Install just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+        with:
+          just-version: 1.58.0
+
+      - name: Test the complete production source pair
+        env:
+          NMDC_SCHEMA_VERSION: "11.23.0"
+        run: |
+          just install
+          just test
 
   linkcheck:
     name: linkcheck

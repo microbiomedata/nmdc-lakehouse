@@ -187,8 +187,8 @@ operational-command inventory.
 | `just deps-lint`    | Check missing, unused, and transitive dependencies|
 | `just format`       | ruff format + auto-fix                           |
 | `just typecheck`    | `mypy src`                                       |
-| `just test`         | pytest                                           |
-| `just test-cov`     | pytest with the configured floor and coverage XML|
+| `just test`         | pytest, in parallel with pytest-xdist            |
+| `just test-cov`     | the same, with the coverage floor and XML        |
 | `just diff-cover`   | Coverage of lines this branch adds or changes     |
 | `just build`        | Build sdist + wheel via `uv build`               |
 | `just test-dist`    | Build and test archives in isolated Python 3.13  |

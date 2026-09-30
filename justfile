@@ -351,11 +351,11 @@ typecheck:
 
 # Run the full unit test suite.
 test:
-    {{ uv_run }} pytest
+    {{ uv_run }} pytest -n auto
 
 # Run tests with coverage report.
 test-cov:
-    {{ uv_run }} pytest --cov=nmdc_lakehouse --cov-report=term-missing --cov-report=xml
+    {{ uv_run }} pytest -n auto --cov=nmdc_lakehouse --cov-report=term-missing --cov-report=xml
     {{ uv_run }} coverage report
 
 # Gate lines added or changed against a base branch on direct test coverage.

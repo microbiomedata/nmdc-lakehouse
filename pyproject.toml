@@ -70,6 +70,7 @@ dev = [
     # rich, and used rather than hand-written: review found seven ways a hand-rolled
     # fence scanner diverged from Markdown, each a way the gate could be silent.
     "markdown-it-py>=3.0",
+    "pytest-xdist>=3.6",
 ]
 docs = [
     "mkdocs>=1.6",
