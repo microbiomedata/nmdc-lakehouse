@@ -78,8 +78,11 @@ leave literal commas in free text. The rule is
 https://github.com/turbomam/feature-table-corpus/issues/39.
 
 Genome features come from the Functional Annotation GFF with `coordinate_system` `contig` and
-`is_selected` true. Hits come from the seven hit GFFs with `coordinate_system` `protein`, `parent`
-set to their gene, `seqid` set to that gene's contig, and `is_selected` null. A hit on a gene the
+`is_selected` true. Hits come from the seven hit GFFs with `coordinate_system` `protein`, both
+`seqid` and `parent` set to their CDS, and `is_selected` null. A hit's positions count residues
+along its CDS's translation, so the CDS is its reference sequence, as the model requires
+([model issue 40](https://github.com/turbomam/feature-table-corpus/issues/40)); the CDS's own
+`seqid` is the contig. A hit on a gene the
 Functional Annotation GFF lacks is counted in the run summary and not written.
 Every emitted hit requires exactly one CDS parent. Hits whose source ID names no
 CDS or multiple CDS rows are counted under `ambiguous_parent_hits` and not written;
