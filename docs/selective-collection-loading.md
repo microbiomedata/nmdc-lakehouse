@@ -118,9 +118,11 @@ model and states its first closable slice. Until it lands, treat "incremental" a
 undefined rather than assuming it means append.
 
 One sequencing note. Selective *loading* also depends on the destination
-supporting per-table replacement with tested recovery, which is the open question
-in [#240](https://github.com/microbiomedata/nmdc-lakehouse/issues/240) and
-[#234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234). The first
+supporting per-table replacement with tested recovery. That was the question in
+[Prove BERDL Iceberg promotion and recovery on disposable tables](https://github.com/microbiomedata/nmdc-lakehouse/issues/240)
+and [Promote a verified BERDL staging namespace with tested recovery](https://github.com/microbiomedata/nmdc-lakehouse/issues/234),
+both now closed; the first canonical promotion is in
+[the 2026-09-28 promotion record](runs/2026-09-28-production-promotion.md). The first
 live probe run against BERDL, reported in
 [this evidence comment](https://github.com/microbiomedata/nmdc-lakehouse/issues/240#issuecomment-5358756245),
 shows per-table replacement works and that a verified recovery operation exists,

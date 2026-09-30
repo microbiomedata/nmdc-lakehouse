@@ -27,8 +27,10 @@ A saved full validation report avoids another row-validation run.
 Pod commands above are subcommands of `.venv/bin/nmdc-lakehouse` from the NMDC
 checkout; each also has a `just` recipe. Runtime setup and the read-only inventory
 are explicit prerequisites below. There is no run-specific Python or shell script
-to edit. The new combined pod commands await live acceptance under
-[issue 353](https://github.com/microbiomedata/nmdc-lakehouse/issues/353).
+to edit. The combined pod commands ran live for the September pair on 2026-09-28
+([promotion record](runs/2026-09-28-production-promotion.md)); a run from a fresh
+export is still pending under
+[Simplify BERDL staging to a resumable run configuration](https://github.com/microbiomedata/nmdc-lakehouse/issues/353).
 
 Full target validation checks generated-table conformance. It does not prove
 that every populated MongoDB source value was retained. Keep the focused source
@@ -399,7 +401,5 @@ After both staging runs pass, use the [combined promotion procedure](berdl-uploa
 to review the parent snapshot and derived pair together. It carries table and
 column metadata into canonical tables and verifies the result; it requires Mark's
 approval of the exact plan and explicitly records the recovery limits.
-Live acceptance remains [issue 234](https://github.com/microbiomedata/nmdc-lakehouse/issues/234).
-The September parent snapshot is already staged and must not be reloaded solely
-to test this new workflow. Its separately prepared derived pair is the next pod
-acceptance run, tracked in [issue 341](https://github.com/microbiomedata/nmdc-lakehouse/issues/341).
+The September pair was promoted this way on 2026-09-28; see
+[the promotion record](runs/2026-09-28-production-promotion.md).
