@@ -108,14 +108,14 @@ A checksum list of every file is `recovery-artifacts.txt` in the same folder. A 
 of the folder was also taken off the pod to a workstation (archive SHA-256
 `b5b8c5533e9facc8c248b1e07724541dc5100def7e872df5e97ec20d0752f9ca`).
 
-Recovery is manual. The previous table versions remain as Iceberg snapshots: after
-the cleanup, `biosample_set` still had 3. When checked on 2026-09-02, no
-snapshot-retention property was set on any `nmdc.metadata` table (not rechecked
-after this promotion), and KBase staff said the same day (NMDC Slack, `#ber_lakehouse`)
-that no scheduled job on BERDL expires snapshots. That makes the rollback window
-open-ended in practice but not guaranteed; check that the needed snapshot exists
-before relying on it. Only a same-schema staging replacement has been restored in
-practice; multi-table and dropped-table recovery are unproven.
+Recovery is manual, and its basis is the retained staging copies: the two staging
+namespaces and their upload Parquet, kept until a newer promotion replaces them. Iceberg
+snapshots of `nmdc.metadata` are not a reliable way back. No scheduled job on BERDL
+expires them (KBase staff, NMDC Slack `#ber_lakehouse`, 2026-09-02), but a platform
+operation that recreates a table discards its history, as the 2026-09-30 sync did for
+32 tables (see below). Only a same-schema staging replacement had been restored in
+practice before that reload; multi-table and dropped-table recovery from snapshots are
+unproven.
 
 ## Cleanup of earlier copies
 

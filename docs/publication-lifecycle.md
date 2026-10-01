@@ -275,7 +275,7 @@ orphaned folders and old upload Parquet; it is recorded in
 | MongoDB tunnel | Close after export/source audits complete | Credentials remain private |
 | Transfer parts and disposable reassembly files | Remove only the exact run's redundant files after received bytes and planning verify | At least one verified snapshot and transfer receipt |
 | Development caches and builds | `just clean` removes its listed development state; avoid active plan runtimes | `local/` data, evidence and credentials |
-| Prepared snapshots, source objects and staging tables | Retain through promotion verification and the agreed recovery window | Reproducible input, manifests, reports, profiles, plans and journals |
+| Prepared snapshots, source objects and staging tables | Retain until a newer promotion replaces them; they are the recovery copy, since a platform recreate can discard Iceberg history | Reproducible input, manifests, reports, profiles, plans and journals |
 | Probe namespaces | Inventory exact owned objects and dependencies, then separately approve disposal | Acceptance report and runtime identity |
 
 `clean-parquet` previews recognized local metadata files; deleting individual
