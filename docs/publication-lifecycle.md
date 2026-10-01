@@ -341,7 +341,7 @@ As recorded on **2026-09-28**, without refreshing the data:
 | Derived transfer and pod receipt | Verified on September 25 at `ce87b7a`: eight file hashes matched; both Parquet artifacts validated |
 | Promotion content comparison and disposable writer | Passed on September 25 at `35a54c8`: all 46 staged tables; small-table add/replace and metadata readback |
 | Derived staging and new combined path acceptance | Verified on September 28: `nmdc.nmdc_provenance_staging_20260923_b79eb420`, then a combined preview at `25871c2` |
-| Canonical promotion | Verified on September 28: plan `e33368dade560835a4c7fe4481d785d28ccb9c704575f2d465a962a6bb62f2eb`, 48 tables, status `promotion-verified` |
+| Canonical promotion | Verified on September 28: plan `e33368dade560835a4c7fe4481d785d28ccb9c704575f2d465a962a6bb62f2eb`, 48 tables, status `promotion-verified`. Reloaded on September 30 after a platform sync overwrote 32 tables: plan `b5f0f7cae528fc1e5124d343e9205924ee1756007a6202130e182bea31b86e63`, `promotion-verified` |
 | Remote retirement or routine data cleanup | September 28: superseded staging namespaces, orphaned folders and old upload Parquet deleted (24.839 GB); legacy `spark_catalog` Delta copies undecided |
 
 The [promotion record](runs/2026-09-28-production-promotion.md) covers the

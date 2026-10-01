@@ -138,12 +138,14 @@ Deleted, with Mark's approval:
 
 Kept, and why:
 
-- Old snapshots of `nmdc.metadata` (about 0.58 GB): the only way back from this
-  promotion.
+- Old snapshots of `nmdc.metadata` (about 0.58 GB). They are not a reliable way back:
+  on 2026-09-30 a platform sync recreated 32 tables and their history with them (see
+  below).
 - `nmdc.nmdc_metadata_staging_20260923_58277b41`,
   `nmdc.nmdc_provenance_staging_20260923_b79eb420` and their upload Parquet under
-  `tenant-general-warehouse/nmdc/staging/`: the named sources of this promotion. Keep
-  them until the promotion has been in use long enough to accept.
+  `tenant-general-warehouse/nmdc/staging/`: the named sources of this promotion, and
+  the copy the 2026-09-30 reload came from. Keep them until a newer promotion replaces
+  them.
 
 Not decided:
 
@@ -155,3 +157,46 @@ Not decided:
 Not NMDC's to change: the KBase-owned subsets `kbase.nmdc_arkin`, `kbase.nmdc_mags`
 and `kbase.nmdc_neon` (owner `tgu2`), the `globalusers.nmdc_core_test3` and
 `nmdc_core_test4` tables, and another user's `u_user233__nmdc` namespace.
+
+## 2026-09-30: a platform sync overwrote 32 tables, and the reload
+
+On 2026-09-30 a KBase Delta-to-Iceberg sync recreated 32 `nmdc.metadata` tables from the
+legacy `spark_catalog.nmdc_metadata` Delta copy, last written 2026-04-30. KBase reported it
+in the NMDC `#ber_lakehouse` channel the same day.
+
+Measured read-only at 19:02 UTC:
+
+- Exactly 32 tables were recreated, between 17:41:59 and 17:44:30 UTC: 30 of the 46
+  metadata tables plus `graph_edges` and `biosample_to_workflow_run`. The 16 unchanged
+  tables were `biosample_set_chem_administration`, `biosample_set_misc_param`,
+  `collecting_biosamples_from_site_set`, `configuration_set`,
+  `configuration_set_ordered_mobile_phases`, both `*_ordered_mobile_phases_substances_used`
+  tables, `field_research_site_set`, `functional_annotation_set`, `genome_feature_set`,
+  `organism_sample_set`, `organism_set`, `storage_process_set`, `study_set_part_of`,
+  `study_set_protocol_link` and `study_set_study_image`.
+- Each recreated table held the April row counts (for example `biosample_set` 16,640
+  instead of 27,352) and had a single snapshot, so its earlier Iceberg history was gone.
+  Its table and column descriptions and the `nmdc_lakehouse.*` properties were gone, and
+  its owner had changed.
+- `nmdc.results`, `nmdc.ref_data`, `nmdc.ncbi_biosamples` and both staging namespaces
+  were unchanged.
+
+The approved plan could not be reused, because `berdl-promote` refuses a plan whose saved
+before state no longer matches the live tables. A fresh preview from the same two staging
+runs, on runtime `25871c2`, gave plan
+`b5f0f7cae528fc1e5124d343e9205924ee1756007a6202130e182bea31b86e63`: 48 replacements, no
+drops, every row count equal to the September 28 plan. Mark approved it and ran
+`berdl-promote` from 21:17:54 to 21:27:10 UTC; status `promotion-verified`. The plan, journal
+and outcome are retained in the pod under `/home/mamillerpa/nmdc-promotion-20260930-reload/`.
+
+A separate read-only check at 21:27:58 UTC found all 48 tables matching the plan: row
+counts, table descriptions, column-description counts and the `nmdc_lakehouse.*`
+properties, and every table equal in content to its staging copy by a one-column row-hash
+comparison in both directions. All 48 tables are now owned by the account that ran the
+promotion: a replacement made by this tool resets the owner.
+
+What could not be restored: the earlier snapshot history of the 32 recreated tables.
+The legacy `spark_catalog` Delta copies that were the sync's source still exist; retiring
+them is part of
+[Plan retirement of historical NMDC lakehouse copies across catalog and storage](https://github.com/microbiomedata/nmdc-lakehouse/issues/367).
+
