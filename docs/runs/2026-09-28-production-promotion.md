@@ -139,8 +139,8 @@ Deleted, with Mark's approval:
 Kept, and why:
 
 - Old snapshots of `nmdc.metadata` (about 0.58 GB). They are not a reliable way back:
-  on 2026-09-30 a platform sync recreated 32 tables and their history with them (see
-  below).
+  on 2026-09-30 a platform sync recreated 32 tables, which discarded their earlier
+  snapshots (see below).
 - `nmdc.nmdc_metadata_staging_20260923_58277b41`,
   `nmdc.nmdc_provenance_staging_20260923_b79eb420` and their upload Parquet under
   `tenant-general-warehouse/nmdc/staging/`: the named sources of this promotion, and

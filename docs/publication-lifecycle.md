@@ -330,7 +330,7 @@ a local tooling failure, not evidence that the pod itself is unavailable.
 
 ## Current candidate: where to resume
 
-As recorded on **2026-09-28**, without refreshing the data:
+As recorded on **2026-09-30**, without refreshing the data:
 
 | Stage | State |
 | --- | --- |
