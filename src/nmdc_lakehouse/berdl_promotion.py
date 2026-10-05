@@ -299,7 +299,9 @@ def _snapshot_frame(spark: Any, namespace: str, table: str, state: CatalogTable)
     name = f"{namespace}.{table}"
     if state.snapshot_id is None:
         return spark.table(name).limit(0)
-    return spark.read.format("iceberg").option("snapshot-id", state.snapshot_id).load(name)
+    # Spark 4.1.3 with Iceberg 1.11.0 (BERDL, 2026-10-05) refuses the Iceberg-specific
+    # "snapshot-id" read option and asks for Spark's own time-travel option instead.
+    return spark.read.format("iceberg").option("versionAsOf", state.snapshot_id).load(name)
 
 
 def _same_rows(first: Any, second: Any) -> bool:
