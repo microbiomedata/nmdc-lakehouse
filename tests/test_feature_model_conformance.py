@@ -53,9 +53,20 @@ def test_validator_rejects_a_hit_placed_on_its_contig(run_files: dict[str, Path]
     assert any("protein coordinates need their CDS as seqid" in str(e) for e in validate(broken))
 
 
-def test_listed_columns_outside_the_model_are_still_written(run_files: dict[str, Path], tmp_path: Path) -> None:
-    """Keeps NOT_IN_MODEL from going stale. A new column the model lacks fails the validity test instead."""
+def test_listed_columns_are_written_and_still_outside_the_model(run_files: dict[str, Path], tmp_path: Path) -> None:
+    """Keeps NOT_IN_MODEL from going stale in either direction.
+
+    Each listed column must still be written, and the pinned model must still reject it. If a model
+    release adds one of them as a slot, this fails, so the column is validated instead of dropped.
+    A new column the model lacks fails test_converted_run_is_a_valid_dataset instead.
+    """
     urls = {t: f"https://example.org/{p.name}" for t, p in run_files.items()}
-    result = fc.convert_run(RUN, run_files, urls, tmp_path / "out")
+    result = fc.convert_run(RUN, run_files, urls, tmp_path / "out", assembly_run="nmdc:wfmgas-99-a.1")
+    dataset = _dataset(run_files, tmp_path / "again", include_unselected=False)
     for key, path in zip(("features", "contigs"), result.outputs, strict=True):
-        assert NOT_IN_MODEL[key] <= set(pq.read_schema(path).names)
+        first = pq.read_table(path).to_pylist()[0]
+        for column in NOT_IN_MODEL[key]:
+            assert column in first
+            with_column = copy.deepcopy(dataset)
+            with_column[key][0][column] = first[column]
+            assert any(f"'{column}' was unexpected" in str(e) for e in validate(with_column))
