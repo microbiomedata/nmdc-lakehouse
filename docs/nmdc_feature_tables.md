@@ -2,8 +2,8 @@
 
 **Status: prototype.** These commands plan, sample and check NMDC annotation feature files, to
 measure which file types repeat each other, and convert the files worth loading into local Parquet
-shaped like the draft BER feature model
-(https://github.com/turbomam/feature-table-corpus/blob/main/model/schema/ber_feature_model.yaml).
+in the shape of the BER feature model, release v0.1.0
+(https://github.com/turbomam/feature-table-corpus/blob/v0.1.0/model/schema/ber_feature_model.yaml).
 Nothing here uploads to BERDL (the KBase lakehouse).
 
 ## Why
@@ -131,14 +131,19 @@ Features carry the annotation run as `generated_by`. Contigs carry the assembly 
 `feature-plan` as the run whose `has_output` includes the annotation run's input, and null when
 none does.
 
-The Arrow schemas are defined in `feature_convert.py`; they are not generated
-from or validated against the draft BER LinkML model. Values of the keys in
+The Arrow schemas are defined in `feature_convert.py`, not generated from the model.
+`tests/test_feature_model_conformance.py` converts the test fixture run, with and without
+unselected calls, reads both Parquet files back as a model `Dataset`, and validates it with the
+model's own validator (the `ber-feature-model` package, pinned to v0.1.0 in `pyproject.toml`).
+It drops empty cells and the columns `source_data_object_type` and `assembly_contig_id` first, so any other column the
+model lacks fails the test. This checks the converter's shape on made-up files, not every
+real NMDC run. Values of the keys in
 `MULTIVALUED_KEYS`, `Parent` among them, are split on commas as described above,
 following [model issue 39](https://github.com/turbomam/feature-table-corpus/issues/39);
 other values stay as returned by `parse_attributes`, and nothing is percent-decoded,
-since NMDC files do not percent-encode. Resolve the identity and product-source notes in
-[model issue 38](https://github.com/turbomam/feature-table-corpus/issues/38)
-before claiming model conformance or loading these prototype tables at scale.
+since NMDC files do not percent-encode. Where `feature_id` uniqueness and `product_source`
+identity stop holding for older runs is documented by the model
+([model issue 38](https://github.com/turbomam/feature-table-corpus/issues/38)).
 
 ## Run it
 

@@ -71,6 +71,9 @@ dev = [
     # fence scanner diverged from Markdown, each a way the gate could be silent.
     "markdown-it-py>=3.0",
     "pytest-xdist>=3.6",
+    # Validator and schema of the BER feature model, which feature_convert.py writes Parquet for.
+    # Used only by tests/test_feature_model_conformance.py; pinned in [tool.uv.sources].
+    "ber-feature-model",
 ]
 docs = [
     "mkdocs>=1.6",
@@ -98,6 +101,11 @@ conflicts = [[{ extra = "source-11-23" }, { extra = "source-11-24" }]]
 required-version = ">=0.12.3"
 # Dev dependencies are managed through the `dev` extra above. Ordinary setup
 # uses `uv sync --locked --extra dev`; lock refreshes remain explicit.
+
+[tool.uv.sources]
+# The BER feature model is not on PyPI. Pin a release tag, not main, so a model change fails
+# tests/test_feature_model_conformance.py only when this pin moves.
+ber-feature-model = { git = "https://github.com/turbomam/feature-table-corpus", rev = "v0.1.0" }
 
 # ---------------------------------------------------------------------------
 # Tooling
