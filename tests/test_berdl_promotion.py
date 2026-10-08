@@ -144,7 +144,7 @@ class FakeReader:
         return self
 
     def option(self, key, value):
-        assert key == "snapshot-id"
+        assert key == "versionAsOf"
         self.snapshot_id = value
         return self
 

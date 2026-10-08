@@ -275,7 +275,7 @@ orphaned folders and old upload Parquet; it is recorded in
 | MongoDB tunnel | Close after export/source audits complete | Credentials remain private |
 | Transfer parts and disposable reassembly files | Remove only the exact run's redundant files after received bytes and planning verify | At least one verified snapshot and transfer receipt |
 | Development caches and builds | `just clean` removes its listed development state; avoid active plan runtimes | `local/` data, evidence and credentials |
-| Prepared snapshots, source objects and staging tables | Retain through promotion verification and the agreed recovery window | Reproducible input, manifests, reports, profiles, plans and journals |
+| Prepared snapshots, source objects and staging tables | Retain until a newer promotion replaces them; they are the recovery copy, since a platform recreate can discard Iceberg history | Reproducible input, manifests, reports, profiles, plans and journals |
 | Probe namespaces | Inventory exact owned objects and dependencies, then separately approve disposal | Acceptance report and runtime identity |
 
 `clean-parquet` previews recognized local metadata files; deleting individual
@@ -330,7 +330,7 @@ a local tooling failure, not evidence that the pod itself is unavailable.
 
 ## Current candidate: where to resume
 
-As recorded on **2026-09-28**, without refreshing the data:
+As recorded on **2026-09-30**, without refreshing the data:
 
 | Stage | State |
 | --- | --- |
@@ -341,7 +341,7 @@ As recorded on **2026-09-28**, without refreshing the data:
 | Derived transfer and pod receipt | Verified on September 25 at `ce87b7a`: eight file hashes matched; both Parquet artifacts validated |
 | Promotion content comparison and disposable writer | Passed on September 25 at `35a54c8`: all 46 staged tables; small-table add/replace and metadata readback |
 | Derived staging and new combined path acceptance | Verified on September 28: `nmdc.nmdc_provenance_staging_20260923_b79eb420`, then a combined preview at `25871c2` |
-| Canonical promotion | Verified on September 28: plan `e33368dade560835a4c7fe4481d785d28ccb9c704575f2d465a962a6bb62f2eb`, 48 tables, status `promotion-verified` |
+| Canonical promotion | Verified on September 28: plan `e33368dade560835a4c7fe4481d785d28ccb9c704575f2d465a962a6bb62f2eb`, 48 tables, status `promotion-verified`. Reloaded on September 30 after a platform sync overwrote 32 tables: plan `b5f0f7cae528fc1e5124d343e9205924ee1756007a6202130e182bea31b86e63`, `promotion-verified` |
 | Remote retirement or routine data cleanup | September 28: superseded staging namespaces, orphaned folders and old upload Parquet deleted (24.839 GB); legacy `spark_catalog` Delta copies undecided |
 
 The [promotion record](runs/2026-09-28-production-promotion.md) covers the
