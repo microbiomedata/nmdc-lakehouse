@@ -37,7 +37,7 @@ class PreparationConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    source_version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
+    source_version: str = Field(pattern=r"^\d+\.\d+\.\d+(?:rc\d+)?$")
     snapshot: Path | None = None
     target_validation: Path | None = None
     profile: Path | None = None
