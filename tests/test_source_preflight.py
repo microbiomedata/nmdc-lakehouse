@@ -224,7 +224,7 @@ def test_unknown_or_incomplete_migration_is_rejected(mongo, rows):
         "11.17.1",
         "11.18.2",
         "11.23.1",
-        "11.25.0",
+        "11.99.0",
         "v11.23.0",
         "11.23.0 ",
         "private-source-content",
