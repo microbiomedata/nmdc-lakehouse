@@ -109,6 +109,15 @@ def test_derive_arbitrary_release_chain_from_package_metadata(migration_package)
     assert not preflight._has_noop_migration_path("97.0.0", "99.0.0")
 
 
+def test_two_part_installed_release_matches_three_part_migrators(migration_package):
+    # nmdc-schema 11.25 was published as "11.25" while its migrator says "11.25.0".
+    migration_package("98.1.0", "98.2.0")
+    migration_package("98.2.0", "99.0.0")
+    assert preflight._has_noop_migration_path("98.1.0", "99.0")
+    assert preflight._has_noop_migration_path("98.1", "99.0")
+    assert not preflight._has_noop_migration_path("97.0", "99.0")
+
+
 @pytest.mark.parametrize("shape", ["missing", "ambiguous", "cycle", "self_cycle"])
 def test_incomplete_or_ambiguous_history_fails_closed(migration_package, shape):
     migration_package("98.2.0", "99.0.0")

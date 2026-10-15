@@ -52,6 +52,9 @@ default is the newest final release in it. To add a release, add its extra and i
 `[tool.uv] conflicts` entry, update `uv.lock`, and pin an `nmdc-lakehouse-schema` release that
 packages the matching flat artifact. An extra can pin a release candidate such as
 `11.25.0rc2` for testing; it is selected only when named, never by default.
+Versions are compared as PEP 440 releases, so `11.25` and `11.25.0` name the same
+release. That matters because nmdc-schema 11.25 was published on PyPI as `11.25` while
+its migrator records `11.25.0`.
 
 If plain `uv run` selects 11.24.0 while the process environment requests
 11.23.0, the package-alignment guard stops the export before connecting to

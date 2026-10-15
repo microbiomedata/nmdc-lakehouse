@@ -143,6 +143,8 @@ def test_stale_environment_fails_offline_with_bootstrap_remedy(tmp_path: Path) -
         ("11.23.0", {}, "source-11-23"),
         ("11.24.0", {"NMDC_SCHEMA_VERSION": "11.23.0"}, "source-11-23"),
         ("11.23.0", {"NMDC_SCHEMA_VERSION": "11.24.0"}, "source-11-24"),
+        # PEP 440: a two-part selection names the same release as the three-part pin.
+        (None, {"NMDC_SCHEMA_VERSION": "11.24"}, "source-11-24"),
     ],
 )
 def test_environment_check_uses_selected_source_extra(tmp_path, dotenv_version, environment, expected_extra):

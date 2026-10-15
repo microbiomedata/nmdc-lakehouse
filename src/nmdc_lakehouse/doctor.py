@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from nmdc_lakehouse.source_versions import default_source_version
+from nmdc_lakehouse.source_versions import default_source_version, supported_release
 from nmdc_lakehouse.source_versions import source_extras as supported_source_extras
 
 MIN_UV_VERSION = (0, 12, 3)
@@ -142,7 +142,9 @@ def _python_check(version_info: tuple[int, int, int]) -> DoctorCheck:
 def _environment_sync_check(runner: CommandRunner, *, project_root: Path, selected: str | None) -> DoctorCheck:
     try:
         source_extras = supported_source_extras(project_root / "pyproject.toml")
-        source_version = default_source_version(source_extras) if selected is None else selected
+        source_version = (
+            default_source_version(source_extras) if selected is None else supported_release(selected, source_extras)
+        )
     except (OSError, KeyError, ValueError):
         return DoctorCheck(
             name="locked-environment",
@@ -150,7 +152,7 @@ def _environment_sync_check(runner: CommandRunner, *, project_root: Path, select
             summary="pyproject.toml does not declare the supported source releases.",
             remediation="Run just doctor from an unmodified nmdc-lakehouse checkout.",
         )
-    if source_version not in source_extras:
+    if source_version is None:
         return DoctorCheck(
             name="locked-environment",
             status=CheckStatus.FAIL,

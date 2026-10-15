@@ -101,3 +101,13 @@ def test_wrapper_default_ignores_a_release_candidate_extra(recipes, tmp_path):
     result, argv = recipes("cli", "--help")
     assert result.returncode == 0, result.stderr
     assert argv[:3] == ["run", "--extra", DEFAULT_EXTRA]
+
+
+@pytest.mark.parametrize(("pin", "selection"), [("11.99", "11.99.0"), ("11.99.0", "11.99")])
+def test_wrapper_treats_two_and_three_part_releases_as_one(recipes, tmp_path, pin, selection):
+    pyproject = tmp_path / "pyproject.toml"
+    extras = "[project.optional-dependencies]\n"
+    pyproject.write_text(pyproject.read_text().replace(extras, f'{extras}source-11-99 = ["nmdc-schema=={pin}"]\n', 1))
+    result, argv = recipes("cli", "--help", selection=selection)
+    assert result.returncode == 0, result.stderr
+    assert argv == ["run", "--extra", "source-11-99", "nmdc-lakehouse", "--help"]
