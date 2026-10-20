@@ -243,16 +243,19 @@ plan. Clone merged NMDC code, check out the exact reviewed commit, and run the
 setup script from that checkout with the pod's own `python3`. Replace
 `REVIEWED_NMDC_COMMIT` with the full 40-character commit; do not use an
 unreviewed floating main for a previously approved plan. Select the source
-version recorded in the prepared publication's `preparation.json`.
+version recorded in the prepared publication's `preparation.json`; the block
+reads it from `$PUBLICATION_ROOT`, set by the receive step above.
 
-<!-- verified: 2026-09-28 ran as written at 34a76a9 in the BERDL pod; every step
-     passed and .venv used the pod's /opt/conda/bin/python3 -->
+<!-- unverified: the 2026-09-28 pod run at 34a76a9 passed --source-version
+     11.23.0 literally; reading it from preparation.json has not been run in the
+     pod, and no tracking issue is named here. -->
 ```bash
-RUNTIME="$HOME/nmdc-publication-runtime-REVIEWED_NMDC_COMMIT-1"
+SOURCE_VERSION="$(python3 -c 'import json, os, sys; print(json.load(open(os.path.join(sys.argv[1], "preparation.json")))["source_version"])' "$PUBLICATION_ROOT")" &&
+RUNTIME="$HOME/nmdc-publication-runtime-REVIEWED_NMDC_COMMIT-1" &&
 git clone https://github.com/microbiomedata/nmdc-lakehouse.git "$RUNTIME/nmdc-lakehouse" &&
 git -C "$RUNTIME/nmdc-lakehouse" checkout --detach REVIEWED_NMDC_COMMIT &&
 python3 "$RUNTIME/nmdc-lakehouse/scripts/python/setup_pod_runtime.py" \
-  --commit REVIEWED_NMDC_COMMIT --source-version 11.23.0 &&
+  --commit REVIEWED_NMDC_COMMIT --source-version "$SOURCE_VERSION" &&
 cd "$RUNTIME/nmdc-lakehouse"
 ```
 
