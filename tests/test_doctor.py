@@ -9,6 +9,18 @@ from pathlib import Path
 import pytest
 
 from nmdc_lakehouse.doctor import CheckStatus, run_doctor
+from nmdc_lakehouse.source_versions import default_source_version, source_extras
+
+ROOT = Path(__file__).resolve().parents[1]
+
+_SUPPORTED = source_extras(ROOT / "pyproject.toml")
+DEFAULT_EXTRA = _SUPPORTED[default_source_version(_SUPPORTED)]
+
+
+@pytest.fixture(autouse=True)
+def _project_pyproject(tmp_path: Path) -> None:
+    """The doctor reads the supported source releases from the project's pyproject.toml."""
+    (tmp_path / "pyproject.toml").write_bytes((ROOT / "pyproject.toml").read_bytes())
 
 
 class FakeRunner:
@@ -105,7 +117,7 @@ def test_stale_environment_fails_offline_with_bootstrap_remedy(tmp_path: Path) -
         "--extra",
         "docs",
         "--extra",
-        "source-11-24",
+        DEFAULT_EXTRA,
     )
     runner.responses[sync_args] = (1, "SECRET-IN-RAW-OUTPUT")
 
@@ -127,10 +139,12 @@ def test_stale_environment_fails_offline_with_bootstrap_remedy(tmp_path: Path) -
 @pytest.mark.parametrize(
     ("dotenv_version", "environment", "expected_extra"),
     [
-        (None, {}, "source-11-24"),
+        (None, {}, DEFAULT_EXTRA),
         ("11.23.0", {}, "source-11-23"),
         ("11.24.0", {"NMDC_SCHEMA_VERSION": "11.23.0"}, "source-11-23"),
         ("11.23.0", {"NMDC_SCHEMA_VERSION": "11.24.0"}, "source-11-24"),
+        # PEP 440: a two-part selection names the same release as the three-part pin.
+        (None, {"NMDC_SCHEMA_VERSION": "11.24"}, "source-11-24"),
     ],
 )
 def test_environment_check_uses_selected_source_extra(tmp_path, dotenv_version, environment, expected_extra):

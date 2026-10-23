@@ -7,6 +7,7 @@ import pyarrow.parquet as pq
 import pytest
 from linkml.validator import Validator
 from linkml_runtime import SchemaView
+from nmdc_lakehouse_schema.transforms.schema_generator import flat_schema_version
 
 from nmdc_lakehouse.jobs import collection_to_parquet as collection_module
 from nmdc_lakehouse.jobs.collection_to_parquet import CollectionToParquetJob
@@ -15,7 +16,7 @@ from nmdc_lakehouse.target_validation import assert_source_schema_aligned
 
 
 def _run_record(tmp_path, monkeypatch, collection, root, record):
-    monkeypatch.setattr(collection_module, "assert_mongodb_source_aligned", lambda _uri: "11.24.0")
+    monkeypatch.setattr(collection_module, "assert_mongodb_source_aligned", lambda _uri: version("nmdc-schema"))
 
     class Source:
         def __init__(self, _uri):
@@ -32,7 +33,7 @@ def _run_record(tmp_path, monkeypatch, collection, root, record):
     return CollectionToParquetJob(collection, root, "mongodb://localhost/nmdc", tmp_path).run()
 
 
-@pytest.mark.skipif(version("nmdc-schema") != "11.24.0", reason="Agent credit associations were added in 11.24.0")
+@pytest.mark.skipif(version("nmdc-schema") == "11.23.0", reason="Agent credit associations were added in 11.24.0")
 @pytest.mark.parametrize(
     "collection,root,concrete,required",
     [
@@ -101,8 +102,8 @@ def test_agent_fields_and_writer_identity_survive_parquet(tmp_path, monkeypatch,
         parquet = pq.read_table(tmp_path / f"{table}.parquet")
         metadata = parquet.schema.metadata
         assert metadata[b"nmdc_lakehouse.mapping"].decode() == flattener_mapping_id()
-        assert metadata[b"nmdc_lakehouse.source_schema_version"].decode() == "11.24.0"
-        assert metadata[b"nmdc_lakehouse.target_schema_version"].decode() == "11.24.0+flat.1.3.0"
+        assert metadata[b"nmdc_lakehouse.source_schema_version"].decode() == version("nmdc-schema")
+        assert metadata[b"nmdc_lakehouse.target_schema_version"].decode() == flat_schema_version(version("nmdc-schema"))
         for row in parquet.to_pylist():
             populated = {key: value for key, value in row.items() if value is not None}
             assert not list(validator.iter_results(populated, target_class=target_class))

@@ -13,6 +13,9 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from nmdc_lakehouse.source_versions import default_source_version, supported_release
+from nmdc_lakehouse.source_versions import source_extras as supported_source_extras
+
 MIN_UV_VERSION = (0, 12, 3)
 REQUIRED_JUST_VERSION = (1, 58, 0)
 REQUIRED_PYTHON_MINOR = (3, 13)
@@ -136,14 +139,25 @@ def _python_check(version_info: tuple[int, int, int]) -> DoctorCheck:
     )
 
 
-def _environment_sync_check(runner: CommandRunner, *, source_version: str) -> DoctorCheck:
-    source_extras = {"11.23.0": "source-11-23", "11.24.0": "source-11-24"}
-    if source_version not in source_extras:
+def _environment_sync_check(runner: CommandRunner, *, project_root: Path, selected: str | None) -> DoctorCheck:
+    try:
+        source_extras = supported_source_extras(project_root / "pyproject.toml")
+        source_version = (
+            default_source_version(source_extras) if selected is None else supported_release(selected, source_extras)
+        )
+    except (OSError, KeyError, ValueError):
+        return DoctorCheck(
+            name="locked-environment",
+            status=CheckStatus.FAIL,
+            summary="pyproject.toml does not declare the supported source releases.",
+            remediation="Run just doctor from an unmodified nmdc-lakehouse checkout.",
+        )
+    if source_version is None:
         return DoctorCheck(
             name="locked-environment",
             status=CheckStatus.FAIL,
             summary="The configured NMDC_SCHEMA_VERSION is unsupported.",
-            remediation="Select NMDC_SCHEMA_VERSION=11.23.0 or 11.24.0, then run just bootstrap.",
+            remediation=f"Select NMDC_SCHEMA_VERSION from {', '.join(sorted(source_extras))}, then run just bootstrap.",
         )
     completed = runner(
         (
@@ -414,7 +428,7 @@ def run_doctor(
     command_runner = runner or (lambda args: _run_command(args, cwd=root))
     environment = dict(os.environ if environ is None else environ)
     dotenv_values, _ = _read_dotenv(root / ".env")
-    source_version = {**dotenv_values, **environment}.get("NMDC_SCHEMA_VERSION", "11.24.0")
+    selected_source = {**dotenv_values, **environment}.get("NMDC_SCHEMA_VERSION")
     version_info = python_version or (sys.version_info.major, sys.version_info.minor, sys.version_info.micro)
 
     uv_check = _command_version_check(
@@ -433,7 +447,7 @@ def run_doctor(
     )
     git_check = _command_version_check(name="git", args=("git", "--version"), finder=finder, runner=command_runner)
     environment_check = (
-        _environment_sync_check(command_runner, source_version=source_version)
+        _environment_sync_check(command_runner, project_root=root, selected=selected_source)
         if uv_check.status is CheckStatus.PASS
         else _prerequisite_failure_check(name="locked-environment", prerequisite="uv")
     )

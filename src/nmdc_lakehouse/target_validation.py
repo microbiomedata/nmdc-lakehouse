@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from nmdc_lakehouse.local_provenance import TABLE_CLASSES, provenance_schema_resource
 from nmdc_lakehouse.snapshot_manifest import ArtifactRecord, SnapshotManifest, validate_snapshot
+from nmdc_lakehouse.source_versions import same_release
 
 REPORT_FORMAT_VERSION = 1
 DEFAULT_FULL_TABLE_MAX_ROWS = 10_000
@@ -133,7 +134,7 @@ def assert_source_schema_aligned() -> None:
     """
     installed = version("nmdc-schema")
     requested = os.environ.get("NMDC_SCHEMA_VERSION")
-    if requested is not None and requested != installed:
+    if requested is not None and not same_release(requested, installed):
         raise TargetValidationError(
             "NMDC_SCHEMA_VERSION differs from the installed source package. "
             "Run `just install` with that selection before exporting or validating."
@@ -142,7 +143,7 @@ def assert_source_schema_aligned() -> None:
         # source_package_version is the installed nmdc-schema version recorded at generation time
         # (source_schema_version is the LinkML schema's own declared version, which can differ).
         built_from = _annotation(SchemaView(str(schema_path)).schema, "source_package_version")
-    if installed != built_from:
+    if not same_release(installed, built_from):
         raise TargetValidationError(
             f"Installed nmdc-schema {installed!r} does not match the flattened target schema's "
             f"source_package_version {built_from!r} (from nmdc-lakehouse-schema). Pin the two together."

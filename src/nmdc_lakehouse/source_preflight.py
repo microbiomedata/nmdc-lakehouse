@@ -10,6 +10,7 @@ from pymongo import MongoClient
 from pymongo.database import Database
 from pymongo.errors import PyMongoError
 
+from nmdc_lakehouse.source_versions import same_release
 from nmdc_lakehouse.target_validation import assert_source_schema_aligned
 
 MIGRATION_VERSION_VIEW = "_migration_latest_schema_version"
@@ -92,9 +93,10 @@ def _has_noop_migration_path(recorded: str, selected: str) -> bool:
             "Cannot inspect the installed nmdc-schema migration history. Verify the selected package installation."
         ) from None
 
+    # Migrators name three-part versions (11.25.0) while a release can be published as 11.25.
+    current = next((to_version for to_version in predecessors if same_release(to_version, selected)), selected)
     visited: set[str] = set()
-    current = selected
-    while current != recorded:
+    while not same_release(current, recorded):
         if current in visited:
             return False
         visited.add(current)
@@ -137,7 +139,7 @@ def assert_mongodb_source_aligned(uri: str) -> str:
         raise SourceSchemaError(
             "MongoDB has no unambiguous completed schema migration. Verify migration bookkeeping before exporting."
         )
-    if recorded != expected and not _has_noop_migration_path(recorded, expected):
+    if not same_release(recorded, expected) and not _has_noop_migration_path(recorded, expected):
         raise SourceSchemaError(
             f"MongoDB's recorded migration version is not compatible with installed nmdc-schema {expected}. "
             "Select a compatible source/flat pair, or verify that the required source migration has completed."

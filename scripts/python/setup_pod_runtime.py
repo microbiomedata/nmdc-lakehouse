@@ -9,6 +9,7 @@ start again in a new directory.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import re
 import subprocess
@@ -20,7 +21,6 @@ INGEST_URL = "https://github.com/kbase/data-lakehouse-ingest.git"
 # the planner refuses any other revision.
 INGEST_REVISION = "a76bb7a24a42f0c9212fda8b9ab0bd3b637645d3"
 UV_VERSION = "0.12.17"
-SOURCE_VERSIONS = ("11.23.0", "11.24.0")
 IMPORT_CHECK = (
     "from berdl_notebook_utils.setup_spark_session import get_spark_session; "
     "from berdl_notebook_utils.clients import get_s3_client; "
@@ -117,17 +117,36 @@ def setup(checkout: Path, commit: str, source_version: str) -> Path:
     return ingest
 
 
+def supported_source_versions(checkout: Path) -> list[str]:
+    """Return the nmdc-schema releases that the checkout's source-* extras pin.
+
+    Loads src/nmdc_lakehouse/source_versions.py by path, because no project
+    environment exists yet; that module uses only the standard library.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "nmdc_lakehouse_source_versions", checkout / "src" / "nmdc_lakehouse" / "source_versions.py"
+    )
+    if spec is None or spec.loader is None:
+        raise SetupError("Cannot load src/nmdc_lakehouse/source_versions.py from the checkout.")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return sorted(module.source_extras(checkout / "pyproject.toml"))
+
+
 def main(argv: list[str] | None = None) -> int:
     """Parse arguments, build the runtime, and report where it is."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--commit", required=True, help="Reviewed 40-character nmdc-lakehouse commit.")
+    checkout = Path(__file__).resolve().parents[2]
     parser.add_argument(
-        "--source-version", required=True, choices=SOURCE_VERSIONS, help="Source version recorded in preparation.json."
+        "--source-version",
+        required=True,
+        choices=supported_source_versions(checkout),
+        help="Source version recorded in preparation.json.",
     )
     args = parser.parse_args(argv)
     if not COMMIT.fullmatch(args.commit):
         parser.error("--commit must be a full 40-character lowercase commit hash.")
-    checkout = Path(__file__).resolve().parents[2]
     try:
         ingest = setup(checkout, args.commit, args.source_version)
     except SetupError as error:

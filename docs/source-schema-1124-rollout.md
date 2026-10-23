@@ -45,6 +45,17 @@ Source selection is checked when a source-aware command runs. Package-only
 recipes remain available with an unsupported selection, and `just doctor`
 uses the installed environment without syncing so it can report that problem.
 
+The supported source releases are the `source-<major>-<minor>` extras in
+`pyproject.toml`, each pinning one `nmdc-schema` release. The Just recipes,
+`just doctor` and `scripts/python/setup_pod_runtime.py` read that list, and the
+default is the newest final release in it. To add a release, add its extra and its
+`[tool.uv] conflicts` entry, update `uv.lock`, and pin an `nmdc-lakehouse-schema` release that
+packages the matching flat artifact. An extra can pin a release candidate such as
+`11.25.0rc2` for testing; it is selected only when named, never by default.
+Versions are compared as PEP 440 releases, so `11.25` and `11.25.0` name the same
+release. That matters because nmdc-schema 11.25 was published on PyPI as `11.25` while
+its migrator records `11.25.0`.
+
 If plain `uv run` selects 11.24.0 while the process environment requests
 11.23.0, the package-alignment guard stops the export before connecting to
 MongoDB. A selection present only in `.env` is loaded by Just, not by this

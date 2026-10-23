@@ -9,12 +9,18 @@ from pathlib import Path
 
 import pytest
 
+from nmdc_lakehouse.source_versions import default_source_version, source_extras
+
 ROOT = Path(__file__).resolve().parents[1]
+
+_SUPPORTED = source_extras(ROOT / "pyproject.toml")
+DEFAULT_EXTRA = _SUPPORTED[default_source_version(_SUPPORTED)]
 
 
 @pytest.fixture
 def recipes(tmp_path):
     shutil.copyfile(ROOT / "justfile", tmp_path / "justfile")
+    shutil.copyfile(ROOT / "pyproject.toml", tmp_path / "pyproject.toml")
     (tmp_path / "scripts").mkdir()
     shutil.copyfile(ROOT / "scripts/uv_with_source.sh", tmp_path / "scripts/uv_with_source.sh")
     bin_dir = tmp_path / "bin"
@@ -62,7 +68,7 @@ def test_source_aware_commands_reject_unsupported_selection_before_uv(recipes, r
 
 @pytest.mark.parametrize(
     ("selection", "dotenv", "extra"),
-    [(None, None, "source-11-24"), (None, "11.23.0", "source-11-23"), ("11.24.0", "11.23.0", "source-11-24")],
+    [(None, None, DEFAULT_EXTRA), (None, "11.23.0", "source-11-23"), ("11.24.0", "11.23.0", "source-11-24")],
 )
 def test_runtime_selection_preserves_default_dotenv_and_shell_precedence(recipes, selection, dotenv, extra):
     result, argv = recipes("cli", "--help", selection=selection, dotenv=dotenv)
@@ -74,3 +80,34 @@ def test_install_keeps_locked_dev_docs_and_production_source(recipes):
     result, argv = recipes("install-all", selection="11.23.0")
     assert result.returncode == 0, result.stderr
     assert argv == ["sync", "--extra", "source-11-23", "--locked", "--extra", "dev", "--extra", "docs"]
+
+
+def _add_release_candidate_extra(tmp_path):
+    pyproject = tmp_path / "pyproject.toml"
+    extras = "[project.optional-dependencies]\n"
+    candidate = 'source-11-99 = ["nmdc-schema==11.99.0rc2"]\n'
+    pyproject.write_text(pyproject.read_text().replace(extras, extras + candidate, 1))
+
+
+def test_wrapper_selects_a_release_candidate_extra(recipes, tmp_path):
+    _add_release_candidate_extra(tmp_path)
+    result, argv = recipes("cli", "--help", selection="11.99.0rc2")
+    assert result.returncode == 0, result.stderr
+    assert argv == ["run", "--extra", "source-11-99", "nmdc-lakehouse", "--help"]
+
+
+def test_wrapper_default_ignores_a_release_candidate_extra(recipes, tmp_path):
+    _add_release_candidate_extra(tmp_path)
+    result, argv = recipes("cli", "--help")
+    assert result.returncode == 0, result.stderr
+    assert argv[:3] == ["run", "--extra", DEFAULT_EXTRA]
+
+
+@pytest.mark.parametrize(("pin", "selection"), [("11.99", "11.99.0"), ("11.99.0", "11.99")])
+def test_wrapper_treats_two_and_three_part_releases_as_one(recipes, tmp_path, pin, selection):
+    pyproject = tmp_path / "pyproject.toml"
+    extras = "[project.optional-dependencies]\n"
+    pyproject.write_text(pyproject.read_text().replace(extras, f'{extras}source-11-99 = ["nmdc-schema=={pin}"]\n', 1))
+    result, argv = recipes("cli", "--help", selection=selection)
+    assert result.returncode == 0, result.stderr
+    assert argv == ["run", "--extra", "source-11-99", "nmdc-lakehouse", "--help"]
