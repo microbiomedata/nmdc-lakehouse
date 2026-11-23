@@ -185,6 +185,7 @@ jobs:
           args: >-
             --no-progress
             --max-retries 3
+            --retry-wait-time 30
             --exclude '^https://(iris|sshproxy)\.nersc\.gov/'
             --exclude '^https://hub\.berdl\.kbase\.us/hub/token'
             README.md scripts/README.md docs notebooks/*.md
@@ -192,7 +193,8 @@ jobs:
           # unauthenticated CI requests. The BERDL JupyterHub token page
           # returns 403 to signed-out requests (first seen 2026-11-23). Keep
           # those exceptions explicit; every other internal or external
-          # failure blocks the PR.
+          # failure blocks the PR. GitHub file pages sometimes return 503 for a
+          # few minutes, so failed requests wait 30 seconds before each retry.
           fail: true
         env:
           # Authenticated requests to github.com avoid the unauthenticated
