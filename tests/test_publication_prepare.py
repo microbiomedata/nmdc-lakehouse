@@ -387,3 +387,18 @@ def test_preparation_cli_reports_safe_locations_and_reasons(inputs):
     assert "<item>: extra forbidden" in result.output
     assert secret not in result.output
     assert not output.exists()
+
+
+NAMESPACE = {"name": "nmdc.metadata", "title": "NMDC metadata", "description": "Reviewed metadata."}
+
+
+@pytest.mark.parametrize("source_version", ["11.24.1", "11.25.0rc1", "11.25"])
+def test_source_version_accepts_releases_and_release_candidates(source_version):
+    config = preparation.PreparationConfig(source_version=source_version, namespace=NAMESPACE)
+    assert config.source_version == source_version
+
+
+@pytest.mark.parametrize("source_version", ["v11.24.0", "11", "11.25.0-rc1", "11.25.0rc", "11.25.0.dev1", "11.24.0 "])
+def test_source_version_rejects_other_forms(source_version):
+    with pytest.raises(ValidationError, match="string_pattern_mismatch"):
+        preparation.PreparationConfig(source_version=source_version, namespace=NAMESPACE)

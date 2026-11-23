@@ -30,6 +30,7 @@ from nmdc_lakehouse.publication_plan import (
 from nmdc_lakehouse.publication_preflight import build_publication_preflight
 from nmdc_lakehouse.publication_prepare import PreparationError, _copy, file_digest, save_json
 from nmdc_lakehouse.snapshot_manifest import validate_snapshot
+from nmdc_lakehouse.source_versions import same_release
 from nmdc_lakehouse.target_validation import assert_source_schema_aligned
 
 
@@ -87,9 +88,11 @@ def plan_publication(root: Path, configuration: Path, *, runner: CommandRunner =
         if file_digest(evidence / name) != checksum:
             raise PreparationError(f"Prepared evidence changed: {name}")
     manifest = validate_snapshot(snapshot)
-    if receipt.get("source_version") != manifest.software.nmdc_schema_version or receipt.get(
-        "source_version"
-    ) != version("nmdc-schema"):
+    source_version = str(receipt.get("source_version"))
+    if not (
+        same_release(source_version, manifest.software.nmdc_schema_version)
+        and same_release(source_version, version("nmdc-schema"))
+    ):
         raise PreparationError("Preparation, snapshot and installed nmdc-schema source versions must match.")
     assert_source_schema_aligned()
     if (

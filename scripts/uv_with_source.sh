@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
 # Keep source selection out of Just's global evaluation so diagnostics remain usable.
+# The supported releases are the source-<major>-<minor> extras in pyproject.toml;
+# src/nmdc_lakehouse/source_versions.py reads the same extras.
 set -euo pipefail
 
-case "${NMDC_SCHEMA_VERSION-11.24.0}" in
-  11.23.0) source_extra=source-11-23 ;;
-  11.24.0) source_extra=source-11-24 ;;
-  *)
-    echo "Unsupported NMDC_SCHEMA_VERSION; use 11.23.0 or 11.24.0." >&2
-    exit 2
-    ;;
-esac
+pyproject="$(dirname "$0")/../pyproject.toml"
+supported=$(sed -nE 's/^source-[0-9]+-[0-9]+ = \["nmdc-schema==([0-9]+\.[0-9]+(\.[0-9]+)?(rc[0-9]+)?)"\]$/\1/p' "$pyproject")
+default=$(printf '%s\n' "$supported" | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?$' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 || true)
+selected=${NMDC_SCHEMA_VERSION-$default}
+
+# PEP 440 treats 11.25 and 11.25.0 as one release; compare with a zero patch dropped.
+release() { sed -E 's/^([0-9]+\.[0-9]+)\.0(rc[0-9]+)?$/\1\2/'; }
+if [ -z "$selected" ] || ! printf '%s\n' "$supported" | release | grep -qxF -- "$(printf '%s\n' "$selected" | release)"; then
+  echo "Unsupported NMDC_SCHEMA_VERSION; use one of: ${supported//$'\n'/ }" >&2
+  exit 2
+fi
+IFS=. read -r major minor _ <<<"$selected"
+source_extra="source-$major-$minor"
 
 case "${1-}" in
   run|sync) uv_command=$1; shift ;;

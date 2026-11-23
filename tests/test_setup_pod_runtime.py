@@ -1,10 +1,10 @@
 import importlib.util
-import re
 from pathlib import Path
 
 import pytest
 
 from nmdc_lakehouse.berdl_staging import _SUPPORTED_INGEST_REVISIONS
+from nmdc_lakehouse.source_versions import source_extras
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/python/setup_pod_runtime.py"
 SPEC = importlib.util.spec_from_file_location("setup_pod_runtime", SCRIPT)
@@ -182,10 +182,15 @@ def test_import_check_covers_the_pod_libraries_and_the_package(pod):
         assert module in check[2]
 
 
-def test_source_versions_match_the_uv_wrapper():
-    wrapper = (SCRIPT.parents[1] / "uv_with_source.sh").read_text()
-    accepted = set(re.findall(r"^\s*(\d+\.\d+\.\d+)\)", wrapper, flags=re.MULTILINE))
-    assert accepted == set(setup_runtime.SOURCE_VERSIONS)
+def test_source_versions_come_from_the_pyproject_extras():
+    checkout = SCRIPT.parents[2]
+    assert setup_runtime.supported_source_versions(checkout) == sorted(source_extras(checkout / "pyproject.toml"))
+
+
+def test_main_rejects_a_source_version_without_an_extra(capsys):
+    with pytest.raises(SystemExit):
+        setup_runtime.main(["--commit", COMMIT, "--source-version", "11.22.0"])
+    assert "invalid choice" in capsys.readouterr().err
 
 
 def test_main_success_reports_the_runtime_and_ingest_paths(monkeypatch, capsys):

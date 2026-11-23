@@ -26,6 +26,7 @@ from nmdc_lakehouse.metadata_bundle import (
     load_metadata_profile,
 )
 from nmdc_lakehouse.snapshot_manifest import validate_snapshot
+from nmdc_lakehouse.source_versions import same_release
 
 
 class PreparationError(ValueError):
@@ -37,7 +38,7 @@ class PreparationConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    source_version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
+    source_version: str = Field(pattern=r"^\d+\.\d+(?:\.\d+)?(?:rc\d+)?$")
     snapshot: Path | None = None
     target_validation: Path | None = None
     profile: Path | None = None
@@ -172,7 +173,7 @@ def prepare_publication(config_path: Path, root: Path) -> dict[str, Any]:
             if path.is_symlink():
                 raise PreparationError(f"The {field} input cannot be a symlink.")
             setattr(config, field, path.resolve())
-    if version("nmdc-schema") != config.source_version:
+    if not same_release(version("nmdc-schema"), config.source_version):
         raise PreparationError("Installed nmdc-schema differs from source_version; use just prepare-publication.")
     assert_source_schema_aligned()
     root = root.expanduser().absolute()

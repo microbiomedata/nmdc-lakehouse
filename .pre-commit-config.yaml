@@ -47,6 +47,7 @@ repos:
       - id: mypy
         additional_dependencies:
           - types-PyYAML
+          - types-requests
         args: [src]
         pass_filenames: false
 

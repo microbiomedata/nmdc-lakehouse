@@ -49,6 +49,8 @@ dependencies = [
     "python-dotenv>=1.0",
     # Used by notebooks/fetch_*.ipynb retry logic and scripts/download_to_cache.py
     "tenacity>=8.0",
+    # PEP 440 comparison of nmdc-schema versions (11.25 and 11.25.0 are the same release)
+    "packaging>=24.0",
 ]
 
 [project.optional-dependencies]
