@@ -186,10 +186,13 @@ jobs:
             --no-progress
             --max-retries 3
             --exclude '^https://(iris|sshproxy)\.nersc\.gov/'
+            --exclude '^https://hub\.berdl\.kbase\.us/hub/token'
             README.md scripts/README.md docs notebooks/*.md
           # NERSC's IRIS and sshproxy services time out or return errors to
-          # unauthenticated CI requests. Keep those exceptions explicit; every
-          # other internal or external failure blocks the PR.
+          # unauthenticated CI requests. The BERDL JupyterHub token page
+          # returns 403 to signed-out requests (first seen 2026-11-23). Keep
+          # those exceptions explicit; every other internal or external
+          # failure blocks the PR.
           fail: true
         env:
           # Authenticated requests to github.com avoid the unauthenticated
