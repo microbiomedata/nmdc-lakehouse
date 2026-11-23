@@ -185,6 +185,7 @@ jobs:
           args: >-
             --no-progress
             --max-retries 3
+            --remap '^https://github\.com/([^/]+)/([^/]+)/blob/(.+)$ https://raw.githubusercontent.com/$1/$2/$3'
             --exclude '^https://(iris|sshproxy)\.nersc\.gov/'
             --exclude '^https://hub\.berdl\.kbase\.us/hub/token'
             README.md scripts/README.md docs notebooks/*.md
@@ -192,7 +193,10 @@ jobs:
           # unauthenticated CI requests. The BERDL JupyterHub token page
           # returns 403 to signed-out requests (first seen 2026-11-23). Keep
           # those exceptions explicit; every other internal or external
-          # failure blocks the PR.
+          # failure blocks the PR. Links to files on github.com are checked on
+          # raw.githubusercontent.com, because github.com file pages often
+          # return 503 to this check and lychee does not retry a 503. A missing
+          # file still fails with 404.
           fail: true
         env:
           # Authenticated requests to github.com avoid the unauthenticated
