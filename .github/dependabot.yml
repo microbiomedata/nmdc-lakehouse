@@ -19,6 +19,15 @@ updates:
     directory: "/"
     schedule:
       interval: monthly
+    # Each nmdc-schema release needs a matching flat schema from
+    # nmdc-lakehouse-schema before this repo can use it, so nmdc-schema upgrades
+    # go through the source-* extras by hand. Security updates still apply.
+    # See https://github.com/microbiomedata/nmdc-lakehouse/issues/395.
+    ignore:
+      - dependency-name: "nmdc-schema"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
     groups:
       uv-minor-and-patch:
         patterns:
