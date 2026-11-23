@@ -211,5 +211,9 @@ explain:
 
 Keep objective requirements in automated checks: tests, type and dependency
 analysis, formatting, workflow validation, prose linting, and link checking.
+The link check in `.github/workflows/ci.yml` skips pages that only work when
+signed in: `iris.nersc.gov`, `sshproxy.nersc.gov`, and the BERDL JupyterHub
+token page. When a documented link needs a login, add its URL pattern to the
+`--exclude` list there, with a comment saying why.
 Scope, design complexity, and semantic documentation accuracy require author
 and reviewer judgment; they are not reliable pass/fail lint rules.
